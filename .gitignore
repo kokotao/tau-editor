@@ -1,0 +1,10 @@
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+src-tauri/target/
+frontend/src-tauri/target/
+playwright-report/
+test-results/
+*.log
+.DS_Store

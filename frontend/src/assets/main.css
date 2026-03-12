@@ -1,0 +1,34 @@
+/* 文本编辑器全局样式 */
+@import './base.css';
+
+/* 全屏应用布局 */
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#app {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  line-height: normal;
+}
+
+@media (min-width: 1024px) {
+  body {
+    display: block;
+  }
+
+  #app {
+    display: block;
+    grid-template-columns: none;
+    padding: 0;
+  }
+}
