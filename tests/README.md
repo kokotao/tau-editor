@@ -26,7 +26,7 @@ text-editor/
 │       │   └── ...
 │       ├── fixtures/      # 测试数据
 │       └── utils/         # 测试工具
-├── src-tauri/
+├── frontend/src-tauri/
 │   └── tests/             # Rust 端测试
 │       ├── command_tests.rs
 │       └── ...
@@ -142,7 +142,7 @@ test('should save file', async ({ page }) => {
 ### Rust 测试示例
 
 ```rust
-// src-tauri/tests/command_tests.rs
+// frontend/src-tauri/tests/command_tests.rs
 #[tokio::test]
 async fn test_read_file() {
     let result = file::read_file("test.txt".to_string()).await;
@@ -219,13 +219,13 @@ pnpm test:e2e --grep "should save file"
 ### Rust 测试调试
 ```bash
 # 运行单个测试
-cd src-tauri && cargo test test_read_file
+cd frontend/src-tauri && cargo test test_read_file
 
 # 显示输出
-cd src-tauri && cargo test -- --nocapture
+cd frontend/src-tauri && cargo test -- --nocapture
 
 # 使用 rust-lldb 调试
-cd src-tauri && cargo test --no-run
+cd frontend/src-tauri && cargo test --no-run
 rust-lldb target/debug/deps/*
 ```
 

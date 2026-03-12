@@ -78,7 +78,7 @@ echo ""
 
 # 5. 检查 Tauri 配置
 echo "🔧 检查 Tauri 配置..."
-if [ -f "src-tauri/tauri.conf.json" ]; then
+if [ -f "frontend/src-tauri/tauri.conf.json" ]; then
     check_pass "Tauri 配置文件存在"
 else
     check_fail "Tauri 配置文件缺失"
@@ -103,29 +103,29 @@ echo ""
 
 # 7. 验证构建产物
 echo "📦 验证构建产物..."
-if [ -d "src-tauri/target/release/bundle" ]; then
+if [ -d "frontend/src-tauri/target/release/bundle" ]; then
     check_pass "构建产物目录存在"
     
     # 检查 .deb 包
-    if ls src-tauri/target/release/bundle/deb/*.deb 1> /dev/null 2>&1; then
+    if ls frontend/src-tauri/target/release/bundle/deb/*.deb 1> /dev/null 2>&1; then
         check_pass "DEB 包已生成"
-        ls -lh src-tauri/target/release/bundle/deb/*.deb
+        ls -lh frontend/src-tauri/target/release/bundle/deb/*.deb
     else
         check_warn "DEB 包未生成"
     fi
     
     # 检查 AppImage
-    if ls src-tauri/target/release/bundle/appimage/*.AppImage 1> /dev/null 2>&1; then
+    if ls frontend/src-tauri/target/release/bundle/appimage/*.AppImage 1> /dev/null 2>&1; then
         check_pass "AppImage 已生成"
-        ls -lh src-tauri/target/release/bundle/appimage/*.AppImage
+        ls -lh frontend/src-tauri/target/release/bundle/appimage/*.AppImage
     else
         check_warn "AppImage 未生成"
     fi
     
     # 检查可执行文件
-    if [ -f "src-tauri/target/release/text-editor" ]; then
+    if [ -f "frontend/src-tauri/target/release/text-editor" ]; then
         check_pass "可执行文件已生成"
-        ls -lh src-tauri/target/release/text-editor
+        ls -lh frontend/src-tauri/target/release/text-editor
     else
         check_warn "可执行文件未找到"
     fi

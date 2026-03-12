@@ -5,8 +5,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use tokio::fs;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 /// 文件分块
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,7 +65,6 @@ pub async fn read_file_chunked(
         .map_err(|e| format!("打开文件失败：{}", e))?;
     
     // 定位到偏移量
-    use tokio::io::AsyncSeekExt;
     file.seek(SeekFrom::Start(offset))
         .await
         .map_err(|e| format!("定位文件失败：{}", e))?;

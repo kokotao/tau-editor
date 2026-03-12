@@ -83,7 +83,7 @@ pnpm build
 
 构建产物位于 `frontend/dist/`，可部署到任何静态文件服务器。
 
-**注意:** Phase 10 构建状态详见 [PHASE10_BUILD_LOG.md](PHASE10_BUILD_LOG.md)
+**注意:** 历史构建与阶段记录已整理到 [docs/status](docs/status/README.md)，Phase 10 构建状态见 [docs/status/PHASE10_BUILD_LOG.md](docs/status/PHASE10_BUILD_LOG.md)
 
 ### 安装指南
 

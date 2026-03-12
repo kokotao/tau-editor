@@ -269,8 +269,8 @@ pnpm test:unit:coverage
 
 ## 相关文档
 
-- [E2E 测试报告](E2E_TEST_REPORT.md) - 测试框架和用例详情
-- [测试诊断报告](TEST_DIAGNOSIS.md) - 详细根因分析
+- [E2E 测试报告](docs/status/E2E_TEST_REPORT.md) - 测试框架和用例详情
+- [测试诊断报告](docs/status/TEST_DIAGNOSIS.md) - 详细根因分析
 - [开发者指南](DEVELOPER_GUIDE.md) - 测试开发规范
 
 ---

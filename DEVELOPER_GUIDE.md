@@ -33,7 +33,7 @@ text-editor/
 │   │   ├── assets/           # 静态资源
 │   │   ├── main.ts           # 入口文件
 │   │   └── App.vue           # 根组件
-│   ├── src-tauri/            # Tauri 后端 (Rust)
+│   ├── frontend/src-tauri/   # Tauri 后端 (Rust)
 │   │   ├── src/
 │   │   │   ├── main.rs       # Rust 入口
 │   │   │   ├── commands/     # Tauri 命令

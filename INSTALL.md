@@ -824,7 +824,7 @@ Web 版本支持渐进式 Web 应用（PWA），可以安装到桌面：
 2. **GitHub Issues**: [提交问题](https://github.com/your-repo/text-editor/issues)
 3. **开发者文档**: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 4. **社区讨论**: GitHub Discussions
-5. **发布说明**: [RELEASE_NOTES.md](RELEASE_NOTES.md) - 查看已知问题
+5. **发布说明**: [docs/status/RELEASE_NOTES.md](docs/status/RELEASE_NOTES.md) - 查看已知问题
 
 ---
 
