@@ -246,29 +246,9 @@ cd frontend/src-tauri && cargo test
 pnpm test:unit:coverage
 ```
 
-
-详细指南请查看 [贡献指南](CONTRIBUTING.md)
-
-### 需要帮助？
-
-- 📖 [开发者文档](DEVELOPER_GUIDE.md)
-- 💬 GitHub Discussions
-- 🐛 [提交 Issue](https://github.com/your-repo/text-editor/issues)
-
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
-
-## 👥 团队
-
-| 角色 | 负责人 |
-|------|--------|
-| 产品经理 | 📋 PM Agent |
-| 架构师 | 🏗️ Architect Agent |
-| 前端开发 | 💻 Frontend Agent |
-| Rust/Tauri | ⚙️ Rust Agent |
-| 测试工程师 | 🧪 QA Agent |
-| UI 设计 | 🎨 UI Designer Agent |
+MIT License
 
 ## 🙏 致谢
 
@@ -284,12 +264,7 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 📞 联系方式
 
-- 📧 Email: support@example.com
-- 💬 GitHub: [Issues](https://github.com/your-repo/text-editor/issues)
+- 📧 Email: 480199976@qq.com
 - 📖 文档: [完整文档](#-文档)
 
 ---
-
-*Built with ❤️ using Tauri + Vue3*
-
-*最后更新：2026-03-11*
