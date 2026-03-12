@@ -69,13 +69,15 @@ cd frontend
 pnpm tauri build
 ```
 
-**构建产物位置:**
+**本地构建产物位置:**
 - Linux: `frontend/src-tauri/target/release/bundle/deb/` (.deb)
 - Linux: `frontend/src-tauri/target/release/bundle/appimage/` (.AppImage)
 - macOS: `frontend/src-tauri/target/release/bundle/dmg/` (.dmg)
 - macOS: `frontend/src-tauri/target/release/bundle/macos/` (.app)
 - Windows: `frontend/src-tauri/target/release/bundle/msi/` (.msi)
 - Windows: `frontend/src-tauri/target/release/bundle/nsis/` (.exe)
+
+**说明:** 上述目录只会在当前机器本地执行 `cd frontend && pnpm tauri build` 后出现。GitHub Actions 产物会出现在对应工作流的 `Artifacts` 区域，正式发布版本会挂到 GitHub `Releases` 页面。
 
 #### 仅构建前端 (Web 版本)
 

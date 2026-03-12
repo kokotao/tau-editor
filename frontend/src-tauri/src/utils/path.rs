@@ -107,11 +107,12 @@ pub fn get_parent_dir<P: AsRef<Path>>(path: P) -> Option<PathBuf> {
 /// * `path` - 文件路径
 /// 
 /// # 返回
-/// * `Option<&str>` - 文件扩展名 (不含点)
-pub fn get_extension<P: AsRef<Path>>(path: P) -> Option<&str> {
+/// * `Option<String>` - 文件扩展名 (不含点)
+pub fn get_extension<P: AsRef<Path>>(path: P) -> Option<String> {
     path.as_ref()
         .extension()
         .and_then(|ext| ext.to_str())
+        .map(str::to_string)
 }
 
 /// 获取文件名 (不含扩展名)
@@ -120,11 +121,12 @@ pub fn get_extension<P: AsRef<Path>>(path: P) -> Option<&str> {
 /// * `path` - 文件路径
 /// 
 /// # 返回
-/// * `Option<&str>` - 文件名
-pub fn get_file_stem<P: AsRef<Path>>(path: P) -> Option<&str> {
+/// * `Option<String>` - 文件名
+pub fn get_file_stem<P: AsRef<Path>>(path: P) -> Option<String> {
     path.as_ref()
         .file_stem()
         .and_then(|stem| stem.to_str())
+        .map(str::to_string)
 }
 
 /// 构建路径
@@ -167,13 +169,13 @@ mod tests {
     
     #[test]
     fn test_get_extension() {
-        assert_eq!(get_extension("test.txt"), Some("txt"));
+        assert_eq!(get_extension("test.txt"), Some("txt".to_string()));
         assert_eq!(get_extension("test"), None);
     }
     
     #[test]
     fn test_get_file_stem() {
-        assert_eq!(get_file_stem("test.txt"), Some("test"));
-        assert_eq!(get_file_stem("test"), Some("test"));
+        assert_eq!(get_file_stem("test.txt"), Some("test".to_string()));
+        assert_eq!(get_file_stem("test"), Some("test".to_string()));
     }
 }

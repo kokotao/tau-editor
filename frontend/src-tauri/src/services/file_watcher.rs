@@ -155,11 +155,6 @@ impl FileWatcherService {
                 if let Ok(event) = res {
                     // 简单的防抖：忽略重复事件
                     match event.kind {
-                        EventKind::Modify(_) => {
-                            for path in event.paths {
-                                let _ = tx.blocking_send(FileEvent::Modified(path));
-                            }
-                        }
                         EventKind::Create(_) => {
                             for path in event.paths {
                                 let _ = tx.blocking_send(FileEvent::Created(path));
@@ -183,6 +178,11 @@ impl FileWatcherService {
                                 let _ = tx.blocking_send(FileEvent::Modified(path));
                             }
                         }
+                        EventKind::Modify(_) => {
+                            for path in event.paths {
+                                let _ = tx.blocking_send(FileEvent::Modified(path));
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -200,8 +200,9 @@ impl FileWatcherService {
             RecursiveMode::NonRecursive 
         };
         
-        for path in &state.watched_paths {
-            if let Some(watcher) = &mut state.watcher {
+        let watched_paths = state.watched_paths.clone();
+        if let Some(watcher) = &mut state.watcher {
+            for path in &watched_paths {
                 let _ = watcher.watch(path, recursive_mode);
             }
         }
