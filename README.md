@@ -2,6 +2,11 @@
 
 > 基于 Tauri + Vue3 的现代化文本编辑器，支持 Windows、macOS、Linux
 
+## 作者信息
+
+- 作者：`albert_luo`
+- 联系方式：`480199976@qq.com`
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-blue.svg)
 ![Vue](https://img.shields.io/badge/Vue-3.4-green.svg)
@@ -208,7 +213,6 @@ text-editor/
 ├── DEVELOPER_GUIDE.md        # 开发者文档
 ├── INSTALL.md                # 安装指南
 ├── CHANGELOG.md              # 变更日志
-├── CONTRIBUTING.md           # 贡献指南
 └── README.md                 # 本文件
 ```
 
@@ -220,42 +224,8 @@ text-editor/
 | [开发者文档](DEVELOPER_GUIDE.md) | 项目结构、环境搭建、代码规范 |
 | [安装指南](INSTALL.md) | Windows/macOS/Linux 安装步骤 |
 | [变更日志](CHANGELOG.md) | 版本历史、功能更新、已知问题 |
-| [贡献指南](CONTRIBUTING.md) | 如何贡献代码、PR 流程 |
 | [技术架构](architecture.md) | 详细技术架构设计 |
 | [产品需求](requirements.md) | 产品需求文档 |
-
-## 🗺️ 开发计划
-
-### Phase 1: MVP ✅ (v0.1)
-- [x] 项目初始化
-- [x] 基础编辑器（Monaco 集成）
-- [x] 文件打开/保存
-- [x] 单标签支持
-- [x] 基础主题（亮/暗）
-- [x] 语法高亮
-
-### Phase 2: 核心功能 🚧 (v0.2)
-- [ ] Markdown 实时预览
-- [ ] JSON/XML 格式化
-- [ ] CSV 表格视图
-- [ ] 文件树侧边栏
-- [ ] 多标签完善
-- [ ] 自动保存完善
-
-### Phase 3: 增强功能 📋 (v0.3)
-- [ ] 插件系统
-- [ ] 自定义主题
-- [ ] 快捷键自定义
-- [ ] 多窗口支持
-- [ ] 文件对比
-
-### Phase 4: Polish 📋 (v1.0)
-- [ ] 国际化完善
-- [ ] 设置面板完善
-- [ ] 文档完善
-- [ ] 测试覆盖率达到 80%
-- [ ] 性能优化
-- [ ] 正式发布
 
 ## 🧪 测试
 
@@ -276,17 +246,6 @@ cd frontend/src-tauri && cargo test
 pnpm test:unit:coverage
 ```
 
-## 🤝 贡献
-
-欢迎贡献代码、报告问题或提出建议！
-
-### 开始贡献
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feat/amazing-feature`)
-3. 提交变更 (`git commit -m 'feat: add amazing feature'`)
-4. 推送到分支 (`git push origin feat/amazing-feature`)
-5. 开启 Pull Request
 
 详细指南请查看 [贡献指南](CONTRIBUTING.md)
 
