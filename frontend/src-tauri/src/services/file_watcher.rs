@@ -2,11 +2,11 @@
 /// 
 /// 使用 notify crate 监听文件系统变化
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher, EventKind};
+use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{ModifyKind, RenameMode};
 
 /// 文件事件类型
 #[derive(Debug, Clone)]
@@ -147,10 +147,8 @@ impl FileWatcherService {
 
     /// 初始化 notify watcher
     pub fn init_watcher(&self) -> Result<(), String> {
-        let event_tx = self.state.lock().unwrap().event_tx.clone();
         let debounce_ms = self.config.debounce_ms;
-        
-        let (tx, mut rx) = mpsc::channel(100);
+        let (tx, _rx) = mpsc::channel(100);
         
         let watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
@@ -172,12 +170,17 @@ impl FileWatcherService {
                                 let _ = tx.blocking_send(FileEvent::Removed(path));
                             }
                         }
-                        EventKind::Rename(_) => {
+                        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
                             if event.paths.len() >= 2 {
                                 let _ = tx.blocking_send(FileEvent::Renamed {
                                     old: event.paths[0].clone(),
                                     new: event.paths[1].clone(),
                                 });
+                            }
+                        }
+                        EventKind::Modify(ModifyKind::Name(_)) => {
+                            for path in event.paths {
+                                let _ = tx.blocking_send(FileEvent::Modified(path));
                             }
                         }
                         _ => {}

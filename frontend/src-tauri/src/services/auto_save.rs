@@ -114,7 +114,10 @@ impl AutoSaveService {
     /// * `path` - 目标文件路径
     /// * `content` - 文件内容
     async fn atomic_write<P: AsRef<Path>>(&self, path: P, content: &str) -> Result<(), String> {
-        let path = path.as_ref();
+        Self::atomic_write_inner(path.as_ref(), content).await
+    }
+
+    async fn atomic_write_inner(path: &Path, content: &str) -> Result<(), String> {
         
         // 确保父目录存在
         if let Some(parent) = path.parent() {
@@ -171,36 +174,29 @@ impl AutoSaveService {
             
             loop {
                 interval_timer.tick().await;
-                
-                let state_guard = state.lock().unwrap();
-                if !state_guard.enabled {
-                    continue;
-                }
-                
-                if state_guard.pending_files.is_empty() {
-                    continue;
-                }
-                
-                // 检查防抖：只有超过防抖间隔才保存
-                if let Some(last_save) = state_guard.last_save_time {
-                    if last_save.elapsed().as_millis() < state_guard.debounce_ms as u128 {
+
+                let files_to_save = {
+                    let state_guard = state.lock().unwrap();
+                    if !state_guard.enabled || state_guard.pending_files.is_empty() {
                         continue;
                     }
-                }
-                
-                // 克隆待保存文件列表以避免长时间持有锁
-                let files_to_save: Vec<_> = state_guard
-                    .pending_files
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                
-                drop(state_guard);
+
+                    if let Some(last_save) = state_guard.last_save_time {
+                        if last_save.elapsed().as_millis() < state_guard.debounce_ms as u128 {
+                            continue;
+                        }
+                    }
+
+                    state_guard
+                        .pending_files
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<Vec<_>>()
+                };
                 
                 // 保存所有文件
                 for (path, content) in files_to_save {
-                    let service = AutoSaveService::new();
-                    match service.atomic_write(&path, &content).await {
+                    match Self::atomic_write_inner(Path::new(&path), &content).await {
                         Ok(_) => {
                             log::debug!("自动保存成功：{}", path);
                             // 移除已保存的文件

@@ -35,64 +35,29 @@ pub fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 /// # 返回
 /// * `PathBuf` - 规范化后的路径
 fn normalize_path_manual(path: &Path) -> PathBuf {
-    let mut components: Vec<&std::ffi::OsStr> = Vec::new();
-    
-    // 处理 Windows 盘符
-    #[cfg(windows)]
-    let prefix = path.prefix();
-    
+    let mut result = PathBuf::new();
+
     for component in path.components() {
         match component {
-            std::path::Component::Prefix(_) => {
-                // Windows 盘符，保留
-                #[cfg(windows)]
-                if let Some(p) = prefix {
-                    // 会在最后添加
-                }
-            }
+            std::path::Component::Prefix(prefix) => result.push(prefix.as_os_str()),
             std::path::Component::RootDir => {
-                // 根目录，清空并添加根
-                components.clear();
-                components.push(std::ffi::OsStr::new(""));
+                result.push(component.as_os_str());
             }
             std::path::Component::CurDir => {
-                // `.` - 忽略
+                continue;
             }
             std::path::Component::ParentDir => {
-                // `..` - 回退一级
-                if !components.is_empty() {
-                    if let Some(last) = components.last() {
-                        if last != &"" {
-                            // 不是根目录，可以回退
-                            components.pop();
-                        }
-                    }
-                }
+                result.pop();
             }
-            std::path::Component::Normal(_) => {
-                // 普通组件，添加
-                components.push(component.as_os_str());
+            std::path::Component::Normal(part) => {
+                result.push(part);
             }
         }
     }
-    
-    // 构建路径
-    if components.is_empty() {
+
+    if result.as_os_str().is_empty() {
         PathBuf::from(".")
     } else {
-        let mut result = PathBuf::new();
-        for (i, comp) in components.iter().enumerate() {
-            if i == 0 && comp.is_empty() {
-                // 根目录
-                #[cfg(windows)]
-                if let Some(prefix) = prefix {
-                    result.push(prefix.as_os_str());
-                }
-                result.push("/");
-            } else {
-                result.push(comp);
-            }
-        }
         result
     }
 }

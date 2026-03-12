@@ -140,9 +140,10 @@ pub async fn write_with_encoding(
     let encoding = get_encoding_by_name(encoding_name)
         .ok_or_else(|| format!("不支持的编码：{}", encoding_name))?;
     
-    let (bytes, _) = encoding.encode(content);
-    
-    fs::write(path, bytes.as_ref())
+    let (bytes, _, _) = encoding.encode(content);
+    let bytes: &[u8] = bytes.as_ref();
+
+    fs::write(path, bytes)
         .await
         .map_err(|e| format!("写入文件失败：{}", e))
 }
