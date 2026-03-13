@@ -1,0 +1,217 @@
+import { save } from '@tauri-apps/plugin-dialog';
+import type { useEditorStore } from '@/stores/editor';
+import type { useFileSystemStore } from '@/stores/fileSystem';
+import type { useNotificationStore } from '@/stores/notification';
+import type { Tab, useTabsStore } from '@/stores/tabs';
+import type { useWorkspaceStore } from '@/stores/workspace';
+
+type FileSystemStore = ReturnType<typeof useFileSystemStore>;
+type TabsStore = ReturnType<typeof useTabsStore>;
+type EditorStore = ReturnType<typeof useEditorStore>;
+type NotificationStore = ReturnType<typeof useNotificationStore>;
+type WorkspaceStore = ReturnType<typeof useWorkspaceStore>;
+
+function getBaseName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function getDirName(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  const lastSlash = normalized.lastIndexOf('/');
+  return lastSlash === -1 ? '' : normalized.slice(0, lastSlash);
+}
+
+function detectLanguage(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  const languageMap: Record<string, string> = {
+    js: 'javascript',
+    ts: 'typescript',
+    vue: 'vue',
+    py: 'python',
+    java: 'java',
+    rs: 'rust',
+    md: 'markdown',
+    json: 'json',
+    html: 'html',
+    css: 'css',
+    scss: 'scss',
+    xml: 'xml',
+    yaml: 'yaml',
+    yml: 'yaml',
+    sql: 'sql',
+    sh: 'shell',
+    go: 'go',
+    c: 'c',
+    cpp: 'cpp',
+    cs: 'csharp',
+  };
+
+  return languageMap[ext] || 'plaintext';
+}
+
+export class TabService {
+  constructor(
+    private readonly tabsStore: TabsStore,
+    private readonly fileSystemStore: FileSystemStore,
+    private readonly editorStore: EditorStore,
+    private readonly workspaceStore: WorkspaceStore,
+    private readonly notificationStore: NotificationStore,
+  ) {}
+
+  activateTab(tabId: string) {
+    this.tabsStore.activateTab(tabId);
+  }
+
+  closeTab(tabId: string) {
+    this.tabsStore.closeTab(tabId);
+  }
+
+  closeOthers(tabId: string) {
+    this.tabsStore.closeOthers(tabId);
+  }
+
+  closeAll() {
+    this.tabsStore.closeAll();
+  }
+
+  async saveActiveTab() {
+    const tab = this.tabsStore.activeTab;
+    if (!tab) {
+      this.notificationStore.warning('没有可保存的文件', '请先创建文件或打开现有文件');
+      return;
+    }
+
+    if (tab.isUntitled || !tab.filePath) {
+      await this.saveActiveTabAs();
+      return;
+    }
+
+    try {
+      await this.fileSystemStore.writeFileContent(tab.filePath, tab.content);
+      this.tabsStore.updateTab(tab.id, { isDirty: false, isUntitled: false });
+      this.editorStore.markAsSaved();
+      this.workspaceStore.openSingleFile(tab.filePath);
+      this.notificationStore.success('保存成功', tab.fileName);
+
+      if (this.workspaceStore.currentWorkspacePath && tab.filePath.startsWith(this.workspaceStore.currentWorkspacePath)) {
+        await this.fileSystemStore.refreshFileTree();
+      }
+    } catch (error: any) {
+      this.notificationStore.error('保存失败', error.message || '无法写入当前文件');
+    }
+  }
+
+  async saveActiveTabAs() {
+    const tab = this.tabsStore.activeTab;
+    if (!tab) return;
+
+    try {
+      const targetPath = await save({
+        title: '另存为',
+        defaultPath: tab.fileName,
+      });
+
+      if (!targetPath) return;
+
+      await this.fileSystemStore.writeFileContent(targetPath, tab.content);
+      this.tabsStore.updateTab(tab.id, {
+        filePath: targetPath,
+        fileName: getBaseName(targetPath),
+        language: detectLanguage(targetPath),
+        isDirty: false,
+        isUntitled: false,
+      });
+      this.editorStore.setLanguage(detectLanguage(targetPath));
+      this.editorStore.markAsSaved();
+      this.workspaceStore.openSingleFile(targetPath);
+
+      if (this.workspaceStore.currentWorkspacePath && targetPath.startsWith(this.workspaceStore.currentWorkspacePath)) {
+        await this.fileSystemStore.refreshFileTree();
+      }
+
+      this.notificationStore.success('另存为成功', getBaseName(targetPath));
+    } catch (error: any) {
+      this.notificationStore.error('另存为失败', error.message || '无法创建新文件');
+    }
+  }
+
+  async renameTab(tabId: string, nextName: string) {
+    const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+
+    const trimmedName = nextName.trim();
+    if (!trimmedName) return;
+
+    if (!tab.filePath || tab.isUntitled) {
+      this.tabsStore.updateTab(tabId, {
+        fileName: trimmedName,
+        language: detectLanguage(trimmedName),
+      });
+      if (tabId === this.tabsStore.activeTabId) {
+        this.editorStore.setLanguage(detectLanguage(trimmedName));
+      }
+      return;
+    }
+
+    const nextPath = `${getDirName(tab.filePath)}/${trimmedName}`;
+    if (nextPath === tab.filePath) return;
+
+    try {
+      await this.fileSystemStore.renameFileOrFolder(tab.filePath, nextPath);
+      this.tabsStore.updateTab(tabId, {
+        filePath: nextPath,
+        fileName: trimmedName,
+        language: detectLanguage(trimmedName),
+      });
+
+      if (this.workspaceStore.currentWorkspacePath && nextPath.startsWith(this.workspaceStore.currentWorkspacePath)) {
+        await this.fileSystemStore.refreshFileTree();
+      }
+
+      this.notificationStore.success('重命名成功', trimmedName);
+    } catch (error: any) {
+      this.notificationStore.error('重命名失败', error.message || '无法更新文件名');
+    }
+  }
+
+  updateActiveTabContent(content: string) {
+    const tab = this.tabsStore.activeTab;
+    if (!tab) return;
+
+    this.tabsStore.updateTab(tab.id, {
+      content,
+      isDirty: true,
+    });
+    this.editorStore.setContent(content, true);
+  }
+
+  updateActiveTabLanguage(languageId: string) {
+    this.editorStore.setLanguage(languageId);
+    if (this.tabsStore.activeTab) {
+      this.tabsStore.updateTab(this.tabsStore.activeTab.id, { language: languageId });
+    }
+  }
+
+  syncTabToEditor(tab: Tab | null) {
+    this.editorStore.setContent(tab?.content ?? '', false);
+    this.editorStore.setLanguage(tab?.language ?? 'plaintext');
+    this.editorStore.setDirty(tab?.isDirty ?? false);
+    this.editorStore.setReadOnly(false);
+  }
+}
+
+export function createTabService(
+  tabsStore: TabsStore,
+  fileSystemStore: FileSystemStore,
+  editorStore: EditorStore,
+  workspaceStore: WorkspaceStore,
+  notificationStore: NotificationStore,
+) {
+  return new TabService(
+    tabsStore,
+    fileSystemStore,
+    editorStore,
+    workspaceStore,
+    notificationStore,
+  );
+}

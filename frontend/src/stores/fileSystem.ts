@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { fileCommands, type FileEntry, TauriError } from '@/lib/tauri';
+import { useWorkspaceStore } from '@/stores/workspace';
 
 export interface FileTreeNode extends FileEntry {
   children?: FileTreeNode[];
@@ -7,7 +8,6 @@ export interface FileTreeNode extends FileEntry {
 }
 
 export interface FileSystemState {
-  rootPath: string | null;      // 工作目录根路径
   fileTree: FileTreeNode[];     // 文件树
   loading: boolean;             // 是否正在加载
   error: string | null;         // 错误信息
@@ -17,7 +17,6 @@ export interface FileSystemState {
 
 export const useFileSystemStore = defineStore('fileSystem', {
   state: (): FileSystemState => ({
-    rootPath: null,
     fileTree: [],
     loading: false,
     error: null,
@@ -26,6 +25,8 @@ export const useFileSystemStore = defineStore('fileSystem', {
   }),
 
   getters: {
+    rootPath: () => useWorkspaceStore().currentWorkspacePath,
+
     // 获取选中条目的详细信息
     selectedEntry: (state): FileTreeNode | null => {
       if (!state.selectedPath) return null;
@@ -33,10 +34,11 @@ export const useFileSystemStore = defineStore('fileSystem', {
     },
 
     // 检查路径是否在工作目录内
-    isInWorkdir: (state) => {
+    isInWorkdir() {
       return (path: string) => {
-        if (!state.rootPath) return false;
-        return path.startsWith(state.rootPath);
+        const rootPath = this.rootPath;
+        if (!rootPath) return false;
+        return path.startsWith(rootPath);
       };
     },
 
@@ -47,21 +49,35 @@ export const useFileSystemStore = defineStore('fileSystem', {
   },
 
   actions: {
-    // 设置工作目录
-    async setRootPath(path: string) {
-      this.rootPath = path;
+    clearWorkspaceState() {
+      this.fileTree = [];
+      this.error = null;
+      this.selectedPath = null;
+      this.expandedPaths.clear();
+    },
+
+    async syncFromWorkspace() {
+      if (!this.rootPath) {
+        this.clearWorkspaceState();
+        return;
+      }
+
       await this.refreshFileTree();
     },
 
     // 刷新文件树
     async refreshFileTree() {
-      if (!this.rootPath) return;
+      const rootPath = this.rootPath;
+      if (!rootPath) {
+        this.clearWorkspaceState();
+        return;
+      }
 
       this.loading = true;
       this.error = null;
 
       try {
-        const entries = await fileCommands.listFiles(this.rootPath);
+        const entries = await fileCommands.listFiles(rootPath);
         this.fileTree = this.buildTree(entries);
       } catch (error) {
         const tauriError = error instanceof TauriError ? error : TauriError.fromError(error, 'list_files');
@@ -160,8 +176,9 @@ export const useFileSystemStore = defineStore('fileSystem', {
     addEntry(entry: FileEntry) {
       const newNode: FileTreeNode = { ...entry, children: entry.type === 'folder' ? [] : undefined };
       const parentPath = entry.path.substring(0, entry.path.lastIndexOf('/'));
+      const rootPath = this.rootPath;
       
-      if (parentPath === this.rootPath || !parentPath) {
+      if (parentPath === rootPath || !parentPath) {
         this.fileTree.push(newNode);
       } else {
         const parent = this.findEntryByPath(this.fileTree, parentPath);
@@ -179,8 +196,9 @@ export const useFileSystemStore = defineStore('fileSystem', {
     // 从树中移除条目
     removeEntry(entryPath: string) {
       const parentPath = entryPath.substring(0, entryPath.lastIndexOf('/'));
+      const rootPath = this.rootPath;
       
-      if (parentPath === this.rootPath || !parentPath) {
+      if (parentPath === rootPath || !parentPath) {
         this.fileTree = this.fileTree.filter(e => e.path !== entryPath);
       } else {
         const parent = this.findEntryByPath(this.fileTree, parentPath);

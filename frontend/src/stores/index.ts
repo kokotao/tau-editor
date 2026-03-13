@@ -9,3 +9,5 @@ export * from './settings';
 export * from './counter';
 export * from './notification';
 export * from './keyboard';
+export * from './workspace';
+export * from './commands';
