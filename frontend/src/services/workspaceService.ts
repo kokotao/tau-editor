@@ -131,8 +131,6 @@ export class WorkspaceService {
         title: '选择文件夹',
         multiple: false,
         directory: true,
-        recursive: true,
-        canCreateDirectories: true,
       });
 
       if (typeof selected === 'string' && selected) {

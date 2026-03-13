@@ -1,4 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import type { useSettingsStore } from '@/stores/settings';
 import type { useTabsStore } from '@/stores/tabs';
 import { isTauriApp } from '@/lib/tauri';
@@ -53,26 +54,41 @@ export class WindowService {
       return;
     }
 
-    const currentWindow = getCurrentWindow();
-    this.detachTauriClose = await currentWindow.onCloseRequested(async (event) => {
-      if (this.forceClosing || !this.shouldBlockClose()) {
-        return;
-      }
+    try {
+      const currentWindow = getCurrentWindow();
+      this.detachTauriClose = await currentWindow.onCloseRequested(async (event) => {
+        if (this.forceClosing || !this.shouldBlockClose()) {
+          return;
+        }
 
-      event.preventDefault();
+        event.preventDefault();
 
-      const confirmed = window.confirm(CLOSE_CONFIRM_MESSAGE);
-      if (!confirmed) {
-        return;
-      }
+        let confirmed = false;
+        try {
+          confirmed = await confirm(CLOSE_CONFIRM_MESSAGE, {
+            title: '未保存更改',
+            kind: 'warning',
+            okLabel: '退出',
+            cancelLabel: '取消',
+          });
+        } catch {
+          confirmed = window.confirm(CLOSE_CONFIRM_MESSAGE);
+        }
 
-      this.forceClosing = true;
-      try {
-        await currentWindow.close();
-      } finally {
-        this.forceClosing = false;
-      }
-    });
+        if (!confirmed) {
+          return;
+        }
+
+        this.forceClosing = true;
+        try {
+          await currentWindow.close();
+        } finally {
+          this.forceClosing = false;
+        }
+      });
+    } catch (error) {
+      console.error('Failed to attach Tauri close handler:', error);
+    }
   }
 }
 
