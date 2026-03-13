@@ -2,20 +2,40 @@
   <div class="editor-tabs" data-testid="editor-tabs">
     <div class="tabs-container" data-testid="tab-bar">
       <div
-        v-for="tab in tabs"
+        v-for="tab in props.tabs"
         :key="tab.id"
         class="tab"
         data-testid="tab"
-        :class="{ active: tab.id === activeTabId, dirty: tab.isDirty }"
+        :class="{ active: tab.id === props.activeTabId, dirty: tab.isDirty }"
         @click="handleTabClick(tab.id)"
-        @contextmenu="handleContextMenu($event, tab.id)"
+        @dblclick="startRename(tab)"
+        @contextmenu.prevent="handleContextMenu($event, tab.id)"
       >
-        <span class="tab-icon">
+        <span class="tab-icon" :class="{ untitled: tab.isUntitled }">
           <svg v-if="tab.isDirty" width="12" height="12" viewBox="0 0 12 12">
             <circle cx="6" cy="6" r="3" fill="currentColor" />
           </svg>
+          <svg v-else-if="tab.isUntitled" width="12" height="12" viewBox="0 0 12 12">
+            <rect x="2" y="2" width="8" height="8" rx="2" fill="currentColor" />
+          </svg>
         </span>
-        <span class="tab-name" data-testid="tab-title">{{ tab.fileName }}</span>
+
+        <div class="tab-meta">
+          <input
+            v-if="renameState.tabId === tab.id"
+            ref="renameInput"
+            class="tab-rename-input"
+            :value="renameState.value"
+            @click.stop
+            @input="handleRenameInput"
+            @blur="commitRename"
+            @keydown.enter.prevent="commitRename"
+            @keydown.esc.prevent="cancelRename"
+          />
+          <span v-else class="tab-name" data-testid="tab-title">{{ tab.fileName }}</span>
+          <span class="tab-path">{{ tab.isUntitled ? '未保存' : tab.filePath }}</span>
+        </div>
+
         <button
           class="tab-close"
           data-testid="btn-close-tab"
@@ -34,11 +54,10 @@
       </div>
     </div>
 
-    <!-- 右键菜单 -->
     <div
       v-if="contextMenu.visible"
       class="context-menu"
-      :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+      :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
       @click.stop
     >
       <div class="context-menu-item" data-testid="menu-close-others" @click="handleCloseOthers">
@@ -47,34 +66,17 @@
       <div class="context-menu-item" data-testid="menu-close-all" @click="handleCloseAll">
         关闭所有标签
       </div>
-    </div>
-  </div>
-
-  <!-- 编辑器核心 -->
-  <div class="editor-content">
-    <EditorCore
-      v-if="activeTabId"
-      :model-id="activeTabId"
-      :language="activeTab?.language"
-      @content-change="handleContentChange"
-      @cursor-change="handleCursorChange"
-      @model-save="handleModelSave"
-      @error="handleError"
-    />
-    <div v-else class="empty-state">
-      <div class="empty-icon">📝</div>
-      <div class="empty-text">打开文件开始编辑</div>
+      <div class="context-menu-item" @click="renameFromMenu">
+        重命名标签
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useTabsStore, type Tab } from '@/stores/tabs';
-import { useEditorStore } from '@/stores/editor';
-import EditorCore from './EditorCore.vue';
+import { nextTick, onMounted, onUnmounted, ref } from 'vue';
+import type { Tab } from '@/stores/tabs';
 
-// Props
 interface EditorTabsProps {
   tabs?: Tab[];
   activeTabId?: string | null;
@@ -85,19 +87,14 @@ const props = withDefaults(defineProps<EditorTabsProps>(), {
   activeTabId: null,
 });
 
-// Emits
 const emit = defineEmits<{
   'tab-click': [tabId: string];
   'tab-close': [tabId: string];
   'tab-close-others': [tabId: string];
   'tab-close-all': [];
+  'rename-tab': [tabId: string, name: string];
 }>();
 
-// Stores
-const tabsStore = useTabsStore();
-const editorStore = useEditorStore();
-
-// State
 const contextMenu = ref({
   visible: false,
   x: 0,
@@ -105,24 +102,21 @@ const contextMenu = ref({
   tabId: null as string | null,
 });
 
-// Computed
-const tabs = computed(() => tabsStore.tabs);
-const activeTabId = computed(() => tabsStore.activeTabId);
-const activeTab = computed(() => tabsStore.activeTab);
+const renameInput = ref<HTMLInputElement | null>(null);
+const renameState = ref({
+  tabId: null as string | null,
+  value: '',
+});
 
-// Methods
 const handleTabClick = (tabId: string) => {
-  tabsStore.activateTab(tabId);
   emit('tab-click', tabId);
 };
 
 const handleTabClose = (tabId: string) => {
-  tabsStore.closeTab(tabId);
   emit('tab-close', tabId);
 };
 
 const handleContextMenu = (event: MouseEvent, tabId: string) => {
-  event.preventDefault();
   contextMenu.value = {
     visible: true,
     x: event.clientX,
@@ -133,46 +127,61 @@ const handleContextMenu = (event: MouseEvent, tabId: string) => {
 
 const handleCloseOthers = () => {
   if (contextMenu.value.tabId) {
-    tabsStore.closeOthers(contextMenu.value.tabId);
     emit('tab-close-others', contextMenu.value.tabId);
   }
   contextMenu.value.visible = false;
 };
 
 const handleCloseAll = () => {
-  tabsStore.closeAll();
   emit('tab-close-all');
   contextMenu.value.visible = false;
 };
 
-const handleContentChange = (content: string) => {
-  if (activeTabId.value) {
-    tabsStore.updateTabDirty(activeTabId.value, true);
+const startRename = async (tab: Tab) => {
+  renameState.value = {
+    tabId: tab.id,
+    value: tab.fileName,
+  };
+  contextMenu.value.visible = false;
+
+  await nextTick();
+  renameInput.value?.focus();
+  renameInput.value?.select();
+};
+
+const renameFromMenu = () => {
+  if (!contextMenu.value.tabId) return;
+  const tab = props.tabs.find((item) => item.id === contextMenu.value.tabId);
+  if (!tab) return;
+  startRename(tab);
+};
+
+const handleRenameInput = (event: Event) => {
+  renameState.value.value = (event.target as HTMLInputElement).value;
+};
+
+const cancelRename = () => {
+  renameState.value = {
+    tabId: null,
+    value: '',
+  };
+};
+
+const commitRename = () => {
+  const tabId = renameState.value.tabId;
+  const nextName = renameState.value.value.trim();
+
+  if (tabId && nextName) {
+    emit('rename-tab', tabId, nextName);
   }
+
+  cancelRename();
 };
 
-const handleCursorChange = (position: { line: number; column: number }) => {
-  editorStore.updateCursorPosition(position.line, position.column);
-};
-
-const handleModelSave = () => {
-  // 触发保存事件，由父组件处理
-  if (activeTabId.value) {
-    tabsStore.updateTabDirty(activeTabId.value, false);
-    editorStore.markAsSaved();
-  }
-};
-
-const handleError = (error: Error) => {
-  console.error('Editor error:', error);
-};
-
-// 点击其他地方关闭右键菜单
 const closeContextMenu = () => {
   contextMenu.value.visible = false;
 };
 
-// Lifecycle
 onMounted(() => {
   document.addEventListener('click', closeContextMenu);
 });
@@ -184,18 +193,19 @@ onUnmounted(() => {
 
 <style scoped>
 .editor-tabs {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--n-color, #1e1e1e);
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
+    var(--panel, #131b2c);
+  border-bottom: 1px solid var(--border-strong, #334155);
 }
 
 .tabs-container {
   display: flex;
   align-items: center;
-  height: 36px;
-  background: var(--n-color, #252526);
-  border-bottom: 1px solid var(--n-border-color, #333);
+  gap: 8px;
+  height: 54px;
+  padding: 0 12px;
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -203,40 +213,76 @@ onUnmounted(() => {
 .tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  min-width: 180px;
+  max-width: 280px;
+  height: 40px;
   padding: 0 12px;
-  height: 100%;
-  min-width: 120px;
-  max-width: 200px;
-  background: transparent;
-  border: none;
-  border-right: 1px solid var(--n-border-color, #333);
+  border-radius: 14px 14px 0 0;
+  border: 1px solid transparent;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.03));
+  color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  color: var(--n-text-color, #ccc);
-  font-size: 13px;
-  transition: background 0.15s;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
 .tab:hover {
-  background: var(--n-hover-color, #2a2d2e);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .tab.active {
-  background: var(--n-color, #1e1e1e);
-  color: var(--n-text-color, #fff);
+  background: var(--surface-raised, #1c2638);
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+  color: var(--text-primary, #f8fafc);
+  transform: translateY(1px);
 }
 
 .tab-icon {
   display: flex;
-  align-items: center;
-  color: #e5c07b;
+  justify-content: center;
+  width: 16px;
+  color: var(--accent-amber, #ffd166);
+  flex-shrink: 0;
+}
+
+.tab-icon.untitled {
+  color: var(--accent-blue, #7cc7ff);
+}
+
+.tab-meta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
 }
 
 .tab-name {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tab-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+}
+
+.tab-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-blue-strong, #4dabff);
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--text-primary, #fff);
+  font: inherit;
+  outline: none;
 }
 
 .tab-close {
@@ -246,13 +292,12 @@ onUnmounted(() => {
   width: 20px;
   height: 20px;
   padding: 0;
-  background: transparent;
   border: none;
-  border-radius: 4px;
-  cursor: pointer;
+  border-radius: 8px;
+  background: transparent;
   color: inherit;
+  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, background 0.15s;
 }
 
 .tab:hover .tab-close {
@@ -260,50 +305,28 @@ onUnmounted(() => {
 }
 
 .tab-close:hover {
-  background: var(--n-hover-color, #444);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 }
 
 .context-menu {
   position: fixed;
-  background: var(--n-color, #252526);
-  border: 1px solid var(--n-border-color, #333);
-  border-radius: 4px;
-  padding: 4px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
+  z-index: 40;
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--surface-raised, #20242f);
+  border: 1px solid var(--border-soft, #3d4354);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
 }
 
 .context-menu-item {
-  padding: 6px 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  font-size: 13px;
-  color: var(--n-text-color, #ccc);
 }
 
 .context-menu-item:hover {
-  background: var(--n-hover-color, #2a2d2e);
-}
-
-.editor-content {
-  flex: 1;
-  overflow: hidden;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--n-text-color, #666);
-}
-
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.empty-text {
-  font-size: 16px;
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 }
 </style>

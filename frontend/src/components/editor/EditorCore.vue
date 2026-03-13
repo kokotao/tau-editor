@@ -11,6 +11,7 @@ import { useSettingsStore } from '@/stores/settings';
 // Props
 interface EditorCoreProps {
   modelId: string;           // 编辑器模型 ID
+  value?: string;            // 编辑器内容
   language?: string;         // 语言模式
   readOnly?: boolean;        // 只读模式
   theme?: string;            // Monaco 主题 (vs/vs-dark/hc-black)
@@ -18,6 +19,7 @@ interface EditorCoreProps {
 }
 
 const props = withDefaults(defineProps<EditorCoreProps>(), {
+  value: '',
   language: 'plaintext',
   readOnly: false,
   theme: 'vs-dark',
@@ -89,7 +91,7 @@ const initEditor = () => {
     };
     
     editor.value = monaco.editor.create(editorContainer.value, {
-      value: editorStore.content,
+      value: props.value,
       language: props.language,
       theme: monacoTheme,
       readOnly: props.readOnly,
@@ -237,6 +239,21 @@ watch(() => props.language, (newLanguage) => {
       monaco.editor.setModelLanguage(model, newLanguage);
     }
   }
+});
+
+watch(() => props.readOnly, (readOnly) => {
+  if (editor.value) {
+    editor.value.updateOptions({ readOnly });
+  }
+});
+
+watch(() => props.value, (newValue) => {
+  if (!editor.value) return;
+
+  const currentValue = editor.value.getValue();
+  if (currentValue === newValue) return;
+
+  editor.value.setValue(newValue);
 });
 
 // 生命周期
