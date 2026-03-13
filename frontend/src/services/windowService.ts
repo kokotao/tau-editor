@@ -33,7 +33,11 @@ export class WindowService {
   }
 
   private shouldBlockClose() {
-    return this.settingsStore.confirmBeforeClose && this.tabsStore.hasDirtyTabs;
+    // Once user has explicitly confirmed exit, we must bypass all close guards
+    // (including beforeunload), otherwise the window can never actually close.
+    return !this.forceClosing
+      && this.settingsStore.confirmBeforeClose
+      && this.tabsStore.hasDirtyTabs;
   }
 
   private attachBeforeUnload() {
@@ -81,9 +85,13 @@ export class WindowService {
 
         this.forceClosing = true;
         try {
+          // Detach close guards before closing to avoid re-entrancy between
+          // onCloseRequested and beforeunload that can block window shutdown.
+          this.detach();
           await currentWindow.close();
-        } finally {
+        } catch (error) {
           this.forceClosing = false;
+          throw error;
         }
       });
     } catch (error) {

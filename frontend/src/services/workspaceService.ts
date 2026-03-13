@@ -110,8 +110,9 @@ export class WorkspaceService {
         directory: false,
       });
 
-      if (typeof selected === 'string' && selected) {
-        await this.openFile(selected);
+      const pickedPath = Array.isArray(selected) ? selected[0] : selected;
+      if (typeof pickedPath === 'string' && pickedPath) {
+        await this.openFile(pickedPath);
       }
     } catch (error: any) {
       this.notificationStore.error('打开文件失败', error.message || '文件选择器调用失败');
@@ -133,8 +134,9 @@ export class WorkspaceService {
         directory: true,
       });
 
-      if (typeof selected === 'string' && selected) {
-        await this.openWorkspace(selected);
+      const pickedPath = Array.isArray(selected) ? selected[0] : selected;
+      if (typeof pickedPath === 'string' && pickedPath) {
+        await this.openWorkspace(pickedPath);
         return true;
       }
 
