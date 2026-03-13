@@ -66,9 +66,9 @@ export const useEditorStore = defineStore('editor', {
 
   actions: {
     // 设置内容
-    setContent(content: string) {
+    setContent(content: string, markDirty: boolean = true) {
       this.content = content;
-      this.isDirty = true;
+      this.isDirty = markDirty;
     },
 
     // 更新光标位置
@@ -89,6 +89,10 @@ export const useEditorStore = defineStore('editor', {
     // 标记为已保存
     markAsSaved() {
       this.isDirty = false;
+    },
+
+    setDirty(isDirty: boolean) {
+      this.isDirty = isDirty;
     },
 
     // 更新撤销/重做状态
@@ -171,7 +175,7 @@ export const useEditorStore = defineStore('editor', {
       console.log('[Editor] 加载文件到编辑器:', filePath);
       try {
         const content = await this.readFile(filePath);
-        this.setContent(content);
+        this.setContent(content, false);
         this.markAsSaved();
         console.log('[Editor] 文件加载完成');
       } catch (error) {

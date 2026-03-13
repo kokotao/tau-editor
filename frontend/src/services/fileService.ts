@@ -83,15 +83,17 @@ export class FileService {
       const fileName = filePath.split('/').pop() || 'Untitled';
       const language = this.detectLanguage(fileName);
       
-      const tabId = this.tabsStore.addTab({
+      this.tabsStore.addTab({
         filePath,
         fileName,
         language,
         isDirty: false,
+        isUntitled: false,
+        content,
       });
 
       // 设置编辑器内容
-      this.editorStore.setContent(content);
+      this.editorStore.setContent(content, false);
       this.editorStore.setLanguage(language);
       this.editorStore.markAsSaved();
       this.editorStore.updateCursorPosition(1, 1);
@@ -131,6 +133,13 @@ export class FileService {
 
     try {
       // 写入文件内容
+      if (!tab.filePath) {
+        return {
+          success: false,
+          error: '当前标签还没有文件路径，请使用另存为',
+        };
+      }
+
       await this.fileSystemStore.writeFileContent(tab.filePath, this.editorStore.content);
       
       // 更新标签状态
@@ -171,6 +180,8 @@ export class FileService {
       activeTab.filePath = newFilePath;
       activeTab.fileName = fileName;
       activeTab.isDirty = false;
+      activeTab.isUntitled = false;
+      activeTab.content = this.editorStore.content;
       
       // 更新编辑器状态
       this.editorStore.markAsSaved();
@@ -249,9 +260,14 @@ export class FileService {
       if (newActiveTab) {
         // 加载新激活标签的内容
         try {
-          const content = await this.fileSystemStore.readFileContent(newActiveTab.filePath);
-          this.editorStore.setContent(content);
-          this.editorStore.setLanguage(newActiveTab.language);
+          if (newActiveTab.filePath) {
+            const content = await this.fileSystemStore.readFileContent(newActiveTab.filePath);
+            this.editorStore.setContent(content, false);
+            this.editorStore.setLanguage(newActiveTab.language);
+          } else {
+            this.editorStore.setContent(newActiveTab.content, false);
+            this.editorStore.setLanguage(newActiveTab.language);
+          }
         } catch (e) {
           // 如果加载失败，清空编辑器
           this.editorStore.reset();

@@ -27,6 +27,10 @@ function isTauriAvailable(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+export function isTauriApp(): boolean {
+  return isTauriAvailable();
+}
+
 async function invokeCommand<T>(
   command: string,
   args: Record<string, unknown> = {},

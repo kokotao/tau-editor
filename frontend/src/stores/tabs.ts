@@ -2,10 +2,12 @@ import { defineStore } from 'pinia';
 
 export interface Tab {
   id: string;                   // 唯一标识
-  filePath: string;             // 文件路径
+  filePath: string | null;      // 文件路径
   fileName: string;             // 文件名
   language: string;             // 语言模式
   isDirty: boolean;             // 是否有未保存的更改
+  isUntitled: boolean;          // 是否为未保存文件
+  content: string;              // 标签内容
   createdAt: number;            // 创建时间戳
 }
 
@@ -35,6 +37,8 @@ export const useTabsStore = defineStore('tabs', {
     dirtyTabs: (state) => {
       return state.tabs.filter(tab => tab.isDirty);
     },
+
+    hasDirtyTabs: (state) => state.tabs.some(tab => tab.isDirty),
 
     // 检查文件是否已打开
     isFileOpen: (state) => {
@@ -92,8 +96,10 @@ export const useTabsStore = defineStore('tabs', {
       }
 
       // 添加到最近关闭列表
-      this.recentTabs.unshift(tab.filePath);
-      this.recentTabs = this.recentTabs.slice(0, 10); // 保留最多 10 个
+      if (tab.filePath) {
+        this.recentTabs.unshift(tab.filePath);
+        this.recentTabs = this.recentTabs.slice(0, 10); // 保留最多 10 个
+      }
     },
 
     // 关闭其他标签
@@ -121,6 +127,20 @@ export const useTabsStore = defineStore('tabs', {
       if (tab) {
         tab.isDirty = isDirty;
       }
+    },
+
+    updateTab(tabId: string, updates: Partial<Omit<Tab, 'id' | 'createdAt'>>) {
+      const tab = this.tabs.find(item => item.id === tabId);
+      if (!tab) return;
+
+      Object.assign(tab, updates);
+    },
+
+    restoreSession(tabs: Tab[], activeTabId: string | null) {
+      this.tabs = tabs;
+      this.activeTabId = activeTabId && tabs.some((tab) => tab.id === activeTabId)
+        ? activeTabId
+        : tabs[0]?.id || null;
     },
 
     // 重新打开最近关闭的标签
