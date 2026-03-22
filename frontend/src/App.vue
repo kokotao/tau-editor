@@ -64,18 +64,28 @@ const tabs = computed(() => tabsStore.tabs);
 const activeTab = computed(() => tabsStore.activeTab);
 const activeTabId = computed(() => tabsStore.activeTabId);
 const cursorPosition = computed(() => editorStore.cursorPosition);
+const encoding = computed(() => editorStore.encoding);
 const language = computed(() => activeTab.value?.language ?? editorStore.language);
 const autoSaveEnabled = computed(() => settingsStore.autoSaveEnabled);
+const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
 const markdownPreviewMode = computed(() => settingsStore.markdownPreviewMode);
-const previewTheme = computed<'dark' | 'light'>(() => (settingsStore.theme === 'light' ? 'light' : 'dark'));
+const previewTheme = computed<'dark' | 'light'>(() => settingsStore.previewTheme);
 const canUndo = computed(() => editorStore.canUndo);
 const canRedo = computed(() => editorStore.canRedo);
 const lineCount = computed(() => editorStore.lineCount);
 const wordCount = computed(() => {
   const content = activeTab.value?.content ?? '';
   return content.trim() ? content.trim().split(/\s+/).length : 0;
+});
+const workspaceLabel = computed(() => workspaceStore.currentWorkspaceName ?? '未打开工作区');
+const currentFileLabel = computed(() => {
+  if (!activeTab.value) {
+    return '未打开文件';
+  }
+
+  return activeTab.value.fileName;
 });
 const filteredCommands = computed(() => commandStore.filteredCommands);
 const highlightedCommand = computed(() => commandStore.highlightedCommand);
@@ -147,6 +157,10 @@ const handleCycleMarkdownPreview = () => {
 
 const handleToggleSettings = () => {
   showSettingsPanel.value = !showSettingsPanel.value;
+};
+
+const closeTransientPanels = () => {
+  showSettingsPanel.value = false;
 };
 
 const handleRefresh = async () => {
@@ -309,6 +323,12 @@ const startSidebarResize = (event: MouseEvent) => {
   document.addEventListener('mouseup', onUp);
 };
 
+const handleShellKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && showSettingsPanel.value) {
+    closeTransientPanels();
+  }
+};
+
 function restoreSession() {
   if (!settingsStore.restoreLastSession) {
     sessionService.clear();
@@ -407,12 +427,14 @@ onMounted(async () => {
   restoreSession();
   await windowService.attach();
   registerShortcuts();
+  window.addEventListener('keydown', handleShellKeydown);
 });
 
 onUnmounted(() => {
   saveSession();
   windowService.detach();
   keyboardStore.removeGlobalHandler();
+  window.removeEventListener('keydown', handleShellKeydown);
 });
 </script>
 
@@ -436,6 +458,9 @@ onUnmounted(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :is-dirty="isDirty"
+      app-label="Text Editor"
+      :workspace-label="workspaceLabel"
+      :current-file-label="currentFileLabel"
       :sidebar-visible="showFileTree"
       :is-markdown="isMarkdownTab && settingsStore.markdownPreviewEnabled"
       :markdown-preview-mode="markdownPreviewMode"
@@ -452,6 +477,13 @@ onUnmounted(() => {
     />
 
     <div class="main-layout">
+      <div
+        v-if="showSettingsPanel"
+        class="shell-overlay"
+        data-testid="shell-overlay"
+        @click="closeTransientPanels"
+      ></div>
+
       <aside
         v-show="showFileTree"
         class="sidebar"
@@ -463,6 +495,7 @@ onUnmounted(() => {
           :file-tree="fileTree"
           :loading="loading"
           :selected-path="selectedPath"
+          :workspace-label="workspaceLabel"
           @file-open="handleFileOpen"
           @folder-toggle="handleFolderToggle"
           @refresh="handleRefresh"
@@ -532,6 +565,8 @@ onUnmounted(() => {
             data-testid="markdown-preview-pane"
             :content="activeTab.content"
             :theme="previewTheme"
+            :source-file-path="activeTab.filePath"
+            @request-preview-mode-change="setMarkdownPreviewMode"
           />
         </div>
 
@@ -544,22 +579,28 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <aside v-show="showSettingsPanel" class="settings-sidebar">
-        <SettingsPanel @close="showSettingsPanel = false" />
-      </aside>
+      <transition name="settings-drawer">
+        <aside
+          v-if="showSettingsPanel"
+          class="settings-drawer"
+          data-testid="settings-drawer"
+        >
+          <SettingsPanel @close="closeTransientPanels" />
+        </aside>
+      </transition>
     </div>
 
     <StatusBar
       :cursor-position="cursorPosition"
+      :encoding="encoding"
       :language="language"
       :monaco-theme="settingsStore.monacoTheme"
       :auto-save-enabled="autoSaveEnabled"
+      :last-save-time="lastSaveTime"
       @language-change="handleLanguageChange"
       @theme-change="handleThemeChange"
     />
 
-    <div class="floating-meta meta-left" data-testid="word-count">行数 {{ lineCount }} / 字数 {{ wordCount }}</div>
-    <div class="floating-meta meta-right" data-testid="save-status">{{ isDirty ? '未保存更改' : '所有更改已保存' }}</div>
   </div>
 </template>
 
@@ -641,7 +682,7 @@ body {
 }
 
 .sidebar,
-.settings-sidebar {
+.settings-drawer {
   flex-shrink: 0;
   border-right: 1px solid var(--border-soft);
   background: rgba(9, 14, 26, 0.52);
@@ -650,10 +691,25 @@ body {
   position: relative;
 }
 
-.settings-sidebar {
+.settings-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: 380px;
   border-left: 1px solid var(--border-soft);
   border-right: none;
+  background: var(--panel-overlay);
+  box-shadow: var(--shadow-overlay);
+  z-index: var(--z-drawer);
+}
+
+.shell-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.48);
+  backdrop-filter: blur(4px);
+  z-index: calc(var(--z-drawer) - 1);
 }
 
 .sidebar-empty {
@@ -879,29 +935,20 @@ body {
   color: white;
 }
 
-.floating-meta {
-  position: fixed;
-  bottom: 52px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(16, 23, 38, 0.72);
-  border: 1px solid var(--border-soft);
-  color: var(--text-secondary);
-  font-size: 12px;
-  backdrop-filter: blur(12px);
+.settings-drawer-enter-active,
+.settings-drawer-leave-active {
+  transition: transform 0.22s ease, opacity 0.22s ease;
 }
 
-.meta-left {
-  left: 14px;
-}
-
-.meta-right {
-  right: 14px;
+.settings-drawer-enter-from,
+.settings-drawer-leave-to {
+  transform: translateX(24px);
+  opacity: 0;
 }
 
 @media (max-width: 960px) {
   .sidebar,
-  .settings-sidebar {
+  .settings-drawer {
     width: 260px;
   }
 
