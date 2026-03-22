@@ -23,6 +23,11 @@ export interface EditorSettings {
   // 文件树
   showHiddenFiles: boolean;
   fileTreeWidth: number;
+  sidebarCollapsed: boolean;
+
+  // Markdown 预览
+  markdownPreviewMode: 'edit' | 'split' | 'preview';
+  markdownPreviewEnabled: boolean;
 
   // 其他
   confirmBeforeClose: boolean;
@@ -48,6 +53,9 @@ export const useSettingsStore = defineStore('settings', {
     trimTrailingWhitespace: true,
     showHiddenFiles: false,
     fileTreeWidth: 250,
+    sidebarCollapsed: false,
+    markdownPreviewMode: 'edit',
+    markdownPreviewEnabled: true,
     confirmBeforeClose: true,
     restoreLastSession: true,
   }),
@@ -74,6 +82,12 @@ export const useSettingsStore = defineStore('settings', {
         if (saved) {
           const parsed = JSON.parse(saved);
           this.$patch(parsed);
+          // Older builds defaulted Markdown to split view, which caused
+          // opened files to look half-width on launch. Migrate that startup
+          // state back to full-width editing.
+          if (this.markdownPreviewMode === 'split') {
+            this.markdownPreviewMode = 'edit';
+          }
           console.log('[Settings] 从 localStorage 加载设置成功');
         }
       } catch (error) {
@@ -96,8 +110,12 @@ export const useSettingsStore = defineStore('settings', {
           autoSaveInterval: this.autoSaveInterval,
           tabSize: this.tabSize,
           insertSpaces: this.insertSpaces,
+          trimTrailingWhitespace: this.trimTrailingWhitespace,
           showHiddenFiles: this.showHiddenFiles,
           fileTreeWidth: this.fileTreeWidth,
+          sidebarCollapsed: this.sidebarCollapsed,
+          markdownPreviewMode: this.markdownPreviewMode,
+          markdownPreviewEnabled: this.markdownPreviewEnabled,
           confirmBeforeClose: this.confirmBeforeClose,
           restoreLastSession: this.restoreLastSession,
         };

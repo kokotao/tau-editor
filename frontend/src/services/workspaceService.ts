@@ -66,8 +66,6 @@ export class WorkspaceService {
     });
     this.workspaceStore.setMode('single-file');
     this.editorStore.setLanguage(detectLanguage(fileName));
-
-    this.notificationStore.success('已创建新文件', '现在可以直接编辑，双击顶部标签还能改名');
   }
 
   async openFile(filePath: string) {
@@ -94,7 +92,6 @@ export class WorkspaceService {
 
       this.fileSystemStore.selectEntry(filePath);
       this.workspaceStore.openSingleFile(filePath);
-      this.notificationStore.success('文件已打开', fileName);
     } catch (error: any) {
       this.notificationStore.error('打开文件失败', error.message || '无法读取该文件');
     } finally {
@@ -123,7 +120,6 @@ export class WorkspaceService {
     this.workspaceStore.openWorkspace(path);
     await this.fileSystemStore.syncFromWorkspace();
     this.fileSystemStore.selectEntry(null);
-    this.notificationStore.success('工作区已打开', getBaseName(path));
   }
 
   async openFolderWithPicker() {
@@ -153,14 +149,13 @@ export class WorkspaceService {
     this.fileSystemStore.selectEntry(null);
   }
 
-  async refreshWorkspace(workspaceLabel: string) {
+  async refreshWorkspace() {
     if (!this.workspaceStore.currentWorkspacePath) {
       this.notificationStore.info('资源管理器为空', '先打开一个文件夹，再刷新目录');
       return;
     }
 
     await this.fileSystemStore.refreshFileTree();
-    this.notificationStore.success('资源管理器已刷新', workspaceLabel);
   }
 }
 

@@ -1,5 +1,4 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import type { useSettingsStore } from '@/stores/settings';
 import type { useTabsStore } from '@/stores/tabs';
 import { isTauriApp } from '@/lib/tauri';
@@ -13,6 +12,7 @@ export class WindowService {
   private detachBeforeUnload: (() => void) | null = null;
   private detachTauriClose: (() => void) | null = null;
   private forceClosing = false;
+  private closeRequestInFlight = false;
 
   constructor(
     private readonly settingsStore: SettingsStore,
@@ -21,7 +21,9 @@ export class WindowService {
 
   async attach() {
     this.detach();
-    this.attachBeforeUnload();
+    if (!isTauriApp()) {
+      this.attachBeforeUnload();
+    }
     await this.attachTauriCloseHandler();
   }
 
@@ -61,36 +63,39 @@ export class WindowService {
     try {
       const currentWindow = getCurrentWindow();
       this.detachTauriClose = await currentWindow.onCloseRequested(async (event) => {
-        if (this.forceClosing || !this.shouldBlockClose()) {
+        if (this.closeRequestInFlight) {
+          event.preventDefault();
           return;
         }
 
+        this.closeRequestInFlight = true;
         event.preventDefault();
 
-        let confirmed = false;
-        try {
-          confirmed = await confirm(CLOSE_CONFIRM_MESSAGE, {
-            title: '未保存更改',
-            kind: 'warning',
-            okLabel: '退出',
-            cancelLabel: '取消',
-          });
-        } catch {
+        if (this.forceClosing) {
+          return;
+        }
+
+        let confirmed = true;
+        if (this.shouldBlockClose()) {
+          // Keep the confirmation path synchronous and local to avoid
+          // deadlocks with native dialog plugins while the close request is active.
           confirmed = window.confirm(CLOSE_CONFIRM_MESSAGE);
         }
 
         if (!confirmed) {
+          this.closeRequestInFlight = false;
           return;
         }
 
         this.forceClosing = true;
         try {
-          // Detach close guards before closing to avoid re-entrancy between
-          // onCloseRequested and beforeunload that can block window shutdown.
+          // Tauri desktop closes more reliably when we fully take over the
+          // close request and destroy the window after detaching listeners.
           this.detach();
-          await currentWindow.close();
+          await currentWindow.destroy();
         } catch (error) {
           this.forceClosing = false;
+          this.closeRequestInFlight = false;
           throw error;
         }
       });

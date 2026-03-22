@@ -18,6 +18,7 @@ import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
 import EditorCore from './components/editor/EditorCore.vue';
+import MarkdownPreview from './components/editor/MarkdownPreview.vue';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
@@ -46,8 +47,14 @@ const tabService = createTabService(
 );
 const windowService = createWindowService(settingsStore, tabsStore);
 
-const showFileTree = ref(true);
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 420;
+const isResizingSidebar = ref(false);
+const sidebarWidth = ref(300);
 const showSettingsPanel = ref(false);
+
+const clampSidebarWidth = (value: number) =>
+  Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
 
 const fileTree = computed(() => fileSystemStore.fileTree);
 const loading = computed(() => fileSystemStore.loading);
@@ -60,6 +67,9 @@ const cursorPosition = computed(() => editorStore.cursorPosition);
 const language = computed(() => activeTab.value?.language ?? editorStore.language);
 const autoSaveEnabled = computed(() => settingsStore.autoSaveEnabled);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
+const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
+const markdownPreviewMode = computed(() => settingsStore.markdownPreviewMode);
+const previewTheme = computed<'dark' | 'light'>(() => (settingsStore.theme === 'light' ? 'light' : 'dark'));
 const canUndo = computed(() => editorStore.canUndo);
 const canRedo = computed(() => editorStore.canRedo);
 const lineCount = computed(() => editorStore.lineCount);
@@ -67,13 +77,14 @@ const wordCount = computed(() => {
   const content = activeTab.value?.content ?? '';
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
-const workspaceLabel = computed(() => {
-  return workspaceStore.currentWorkspaceName || '未打开工作区';
-});
-const recentProjects = computed(() => workspaceStore.recentProjects.slice(0, 4));
-const recentFiles = computed(() => workspaceStore.recentFiles.slice(0, 5));
 const filteredCommands = computed(() => commandStore.filteredCommands);
 const highlightedCommand = computed(() => commandStore.highlightedCommand);
+const showFileTree = computed({
+  get: () => !settingsStore.sidebarCollapsed,
+  set: (nextVisible: boolean) => {
+    void settingsStore.updateSettings({ sidebarCollapsed: !nextVisible });
+  },
+});
 
 watch(activeTab, (tab) => {
   tabService.syncTabToEditor(tab);
@@ -98,11 +109,6 @@ const handleOpenFolder = async () => {
   }
 };
 
-const handleOpenRecentProject = async (path: string) => {
-  await workspaceService.openRecentProject(path);
-  showFileTree.value = true;
-};
-
 const handleSave = async () => {
   await tabService.saveActiveTab();
 };
@@ -123,12 +129,28 @@ const handleToggleFileTree = () => {
   showFileTree.value = !showFileTree.value;
 };
 
+const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
+  void settingsStore.updateSettings({ markdownPreviewMode: mode });
+};
+
+const handleCycleMarkdownPreview = () => {
+  if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled) {
+    return;
+  }
+
+  const order: Array<'edit' | 'split' | 'preview'> = ['edit', 'split', 'preview'];
+  const currentIndex = order.indexOf(markdownPreviewMode.value);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const nextMode = order[(safeIndex + 1) % order.length] ?? 'split';
+  setMarkdownPreviewMode(nextMode);
+};
+
 const handleToggleSettings = () => {
   showSettingsPanel.value = !showSettingsPanel.value;
 };
 
 const handleRefresh = async () => {
-  await workspaceService.refreshWorkspace(workspaceLabel.value);
+  await workspaceService.refreshWorkspace();
 };
 
 const handleFolderToggle = (folderPath: string) => {
@@ -253,6 +275,38 @@ const registerShortcuts = () => {
     handler: () => void executeCommand('commandPalette.open'),
     description: '打开命令面板',
   });
+
+  keyboardStore.register({
+    id: 'toggle-sidebar',
+    key: 'b',
+    modifiers: ['ctrl'],
+    handler: handleToggleFileTree,
+    description: '切换资源管理器',
+  });
+};
+
+const startSidebarResize = (event: MouseEvent) => {
+  if (!showFileTree.value) {
+    return;
+  }
+  isResizingSidebar.value = true;
+  const startX = event.clientX;
+  const startWidth = sidebarWidth.value;
+
+  const onMove = (moveEvent: MouseEvent) => {
+    const nextWidth = clampSidebarWidth(startWidth + (moveEvent.clientX - startX));
+    sidebarWidth.value = nextWidth;
+  };
+
+  const onUp = () => {
+    isResizingSidebar.value = false;
+    void settingsStore.updateSettings({ fileTreeWidth: sidebarWidth.value });
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 };
 
 function restoreSession() {
@@ -331,6 +385,13 @@ watch(
 );
 
 watch(
+  () => settingsStore.fileTreeWidth,
+  (width) => {
+    sidebarWidth.value = clampSidebarWidth(width);
+  },
+);
+
+watch(
   () => ({ tabCount: tabsStore.tabs.length, workspacePath: workspaceStore.currentWorkspacePath }),
   ({ tabCount, workspacePath }) => {
     if (tabCount === 0 && !workspacePath) {
@@ -342,10 +403,10 @@ watch(
 onMounted(async () => {
   workspaceStore.loadFromStorage();
   await settingsStore.init();
+  sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   restoreSession();
   await windowService.attach();
   registerShortcuts();
-  notificationStore.info('编辑器已就绪', '现在支持打开文件夹、打开文件和双击标签改名');
 });
 
 onUnmounted(() => {
@@ -375,6 +436,9 @@ onUnmounted(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :is-dirty="isDirty"
+      :sidebar-visible="showFileTree"
+      :is-markdown="isMarkdownTab && settingsStore.markdownPreviewEnabled"
+      :markdown-preview-mode="markdownPreviewMode"
       @new-file="handleNewFile"
       @open-file="() => executeCommand('file.open')"
       @open-folder="() => executeCommand('file.openFolder')"
@@ -384,19 +448,16 @@ onUnmounted(() => {
       @redo="handleRedo"
       @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
       @toggle-settings="() => executeCommand('view.toggleSettings')"
+      @cycle-markdown-preview="handleCycleMarkdownPreview"
     />
 
-    <div class="workspace-banner">
-      <div class="workspace-badge">
-        <span class="workspace-badge-label">工作区</span>
-        <span class="workspace-badge-value">{{ mode === 'workspace' ? workspaceLabel : '未绑定工作区' }}</span>
-      </div>
-      <button class="banner-action" @click="handleOpenFile">打开文件</button>
-      <button class="banner-action primary" @click="handleOpenFolder">打开文件夹</button>
-    </div>
-
     <div class="main-layout">
-      <aside v-show="showFileTree" class="sidebar">
+      <aside
+        v-show="showFileTree"
+        class="sidebar"
+        data-testid="sidebar-panel"
+        :style="{ width: `${sidebarWidth}px` }"
+      >
         <FileTree
           v-if="workspaceStore.currentWorkspacePath"
           :file-tree="fileTree"
@@ -412,7 +473,24 @@ onUnmounted(() => {
           <p class="sidebar-empty-text">当前模式是 {{ mode === 'single-file' ? '单文件编辑' : '空启动' }}，只有在你主动打开工作区后这里才会展示真实文件树。</p>
           <button class="sidebar-empty-action" @click="handleOpenFolder">选择文件夹</button>
         </div>
+        <button class="sidebar-toggle-handle" data-testid="btn-sidebar-collapse" title="折叠资源管理器" @click="showFileTree = false">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15,18 9,12 15,6" />
+          </svg>
+        </button>
       </aside>
+      <div
+        v-if="showFileTree"
+        class="sidebar-resizer"
+        data-testid="sidebar-resizer"
+        :class="{ dragging: isResizingSidebar }"
+        @mousedown.prevent="startSidebarResize"
+      ></div>
+      <button v-else class="sidebar-expand-fab" data-testid="btn-sidebar-expand" title="展开资源管理器" @click="showFileTree = true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9,18 15,12 9,6" />
+        </svg>
+      </button>
 
       <section class="editor-panel">
         <EditorTabs
@@ -425,53 +503,43 @@ onUnmounted(() => {
           @rename-tab="handleRenameTab"
         />
 
-        <div v-if="activeTab" class="editor-stage">
-          <EditorCore
-            :key="activeTab.id"
-            :model-id="activeTab.id"
-            :value="activeTab.content"
-            :language="activeTab.language"
-            :theme="settingsStore.monacoTheme"
-            @content-change="handleContentChange"
-            @cursor-change="handleCursorChange"
-            @model-save="handleSave"
+        <div
+          v-if="activeTab"
+          class="editor-stage"
+          :class="{
+            'markdown-stage': isMarkdownTab && settingsStore.markdownPreviewEnabled,
+            [`markdown-mode-${markdownPreviewMode}`]: isMarkdownTab && settingsStore.markdownPreviewEnabled,
+          }"
+        >
+          <div
+            v-if="!isMarkdownTab || !settingsStore.markdownPreviewEnabled || markdownPreviewMode !== 'preview'"
+            class="editor-pane"
+          >
+            <EditorCore
+              :key="activeTab.id"
+              :model-id="activeTab.id"
+              :value="activeTab.content"
+              :language="activeTab.language"
+              :theme="settingsStore.monacoTheme"
+              @content-change="handleContentChange"
+              @cursor-change="handleCursorChange"
+              @model-save="handleSave"
+            />
+          </div>
+          <MarkdownPreview
+            v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled && markdownPreviewMode !== 'edit'"
+            class="preview-pane"
+            data-testid="markdown-preview-pane"
+            :content="activeTab.content"
+            :theme="previewTheme"
           />
         </div>
 
         <div v-else class="hero-empty">
-          <div class="hero-card">
-            <span class="hero-kicker">Clean launch</span>
-            <h1>从空白开始，而不是从假目录开始</h1>
-            <p>你可以选择打开整个文件夹作为工作区，也可以只打开单个文件直接开始编辑。</p>
-            <div class="hero-actions">
-              <button class="hero-btn primary" @click="handleOpenFolder">打开文件夹</button>
-              <button class="hero-btn" @click="handleOpenFile">打开文件</button>
-              <button class="hero-btn" @click="handleNewFile">新建文件</button>
-            </div>
-            <div v-if="recentProjects.length > 0 || recentFiles.length > 0" class="hero-recents">
-              <div v-if="recentProjects.length > 0" class="recent-block">
-                <span class="recent-label">最近项目</span>
-                <button
-                  v-for="project in recentProjects"
-                  :key="project.path"
-                  class="recent-chip"
-                  @click="handleOpenRecentProject(project.path)"
-                >
-                  {{ project.name }}
-                </button>
-              </div>
-              <div v-if="recentFiles.length > 0" class="recent-block">
-                <span class="recent-label">最近文件</span>
-                <button
-                  v-for="file in recentFiles"
-                  :key="file.path"
-                  class="recent-chip"
-                  @click="openFileInEditor(file.path)"
-                >
-                  {{ file.name }}
-                </button>
-              </div>
-            </div>
+          <div class="hero-actions minimal">
+            <button class="hero-btn primary" @click="handleOpenFolder">打开文件夹</button>
+            <button class="hero-btn" @click="handleOpenFile">打开文件</button>
+            <button class="hero-btn" @click="handleNewFile">新建文件</button>
           </div>
         </div>
       </section>
@@ -490,8 +558,8 @@ onUnmounted(() => {
       @theme-change="handleThemeChange"
     />
 
-    <div class="floating-meta meta-left">行数 {{ lineCount }} / 字数 {{ wordCount }}</div>
-    <div class="floating-meta meta-right">{{ isDirty ? '未保存更改' : '所有更改已保存' }}</div>
+    <div class="floating-meta meta-left" data-testid="word-count">行数 {{ lineCount }} / 字数 {{ wordCount }}</div>
+    <div class="floating-meta meta-right" data-testid="save-status">{{ isDirty ? '未保存更改' : '所有更改已保存' }}</div>
   </div>
 </template>
 
@@ -565,73 +633,21 @@ body {
   overflow: hidden;
 }
 
-.workspace-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(14px);
-}
-
-.workspace-badge {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: var(--surface-muted);
-  border: 1px solid var(--border-soft);
-}
-
-.workspace-badge-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-.workspace-badge-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.banner-action {
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.banner-action.primary {
-  background: linear-gradient(135deg, var(--accent-blue-strong), #38bdf8);
-  color: white;
-  border-color: transparent;
-}
-
 .main-layout {
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
 }
 
 .sidebar,
 .settings-sidebar {
-  width: 300px;
   flex-shrink: 0;
   border-right: 1px solid var(--border-soft);
   background: rgba(9, 14, 26, 0.52);
   backdrop-filter: blur(14px);
   min-height: 0;
+  position: relative;
 }
 
 .settings-sidebar {
@@ -681,8 +697,87 @@ body {
 }
 
 .editor-stage {
+  display: flex;
   flex: 1;
+  flex-direction: row;
   min-height: 0;
+  min-width: 0;
+}
+
+.editor-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.markdown-stage {
+  display: flex;
+  min-width: 0;
+}
+
+.markdown-stage.markdown-mode-split .editor-pane,
+.markdown-stage.markdown-mode-split .preview-pane {
+  width: 50%;
+}
+
+.markdown-stage.markdown-mode-split .preview-pane {
+  border-left: 1px solid var(--border-soft);
+}
+
+.markdown-stage.markdown-mode-preview .preview-pane {
+  width: 100%;
+}
+
+.preview-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sidebar-toggle-handle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sidebar-resizer {
+  width: 6px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+  background: rgba(77, 171, 255, 0.45);
+}
+
+.sidebar-expand-fab {
+  position: absolute;
+  top: 68px;
+  left: 8px;
+  z-index: 8;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  background: rgba(16, 23, 38, 0.85);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
 .hero-empty {
@@ -808,10 +903,6 @@ body {
   .sidebar,
   .settings-sidebar {
     width: 260px;
-  }
-
-  .workspace-banner {
-    flex-wrap: wrap;
   }
 
   .hero-card {

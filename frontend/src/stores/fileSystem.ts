@@ -79,12 +79,35 @@ export const useFileSystemStore = defineStore('fileSystem', {
       try {
         const entries = await fileCommands.listFiles(rootPath);
         this.fileTree = this.buildTree(entries);
+        await this.rehydrateExpandedFolders();
       } catch (error) {
         const tauriError = error instanceof TauriError ? error : TauriError.fromError(error, 'list_files');
         this.error = `加载文件树失败：${tauriError.message}`;
         console.error('Failed to refresh file tree:', tauriError);
       } finally {
         this.loading = false;
+      }
+    },
+
+    async rehydrateExpandedFolders() {
+      const paths = Array.from(this.expandedPaths).sort(
+        (a, b) => a.split('/').length - b.split('/').length,
+      );
+
+      for (const folderPath of paths) {
+        const folder = this.findEntryByPath(this.fileTree, folderPath);
+        if (!folder || folder.type !== 'folder') {
+          continue;
+        }
+
+        try {
+          const entries = await fileCommands.listFiles(folderPath);
+          folder.isExpanded = true;
+          folder.children = this.buildTree(entries);
+        } catch (error) {
+          const tauriError = error instanceof TauriError ? error : TauriError.fromError(error, 'list_files');
+          console.warn('Failed to rehydrate expanded folder:', tauriError.message);
+        }
       }
     },
 

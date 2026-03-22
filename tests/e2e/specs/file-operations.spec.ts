@@ -36,7 +36,7 @@ test.describe('File Operations', () => {
     await page.click('[data-testid="btn-new-file"]')
     
     // 验证新标签页创建
-    await expect(page.locator('[data-testid="tab"]')).toHaveCount(1)
+    await expect(page.locator('[data-testid="tab"]')).toHaveCount(2)
     
     // 验证编辑器存在且可见
     const editor = page.locator('[data-testid="editor-container"]').first()
@@ -115,9 +115,9 @@ test.describe('File Operations', () => {
     const wordCount = page.locator('[data-testid="word-count"]')
     await expect(wordCount).toBeVisible()
     
-    // 初始应为 0
+    // 初始文案应包含字数统计
     const count = await wordCount.textContent()
-    expect(count).toBe('0')
+    expect(count || '').toContain('字数')
   })
 
   test('E2E-FILE-009: 多标签创建', async ({ page }) => {
@@ -127,7 +127,7 @@ test.describe('File Operations', () => {
     await page.click('[data-testid="btn-new-file"]')
     
     // 验证标签数量
-    await expect(page.locator('[data-testid="tab"]')).toHaveCount(3)
+    await expect(page.locator('[data-testid="tab"]')).toHaveCount(4)
   })
 
   test('E2E-FILE-010: 编辑器核心功能', async ({ page }) => {

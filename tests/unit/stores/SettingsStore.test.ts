@@ -126,6 +126,14 @@ describe('SettingsStore', () => {
       expect(store.fileTreeWidth).toBe(250)
     })
 
+    it('应初始化侧栏折叠状态为 false', () => {
+      expect(store.sidebarCollapsed).toBe(false)
+    })
+
+    it('应初始化 Markdown 预览模式为 split', () => {
+      expect(store.markdownPreviewMode).toBe('split')
+    })
+
     it('应初始化关闭前确认为 true', () => {
       expect(store.confirmBeforeClose).toBe(true)
     })

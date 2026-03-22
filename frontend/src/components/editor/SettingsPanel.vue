@@ -11,66 +11,21 @@
     </div>
 
     <div class="settings-content">
-      <!-- 主题设置 -->
       <div class="settings-section">
         <h4 class="settings-section-title">外观</h4>
-        
+
         <div class="settings-item">
           <label class="settings-label">主题模式</label>
           <div class="theme-selector">
-            <button
-              class="theme-btn"
-              :class="{ active: settingsStore.theme === 'light' }"
-              @click="setTheme('light')"
-              title="浅色模式"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" />
-                <line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" />
-                <line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </svg>
-              <span>浅色</span>
-            </button>
-            <button
-              class="theme-btn"
-              :class="{ active: settingsStore.theme === 'dark' }"
-              @click="setTheme('dark')"
-              title="深色模式"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-              <span>深色</span>
-            </button>
-            <button
-              class="theme-btn"
-              :class="{ active: settingsStore.theme === 'system' }"
-              @click="setTheme('system')"
-              title="跟随系统"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-              <span>系统</span>
-            </button>
+            <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">浅色</button>
+            <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">深色</button>
+            <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">系统</button>
           </div>
         </div>
 
         <div class="settings-item">
           <label class="settings-label">编辑器主题</label>
-          <select
-            class="settings-select"
-            :value="settingsStore.monacoTheme"
-            @change="setMonacoTheme($event)"
-          >
+          <select class="settings-select" :value="settingsStore.monacoTheme" @change="setMonacoTheme($event)">
             <option value="vs">Light (vs)</option>
             <option value="vs-dark">Dark (vs-dark)</option>
             <option value="hc-black">High Contrast (hc-black)</option>
@@ -78,79 +33,59 @@
         </div>
       </div>
 
-      <!-- 字体设置 -->
       <div class="settings-section">
         <h4 class="settings-section-title">字体</h4>
-        
+
         <div class="settings-item">
           <label class="settings-label">字体大小</label>
           <div class="font-size-control">
-            <button class="font-size-btn" @click="decreaseFontSize" title="减小字体">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
+            <button class="font-size-btn" @click="decreaseFontSize">-</button>
             <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
-            <button class="font-size-btn" @click="increaseFontSize" title="增大字体">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-            <button class="font-size-reset" @click="resetFontSize" title="重置">
-              重置
-            </button>
-          </div>
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">预览</label>
-          <div class="font-preview" :style="{ fontSize: settingsStore.fontSize + 'px' }">
-            The quick brown fox jumps over the lazy dog.
-            <br>
-            快速棕色狐狸跳过懒狗。
+            <button class="font-size-btn" @click="increaseFontSize">+</button>
+            <button class="font-size-reset" @click="resetFontSize">重置</button>
           </div>
         </div>
 
         <div class="settings-item">
           <label class="settings-label">字体家族</label>
-          <select
-            class="settings-select"
-            :value="settingsStore.fontFamily"
-            @change="setFontFamily($event)"
-          >
-            <option value="'JetBrains Mono', 'Fira Code', monospace">JetBrains Mono</option>
-            <option value="'Fira Code', monospace">Fira Code</option>
+          <select class="settings-select" :value="settingsStore.fontFamily" @change="setFontFamily($event)">
+            <option value="'JetBrains Mono', 'Fira Code', 'SF Mono', monospace">JetBrains Mono</option>
+            <option value="'Fira Code', 'JetBrains Mono', monospace">Fira Code</option>
+            <option value="'Maple Mono', 'JetBrains Mono', monospace">Maple Mono</option>
+            <option value="'Cascadia Code', 'Consolas', monospace">Cascadia Code</option>
+            <option value="'IBM Plex Mono', 'SF Mono', monospace">IBM Plex Mono</option>
+            <option value="'Monaspace Neon', 'Monaco', monospace">Monaspace Neon</option>
+            <option value="'SF Mono', 'Menlo', 'Monaco', monospace">SF Mono / Menlo</option>
             <option value="'Source Code Pro', monospace">Source Code Pro</option>
             <option value="'Consolas', monospace">Consolas</option>
             <option value="monospace">系统等宽字体</option>
           </select>
         </div>
+
+        <div class="settings-item">
+          <label class="settings-label">预览</label>
+          <div class="font-preview" :style="{ fontSize: `${settingsStore.fontSize}px`, fontFamily: settingsStore.fontFamily }">
+            const hello = "你好，世界";
+            <br>
+            console.log(hello);
+          </div>
+        </div>
       </div>
 
-      <!-- 编辑器设置 -->
       <div class="settings-section">
         <h4 class="settings-section-title">编辑器</h4>
-        
+
         <div class="settings-item">
           <label class="settings-label">自动保存</label>
           <label class="settings-checkbox">
-            <input
-              type="checkbox"
-              :checked="settingsStore.autoSaveEnabled"
-              @change="setAutoSave($event)"
-            />
+            <input type="checkbox" :checked="settingsStore.autoSaveEnabled" @change="setAutoSave($event)" />
             <span class="checkbox-text">启用自动保存</span>
           </label>
         </div>
 
         <div class="settings-item" v-if="settingsStore.autoSaveEnabled">
           <label class="settings-label">自动保存间隔</label>
-          <select
-            class="settings-select"
-            :value="settingsStore.autoSaveInterval"
-            @change="setAutoSaveInterval($event)"
-          >
+          <select class="settings-select" :value="settingsStore.autoSaveInterval" @change="setAutoSaveInterval($event)">
             <option :value="10">10 秒</option>
             <option :value="30">30 秒</option>
             <option :value="60">1 分钟</option>
@@ -160,26 +95,17 @@
 
         <div class="settings-item">
           <label class="settings-label">缩进</label>
-          <select
-            class="settings-select"
-            :value="settingsStore.tabSize"
-            @change="setTabSize($event)"
-          >
+          <select class="settings-select" :value="settingsStore.tabSize" @change="setTabSize($event)">
             <option :value="2">2 空格</option>
             <option :value="4">4 空格</option>
             <option :value="8">8 空格</option>
-            <option :value="1">1 Tab</option>
           </select>
         </div>
 
         <div class="settings-item">
           <label class="settings-label">显示缩略图</label>
           <label class="settings-checkbox">
-            <input
-              type="checkbox"
-              :checked="settingsStore.minimap"
-              @change="setMinimap($event)"
-            />
+            <input type="checkbox" :checked="settingsStore.minimap" @change="setMinimap($event)" />
             <span class="checkbox-text">显示代码缩略图</span>
           </label>
         </div>
@@ -187,11 +113,7 @@
         <div class="settings-item">
           <label class="settings-label">自动换行</label>
           <label class="settings-checkbox">
-            <input
-              type="checkbox"
-              :checked="settingsStore.wordWrap"
-              @change="setWordWrap($event)"
-            />
+            <input type="checkbox" :checked="settingsStore.wordWrap" @change="setWordWrap($event)" />
             <span class="checkbox-text">启用自动换行</span>
           </label>
         </div>
@@ -206,20 +128,17 @@ import { useSettingsStore } from '@/stores/settings';
 const settingsStore = useSettingsStore();
 
 const emit = defineEmits<{
-  'close': [];
+  close: [];
 }>();
 
-// 主题设置
 const setTheme = (theme: 'light' | 'dark' | 'system') => {
   settingsStore.updateSettings({ theme });
 };
 
 const setMonacoTheme = (event: Event) => {
-  const target = event.target as HTMLSelectElement;
-  settingsStore.updateSettings({ monacoTheme: target.value as 'vs' | 'vs-dark' | 'hc-black' });
+  settingsStore.updateSettings({ monacoTheme: (event.target as HTMLSelectElement).value as 'vs' | 'vs-dark' | 'hc-black' });
 };
 
-// 字体设置
 const increaseFontSize = () => {
   settingsStore.adjustFontSize(1);
 };
@@ -233,34 +152,27 @@ const resetFontSize = () => {
 };
 
 const setFontFamily = (event: Event) => {
-  const target = event.target as HTMLSelectElement;
-  settingsStore.updateSettings({ fontFamily: target.value });
+  settingsStore.updateSettings({ fontFamily: (event.target as HTMLSelectElement).value });
 };
 
-// 编辑器设置
 const setAutoSave = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  settingsStore.updateSettings({ autoSaveEnabled: target.checked });
+  settingsStore.updateSettings({ autoSaveEnabled: (event.target as HTMLInputElement).checked });
 };
 
 const setAutoSaveInterval = (event: Event) => {
-  const target = event.target as HTMLSelectElement;
-  settingsStore.updateSettings({ autoSaveInterval: Number(target.value) });
+  settingsStore.updateSettings({ autoSaveInterval: Number((event.target as HTMLSelectElement).value) });
 };
 
 const setTabSize = (event: Event) => {
-  const target = event.target as HTMLSelectElement;
-  settingsStore.updateSettings({ tabSize: Number(target.value) });
+  settingsStore.updateSettings({ tabSize: Number((event.target as HTMLSelectElement).value) });
 };
 
 const setMinimap = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  settingsStore.updateSettings({ minimap: target.checked });
+  settingsStore.updateSettings({ minimap: (event.target as HTMLInputElement).checked });
 };
 
 const setWordWrap = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  settingsStore.updateSettings({ wordWrap: target.checked });
+  settingsStore.updateSettings({ wordWrap: (event.target as HTMLInputElement).checked });
 };
 </script>
 
@@ -269,42 +181,39 @@ const setWordWrap = (event: Event) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--n-color, #252526);
+  background: var(--panel, #101726);
 }
 
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--n-border-color, #333);
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .settings-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--n-text-color, #fff);
   margin: 0;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .settings-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 12px;
   background: transparent;
-  border: none;
-  border-radius: 4px;
+  color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  color: var(--n-text-color, #999);
-  transition: background 0.15s, color 0.15s;
 }
 
 .settings-close:hover {
-  background: var(--n-hover-color, #2a2d2e);
-  color: var(--n-text-color, #fff);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .settings-content {
@@ -314,18 +223,16 @@ const setWordWrap = (event: Event) => {
 }
 
 .settings-section {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .settings-section-title {
+  margin: 0 0 14px;
+  color: var(--text-muted, #94a3b8);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--n-text-color, #999);
-  margin: 0 0 12px 0;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--n-border-color, #333);
+  letter-spacing: 0.08em;
 }
 
 .settings-item {
@@ -334,152 +241,85 @@ const setWordWrap = (event: Event) => {
 
 .settings-label {
   display: block;
-  font-size: 13px;
-  color: var(--n-text-color, #ccc);
   margin-bottom: 8px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 13px;
+}
+
+.settings-select,
+.font-preview,
+.theme-btn,
+.font-size-control,
+.settings-checkbox {
+  border-radius: 14px;
+}
+
+.settings-select,
+.font-preview {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #f8fafc);
 }
 
 .theme-selector {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .theme-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 1;
-  padding: 12px;
-  background: var(--n-hover-color, #2a2d2e);
-  border: 2px solid transparent;
-  border-radius: 8px;
+  height: 42px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  color: var(--n-text-color, #ccc);
-  transition: all 0.2s;
-}
-
-.theme-btn:hover {
-  background: var(--n-active-color, #37373d);
 }
 
 .theme-btn.active {
-  border-color: #007acc;
-  background: var(--n-active-color, #37373d);
-  color: var(--n-text-color, #fff);
-}
-
-.theme-btn span {
-  font-size: 12px;
-}
-
-.settings-select {
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--n-hover-color, #2a2d2e);
-  border: 1px solid var(--n-border-color, #333);
-  border-radius: 4px;
-  color: var(--n-text-color, #fff);
-  font-size: 13px;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.settings-select:hover {
-  border-color: #007acc;
-}
-
-.settings-select:focus {
-  border-color: #007acc;
-}
-
-.settings-select option {
-  background: var(--n-color, #252526);
-  color: var(--n-text-color, #fff);
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent-blue-strong, #4dabff), #38bdf8);
+  color: #fff;
 }
 
 .font-size-control {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
 }
 
-.font-size-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: var(--n-hover-color, #2a2d2e);
-  border: 1px solid var(--n-border-color, #333);
-  border-radius: 4px;
+.font-size-btn,
+.font-size-reset {
+  height: 34px;
+  min-width: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary, #f8fafc);
   cursor: pointer;
-  color: var(--n-text-color, #ccc);
-  transition: all 0.15s;
-}
-
-.font-size-btn:hover {
-  background: var(--n-active-color, #37373d);
-  border-color: #007acc;
 }
 
 .font-size-value {
-  flex: 1;
+  min-width: 62px;
   text-align: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--n-text-color, #fff);
-  padding: 8px 0;
-  background: var(--n-hover-color, #2a2d2e);
-  border-radius: 4px;
-}
-
-.font-size-reset {
-  padding: 6px 12px;
-  background: transparent;
-  border: 1px solid var(--n-border-color, #333);
-  border-radius: 4px;
-  color: var(--n-text-color, #999);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.font-size-reset:hover {
-  border-color: #007acc;
-  color: var(--n-text-color, #fff);
 }
 
 .font-preview {
-  padding: 12px;
-  background: var(--n-hover-color, #2a2d2e);
-  border: 1px solid var(--n-border-color, #333);
-  border-radius: 4px;
-  color: var(--n-text-color, #ccc);
-  line-height: 1.6;
-  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.7;
 }
 
 .settings-checkbox {
   display: flex;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.settings-checkbox input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: #007acc;
-}
-
-.checkbox-text {
-  font-size: 13px;
-  color: var(--n-text-color, #ccc);
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-secondary, #cbd5e1);
 }
 </style>

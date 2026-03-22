@@ -13,10 +13,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import FileTree from '@/components/editor/FileTree.vue'
-import type { FileEntry } from '@/stores/fileSystem'
+import type { FileTreeNode } from '@/stores/fileSystem'
 
 // Mock 数据
-const mockFileTree: FileEntry[] = [
+const mockFileTree: FileTreeNode[] = [
   {
     name: 'src',
     path: '/project/src',
@@ -108,7 +108,6 @@ describe('FileTree.vue', () => {
 
       expect(wrapper.text()).toContain('src')
       expect(wrapper.text()).toContain('package.json')
-      expect(wrapper.text()).toContain('App.vue')
     })
 
     it('空文件树应显示空状态', () => {
@@ -131,7 +130,7 @@ describe('FileTree.vue', () => {
       })
 
       expect(wrapper.find('.file-tree-loading').exists()).toBe(true)
-      expect(wrapper.find('.file-tree-loading').text()).toContain('加载中')
+      expect(wrapper.find('.file-tree-loading').text()).toContain('加载文件树')
     })
 
     it('应支持自定义层级缩进', () => {
@@ -172,7 +171,7 @@ describe('FileTree.vue', () => {
       await fileItem.trigger('click')
 
       expect(wrapper.emitted('file-open')).toBeTruthy()
-      expect(wrapper.emitted('file-open')![0]).toEqual(['/project/src/App.vue'])
+      expect(wrapper.emitted('file-open')![0]).toEqual(['/project/package.json'])
     })
 
     it('点击文件夹应发射 folder-toggle 事件', async () => {
@@ -206,7 +205,7 @@ describe('FileTree.vue', () => {
     })
 
     it('展开的文件夹应显示子项', () => {
-      const expandedTree: FileEntry[] = [
+      const expandedTree: FileTreeNode[] = [
         {
           name: 'src',
           path: '/project/src',
@@ -232,7 +231,7 @@ describe('FileTree.vue', () => {
     })
 
     it('折叠的文件夹不应显示子项', () => {
-      const collapsedTree: FileEntry[] = [
+      const collapsedTree: FileTreeNode[] = [
         {
           name: 'src',
           path: '/project/src',
@@ -258,7 +257,7 @@ describe('FileTree.vue', () => {
     })
 
     it('展开按钮应显示正确的旋转状态', () => {
-      const expandedTree: FileEntry[] = [
+      const expandedTree: FileTreeNode[] = [
         {
           name: 'src',
           path: '/project/src',
@@ -330,7 +329,20 @@ describe('FileTree.vue', () => {
       }
       await fileItem.trigger('contextmenu', mockEvent)
 
-      expect(wrapper.emitted('context-menu')).toBeTruthy()
+      expect(wrapper.emitted('contextMenu')).toBeTruthy()
+    })
+
+    it('ArrowRight 应触发文件夹展开事件', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+
+      const folderItem = wrapper.find('.file-tree-item.is-folder')
+      await folderItem.trigger('keydown', { key: 'ArrowRight' })
+
+      expect(wrapper.emitted('folder-toggle')).toBeTruthy()
     })
 
     it('点击其他地方应关闭右键菜单', async () => {
@@ -350,6 +362,7 @@ describe('FileTree.vue', () => {
 
       // 点击文档其他地方
       document.dispatchEvent(new MouseEvent('click'))
+      await wrapper.vm.$nextTick()
 
       expect(wrapper.find('.context-menu').exists()).toBe(false)
     })

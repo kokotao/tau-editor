@@ -11,53 +11,59 @@
 
     <div class="status-right">
       <div class="status-item" v-if="autoSaveEnabled">
-        <span class="status-icon">💾</span>
+        <span class="status-dot"></span>
         <span class="status-label" data-testid="auto-save-label">自动保存</span>
         <span class="status-value" data-testid="auto-save-status" v-if="lastSaveTime">
           {{ formatLastSaveTime(lastSaveTime) }}
         </span>
       </div>
       <div class="status-item">
-        <select
-          class="status-select"
-          data-testid="theme-select"
-          :value="monacoTheme"
-          @change="handleThemeChange"
-          title="编辑器主题"
-        >
-          <option value="vs">Light (vs)</option>
-          <option value="vs-dark">Dark (vs-dark)</option>
-          <option value="hc-black">High Contrast (hc-black)</option>
-        </select>
+        <label class="status-pill">
+          <span class="pill-prefix">主题</span>
+          <select
+            class="status-select"
+            data-testid="theme-select"
+            :value="monacoTheme"
+            @change="handleThemeChange"
+            title="编辑器主题"
+          >
+            <option value="vs">明亮</option>
+            <option value="vs-dark">暗夜</option>
+            <option value="hc-black">高对比</option>
+          </select>
+        </label>
       </div>
       <div class="status-item">
-        <select
-          class="status-select"
-          data-testid="language-mode-display"
-          :value="language"
-          @change="handleLanguageChange"
-          title="语言模式"
-        >
-          <option value="plaintext">Plain Text</option>
-          <option value="javascript">JavaScript</option>
-          <option value="typescript">TypeScript</option>
-          <option value="python">Python</option>
-          <option value="java">Java</option>
-          <option value="c">C</option>
-          <option value="cpp">C++</option>
-          <option value="csharp">C#</option>
-          <option value="go">Go</option>
-          <option value="rust">Rust</option>
-          <option value="html">HTML</option>
-          <option value="css">CSS</option>
-          <option value="scss">SCSS</option>
-          <option value="json">JSON</option>
-          <option value="xml">XML</option>
-          <option value="markdown">Markdown</option>
-          <option value="yaml">YAML</option>
-          <option value="sql">SQL</option>
-          <option value="shell">Shell</option>
-        </select>
+        <label class="status-pill language-pill">
+          <span class="pill-prefix">语言</span>
+          <select
+            class="status-select"
+            data-testid="language-mode-display"
+            :value="language"
+            @change="handleLanguageChange"
+            title="语言模式"
+          >
+            <option value="plaintext">Plain Text</option>
+            <option value="javascript">JavaScript</option>
+            <option value="typescript">TypeScript</option>
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+            <option value="c">C</option>
+            <option value="cpp">C++</option>
+            <option value="csharp">C#</option>
+            <option value="go">Go</option>
+            <option value="rust">Rust</option>
+            <option value="html">HTML</option>
+            <option value="css">CSS</option>
+            <option value="scss">SCSS</option>
+            <option value="json">JSON</option>
+            <option value="xml">XML</option>
+            <option value="markdown">Markdown</option>
+            <option value="yaml">YAML</option>
+            <option value="sql">SQL</option>
+            <option value="shell">Shell</option>
+          </select>
+        </label>
       </div>
       <div class="status-item">
         <span class="status-label" data-testid="line-count">Ln {{ lineCount }}</span>
@@ -69,9 +75,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useEditorStore } from '@/stores/editor';
-import { useSettingsStore } from '@/stores/settings';
 
-// Props
 interface StatusBarProps {
   cursorPosition?: { line: number; column: number };
   encoding?: string;
@@ -81,7 +85,7 @@ interface StatusBarProps {
   lastSaveTime?: Date;
 }
 
-const props = withDefaults(defineProps<StatusBarProps>(), {
+withDefaults(defineProps<StatusBarProps>(), {
   cursorPosition: () => ({ line: 1, column: 1 }),
   encoding: 'utf-8',
   language: 'plaintext',
@@ -90,29 +94,21 @@ const props = withDefaults(defineProps<StatusBarProps>(), {
   lastSaveTime: undefined,
 });
 
-// Emits
 const emit = defineEmits<{
   'encoding-change': [encoding: string];
   'language-change': [language: string];
   'theme-change': [theme: string];
 }>();
 
-// Stores
 const editorStore = useEditorStore();
-const settingsStore = useSettingsStore();
-
-// Computed
 const lineCount = computed(() => editorStore.lineCount);
 
-// Methods
 const handleLanguageChange = (event: Event) => {
-  const target = event.target as HTMLSelectElement;
-  emit('language-change', target.value);
+  emit('language-change', (event.target as HTMLSelectElement).value);
 };
 
 const handleThemeChange = (event: Event) => {
-  const target = event.target as HTMLSelectElement;
-  emit('theme-change', target.value);
+  emit('theme-change', (event.target as HTMLSelectElement).value);
 };
 
 const formatLastSaveTime = (date: Date) => {
@@ -122,15 +118,10 @@ const formatLastSaveTime = (date: Date) => {
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
 
-  if (seconds < 60) {
-    return '刚刚';
-  } else if (minutes < 60) {
-    return `${minutes}分钟前`;
-  } else if (hours < 24) {
-    return `${hours}小时前`;
-  } else {
-    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  }
+  if (seconds < 60) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  if (hours < 24) return `${hours}小时前`;
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 };
 </script>
 
@@ -139,12 +130,14 @@ const formatLastSaveTime = (date: Date) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 24px;
-  padding: 0 12px;
-  background: var(--n-color, #007acc);
-  color: var(--n-text-color, #fff);
+  min-height: 40px;
+  padding: 0 14px;
+  background:
+    linear-gradient(90deg, rgba(76, 146, 255, 0.24), rgba(46, 204, 113, 0.12)),
+    var(--panel-elevated, #111827);
+  color: var(--text-primary, #f8fafc);
   font-size: 12px;
-  border-top: 1px solid var(--n-border-color, #005a9e);
+  border-top: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
 }
 
 .status-left,
@@ -158,36 +151,58 @@ const formatLastSaveTime = (date: Date) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
+  min-height: 28px;
 }
 
 .status-label {
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 .status-value {
-  opacity: 0.7;
+  opacity: 0.74;
   font-size: 11px;
 }
 
-.status-icon {
-  font-size: 12px;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #4ade80;
+  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pill-prefix {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .status-select {
-  background: transparent;
-  border: none;
-  color: inherit;
-  font-size: inherit;
-  cursor: pointer;
-  outline: none;
+  min-width: 72px;
   padding: 0;
   margin: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
   appearance: none;
 }
 
 .status-select option {
-  background: #252526;
+  background: #1b2230;
   color: #fff;
 }
 </style>

@@ -1,6 +1,6 @@
 <template>
-  <div class="file-tree">
-    <div class="file-tree-header">
+  <div class="file-tree" role="tree">
+    <div v-if="!nested" class="file-tree-header">
       <span class="file-tree-title">资源管理器</span>
       <button class="file-tree-action" @click="emit('refresh')" title="刷新">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -20,17 +20,24 @@
         <div
           v-memo="[entry.path, entry.isExpanded, selectedPath === entry.path, level]"
           class="file-tree-item"
+          role="treeitem"
+          tabindex="0"
+          :data-node-path="entry.path"
+          :data-testid="entry.type === 'folder' ? 'tree-folder' : 'tree-file'"
+          :aria-expanded="entry.type === 'folder' ? Boolean(entry.isExpanded) : undefined"
           :class="{
             selected: entry.path === selectedPath,
             'is-folder': entry.type === 'folder',
           }"
           :style="{ paddingLeft: (level * 16 + 8) + 'px' }"
           @click="handleClick(entry)"
+          @keydown="handleItemKeyDown($event, entry)"
           @contextmenu.prevent="handleContextMenu($event, entry)"
         >
           <button
             v-if="entry.type === 'folder'"
             class="folder-toggle"
+            :data-testid="`folder-toggle-${entry.isExpanded ? 'expanded' : 'collapsed'}`"
             @click.stop="toggleFolder(entry)"
           >
             <svg
@@ -48,7 +55,29 @@
           <span v-else class="file-indent"></span>
 
           <span class="file-icon">
-            <svg v-if="entry.type === 'folder'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              v-if="entry.type === 'folder' && entry.isExpanded"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              data-testid="folder-icon-open"
+            >
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
+              <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            </svg>
+            <svg
+              v-else-if="entry.type === 'folder'"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              data-testid="folder-icon-closed"
+            >
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
             <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -68,6 +97,7 @@
           <FileTree
             :file-tree="entry.children"
             :level="level + 1"
+            :nested="true"
             :selected-path="selectedPath"
             @file-open="(path) => emit('file-open', path)"
             @folder-toggle="(path) => emit('folder-toggle', path)"
@@ -111,8 +141,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
-import type { FileEntry } from '@/lib/tauri';
+import { ref, onMounted, onUnmounted } from 'vue';
 import type { FileTreeNode } from '@/stores/fileSystem';
 import LoadingSpinner from '../ui/LoadingSpinner.vue';
 
@@ -122,36 +151,15 @@ interface FileTreeProps {
   level?: number;
   selectedPath?: string | null;
   loading?: boolean;
+  nested?: boolean;
 }
 
 const props = withDefaults(defineProps<FileTreeProps>(), {
   level: 0,
   selectedPath: null,
   loading: false,
+  nested: false,
 });
-
-// 性能优化：缓存文件图标渲染函数
-const getFileIcon = (entry: FileTreeNode) => {
-  if (entry.type === 'folder') {
-    return 'folder';
-  }
-  // 根据文件扩展名返回不同图标
-  const ext = entry.name.split('.').pop()?.toLowerCase();
-  const iconMap: Record<string, string> = {
-    'js': 'javascript',
-    'ts': 'typescript',
-    'vue': 'vue',
-    'py': 'python',
-    'rs': 'rust',
-    'md': 'markdown',
-    'json': 'json',
-    'html': 'html',
-    'css': 'css',
-    'yml': 'yaml',
-    'yaml': 'yaml',
-  };
-  return iconMap[ext || ''] || 'file';
-};
 
 // Emits
 const emit = defineEmits<{
@@ -184,6 +192,61 @@ const handleClick = (entry: FileTreeNode) => {
 
 const toggleFolder = (entry: FileTreeNode) => {
   emit('folder-toggle', entry.path);
+};
+
+const focusNodeByPath = (targetPath: string) => {
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>('.file-tree-item[data-node-path]'));
+  const target = nodes.find((node) => node.dataset.nodePath === targetPath);
+  target?.focus();
+};
+
+const getParentPath = (path: string) => {
+  const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  if (index <= 0) {
+    return '';
+  }
+  return path.slice(0, index);
+};
+
+const handleItemKeyDown = (event: KeyboardEvent, entry: FileTreeNode) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    handleClick(entry);
+    return;
+  }
+
+  const siblings = props.fileTree;
+  const currentIndex = siblings.findIndex((item) => item.path === entry.path);
+  if (event.key === 'ArrowDown' && currentIndex < siblings.length - 1) {
+    event.preventDefault();
+    focusNodeByPath(siblings[currentIndex + 1]!.path);
+    return;
+  }
+
+  if (event.key === 'ArrowUp' && currentIndex > 0) {
+    event.preventDefault();
+    focusNodeByPath(siblings[currentIndex - 1]!.path);
+    return;
+  }
+
+  if (event.key === 'ArrowRight' && entry.type === 'folder' && !entry.isExpanded) {
+    event.preventDefault();
+    toggleFolder(entry);
+    return;
+  }
+
+  if (event.key === 'ArrowLeft') {
+    if (entry.type === 'folder' && entry.isExpanded) {
+      event.preventDefault();
+      toggleFolder(entry);
+      return;
+    }
+    const parentPath = getParentPath(entry.path);
+    if (parentPath) {
+      event.preventDefault();
+      focusNodeByPath(parentPath);
+    }
+  }
 };
 
 const handleContextMenu = (event: MouseEvent, entry: FileTreeNode) => {
@@ -300,6 +363,7 @@ onUnmounted(() => {
   color: var(--n-text-color, #ccc);
   font-size: 13px;
   transition: background 0.15s;
+  outline: none;
 }
 
 .file-tree-item:hover {
@@ -308,6 +372,10 @@ onUnmounted(() => {
 
 .file-tree-item.selected {
   background: var(--n-active-color, #37373d);
+}
+
+.file-tree-item:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(77, 171, 255, 0.9);
 }
 
 .folder-toggle {

@@ -70,7 +70,7 @@ export function createCommandRegistry(actions: CommandActions): AppCommand[] {
       id: 'view.toggleSidebar',
       title: '切换资源管理器',
       category: 'view',
-      keywords: ['sidebar', 'explorer'],
+      keywords: ['sidebar', 'explorer', 'drawer', 'split', 'panel'],
       run: actions.toggleSidebar,
     },
     {
