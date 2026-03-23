@@ -169,7 +169,7 @@ const SettingsPanelStub = defineComponent({
 })
 
 const MarkdownPreviewStub = defineComponent({
-  props: ['content', 'theme', 'sourceFilePath'],
+  props: ['content', 'theme', 'sourceFilePath', 'editorScrollState'],
   emits: ['request-preview-mode-change'],
   template: `
     <div
@@ -274,7 +274,7 @@ describe('AppShell', () => {
     })
   })
 
-  it('左下角应显示统一控制组并支持作者弹窗', async () => {
+  it('左下角应显示统一控制组且仅保留侧栏按钮', async () => {
     const wrapper = shallowMount(App, {
       global: {
         stubs: {
@@ -288,12 +288,46 @@ describe('AppShell', () => {
 
     expect(wrapper.find('[data-testid="left-bottom-controls"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="btn-sidebar-collapse"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="btn-author-entry"]').exists()).toBe(false)
 
     await wrapper.find('[data-testid="btn-sidebar-collapse"]').trigger('click')
     expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({ sidebarCollapsed: true })
+  })
 
-    expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(false)
-    await wrapper.find('[data-testid="btn-author-entry"]').trigger('click')
-    expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(true)
+  it('markdown 分栏模式下应将编辑滚动状态同步给预览', async () => {
+    storeMocks.tabs.activeTab = {
+      id: 'tab-1',
+      fileName: 'README.md',
+      filePath: '/workspace/README.md',
+      content: '# title\n\ncontent',
+      language: 'markdown',
+      isDirty: false,
+    }
+    storeMocks.tabs.tabs = [storeMocks.tabs.activeTab]
+    storeMocks.tabs.activeTabId = 'tab-1'
+    storeMocks.settings.markdownPreviewEnabled = true
+    storeMocks.settings.markdownPreviewMode = 'split'
+
+    const wrapper = shallowMount(App, {
+      global: {
+        stubs: {
+          Toolbar: ToolbarStub,
+          SettingsPanel: SettingsPanelStub,
+          MarkdownPreview: MarkdownPreviewStub,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const editorCore = wrapper.findComponent({ name: 'EditorCore' })
+    expect(editorCore.exists()).toBe(true)
+
+    const nextScrollState = { top: 120, height: 300, scrollHeight: 900 }
+    editorCore.vm.$emit('scroll-change', nextScrollState)
+    await flushPromises()
+
+    const preview = wrapper.findComponent(MarkdownPreviewStub)
+    expect(preview.props('editorScrollState')).toEqual(nextScrollState)
   })
 })

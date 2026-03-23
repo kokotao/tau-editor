@@ -1,6 +1,6 @@
 <template>
   <div class="editor-tabs" data-testid="editor-tabs">
-    <div class="tabs-container" data-testid="tab-bar">
+    <div ref="tabsContainerRef" class="tabs-container" data-testid="tab-bar" @wheel="handleTabsWheel">
       <div
         v-for="tab in props.tabs"
         :key="tab.id"
@@ -103,6 +103,7 @@ const contextMenu = ref({
 });
 
 const renameInput = ref<HTMLInputElement | null>(null);
+const tabsContainerRef = ref<HTMLDivElement | null>(null);
 const renameState = ref({
   tabId: null as string | null,
   value: '',
@@ -182,6 +183,24 @@ const closeContextMenu = () => {
   contextMenu.value.visible = false;
 };
 
+const handleTabsWheel = (event: WheelEvent) => {
+  const container = tabsContainerRef.value;
+  if (!container || container.scrollWidth <= container.clientWidth) {
+    return;
+  }
+
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!delta) {
+    return;
+  }
+
+  const previousScrollLeft = container.scrollLeft;
+  container.scrollLeft += delta;
+  if (container.scrollLeft !== previousScrollLeft) {
+    event.preventDefault();
+  }
+};
+
 onMounted(() => {
   document.addEventListener('click', closeContextMenu);
 });
@@ -208,6 +227,12 @@ onUnmounted(() => {
   padding: 0 12px;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tabs-container::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {

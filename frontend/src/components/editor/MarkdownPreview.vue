@@ -1,5 +1,10 @@
 <template>
-  <div class="markdown-preview" data-testid="markdown-preview" @contextmenu.prevent="handleContextMenu">
+  <div
+    ref="previewScrollRef"
+    class="markdown-preview"
+    data-testid="markdown-preview"
+    @contextmenu.prevent="handleContextMenu"
+  >
     <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
     <div
       v-if="contextMenu.visible"
@@ -35,6 +40,7 @@ interface MarkdownPreviewProps {
   content: string;
   theme: 'dark' | 'light';
   sourceFilePath?: string | null;
+  editorScrollState?: { top: number; height: number; scrollHeight: number } | null;
 }
 
 type MarkdownPreviewContextTarget =
@@ -59,15 +65,18 @@ const MENU_ITEM_HEIGHT = 36;
 
 const props = withDefaults(defineProps<MarkdownPreviewProps>(), {
   sourceFilePath: null,
+  editorScrollState: null,
 });
 const emit = defineEmits<{
   'request-preview-mode-change': [mode: 'edit' | 'split' | 'preview'];
 }>();
 
 const previewRef = ref<HTMLElement | null>(null);
+const previewScrollRef = ref<HTMLElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 const html = ref('');
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
+const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 const contextMenu = ref({
   visible: false,
   x: 0,
@@ -417,6 +426,24 @@ const runMenuItem = async (item: PreviewMenuItem) => {
   }
 };
 
+const syncPreviewScroll = (state: { top: number; height: number; scrollHeight: number }) => {
+  const previewContainer = previewScrollRef.value;
+  if (!previewContainer) {
+    return;
+  }
+
+  const editorScrollable = Math.max(0, state.scrollHeight - state.height);
+  const previewScrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+
+  if (previewScrollable <= 0 || editorScrollable <= 0) {
+    previewContainer.scrollTop = 0;
+    return;
+  }
+
+  const ratio = Math.min(1, Math.max(0, state.top / editorScrollable));
+  previewContainer.scrollTop = previewScrollable * ratio;
+};
+
 const scheduleRender = () => {
   if (renderTimer) {
     clearTimeout(renderTimer);
@@ -428,6 +455,9 @@ const scheduleRender = () => {
     if (previewRef.value) {
       await renderMermaidDiagrams(previewRef.value, props.theme);
     }
+    if (latestEditorScrollState.value) {
+      syncPreviewScroll(latestEditorScrollState.value);
+    }
   }, 150);
 };
 
@@ -438,6 +468,18 @@ watch(
     scheduleRender();
   },
   { immediate: true },
+);
+
+watch(
+  () => props.editorScrollState,
+  (state) => {
+    if (!state) {
+      return;
+    }
+    latestEditorScrollState.value = state;
+    syncPreviewScroll(state);
+  },
+  { deep: true },
 );
 
 onMounted(() => {

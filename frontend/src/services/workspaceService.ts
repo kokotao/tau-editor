@@ -34,6 +34,8 @@ function detectLanguage(fileName: string): string {
     yml: 'yaml',
     sql: 'sql',
     sh: 'shell',
+    bat: 'shell',
+    cmd: 'shell',
     go: 'go',
     c: 'c',
     cpp: 'cpp',

@@ -38,7 +38,7 @@
 
     <div class="file-tree-content" v-if="!loading">
       <div
-        v-for="entry in fileTree"
+        v-for="entry in displayedTree"
         :key="entry.path"
         class="file-tree-node"
       >
@@ -132,7 +132,7 @@
         </div>
       </div>
 
-      <div v-if="fileTree.length === 0" class="file-tree-empty">
+      <div v-if="displayedTree.length === 0" class="file-tree-empty">
         <div class="empty-title">{{ copy.emptyTitle }}</div>
         <div class="empty-hint">{{ copy.emptyHint }}</div>
       </div>
@@ -194,6 +194,7 @@ const props = withDefaults(defineProps<FileTreeProps>(), {
 const settingsStore = useSettingsStore();
 const copy = computed(() => getFileTreeI18n(settingsStore.uiLanguage));
 const searchQuery = ref('');
+const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCase());
 
 // Emits
 const emit = defineEmits<{
@@ -213,6 +214,44 @@ const contextMenu = ref({
   x: 0,
   y: 0,
   entry: null as FileTreeNode | null,
+});
+
+const filterTreeByQuery = (entries: FileTreeNode[], query: string): FileTreeNode[] => {
+  if (!query) {
+    return entries;
+  }
+
+  const results: FileTreeNode[] = [];
+  for (const entry of entries) {
+    const childEntries = entry.children ?? [];
+    const filteredChildren = childEntries.length ? filterTreeByQuery(childEntries, query) : [];
+    const selfMatches = entry.name.toLowerCase().includes(query) || entry.path.toLowerCase().includes(query);
+
+    if (!selfMatches && filteredChildren.length === 0) {
+      continue;
+    }
+
+    if (entry.type === 'folder') {
+      results.push({
+        ...entry,
+        isExpanded: true,
+        children: selfMatches ? childEntries : filteredChildren,
+      });
+      continue;
+    }
+
+    results.push(entry);
+  }
+
+  return results;
+};
+
+const displayedTree = computed(() => {
+  const query = normalizedSearchQuery.value;
+  if (!query) {
+    return props.fileTree;
+  }
+  return filterTreeByQuery(props.fileTree, query);
 });
 
 // Methods
@@ -249,7 +288,7 @@ const handleItemKeyDown = (event: KeyboardEvent, entry: FileTreeNode) => {
     return;
   }
 
-  const siblings = props.fileTree;
+  const siblings = displayedTree.value;
   const currentIndex = siblings.findIndex((item) => item.path === entry.path);
   if (event.key === 'ArrowDown' && currentIndex < siblings.length - 1) {
     event.preventDefault();

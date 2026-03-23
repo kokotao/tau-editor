@@ -13,7 +13,7 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
-import { getAppI18n, getAuthorInfoI18n } from '@/i18n/ui';
+import { getAppI18n, getCommandText, type CommandId, type SystemMenuAction } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
@@ -53,7 +53,12 @@ const MAX_SIDEBAR_WIDTH = 420;
 const isResizingSidebar = ref(false);
 const sidebarWidth = ref(300);
 const showSettingsPanel = ref(false);
-const showAuthorModal = ref(false);
+const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
+type EditorCoreExpose = {
+  triggerFindWidget: () => void;
+  triggerGoToLine: () => void;
+};
+const editorCoreRef = ref<EditorCoreExpose | null>(null);
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -82,7 +87,6 @@ const wordCount = computed(() => {
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
-const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => workspaceStore.currentWorkspaceName ?? appText.value.workspaceNotOpen);
 const currentFileLabel = computed(() => {
   if (!activeTab.value) {
@@ -210,17 +214,58 @@ const handleCursorChange = (position: { line: number; column: number }) => {
   editorStore.updateCursorPosition(position.line, position.column);
 };
 
+const handleEditorScrollChange = (state: { top: number; height: number; scrollHeight: number }) => {
+  if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
+    return;
+  }
+  editorScrollState.value = state;
+};
+
 const handleLanguageChange = (languageId: string) => {
   tabService.updateActiveTabLanguage(languageId);
+};
+
+const handleEncodingChange = (encodingName: string) => {
+  editorStore.setEncoding(encodingName);
 };
 
 const handleThemeChange = (theme: string) => {
   settingsStore.updateSettings({ monacoTheme: theme as 'vs' | 'vs-dark' | 'hc-black' });
 };
 
+const handleSystemAction = (action: SystemMenuAction) => {
+  switch (action) {
+    case 'open-command-palette':
+      void executeCommand('commandPalette.open');
+      break;
+    case 'toggle-explorer':
+      void executeCommand('view.toggleSidebar');
+      break;
+    case 'toggle-settings':
+      void executeCommand('view.toggleSettings');
+      break;
+    case 'refresh-workspace':
+      void handleRefresh();
+      break;
+    default:
+      break;
+  }
+};
+
 const handleOpenCommandPalette = () => {
   commandStore.openPalette();
 };
+
+const handleFindText = () => {
+  editorCoreRef.value?.triggerFindWidget();
+};
+
+const handleGoToLine = () => {
+  editorCoreRef.value?.triggerGoToLine();
+};
+
+const getLocalizedCommandTitle = (id: CommandId) =>
+  getCommandText(settingsStore.uiLanguage, id).title;
 
 const createLocalizedCommands = () => createCommandRegistry({
   newFile: handleNewFile,
@@ -228,6 +273,8 @@ const createLocalizedCommands = () => createCommandRegistry({
   openFolder: handleOpenFolder,
   save: handleSave,
   saveAs: handleSaveAs,
+  findText: handleFindText,
+  goToLine: handleGoToLine,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: handleToggleSettings,
   openCommandPalette: handleOpenCommandPalette,
@@ -275,7 +322,7 @@ const registerShortcuts = () => {
     key: 'n',
     modifiers: ['ctrl'],
     handler: () => void executeCommand('file.new'),
-    description: '新建文件',
+    description: getLocalizedCommandTitle('file.new'),
   });
 
   keyboardStore.register({
@@ -283,7 +330,7 @@ const registerShortcuts = () => {
     key: 'o',
     modifiers: ['ctrl'],
     handler: () => void executeCommand('file.open'),
-    description: '打开文件',
+    description: getLocalizedCommandTitle('file.open'),
   });
 
   keyboardStore.register({
@@ -291,7 +338,7 @@ const registerShortcuts = () => {
     key: 's',
     modifiers: ['ctrl'],
     handler: () => void executeCommand('file.save'),
-    description: '保存文件',
+    description: getLocalizedCommandTitle('file.save'),
   });
 
   keyboardStore.register({
@@ -299,14 +346,30 @@ const registerShortcuts = () => {
     key: 'p',
     modifiers: ['ctrl', 'shift'],
     handler: () => void executeCommand('commandPalette.open'),
-    description: '打开命令面板',
+    description: getLocalizedCommandTitle('commandPalette.open'),
   });
 
   keyboardStore.register({
     id: 'command-palette-f1',
     key: 'F1',
     handler: () => void executeCommand('commandPalette.open'),
-    description: '打开命令面板',
+    description: getLocalizedCommandTitle('commandPalette.open'),
+  });
+
+  keyboardStore.register({
+    id: 'search-find-text',
+    key: 'f',
+    modifiers: ['ctrl'],
+    handler: () => void executeCommand('search.findText'),
+    description: getLocalizedCommandTitle('search.findText'),
+  });
+
+  keyboardStore.register({
+    id: 'search-go-to-line',
+    key: 'g',
+    modifiers: ['ctrl'],
+    handler: () => void executeCommand('search.goToLine'),
+    description: getLocalizedCommandTitle('search.goToLine'),
   });
 
   keyboardStore.register({
@@ -314,7 +377,7 @@ const registerShortcuts = () => {
     key: 'b',
     modifiers: ['ctrl'],
     handler: handleToggleFileTree,
-    description: '切换资源管理器',
+    description: getLocalizedCommandTitle('view.toggleSidebar'),
   });
 };
 
@@ -434,6 +497,7 @@ watch(
   () => settingsStore.uiLanguage,
   () => {
     refreshLocalizedCommands();
+    registerShortcuts();
   },
 );
 
@@ -443,6 +507,13 @@ watch(
     if (tabCount === 0 && !workspacePath) {
       workspaceStore.setEmptyMode();
     }
+  },
+);
+
+watch(
+  () => [activeTabId.value, markdownPreviewMode.value],
+  () => {
+    editorScrollState.value = null;
   },
 );
 
@@ -500,6 +571,7 @@ onUnmounted(() => {
       @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
       @toggle-settings="() => executeCommand('view.toggleSettings')"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
+      @system-action="handleSystemAction"
     />
 
     <div class="main-layout">
@@ -555,14 +627,6 @@ onUnmounted(() => {
             <polyline points="9,18 15,12 9,6" />
           </svg>
         </button>
-        <button
-          class="floating-action-btn author-entry-btn"
-          data-testid="btn-author-entry"
-          :title="authorCopy.entry"
-          @click="showAuthorModal = true"
-        >
-          {{ authorCopy.entry }}
-        </button>
       </div>
 
       <section class="editor-panel">
@@ -589,6 +653,7 @@ onUnmounted(() => {
             class="editor-pane"
           >
             <EditorCore
+              ref="editorCoreRef"
               :key="activeTab.id"
               :model-id="activeTab.id"
               :value="activeTab.content"
@@ -596,6 +661,7 @@ onUnmounted(() => {
               :theme="settingsStore.monacoTheme"
               @content-change="handleContentChange"
               @cursor-change="handleCursorChange"
+              @scroll-change="handleEditorScrollChange"
               @model-save="handleSave"
             />
           </div>
@@ -606,6 +672,7 @@ onUnmounted(() => {
             :content="activeTab.content"
             :theme="previewTheme"
             :source-file-path="activeTab.filePath"
+            :editor-scroll-state="editorScrollState"
             @request-preview-mode-change="setMarkdownPreviewMode"
           />
         </div>
@@ -638,35 +705,10 @@ onUnmounted(() => {
       :word-count="wordCount"
       :auto-save-enabled="autoSaveEnabled"
       :last-save-time="lastSaveTime"
+      @encoding-change="handleEncodingChange"
       @language-change="handleLanguageChange"
       @theme-change="handleThemeChange"
     />
-
-    <div
-      v-if="showAuthorModal"
-      class="app-author-modal-overlay"
-      data-testid="author-modal-overlay"
-      @click="showAuthorModal = false"
-    >
-      <div class="app-author-modal" data-testid="author-modal" @click.stop>
-        <div class="app-author-modal-header">
-          <h4>{{ authorCopy.modalTitle }}</h4>
-          <button type="button" class="app-author-modal-close" @click="showAuthorModal = false">×</button>
-        </div>
-        <div class="app-author-modal-content">
-          <p>{{ authorCopy.nameLabel }}albert_luo</p>
-          <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
-          <a
-            class="app-author-link"
-            href="https://github.com/albertluo"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ authorCopy.githubLabel }}
-          </a>
-        </div>
-      </div>
-    </div>
 
   </div>
 </template>
@@ -746,6 +788,7 @@ body {
   flex: 1;
   min-height: 0;
   position: relative;
+  overflow: hidden;
 }
 
 .sidebar,
@@ -764,11 +807,15 @@ body {
   right: 0;
   bottom: 0;
   width: 380px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   border-left: 1px solid var(--border-soft);
   border-right: none;
   background: var(--panel-overlay);
   box-shadow: var(--shadow-overlay);
-  z-index: var(--z-drawer);
+  z-index: var(--z-drawer, 50);
 }
 
 .shell-overlay {
@@ -776,7 +823,7 @@ body {
   inset: 0;
   background: rgba(2, 6, 23, 0.48);
   backdrop-filter: blur(4px);
-  z-index: calc(var(--z-drawer) - 1);
+  z-index: calc(var(--z-drawer, 50) - 1);
 }
 
 .sidebar-empty {
@@ -897,78 +944,6 @@ body {
 .floating-action-btn:hover {
   border-color: rgba(125, 211, 252, 0.55);
   color: var(--text-primary);
-}
-
-.author-entry-btn {
-  min-width: 76px;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-
-.app-author-modal-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 18;
-  background: rgba(2, 6, 23, 0.56);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.app-author-modal {
-  width: min(360px, 92vw);
-  border-radius: 16px;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
-  background: var(--panel, #101726);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
-  overflow: hidden;
-}
-
-.app-author-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-}
-
-.app-author-modal-header h4 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.app-author-modal-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary, #cbd5e1);
-  cursor: pointer;
-}
-
-.app-author-modal-close:hover {
-  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.app-author-modal-content {
-  padding: 14px 16px 18px;
-  line-height: 1.7;
-}
-
-.app-author-modal-content p {
-  margin: 0 0 8px;
-}
-
-.app-author-link {
-  color: var(--accent-blue, #7cc7ff);
-  text-decoration: none;
-}
-
-.app-author-link:hover {
-  text-decoration: underline;
 }
 
 .hero-empty {

@@ -1,6 +1,20 @@
 export type UiLanguage = 'zh-CN' | 'en-US';
 export type CommandCategory = 'file' | 'view' | 'workspace' | 'search';
 export type MonacoThemeValue = 'vs' | 'vs-dark' | 'hc-black';
+export type EditorEncoding =
+  | 'utf-8'
+  | 'utf-16le'
+  | 'utf-16be'
+  | 'gbk'
+  | 'gb18030'
+  | 'big5'
+  | 'shift_jis'
+  | 'iso-8859-1';
+export type SystemMenuAction =
+  | 'open-command-palette'
+  | 'toggle-explorer'
+  | 'toggle-settings'
+  | 'refresh-workspace';
 export type EditorLanguageMode =
   | 'plaintext'
   | 'javascript'
@@ -28,6 +42,8 @@ export type CommandId =
   | 'file.openFolder'
   | 'file.save'
   | 'file.saveAs'
+  | 'search.findText'
+  | 'search.goToLine'
   | 'view.toggleSidebar'
   | 'view.toggleSettings';
 
@@ -48,6 +64,11 @@ interface AuthorInfoText {
   nameLabel: string;
   emailLabel: string;
   githubLabel: string;
+  donationTitle: string;
+  donationDesc: string;
+  wechatLabel: string;
+  alipayLabel: string;
+  donationTip: string;
 }
 
 interface SettingsPanelText {
@@ -124,6 +145,10 @@ interface ToolbarText {
   markdownViewPrefix: string;
   dirtyTip: string;
   settings: string;
+  systemMenu: string;
+  systemMenuTitle: string;
+  systemMenuPlaceholder: string;
+  systemMenuOptions: Record<SystemMenuAction, string>;
   previewModeLabels: Record<'edit' | 'split' | 'preview', string>;
 }
 
@@ -148,6 +173,9 @@ interface StatusBarText {
   rowCol: (line: number, column: number) => string;
   lineCount: (lineCount: number) => string;
   autoSave: string;
+  encoding: string;
+  encodingTitle: string;
+  encodingOptions: Record<EditorEncoding, string>;
   theme: string;
   editorThemeTitle: string;
   themeOptions: Record<MonacoThemeValue, string>;
@@ -187,6 +215,14 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '另存为',
       keywords: ['另存为', '导出', '保存副本', 'save as', 'export'],
     },
+    'search.findText': {
+      title: '搜索文本',
+      keywords: ['搜索', '查找', '文本', 'find', 'search', 'text'],
+    },
+    'search.goToLine': {
+      title: '跳转到行',
+      keywords: ['跳转', '行号', '定位', 'go to line', 'line'],
+    },
     'view.toggleSidebar': {
       title: '切换资源管理器',
       keywords: ['资源管理器', '侧边栏', '文件树', '面板', 'sidebar', 'explorer', 'drawer', 'split', 'panel'],
@@ -220,6 +256,14 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'file.saveAs': {
       title: 'Save As',
       keywords: ['save as', 'export', '另存为', '导出'],
+    },
+    'search.findText': {
+      title: 'Find Text',
+      keywords: ['find', 'search', 'text', '搜索', '查找'],
+    },
+    'search.goToLine': {
+      title: 'Go To Line',
+      keywords: ['go to line', 'line', 'jump', '跳转', '行号'],
     },
     'view.toggleSidebar': {
       title: 'Toggle Explorer',
@@ -262,6 +306,11 @@ const AUTHOR_INFO_TEXTS: Record<UiLanguage, AuthorInfoText> = {
     nameLabel: '作者：',
     emailLabel: '邮箱：',
     githubLabel: '开源地址：GitHub',
+    donationTitle: '公益捐赠',
+    donationDesc: '如果 Tau 编辑器帮你节省了时间，欢迎随缘捐赠。每一份支持都会用于持续维护与功能改进。',
+    wechatLabel: '微信捐赠',
+    alipayLabel: '支付宝捐赠',
+    donationTip: '感谢你的支持与善意。',
   },
   'en-US': {
     entry: 'Author',
@@ -269,6 +318,11 @@ const AUTHOR_INFO_TEXTS: Record<UiLanguage, AuthorInfoText> = {
     nameLabel: 'Author: ',
     emailLabel: 'Email: ',
     githubLabel: 'Open Source: GitHub',
+    donationTitle: 'Public Good Donation',
+    donationDesc: 'If Tau Editor saves your time, optional donations are welcome and will support ongoing maintenance.',
+    wechatLabel: 'WeChat',
+    alipayLabel: 'Alipay',
+    donationTip: 'Thank you for your support.',
   },
 };
 
@@ -353,7 +407,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
 
 const APP_TEXTS: Record<UiLanguage, AppText> = {
   'zh-CN': {
-    appLabel: '文本编辑器',
+    appLabel: 'Tau 编辑器',
     workspaceNotOpen: '未打开工作区',
     fileNotOpen: '未打开文件',
     undoTitle: '撤销',
@@ -374,7 +428,7 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     newFile: '新建文件',
   },
   'en-US': {
-    appLabel: 'Text Editor',
+    appLabel: 'Tau Editor',
     workspaceNotOpen: 'No Workspace Opened',
     fileNotOpen: 'No File Opened',
     undoTitle: 'Undo',
@@ -410,6 +464,15 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     markdownViewPrefix: 'Markdown 视图',
     dirtyTip: '当前标签未保存',
     settings: '设置',
+    systemMenu: '系统',
+    systemMenuTitle: '系统菜单',
+    systemMenuPlaceholder: '系统',
+    systemMenuOptions: {
+      'open-command-palette': '命令面板 (F1)',
+      'toggle-explorer': '切换资源管理器',
+      'toggle-settings': '切换设置',
+      'refresh-workspace': '刷新工作区',
+    },
     previewModeLabels: {
       edit: '仅编辑',
       split: '分栏',
@@ -429,6 +492,15 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     markdownViewPrefix: 'Markdown View',
     dirtyTip: 'Current tab has unsaved changes',
     settings: 'Settings',
+    systemMenu: 'System',
+    systemMenuTitle: 'System Menu',
+    systemMenuPlaceholder: 'System',
+    systemMenuOptions: {
+      'open-command-palette': 'Command Palette (F1)',
+      'toggle-explorer': 'Toggle Explorer',
+      'toggle-settings': 'Toggle Settings',
+      'refresh-workspace': 'Refresh Workspace',
+    },
     previewModeLabels: {
       edit: 'Edit Only',
       split: 'Split',
@@ -440,7 +512,7 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
 const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
   'zh-CN': {
     workspace: '工作区',
-    searchPlaceholder: '在工作区中搜索（仅视觉）',
+    searchPlaceholder: '在工作区中搜索',
     searchAriaLabel: '搜索文件',
     refresh: '刷新',
     quickOps: '轻操作',
@@ -456,7 +528,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
   },
   'en-US': {
     workspace: 'Workspace',
-    searchPlaceholder: 'Search in workspace (visual only)',
+    searchPlaceholder: 'Search in workspace',
     searchAriaLabel: 'Search files',
     refresh: 'Refresh',
     quickOps: 'Quick Actions',
@@ -477,6 +549,18 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     rowCol: (line, column) => `行 ${line}, 列 ${column}`,
     lineCount: (lineCount) => `Ln ${lineCount}`,
     autoSave: '自动保存',
+    encoding: '编码',
+    encodingTitle: '文件编码',
+    encodingOptions: {
+      'utf-8': 'UTF-8',
+      'utf-16le': 'UTF-16 LE',
+      'utf-16be': 'UTF-16 BE',
+      gbk: 'GBK',
+      gb18030: 'GB18030',
+      big5: 'Big5',
+      shift_jis: 'Shift JIS',
+      'iso-8859-1': 'ISO-8859-1',
+    },
     theme: '主题',
     editorThemeTitle: '编辑器主题',
     themeOptions: {
@@ -515,6 +599,18 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     rowCol: (line, column) => `Ln ${line}, Col ${column}`,
     lineCount: (lineCount) => `Lines ${lineCount}`,
     autoSave: 'Auto Save',
+    encoding: 'Encoding',
+    encodingTitle: 'File Encoding',
+    encodingOptions: {
+      'utf-8': 'UTF-8',
+      'utf-16le': 'UTF-16 LE',
+      'utf-16be': 'UTF-16 BE',
+      gbk: 'GBK',
+      gb18030: 'GB18030',
+      big5: 'Big5',
+      shift_jis: 'Shift JIS',
+      'iso-8859-1': 'ISO-8859-1',
+    },
     theme: 'Theme',
     editorThemeTitle: 'Editor Theme',
     themeOptions: {

@@ -28,6 +28,7 @@ export class FileService {
   private editorStore: UseEditorStoreReturn;
   private tabsStore: UseTabsStoreReturn;
   private fileSystemStore: UseFileSystemStoreReturn;
+  private readonly binaryPreviewExtensions = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
   
   // 防抖自动保存
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -131,6 +132,13 @@ export class FileService {
       };
     }
 
+    if (this.isBinaryPreviewTab(tab)) {
+      return {
+        success: false,
+        error: '当前文件为二进制预览，禁止直接覆盖保存',
+      };
+    }
+
     try {
       // 写入文件内容
       if (!tab.filePath) {
@@ -154,6 +162,15 @@ export class FileService {
         error: `保存文件失败：${message}` 
       };
     }
+  }
+
+  private isBinaryPreviewTab(tab: { filePath: string | null; content: string }): boolean {
+    if (!tab.filePath || !tab.content.startsWith('[Binary File Preview]')) {
+      return false;
+    }
+
+    const ext = tab.filePath.split('.').pop()?.toLowerCase() || '';
+    return this.binaryPreviewExtensions.has(ext);
   }
 
   /**
@@ -348,6 +365,8 @@ export class FileService {
       'md': 'markdown',
       'sql': 'sql',
       'sh': 'shell',
+      'bat': 'shell',
+      'cmd': 'shell',
       'bash': 'shell',
       'ps1': 'powershell',
       'toml': 'toml',

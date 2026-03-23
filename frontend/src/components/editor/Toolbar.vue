@@ -122,6 +122,24 @@
           <span class="dirty-indicator">●</span>
           {{ copy.dirtyTip }}
         </span>
+        <label class="toolbar-system-menu" data-testid="system-menu">
+          <span class="toolbar-system-label">{{ copy.systemMenu }}</span>
+          <select
+            class="toolbar-system-select"
+            data-testid="system-menu-select"
+            :title="copy.systemMenuTitle"
+            @change="handleSystemMenuSelect"
+          >
+            <option value="">{{ copy.systemMenuPlaceholder }}</option>
+            <option
+              v-for="systemAction in systemMenuActions"
+              :key="systemAction.value"
+              :value="systemAction.value"
+            >
+              {{ copy.systemMenuOptions[systemAction.value] }}
+            </option>
+          </select>
+        </label>
         <button class="toolbar-btn" data-testid="btn-settings" @click="emit('toggle-settings')" :title="copy.settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3" />
@@ -136,7 +154,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
-import { getToolbarI18n } from '@/i18n/ui';
+import { getToolbarI18n, type SystemMenuAction } from '@/i18n/ui';
 
 interface ToolbarProps {
   canUndo: boolean;
@@ -158,6 +176,12 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
 
 const settingsStore = useSettingsStore();
 const copy = computed(() => getToolbarI18n(settingsStore.uiLanguage));
+const systemMenuActions: Array<{ value: SystemMenuAction }> = [
+  { value: 'open-command-palette' },
+  { value: 'toggle-explorer' },
+  { value: 'toggle-settings' },
+  { value: 'refresh-workspace' },
+];
 const previewModeLabel = computed(() => copy.value.previewModeLabels[props.markdownPreviewMode]);
 const hasIdentity = computed(
   () => Boolean(props.appLabel?.length || props.workspaceLabel?.length || props.currentFileLabel?.length)
@@ -174,7 +198,16 @@ const emit = defineEmits<{
   'toggle-file-tree': [];
   'toggle-settings': [];
   'cycle-markdown-preview': [];
+  'system-action': [action: SystemMenuAction];
 }>();
+
+const handleSystemMenuSelect = (event: Event) => {
+  const select = event.target as HTMLSelectElement;
+  const action = select.value as SystemMenuAction | '';
+  if (!action) return;
+  emit('system-action', action);
+  select.value = '';
+};
 </script>
 
 <style scoped>
@@ -225,6 +258,39 @@ const emit = defineEmits<{
 
 .toolbar-status-group {
   gap: 10px;
+}
+
+.toolbar-system-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.toolbar-system-label {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.toolbar-system-select {
+  min-width: 108px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.toolbar-system-select option {
+  background: #1b2230;
+  color: #fff;
 }
 
 .toolbar-identity {

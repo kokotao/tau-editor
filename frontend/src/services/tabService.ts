@@ -40,6 +40,8 @@ function detectLanguage(fileName: string): string {
     yml: 'yaml',
     sql: 'sql',
     sh: 'shell',
+    bat: 'shell',
+    cmd: 'shell',
     go: 'go',
     c: 'c',
     cpp: 'cpp',
@@ -47,6 +49,18 @@ function detectLanguage(fileName: string): string {
   };
 
   return languageMap[ext] || 'plaintext';
+}
+
+const BINARY_PREVIEW_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
+
+function isBinaryPreviewPath(filePath: string | null | undefined): boolean {
+  if (!filePath) return false;
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  return BINARY_PREVIEW_EXTENSIONS.has(ext);
+}
+
+function isBinaryPreviewContent(content: string): boolean {
+  return content.startsWith('[Binary File Preview]');
 }
 
 export class TabService {
@@ -81,6 +95,11 @@ export class TabService {
       return;
     }
 
+    if (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content)) {
+      this.notificationStore.warning('当前文件为二进制预览', '为避免破坏原始文件，暂不支持直接保存该预览内容');
+      return;
+    }
+
     if (tab.isUntitled || !tab.filePath) {
       await this.saveActiveTabAs();
       return;
@@ -104,6 +123,11 @@ export class TabService {
   async saveActiveTabAs() {
     const tab = this.tabsStore.activeTab;
     if (!tab) return;
+
+    if (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content)) {
+      this.notificationStore.warning('当前文件为二进制预览', '如需编辑，请先导出为文本再保存');
+      return;
+    }
 
     try {
       const targetPath = await save({

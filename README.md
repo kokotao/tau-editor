@@ -1,4 +1,4 @@
-# 跨平台文本编辑器
+# Tau 编辑器（Tau Editor）
 
 > 基于 Tauri + Vue3 的现代化文本编辑器，支持 Windows、macOS、Linux
 
@@ -6,6 +6,14 @@
 
 - 作者：`albert_luo`
 - 联系方式：`480199976@qq.com`
+- GitHub：`https://github.com/kokotao/tau-editor`
+
+## 公益捐赠
+
+如果 Tau 编辑器帮助到了你，欢迎随缘支持。你的支持会用于持续维护和改进体验。
+
+- 微信收款码：`frontend/src/assets/donation/WeChatPay.jpg`
+- 支付宝收款码：`frontend/src/assets/donation/AliPay.jpg`
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-blue.svg)

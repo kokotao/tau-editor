@@ -25,9 +25,24 @@
           {{ formatLastSaveTime(lastSaveTime) }}
         </span>
       </div>
-      <div class="status-capsule encoding-capsule">
-        <span class="status-label" data-testid="encoding-display">{{ displayEncoding }}</span>
-      </div>
+      <label class="status-pill encoding-pill">
+        <span class="pill-prefix">{{ copy.encoding }}</span>
+        <select
+          class="status-select"
+          data-testid="encoding-select"
+          :value="normalizedEncoding"
+          :title="copy.encodingTitle"
+          @change="handleEncodingChange"
+        >
+          <option
+            v-for="encodingOption in encodingOptions"
+            :key="encodingOption.value"
+            :value="encodingOption.value"
+          >
+            {{ copy.encodingOptions[encodingOption.value] }}
+          </option>
+        </select>
+      </label>
     </div>
 
     <div class="status-section status-right">
@@ -90,12 +105,27 @@
         <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
         <a
           class="author-link"
-          href="https://github.com/albertluo"
+          href="https://github.com/kokotao/tau-editor"
           target="_blank"
           rel="noopener noreferrer"
         >
           {{ authorCopy.githubLabel }}
         </a>
+        <section class="author-donation">
+          <h5>{{ authorCopy.donationTitle }}</h5>
+          <p class="author-donation-desc">{{ authorCopy.donationDesc }}</p>
+          <div class="author-qr-grid">
+            <figure class="author-qr-card">
+              <img :src="wechatDonateQr" :alt="authorCopy.wechatLabel" loading="lazy" />
+              <figcaption>{{ authorCopy.wechatLabel }}</figcaption>
+            </figure>
+            <figure class="author-qr-card">
+              <img :src="alipayDonateQr" :alt="authorCopy.alipayLabel" loading="lazy" />
+              <figcaption>{{ authorCopy.alipayLabel }}</figcaption>
+            </figure>
+          </div>
+          <p class="author-donation-tip">{{ authorCopy.donationTip }}</p>
+        </section>
       </div>
     </div>
   </div>
@@ -105,7 +135,15 @@
 import { computed, ref } from 'vue';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
-import { getAuthorInfoI18n, getStatusBarI18n, type EditorLanguageMode, type MonacoThemeValue } from '@/i18n/ui';
+import {
+  getAuthorInfoI18n,
+  getStatusBarI18n,
+  type EditorEncoding,
+  type EditorLanguageMode,
+  type MonacoThemeValue,
+} from '@/i18n/ui';
+import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
+import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 
 interface StatusBarProps {
   cursorPosition?: { line: number; column: number };
@@ -141,6 +179,16 @@ const themeOptions: Array<{ value: MonacoThemeValue }> = [
   { value: 'vs' },
   { value: 'vs-dark' },
   { value: 'hc-black' },
+];
+const encodingOptions: Array<{ value: EditorEncoding }> = [
+  { value: 'utf-8' },
+  { value: 'utf-16le' },
+  { value: 'utf-16be' },
+  { value: 'gbk' },
+  { value: 'gb18030' },
+  { value: 'big5' },
+  { value: 'shift_jis' },
+  { value: 'iso-8859-1' },
 ];
 const languageOptions: Array<{ value: EditorLanguageMode }> = [
   { value: 'plaintext' },
@@ -178,8 +226,16 @@ const normalizedLineCount = computed(() => {
 });
 const cursorPositionLabel = computed(() => copy.value.rowCol(props.cursorPosition.line, props.cursorPosition.column));
 const lineCountLabel = computed(() => copy.value.lineCount(normalizedLineCount.value));
-const displayEncoding = computed(() => (props.encoding ?? 'utf-8').toUpperCase());
+const normalizedEncoding = computed<EditorEncoding>(() => {
+  const rawEncoding = (props.encoding ?? 'utf-8').toLowerCase();
+  const matched = encodingOptions.find((item) => item.value === rawEncoding);
+  return matched?.value ?? 'utf-8';
+});
 const showAuthorModal = ref(false);
+
+const handleEncodingChange = (event: Event) => {
+  emit('encoding-change', (event.target as HTMLSelectElement).value);
+};
 
 const handleLanguageChange = (event: Event) => {
   emit('language-change', (event.target as HTMLSelectElement).value);
@@ -258,24 +314,26 @@ const formatLastSaveTime = (date: Date) => {
 
 .author-info {
   gap: 6px;
-  opacity: 0.82;
   white-space: nowrap;
 }
 
 .author-trigger {
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 999px;
-  height: 24px;
+  height: 28px;
   padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(16, 23, 38, 0.85);
   color: var(--text-secondary, #cbd5e1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
 .author-trigger:hover {
   border-color: rgba(125, 211, 252, 0.6);
-  color: #e2e8f0;
+  color: var(--text-primary, #f8fafc);
 }
 
 .author-link {
@@ -293,8 +351,8 @@ const formatLastSaveTime = (date: Date) => {
 .author-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(2px);
+  background: rgba(2, 6, 23, 0.56);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -302,47 +360,109 @@ const formatLastSaveTime = (date: Date) => {
 }
 
 .author-modal {
-  min-width: 320px;
-  max-width: 420px;
-  border-radius: 14px;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  background: linear-gradient(180deg, #111a2f, #0f172a);
-  box-shadow: 0 14px 36px rgba(2, 6, 23, 0.5);
-  padding: 12px 14px;
+  width: min(560px, 92vw);
+  border-radius: 16px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
+  background: var(--panel, #101726);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
 }
 
 .author-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .author-modal-header h4 {
   margin: 0;
-  font-size: 14px;
-  color: #f8fafc;
+  font-size: 15px;
 }
 
 .author-modal-close {
-  border: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid transparent;
   background: transparent;
-  color: #94a3b8;
+  color: var(--text-secondary, #cbd5e1);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
 
+.author-modal-close:hover {
+  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .author-modal-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  padding: 14px 16px 18px;
+  line-height: 1.7;
 }
 
 .author-modal-content p {
-  margin: 0;
-  color: #cbd5e1;
+  margin: 0 0 8px;
+  color: var(--text-secondary, #cbd5e1);
   font-size: 13px;
+}
+
+.author-donation {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.author-donation h5 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-primary, #f8fafc);
+}
+
+.author-donation-desc {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.author-qr-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.author-qr-card {
+  margin: 0;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.author-qr-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.author-qr-card figcaption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+  text-align: center;
+}
+
+.author-donation-tip {
+  margin: 10px 0 0 !important;
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .author-qr-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .status-icon {

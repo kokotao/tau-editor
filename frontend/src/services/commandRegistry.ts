@@ -15,6 +15,8 @@ export interface CommandActions {
   openFolder: () => Promise<void> | void;
   save: () => Promise<void> | void;
   saveAs: () => Promise<void> | void;
+  findText: () => Promise<void> | void;
+  goToLine: () => Promise<void> | void;
   toggleSidebar: () => Promise<void> | void;
   toggleSettings: () => Promise<void> | void;
   openCommandPalette: () => Promise<void> | void;
@@ -31,6 +33,8 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
   const openFolder = resolveCommandText(uiLanguage, 'file.openFolder');
   const save = resolveCommandText(uiLanguage, 'file.save');
   const saveAs = resolveCommandText(uiLanguage, 'file.saveAs');
+  const findText = resolveCommandText(uiLanguage, 'search.findText');
+  const goToLine = resolveCommandText(uiLanguage, 'search.goToLine');
   const toggleSidebar = resolveCommandText(uiLanguage, 'view.toggleSidebar');
   const toggleSettings = resolveCommandText(uiLanguage, 'view.toggleSettings');
 
@@ -80,6 +84,22 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       category: 'file',
       keywords: saveAs.keywords,
       run: actions.saveAs,
+    },
+    {
+      id: 'search.findText',
+      title: findText.title,
+      category: 'search',
+      shortcut: 'Ctrl+F',
+      keywords: findText.keywords,
+      run: actions.findText,
+    },
+    {
+      id: 'search.goToLine',
+      title: goToLine.title,
+      category: 'search',
+      shortcut: 'Ctrl+G',
+      keywords: goToLine.keywords,
+      run: actions.goToLine,
     },
     {
       id: 'view.toggleSidebar',

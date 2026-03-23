@@ -1,5 +1,5 @@
 <template>
-  <n-config-provider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
+  <n-config-provider class="settings-provider" :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
     <div class="settings-panel" data-testid="settings-panel">
     <div class="settings-header">
       <h3 class="settings-title">{{ copy.title }}</h3>
@@ -164,12 +164,27 @@
           <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
           <a
             class="settings-author-link"
-            href="https://github.com/albertluo"
+            href="https://github.com/kokotao/tau-editor"
             target="_blank"
             rel="noopener noreferrer"
           >
             {{ authorCopy.githubLabel }}
           </a>
+          <section class="settings-author-donation">
+            <h5>{{ authorCopy.donationTitle }}</h5>
+            <p class="settings-author-donation-desc">{{ authorCopy.donationDesc }}</p>
+            <div class="settings-author-qr-grid">
+              <figure class="settings-author-qr-card">
+                <img :src="wechatDonateQr" :alt="authorCopy.wechatLabel" loading="lazy" />
+                <figcaption>{{ authorCopy.wechatLabel }}</figcaption>
+              </figure>
+              <figure class="settings-author-qr-card">
+                <img :src="alipayDonateQr" :alt="authorCopy.alipayLabel" loading="lazy" />
+                <figcaption>{{ authorCopy.alipayLabel }}</figcaption>
+              </figure>
+            </div>
+            <p class="settings-author-donation-tip">{{ authorCopy.donationTip }}</p>
+          </section>
         </div>
       </div>
     </div>
@@ -182,6 +197,8 @@ import { computed, ref } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import { useSettingsStore } from '@/stores/settings';
 import { getAuthorInfoI18n, getSettingsPanelI18n, type MonacoThemeValue, type UiLanguage } from '@/i18n/ui';
+import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
+import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 
 const settingsStore = useSettingsStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
@@ -309,10 +326,21 @@ const setWordWrap = (event: Event) => {
 </script>
 
 <style scoped>
+.settings-provider {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .settings-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   background: var(--panel, #101726);
 }
 
@@ -350,7 +378,9 @@ const setWordWrap = (event: Event) => {
 
 .settings-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
 }
 
@@ -543,7 +573,7 @@ const setWordWrap = (event: Event) => {
 }
 
 .settings-author-modal {
-  width: min(360px, 92vw);
+  width: min(560px, 92vw);
   border-radius: 16px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
   background: var(--panel, #101726);
@@ -586,6 +616,63 @@ const setWordWrap = (event: Event) => {
 
 .settings-author-modal-content p {
   margin: 0 0 8px;
+}
+
+.settings-author-donation {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.settings-author-donation h5 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-primary, #f8fafc);
+}
+
+.settings-author-donation-desc {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.settings-author-qr-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-author-qr-card {
+  margin: 0;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-author-qr-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.settings-author-qr-card figcaption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+  text-align: center;
+}
+
+.settings-author-donation-tip {
+  margin: 10px 0 0 !important;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+@media (max-width: 520px) {
+  .settings-author-qr-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-author-link {

@@ -187,6 +187,23 @@ describe('Toolbar.vue', () => {
     })
   })
 
+  describe('系统菜单', () => {
+    it('应渲染系统菜单下拉框', () => {
+      const wrapper = mountToolbar()
+      const select = wrapper.find('[data-testid="system-menu-select"]')
+      expect(select.exists()).toBe(true)
+    })
+
+    it('系统菜单选择命令应发射 system-action 事件', async () => {
+      const wrapper = mountToolbar()
+      const select = wrapper.get('[data-testid="system-menu-select"]')
+      await select.setValue('open-command-palette')
+
+      expect(wrapper.emitted('system-action')).toBeTruthy()
+      expect(wrapper.emitted('system-action')![0]).toEqual(['open-command-palette'])
+    })
+  })
+
   describe('脏状态显示', () => {
     it('isDirty=true 时应显示未保存提示', () => {
       const wrapper = mountToolbar({ isDirty: true })

@@ -260,6 +260,7 @@ mod tests {
         let config = WatcherConfig {
             recursive: false,
             timeout_ms: 500,
+            debounce_ms: 200,
         };
         let watcher = FileWatcherService::new(config.clone());
         // 配置已设置

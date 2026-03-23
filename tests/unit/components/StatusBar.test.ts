@@ -93,7 +93,9 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      expect(wrapper.text()).toContain('UTF-8')
+      const select = wrapper.find('[data-testid="encoding-select"]')
+      expect(select.exists()).toBe(true)
+      expect((select.element as HTMLSelectElement).value).toBe('utf-8')
     })
 
     it('应支持自定义编码并大写显示', () => {
@@ -105,7 +107,11 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      expect(wrapper.text()).toContain('GBK')
+      const select = wrapper.find('[data-testid="encoding-select"]')
+      expect((select.element as HTMLSelectElement).value).toBe('gbk')
+
+      const selectedOption = select.findAll('option').find((option) => (option.element as HTMLOptionElement).selected)
+      expect(selectedOption?.text()).toBe('GBK')
     })
 
     it('应显示行数', () => {
@@ -247,6 +253,30 @@ describe('StatusBar.vue', () => {
       await select.setValue('markdown')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['markdown'])
+    })
+  })
+
+  describe('编码选择', () => {
+    const mountEncodingBar = (encoding = 'utf-8') =>
+      mount(StatusBar, {
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+          encoding,
+        },
+      })
+
+    it('应显示编码选择下拉框', () => {
+      const wrapper = mountEncodingBar()
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(true)
+    })
+
+    it('切换编码应发射 encoding-change 事件', async () => {
+      const wrapper = mountEncodingBar()
+      const select = wrapper.get('[data-testid="encoding-select"]')
+      await select.setValue('gb18030')
+
+      expect(wrapper.emitted('encoding-change')).toBeTruthy()
+      expect(wrapper.emitted('encoding-change')![0]).toEqual(['gb18030'])
     })
   })
 
@@ -462,7 +492,8 @@ describe('StatusBar.vue', () => {
         props: {},
       })
 
-      expect(wrapper.text()).toContain('UTF-8')
+      const select = wrapper.find('[data-testid="encoding-select"]')
+      expect((select.element as HTMLSelectElement).value).toBe('utf-8')
     })
 
     it('应使用默认语言', () => {
@@ -539,7 +570,7 @@ describe('StatusBar.vue', () => {
       expect(modal.exists()).toBe(true)
       const link = modal.find('a.author-link')
       expect(link.exists()).toBe(true)
-      expect(link.attributes('href')).toBe('https://github.com/albertluo')
+      expect(link.attributes('href')).toBe('https://github.com/kokotao/tau-editor')
     })
 
     it('点击遮罩应关闭作者弹窗', async () => {

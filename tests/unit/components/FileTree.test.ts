@@ -121,11 +121,39 @@ describe('FileTree.vue', () => {
       const searchShell = wrapper.find('[data-testid="file-tree-search-shell"]')
       expect(searchShell.exists()).toBe(true)
       const input = searchShell.find('input')
-      expect(input.attributes('placeholder')).toBe('在工作区中搜索（仅视觉）')
+      expect(input.attributes('placeholder')).toBe('在工作区中搜索')
       expect((input.element as HTMLInputElement).value).toBe('')
 
       expect(wrapper.find('.operations-label').text()).toBe('轻操作')
       expect(wrapper.find('.operation-tags').text()).toContain('右键创建')
+    })
+
+    it('输入关键字后应过滤文件树节点', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+
+      const input = wrapper.find('[data-testid="file-tree-search-shell"] input')
+      await input.setValue('package')
+
+      expect(wrapper.text()).toContain('package.json')
+      expect(wrapper.text()).not.toContain('src')
+    })
+
+    it('命中文件夹时应展示其子项用于预览', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+
+      const input = wrapper.find('[data-testid="file-tree-search-shell"] input')
+      await input.setValue('src')
+
+      expect(wrapper.text()).toContain('src')
+      expect(wrapper.text()).toContain('App.vue')
     })
 
     it('空文件树应显示空状态', () => {

@@ -16,7 +16,7 @@ pub fn run() {
   #[cfg(debug_assertions)]
   env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
-  log::info!("Text Editor Tauri App starting...");
+  log::info!("Tau Editor Tauri App starting...");
 
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())

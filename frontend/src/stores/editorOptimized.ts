@@ -110,6 +110,11 @@ export const useEditorStore = defineStore('editor', {
       this.language = language;
     },
 
+    // 设置文件编码
+    setEncoding(encoding: string) {
+      this.encoding = encoding?.trim().toLowerCase() || 'utf-8';
+    },
+
     // 标记为已保存
     markAsSaved() {
       this.isDirty = false;
@@ -136,6 +141,7 @@ export const useEditorStore = defineStore('editor', {
       this.$patch({
         content: '',
         language: 'plaintext',
+        encoding: 'utf-8',
         cursorPosition: { line: 1, column: 1 },
         selection: null,
         isDirty: false,

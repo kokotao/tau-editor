@@ -53,6 +53,7 @@ const SUPPORTED_LANGUAGES = [
 const emit = defineEmits<{
   'content-change': [content: string];
   'cursor-change': [position: { line: number; column: number }];
+  'scroll-change': [state: { top: number; height: number; scrollHeight: number }];
   'model-save': [];
   'error': [error: Error];
 }>();
@@ -71,6 +72,27 @@ const settingsStore = useSettingsStore();
 // 内容变化节流 (避免频繁更新 store)
 let contentUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 const CONTENT_UPDATE_DELAY = 50; // ms
+
+const emitScrollState = () => {
+  if (!editor.value) {
+    return;
+  }
+
+  emit('scroll-change', {
+    top: editor.value.getScrollTop(),
+    height: editor.value.getLayoutInfo().height,
+    scrollHeight: editor.value.getScrollHeight(),
+  });
+};
+
+const triggerEditorAction = async (actionId: string) => {
+  if (!editor.value) {
+    return;
+  }
+
+  editor.value.focus();
+  await editor.value.getAction(actionId)?.run();
+};
 
 // 初始化编辑器
 const initEditor = () => {
@@ -140,6 +162,11 @@ const initEditor = () => {
     });
     disposables.value.push(cursorDisposable);
 
+    const scrollDisposable = editor.value.onDidScrollChange(() => {
+      emitScrollState();
+    });
+    disposables.value.push(scrollDisposable);
+
     // 监听选择变化
     const selectionDisposable = editor.value.onDidChangeCursorSelection((e) => {
       if (!editor.value) return;
@@ -169,6 +196,8 @@ const initEditor = () => {
     editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       emit('model-save');
     });
+
+    emitScrollState();
 
   } catch (error) {
     emit('error', error as Error);
@@ -205,6 +234,12 @@ defineExpose({
     if (editor.value) {
       monaco.editor.setTheme(theme);
     }
+  },
+  triggerFindWidget: () => {
+    void triggerEditorAction('actions.find');
+  },
+  triggerGoToLine: () => {
+    void triggerEditorAction('editor.action.gotoLine');
   },
 });
 
