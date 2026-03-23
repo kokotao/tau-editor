@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useFileSystemStore, type FileEntry } from '@/stores/fileSystem'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { fileCommands, TauriError } from '@/lib/tauri'
 
 // Mock Tauri commands
@@ -43,6 +44,7 @@ vi.mock('@/lib/tauri', () => ({
 
 describe('FileSystemStore', () => {
   let store: ReturnType<typeof useFileSystemStore>
+  let workspaceStore: ReturnType<typeof useWorkspaceStore>
 
   const mockFileEntries: FileEntry[] = [
     { name: 'src', path: '/project/src', type: 'folder' },
@@ -53,7 +55,9 @@ describe('FileSystemStore', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    workspaceStore = useWorkspaceStore()
     store = useFileSystemStore()
+    workspaceStore.setEmptyMode()
     vi.clearAllMocks()
   })
 
@@ -83,25 +87,28 @@ describe('FileSystemStore', () => {
     })
   })
 
-  describe('设置根目录', () => {
+  describe('同步工作区', () => {
     beforeEach(() => {
       vi.mocked(fileCommands.listFiles).mockResolvedValue(mockFileEntries)
     })
 
-    it('setRootPath() 应设置根路径', async () => {
-      await store.setRootPath('/project')
+    it('openWorkspace + syncFromWorkspace() 应设置根路径', async () => {
+      workspaceStore.openWorkspace('/project')
+      await store.syncFromWorkspace()
 
       expect(store.rootPath).toBe('/project')
     })
 
-    it('setRootPath() 应刷新文件树', async () => {
-      await store.setRootPath('/project')
+    it('openWorkspace + syncFromWorkspace() 应刷新文件树', async () => {
+      workspaceStore.openWorkspace('/project')
+      await store.syncFromWorkspace()
 
       expect(fileCommands.listFiles).toHaveBeenCalledWith('/project')
     })
 
-    it('setRootPath() 应构建树结构', async () => {
-      await store.setRootPath('/project')
+    it('openWorkspace + syncFromWorkspace() 应构建树结构', async () => {
+      workspaceStore.openWorkspace('/project')
+      await store.syncFromWorkspace()
 
       expect(store.fileTree.length).toBeGreaterThan(0)
     })
@@ -109,11 +116,11 @@ describe('FileSystemStore', () => {
 
   describe('刷新文件树', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
     })
 
     it('refreshFileTree() 无根路径应直接返回', async () => {
-      store.rootPath = null
+      workspaceStore.setEmptyMode()
       await store.refreshFileTree()
 
       expect(fileCommands.listFiles).not.toHaveBeenCalled()
@@ -183,7 +190,7 @@ describe('FileSystemStore', () => {
 
   describe('文件夹展开/折叠', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
       store.fileTree = [
         { name: 'src', path: '/project/src', type: 'folder', children: [], isExpanded: false },
       ]
@@ -302,7 +309,7 @@ describe('FileSystemStore', () => {
 
   describe('添加条目', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
       store.fileTree = [
         { name: 'src', path: '/project/src', type: 'folder', children: [], isExpanded: true },
       ]
@@ -345,7 +352,7 @@ describe('FileSystemStore', () => {
 
   describe('移除条目', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
       store.fileTree = [
         {
           name: 'src',
@@ -438,7 +445,7 @@ describe('FileSystemStore', () => {
 
   describe('文件创建', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
       store.fileTree = []
     })
 
@@ -469,7 +476,7 @@ describe('FileSystemStore', () => {
 
   describe('文件删除', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
       store.fileTree = [
         { name: 'README.md', path: '/project/README.md', type: 'file' },
       ]
@@ -510,7 +517,7 @@ describe('FileSystemStore', () => {
 
   describe('文件重命名', () => {
     beforeEach(() => {
-      store.rootPath = '/project'
+      workspaceStore.openWorkspace('/project')
       store.fileTree = [
         { name: 'old.txt', path: '/project/old.txt', type: 'file' },
       ]
@@ -554,7 +561,7 @@ describe('FileSystemStore', () => {
   describe('Getters', () => {
     describe('isInWorkdir', () => {
       beforeEach(() => {
-        store.rootPath = '/project'
+        workspaceStore.openWorkspace('/project')
       })
 
       it('应检查路径是否在工作目录内', () => {
@@ -566,7 +573,7 @@ describe('FileSystemStore', () => {
       })
 
       it('无根路径应返回 false', () => {
-        store.rootPath = null
+        workspaceStore.setEmptyMode()
         expect(store.isInWorkdir('/project/file.ts')).toBe(false)
       })
     })

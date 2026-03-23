@@ -13,6 +13,7 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
+import { getAppI18n } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
@@ -79,14 +80,18 @@ const wordCount = computed(() => {
   const content = activeTab.value?.content ?? '';
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
-const workspaceLabel = computed(() => workspaceStore.currentWorkspaceName ?? '未打开工作区');
+const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
+const workspaceLabel = computed(() => workspaceStore.currentWorkspaceName ?? appText.value.workspaceNotOpen);
 const currentFileLabel = computed(() => {
   if (!activeTab.value) {
-    return '未打开文件';
+    return appText.value.fileNotOpen;
   }
 
   return activeTab.value.fileName;
 });
+const currentModeLabel = computed(() =>
+  mode.value === 'single-file' ? appText.value.singleFileMode : appText.value.emptyMode,
+);
 const filteredCommands = computed(() => commandStore.filteredCommands);
 const highlightedCommand = computed(() => commandStore.highlightedCommand);
 const showFileTree = computed({
@@ -128,11 +133,11 @@ const handleSaveAs = async () => {
 };
 
 const handleUndo = () => {
-  notificationStore.info('撤销', '请使用编辑器内置撤销，快捷键为 Ctrl/Cmd + Z');
+  notificationStore.info(appText.value.undoTitle, appText.value.undoHint);
 };
 
 const handleRedo = () => {
-  notificationStore.info('重做', '请使用编辑器内置重做，快捷键为 Ctrl/Cmd + Shift + Z');
+  notificationStore.info(appText.value.redoTitle, appText.value.redoHint);
 };
 
 const handleToggleFileTree = () => {
@@ -215,7 +220,7 @@ const handleOpenCommandPalette = () => {
   commandStore.openPalette();
 };
 
-const commands = createCommandRegistry({
+const createLocalizedCommands = () => createCommandRegistry({
   newFile: handleNewFile,
   openFile: handleOpenFile,
   openFolder: handleOpenFolder,
@@ -224,23 +229,28 @@ const commands = createCommandRegistry({
   toggleSidebar: handleToggleFileTree,
   toggleSettings: handleToggleSettings,
   openCommandPalette: handleOpenCommandPalette,
-});
+}, settingsStore.uiLanguage);
 
-commandStore.registerCommands(commands.map(({ id, title, category, shortcut, keywords }) => ({
-  id,
-  title,
-  category,
-  shortcut,
-  keywords,
-})));
+const refreshLocalizedCommands = () => {
+  const commands = createLocalizedCommands();
+  commandStore.registerCommands(commands.map(({ id, title, category, shortcut, keywords }) => ({
+    id,
+    title,
+    category,
+    shortcut,
+    keywords,
+  })));
+  runCommand = createCommandExecutor(commands, settingsStore.uiLanguage);
+};
 
-const runCommand = createCommandExecutor(commands);
+let runCommand = createCommandExecutor(createLocalizedCommands(), settingsStore.uiLanguage);
+refreshLocalizedCommands();
 
 const executeCommand = async (id: string) => {
   try {
     await runCommand(id);
   } catch (error: any) {
-    notificationStore.error('命令执行失败', error?.message || '未知命令');
+    notificationStore.error(appText.value.commandExecFail, error?.message || appText.value.unknownCommand);
   }
 };
 
@@ -286,6 +296,13 @@ const registerShortcuts = () => {
     id: 'command-palette',
     key: 'p',
     modifiers: ['ctrl', 'shift'],
+    handler: () => void executeCommand('commandPalette.open'),
+    description: '打开命令面板',
+  });
+
+  keyboardStore.register({
+    id: 'command-palette-f1',
+    key: 'F1',
     handler: () => void executeCommand('commandPalette.open'),
     description: '打开命令面板',
   });
@@ -412,6 +429,13 @@ watch(
 );
 
 watch(
+  () => settingsStore.uiLanguage,
+  () => {
+    refreshLocalizedCommands();
+  },
+);
+
+watch(
   () => ({ tabCount: tabsStore.tabs.length, workspacePath: workspaceStore.currentWorkspacePath }),
   ({ tabCount, workspacePath }) => {
     if (tabCount === 0 && !workspacePath) {
@@ -458,7 +482,7 @@ onUnmounted(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :is-dirty="isDirty"
-      app-label="Text Editor"
+      :app-label="appText.appLabel"
       :workspace-label="workspaceLabel"
       :current-file-label="currentFileLabel"
       :sidebar-visible="showFileTree"
@@ -502,11 +526,11 @@ onUnmounted(() => {
           @new-file="handleNewFile"
         />
         <div v-else class="sidebar-empty">
-          <p class="sidebar-empty-title">资源管理器目前为空</p>
-          <p class="sidebar-empty-text">当前模式是 {{ mode === 'single-file' ? '单文件编辑' : '空启动' }}，只有在你主动打开工作区后这里才会展示真实文件树。</p>
-          <button class="sidebar-empty-action" @click="handleOpenFolder">选择文件夹</button>
+          <p class="sidebar-empty-title">{{ appText.sidebarEmptyTitle }}</p>
+          <p class="sidebar-empty-text">{{ appText.sidebarEmptyDesc.replace('{mode}', currentModeLabel) }}</p>
+          <button class="sidebar-empty-action" @click="handleOpenFolder">{{ appText.selectFolder }}</button>
         </div>
-        <button class="sidebar-toggle-handle" data-testid="btn-sidebar-collapse" title="折叠资源管理器" @click="showFileTree = false">
+        <button class="sidebar-toggle-handle" data-testid="btn-sidebar-collapse" :title="appText.collapseExplorer" @click="showFileTree = false">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="15,18 9,12 15,6" />
           </svg>
@@ -519,7 +543,7 @@ onUnmounted(() => {
         :class="{ dragging: isResizingSidebar }"
         @mousedown.prevent="startSidebarResize"
       ></div>
-      <button v-else class="sidebar-expand-fab" data-testid="btn-sidebar-expand" title="展开资源管理器" @click="showFileTree = true">
+      <button v-else class="sidebar-expand-fab" data-testid="btn-sidebar-expand" :title="appText.expandExplorer" @click="showFileTree = true">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="9,18 15,12 9,6" />
         </svg>
@@ -572,9 +596,9 @@ onUnmounted(() => {
 
         <div v-else class="hero-empty">
           <div class="hero-actions minimal">
-            <button class="hero-btn primary" @click="handleOpenFolder">打开文件夹</button>
-            <button class="hero-btn" @click="handleOpenFile">打开文件</button>
-            <button class="hero-btn" @click="handleNewFile">新建文件</button>
+            <button class="hero-btn primary" @click="handleOpenFolder">{{ appText.openFolder }}</button>
+            <button class="hero-btn" @click="handleOpenFile">{{ appText.openFile }}</button>
+            <button class="hero-btn" @click="handleNewFile">{{ appText.newFile }}</button>
           </div>
         </div>
       </section>
@@ -595,6 +619,7 @@ onUnmounted(() => {
       :encoding="encoding"
       :language="language"
       :monaco-theme="settingsStore.monacoTheme"
+      :word-count="wordCount"
       :auto-save-enabled="autoSaveEnabled"
       :last-save-time="lastSaveTime"
       @language-change="handleLanguageChange"

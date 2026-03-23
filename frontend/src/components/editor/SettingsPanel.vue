@@ -1,8 +1,8 @@
 <template>
   <div class="settings-panel" data-testid="settings-panel">
     <div class="settings-header">
-      <h3 class="settings-title">设置</h3>
-      <button class="settings-close" @click="emit('close')" title="关闭">
+      <h3 class="settings-title">{{ copy.title }}</h3>
+      <button class="settings-close" @click="emit('close')" :title="copy.close">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
@@ -12,42 +12,54 @@
 
     <div class="settings-content">
       <div class="settings-section">
-        <h4 class="settings-section-title">外观</h4>
+        <h4 class="settings-section-title">{{ copy.appearance }}</h4>
 
         <div class="settings-item">
-          <label class="settings-label">主题模式</label>
+          <label class="settings-label">{{ copy.language }}</label>
+          <select class="settings-select" :value="settingsStore.uiLanguage" @change="setUiLanguage($event)">
+            <option value="zh-CN">{{ copy.languageZh }}</option>
+            <option value="en-US">{{ copy.languageEn }}</option>
+          </select>
+        </div>
+
+        <div class="settings-item">
+          <label class="settings-label">{{ copy.themeMode }}</label>
           <div class="theme-selector">
-            <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">浅色</button>
-            <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">深色</button>
-            <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">系统</button>
+            <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
+            <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
+            <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
           </div>
         </div>
 
         <div class="settings-item">
-          <label class="settings-label">编辑器主题</label>
+          <label class="settings-label">{{ copy.editorTheme }}</label>
           <select class="settings-select" :value="settingsStore.monacoTheme" @change="setMonacoTheme($event)">
-            <option value="vs">Light (vs)</option>
-            <option value="vs-dark">Dark (vs-dark)</option>
-            <option value="hc-black">High Contrast (hc-black)</option>
+            <option
+              v-for="option in settingsStore.monacoThemeOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}{{ option.recommended ? ` (${copy.recommended})` : '' }}
+            </option>
           </select>
         </div>
       </div>
 
       <div class="settings-section">
-        <h4 class="settings-section-title">字体</h4>
+        <h4 class="settings-section-title">{{ copy.font }}</h4>
 
         <div class="settings-item">
-          <label class="settings-label">字体大小</label>
+          <label class="settings-label">{{ copy.fontSize }}</label>
           <div class="font-size-control">
             <button class="font-size-btn" @click="decreaseFontSize">-</button>
             <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
             <button class="font-size-btn" @click="increaseFontSize">+</button>
-            <button class="font-size-reset" @click="resetFontSize">重置</button>
+            <button class="font-size-reset" @click="resetFontSize">{{ copy.reset }}</button>
           </div>
         </div>
 
         <div class="settings-item">
-          <label class="settings-label">字体家族</label>
+          <label class="settings-label">{{ copy.fontFamily }}</label>
           <select class="settings-select" :value="settingsStore.fontFamily" @change="setFontFamily($event)">
             <option value="'JetBrains Mono', 'Fira Code', 'SF Mono', monospace">JetBrains Mono</option>
             <option value="'Fira Code', 'JetBrains Mono', monospace">Fira Code</option>
@@ -58,12 +70,12 @@
             <option value="'SF Mono', 'Menlo', 'Monaco', monospace">SF Mono / Menlo</option>
             <option value="'Source Code Pro', monospace">Source Code Pro</option>
             <option value="'Consolas', monospace">Consolas</option>
-            <option value="monospace">系统等宽字体</option>
+            <option value="monospace">{{ copy.systemMonospace }}</option>
           </select>
         </div>
 
         <div class="settings-item">
-          <label class="settings-label">预览</label>
+          <label class="settings-label">{{ copy.preview }}</label>
           <div class="font-preview" :style="{ fontSize: `${settingsStore.fontSize}px`, fontFamily: settingsStore.fontFamily }">
             const hello = "你好，世界";
             <br>
@@ -73,48 +85,48 @@
       </div>
 
       <div class="settings-section">
-        <h4 class="settings-section-title">编辑器</h4>
+        <h4 class="settings-section-title">{{ copy.editor }}</h4>
 
         <div class="settings-item">
-          <label class="settings-label">自动保存</label>
+          <label class="settings-label">{{ copy.autoSave }}</label>
           <label class="settings-checkbox">
             <input type="checkbox" :checked="settingsStore.autoSaveEnabled" @change="setAutoSave($event)" />
-            <span class="checkbox-text">启用自动保存</span>
+            <span class="checkbox-text">{{ copy.autoSaveEnabled }}</span>
           </label>
         </div>
 
         <div class="settings-item" v-if="settingsStore.autoSaveEnabled">
-          <label class="settings-label">自动保存间隔</label>
+          <label class="settings-label">{{ copy.autoSaveInterval }}</label>
           <select class="settings-select" :value="settingsStore.autoSaveInterval" @change="setAutoSaveInterval($event)">
-            <option :value="10">10 秒</option>
-            <option :value="30">30 秒</option>
-            <option :value="60">1 分钟</option>
-            <option :value="300">5 分钟</option>
+            <option :value="10">{{ copy.seconds10 }}</option>
+            <option :value="30">{{ copy.seconds30 }}</option>
+            <option :value="60">{{ copy.minute1 }}</option>
+            <option :value="300">{{ copy.minutes5 }}</option>
           </select>
         </div>
 
         <div class="settings-item">
-          <label class="settings-label">缩进</label>
+          <label class="settings-label">{{ copy.indent }}</label>
           <select class="settings-select" :value="settingsStore.tabSize" @change="setTabSize($event)">
-            <option :value="2">2 空格</option>
-            <option :value="4">4 空格</option>
-            <option :value="8">8 空格</option>
+            <option :value="2">{{ copy.spaces2 }}</option>
+            <option :value="4">{{ copy.spaces4 }}</option>
+            <option :value="8">{{ copy.spaces8 }}</option>
           </select>
         </div>
 
         <div class="settings-item">
-          <label class="settings-label">显示缩略图</label>
+          <label class="settings-label">{{ copy.minimap }}</label>
           <label class="settings-checkbox">
             <input type="checkbox" :checked="settingsStore.minimap" @change="setMinimap($event)" />
-            <span class="checkbox-text">显示代码缩略图</span>
+            <span class="checkbox-text">{{ copy.minimapEnabled }}</span>
           </label>
         </div>
 
         <div class="settings-item">
-          <label class="settings-label">自动换行</label>
+          <label class="settings-label">{{ copy.wordWrap }}</label>
           <label class="settings-checkbox">
             <input type="checkbox" :checked="settingsStore.wordWrap" @change="setWordWrap($event)" />
-            <span class="checkbox-text">启用自动换行</span>
+            <span class="checkbox-text">{{ copy.wordWrapEnabled }}</span>
           </label>
         </div>
       </div>
@@ -123,9 +135,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
+import { getSettingsPanelI18n, type UiLanguage } from '@/i18n/ui';
 
 const settingsStore = useSettingsStore();
+const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 
 const emit = defineEmits<{
   close: [];
@@ -133,6 +148,10 @@ const emit = defineEmits<{
 
 const setTheme = (theme: 'light' | 'dark' | 'system') => {
   settingsStore.updateSettings({ theme });
+};
+
+const setUiLanguage = (event: Event) => {
+  settingsStore.updateSettings({ uiLanguage: (event.target as HTMLSelectElement).value as UiLanguage });
 };
 
 const setMonacoTheme = (event: Event) => {

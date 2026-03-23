@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import { settingsCommands, TauriError } from '@/lib/tauri';
+import { resolveThemeState, type MonacoThemeId, type ThemeResolution } from '@/utils/themeResolver';
+import { normalizeUiLanguage, type UiLanguage } from '@/i18n/ui';
 
 export interface EditorSettings {
   // 编辑器外观
@@ -32,10 +34,32 @@ export interface EditorSettings {
   // 其他
   confirmBeforeClose: boolean;
   restoreLastSession: boolean;
+  uiLanguage: UiLanguage;
 }
 
 // localStorage 键名
 const STORAGE_KEY = 'text-editor-settings';
+const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
+
+let systemThemeMediaQuery: MediaQueryList | null = null;
+let systemThemeListenerAttached = false;
+
+function getPrefersDark(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true;
+  }
+
+  return Boolean(window.matchMedia(SYSTEM_THEME_QUERY)?.matches);
+}
+
+function getThemeResolution(settings: Pick<EditorSettings, 'theme' | 'monacoTheme' | 'uiLanguage'>): ThemeResolution {
+  return resolveThemeState({
+    theme: settings.theme,
+    monacoTheme: settings.monacoTheme,
+    prefersDark: getPrefersDark(),
+    uiLanguage: settings.uiLanguage,
+  });
+}
 
 export const useSettingsStore = defineStore('settings', {
   state: (): EditorSettings => ({
@@ -58,6 +82,7 @@ export const useSettingsStore = defineStore('settings', {
     markdownPreviewEnabled: true,
     confirmBeforeClose: true,
     restoreLastSession: true,
+    uiLanguage: 'zh-CN',
   }),
 
   getters: {
@@ -72,9 +97,38 @@ export const useSettingsStore = defineStore('settings', {
       insertSpaces: state.insertSpaces,
       trimAutoWhitespace: state.trimTrailingWhitespace,
     }),
+    resolvedTheme: (state) => getThemeResolution(state).resolvedTheme,
+    previewTheme: (state) => getThemeResolution(state).previewTheme,
+    recommendedMonacoTheme: (state) => getThemeResolution(state).recommendedMonacoTheme,
+    monacoThemeOptions: (state) => getThemeResolution(state).monacoThemeOptions,
   },
 
   actions: {
+    ensureThemeListener() {
+      if (
+        typeof window === 'undefined' ||
+        typeof window.matchMedia !== 'function' ||
+        systemThemeListenerAttached
+      ) {
+        return;
+      }
+
+      systemThemeMediaQuery = window.matchMedia(SYSTEM_THEME_QUERY);
+      const handleThemeChange = () => {
+        if (this.theme === 'system') {
+          this.applyTheme();
+        }
+      };
+
+      if (typeof systemThemeMediaQuery.addEventListener === 'function') {
+        systemThemeMediaQuery.addEventListener('change', handleThemeChange);
+      } else if (typeof systemThemeMediaQuery.addListener === 'function') {
+        systemThemeMediaQuery.addListener(handleThemeChange);
+      }
+
+      systemThemeListenerAttached = true;
+    },
+
     // 从 localStorage 加载设置
     loadFromStorage() {
       try {
@@ -88,6 +142,7 @@ export const useSettingsStore = defineStore('settings', {
           if (this.markdownPreviewMode === 'split') {
             this.markdownPreviewMode = 'edit';
           }
+          this.uiLanguage = normalizeUiLanguage(this.uiLanguage);
           console.log('[Settings] 从 localStorage 加载设置成功');
         }
       } catch (error) {
@@ -118,6 +173,7 @@ export const useSettingsStore = defineStore('settings', {
           markdownPreviewEnabled: this.markdownPreviewEnabled,
           confirmBeforeClose: this.confirmBeforeClose,
           restoreLastSession: this.restoreLastSession,
+          uiLanguage: this.uiLanguage,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
         console.log('[Settings] 保存设置到 localStorage');
@@ -142,6 +198,12 @@ export const useSettingsStore = defineStore('settings', {
       if (partial.theme !== undefined || partial.monacoTheme !== undefined) {
         this.applyTheme();
       }
+
+      // 如果更新了界面语言，应用语言属性
+      if (partial.uiLanguage !== undefined) {
+        this.uiLanguage = normalizeUiLanguage(this.uiLanguage);
+        this.applyLanguage();
+      }
     },
 
     // 重置为默认值
@@ -150,22 +212,25 @@ export const useSettingsStore = defineStore('settings', {
       this.saveToStorage();
       await this.syncAutoSaveToTauri();
       this.applyTheme();
+      this.applyLanguage();
     },
 
     // 应用主题
     applyTheme() {
       const root = document.documentElement;
-      if (this.theme === 'dark') {
-        root.classList.add('dark');
-        root.classList.remove('light');
-      } else if (this.theme === 'light') {
-        root.classList.add('light');
-        root.classList.remove('dark');
-      } else {
-        // system
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        root.classList.toggle('dark', prefersDark);
-        root.classList.toggle('light', !prefersDark);
+      const themeState = getThemeResolution(this);
+
+      root.classList.remove('light', 'dark', 'theme-light', 'theme-dark');
+      root.classList.add(themeState.resolvedTheme, `theme-${themeState.resolvedTheme}`, `skin-${themeState.skin}`);
+    },
+
+    applyLanguage() {
+      if (typeof document === 'undefined') {
+        return;
+      }
+      const root = document.documentElement as HTMLElement | null;
+      if (root && typeof root.setAttribute === 'function') {
+        root.setAttribute('lang', this.uiLanguage);
       }
     },
 
@@ -188,10 +253,13 @@ export const useSettingsStore = defineStore('settings', {
 
     // 初始化
     async init() {
+      this.ensureThemeListener();
       // 首先从 localStorage 加载
       this.loadFromStorage();
+      this.uiLanguage = normalizeUiLanguage(this.uiLanguage);
       // 然后应用主题
       this.applyTheme();
+      this.applyLanguage();
       // 最后从 Tauri 加载（覆盖部分设置）
       await this.loadFromTauri();
     },

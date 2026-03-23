@@ -63,7 +63,8 @@ describe('FileTree.vue', () => {
       })
 
       expect(wrapper.find('.file-tree').exists()).toBe(true)
-      expect(wrapper.find('.file-tree-title').text()).toBe('资源管理器')
+      expect(wrapper.find('.file-tree-title').text()).toBe('我的工作区')
+      expect(wrapper.find('.workspace-caption').text()).toBe('工作区')
     })
 
     it('应显示文件和文件夹', () => {
@@ -110,6 +111,23 @@ describe('FileTree.vue', () => {
       expect(wrapper.text()).toContain('package.json')
     })
 
+    it('搜索输入壳和操作提示应展示', () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+
+      const searchShell = wrapper.find('[data-testid="file-tree-search-shell"]')
+      expect(searchShell.exists()).toBe(true)
+      const input = searchShell.find('input')
+      expect(input.attributes('readonly')).not.toBeUndefined()
+      expect(input.attributes('placeholder')).toBe('在工作区中搜索（仅视觉）')
+
+      expect(wrapper.find('.operations-label').text()).toBe('轻操作')
+      expect(wrapper.find('.operation-tags').text()).toContain('右键创建')
+    })
+
     it('空文件树应显示空状态', () => {
       const wrapper = mount(FileTree, {
         props: {
@@ -118,7 +136,8 @@ describe('FileTree.vue', () => {
       })
 
       expect(wrapper.find('.file-tree-empty').exists()).toBe(true)
-      expect(wrapper.find('.file-tree-empty').text()).toBe('暂无文件')
+      expect(wrapper.find('.empty-title').text()).toBe('当前工作区暂无文件')
+      expect(wrapper.find('.empty-hint').text()).toBe('右键创建文件/文件夹，或点击右上角刷新')
     })
 
     it('加载状态应显示加载提示', () => {

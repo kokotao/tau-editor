@@ -9,6 +9,17 @@ export interface Shortcut {
   preventDefault?: boolean;
 }
 
+type KeyboardStoreLike = {
+  handleKeyDown: (event: KeyboardEvent) => void;
+};
+
+let activeKeyboardStore: KeyboardStoreLike | null = null;
+let globalHandlerRegistered = false;
+
+const dispatchGlobalKeydown = (event: KeyboardEvent) => {
+  activeKeyboardStore?.handleKeyDown(event);
+};
+
 export const useKeyboardStore = defineStore('keyboard', {
   state: () => ({
     shortcuts: [] as Shortcut[],
@@ -54,25 +65,43 @@ export const useKeyboardStore = defineStore('keyboard', {
 
     // 设置全局键盘事件处理器
     setupGlobalHandler() {
-      if (this.registeredKeys.has('global')) return;
-      
-      window.addEventListener('keydown', this.handleKeyDown);
+      // Pinia store 在测试或 HMR 场景下可能重建，重建后需要将监听器切换到新实例
+      if (globalHandlerRegistered && activeKeyboardStore && activeKeyboardStore !== this) {
+        window.removeEventListener('keydown', dispatchGlobalKeydown);
+        globalHandlerRegistered = false;
+      }
+
+      activeKeyboardStore = this;
+      if (!globalHandlerRegistered) {
+        window.addEventListener('keydown', dispatchGlobalKeydown);
+        globalHandlerRegistered = true;
+      }
       this.registeredKeys.add('global');
     },
 
     // 移除全局键盘事件处理器
     removeGlobalHandler() {
-      window.removeEventListener('keydown', this.handleKeyDown);
-      this.registeredKeys.delete('global');
+      if (globalHandlerRegistered) {
+        window.removeEventListener('keydown', dispatchGlobalKeydown);
+        globalHandlerRegistered = false;
+      }
+      if (activeKeyboardStore === this) {
+        activeKeyboardStore = null;
+      }
+      this.registeredKeys.clear();
     },
 
     // 处理键盘事件
     handleKeyDown(event: KeyboardEvent) {
-      // 检查是否在输入框中
-      const target = event.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || 
-                      target.tagName === 'TEXTAREA' || 
-                      (target as any).isContentEditable;
+      // jsdom 中 window.dispatchEvent 时 event.target 可能不是聚焦元素，兜底 activeElement
+      const targetCandidate = event.target as HTMLElement | null;
+      const activeElement = (document.activeElement as HTMLElement | null) ?? null;
+      const target = targetCandidate instanceof HTMLElement ? targetCandidate : activeElement;
+      const isInput = !!target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      );
 
       for (const shortcut of this.shortcuts) {
         // 检查修饰键
@@ -89,8 +118,9 @@ export const useKeyboardStore = defineStore('keyboard', {
         const matchKey = shortcut.key.toLowerCase() === event.key.toLowerCase();
 
         if (matchCtrl && matchShift && matchAlt && matchKey) {
-          // 在输入框中时，只触发非修饰键快捷键
-          if (isInput && mods.length === 0) {
+          // 在输入框中时，仅跳过可打印字符的裸键快捷键（保留 F1/Escape 等功能键）
+          const isPrintableShortcut = shortcut.key.length === 1;
+          if (isInput && mods.length === 0 && isPrintableShortcut) {
             continue;
           }
           

@@ -1,3 +1,5 @@
+import { getAppI18n, getCommandText, type CommandId, type UiLanguage } from '@/i18n/ui';
+
 export interface AppCommand {
   id: string;
   title: string;
@@ -18,78 +20,92 @@ export interface CommandActions {
   openCommandPalette: () => Promise<void> | void;
 }
 
-export function createCommandRegistry(actions: CommandActions): AppCommand[] {
+function resolveCommandText(language: UiLanguage, commandId: CommandId) {
+  return getCommandText(language, commandId);
+}
+
+export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLanguage): AppCommand[] {
+  const commandPalette = resolveCommandText(uiLanguage, 'commandPalette.open');
+  const newFile = resolveCommandText(uiLanguage, 'file.new');
+  const openFile = resolveCommandText(uiLanguage, 'file.open');
+  const openFolder = resolveCommandText(uiLanguage, 'file.openFolder');
+  const save = resolveCommandText(uiLanguage, 'file.save');
+  const saveAs = resolveCommandText(uiLanguage, 'file.saveAs');
+  const toggleSidebar = resolveCommandText(uiLanguage, 'view.toggleSidebar');
+  const toggleSettings = resolveCommandText(uiLanguage, 'view.toggleSettings');
+
   return [
     {
       id: 'commandPalette.open',
-      title: '打开命令面板',
+      title: commandPalette.title,
       category: 'search',
-      shortcut: 'Ctrl+Shift+P',
-      keywords: ['命令面板', 'palette', 'search'],
+      shortcut: 'F1 / Ctrl+Shift+P',
+      keywords: commandPalette.keywords,
       run: actions.openCommandPalette,
     },
     {
       id: 'file.new',
-      title: '新建文件',
+      title: newFile.title,
       category: 'file',
       shortcut: 'Ctrl+N',
-      keywords: ['new', 'untitled'],
+      keywords: newFile.keywords,
       run: actions.newFile,
     },
     {
       id: 'file.open',
-      title: '打开文件',
+      title: openFile.title,
       category: 'file',
       shortcut: 'Ctrl+O',
-      keywords: ['open', 'file'],
+      keywords: openFile.keywords,
       run: actions.openFile,
     },
     {
       id: 'file.openFolder',
-      title: '打开文件夹',
+      title: openFolder.title,
       category: 'workspace',
-      keywords: ['open', 'folder', 'workspace'],
+      keywords: openFolder.keywords,
       run: actions.openFolder,
     },
     {
       id: 'file.save',
-      title: '保存',
+      title: save.title,
       category: 'file',
       shortcut: 'Ctrl+S',
-      keywords: ['save', 'write'],
+      keywords: save.keywords,
       run: actions.save,
     },
     {
       id: 'file.saveAs',
-      title: '另存为',
+      title: saveAs.title,
       category: 'file',
-      keywords: ['save as', 'export'],
+      keywords: saveAs.keywords,
       run: actions.saveAs,
     },
     {
       id: 'view.toggleSidebar',
-      title: '切换资源管理器',
+      title: toggleSidebar.title,
       category: 'view',
-      keywords: ['sidebar', 'explorer', 'drawer', 'split', 'panel'],
+      keywords: toggleSidebar.keywords,
       run: actions.toggleSidebar,
     },
     {
       id: 'view.toggleSettings',
-      title: '切换设置面板',
+      title: toggleSettings.title,
       category: 'view',
-      keywords: ['settings', 'preferences'],
+      keywords: toggleSettings.keywords,
       run: actions.toggleSettings,
     },
   ];
 }
 
-export function createCommandExecutor(commands: AppCommand[]) {
+export function createCommandExecutor(commands: AppCommand[], uiLanguage: UiLanguage) {
   const commandMap = new Map(commands.map((command) => [command.id, command]));
+  const appText = getAppI18n(uiLanguage);
 
   return async (id: string) => {
     const command = commandMap.get(id);
     if (!command) {
-      throw new Error(`未找到命令: ${id}`);
+      throw new Error(`${appText.unknownCommand}: ${id}`);
     }
 
     await command.run();

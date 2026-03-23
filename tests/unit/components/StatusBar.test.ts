@@ -10,19 +10,38 @@
  * - 事件发射
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { computed, ref } from 'vue'
 import StatusBar from '@/components/editor/StatusBar.vue'
 import { useEditorStore } from '@/stores/editor'
 
+const createMockEditorStore = () => {
+  const content = ref('')
+  const lineCount = computed(() => {
+    if (!content.value) return 1
+    return content.value.split('\n').length
+  })
+
+  return {
+    lineCount,
+    setContent(value: string) {
+      content.value = value
+    },
+  }
+}
+
+let mockEditorStore = createMockEditorStore()
+
+vi.mock('@/stores/editor', () => ({
+  useEditorStore: () => mockEditorStore,
+}))
+
 describe('StatusBar.vue', () => {
-  let pinia: ReturnType<typeof createPinia>
   let editorStore: ReturnType<typeof useEditorStore>
 
   beforeEach(() => {
-    pinia = createPinia()
-    setActivePinia(pinia)
+    mockEditorStore = createMockEditorStore()
     editorStore = useEditorStore()
   })
 
@@ -50,6 +69,7 @@ describe('StatusBar.vue', () => {
 
       expect(wrapper.find('.status-left').exists()).toBe(true)
       expect(wrapper.find('.status-right').exists()).toBe(true)
+      expect(wrapper.find('.status-center').exists()).toBe(true)
     })
 
     it('应显示光标位置', () => {
@@ -74,6 +94,18 @@ describe('StatusBar.vue', () => {
       })
 
       expect(wrapper.text()).toContain('UTF-8')
+    })
+
+    it('应支持自定义编码并大写显示', () => {
+      const wrapper = mount(StatusBar, {
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+          encoding: 'gbk',
+          language: 'plaintext',
+        },
+      })
+
+      expect(wrapper.text()).toContain('GBK')
     })
 
     it('应显示行数', () => {
@@ -123,36 +155,32 @@ describe('StatusBar.vue', () => {
   })
 
   describe('语言模式选择', () => {
-    it('应显示语言选择下拉框', () => {
-      const wrapper = mount(StatusBar, {
+    const mountLanguageBar = (language = 'plaintext') =>
+      mount(StatusBar, {
         props: {
           cursorPosition: { line: 1, column: 1 },
-          language: 'plaintext',
+          language,
         },
       })
 
-      expect(wrapper.find('.status-select').exists()).toBe(true)
+    const getLanguageSelect = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.find('[data-testid="language-mode-display"]')
+
+    it('应显示语言选择下拉框', () => {
+      const wrapper = mountLanguageBar()
+
+      expect(getLanguageSelect(wrapper).exists()).toBe(true)
     })
 
     it('应显示当前选中的语言', () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          language: 'typescript',
-        },
-      })
+      const wrapper = mountLanguageBar('typescript')
 
-      const select = wrapper.find('.status-select')
+      const select = getLanguageSelect(wrapper)
       expect(select.element.value).toBe('typescript')
     })
 
     it('应支持所有预定义语言选项', () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          language: 'plaintext',
-        },
-      })
+      const wrapper = mountLanguageBar()
 
       const languages = [
         'plaintext',
@@ -176,23 +204,18 @@ describe('StatusBar.vue', () => {
         'shell',
       ]
 
-      const select = wrapper.find('.status-select')
+      const select = getLanguageSelect(wrapper)
       const options = select.findAll('option')
-      
+
       languages.forEach((lang, index) => {
         expect(options[index].element.value).toBe(lang)
       })
     })
 
     it('改变语言应发射 language-change 事件', async () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          language: 'plaintext',
-        },
-      })
+      const wrapper = mountLanguageBar()
 
-      const select = wrapper.find('.status-select')
+      const select = getLanguageSelect(wrapper)
       await select.setValue('typescript')
 
       expect(wrapper.emitted('language-change')).toBeTruthy()
@@ -200,42 +223,27 @@ describe('StatusBar.vue', () => {
     })
 
     it('选择 JavaScript 应发射正确事件', async () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          language: 'plaintext',
-        },
-      })
+      const wrapper = mountLanguageBar()
 
-      const select = wrapper.find('.status-select')
+      const select = getLanguageSelect(wrapper)
       await select.setValue('javascript')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['javascript'])
     })
 
     it('选择 Python 应发射正确事件', async () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          language: 'plaintext',
-        },
-      })
+      const wrapper = mountLanguageBar()
 
-      const select = wrapper.find('.status-select')
+      const select = getLanguageSelect(wrapper)
       await select.setValue('python')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['python'])
     })
 
     it('选择 Markdown 应发射正确事件', async () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          language: 'plaintext',
-        },
-      })
+      const wrapper = mountLanguageBar()
 
-      const select = wrapper.find('.status-select')
+      const select = getLanguageSelect(wrapper)
       await select.setValue('markdown')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['markdown'])
@@ -462,7 +470,7 @@ describe('StatusBar.vue', () => {
         props: {},
       })
 
-      const select = wrapper.find('.status-select')
+      const select = wrapper.find('[data-testid="language-mode-display"]')
       expect(select.element.value).toBe('plaintext')
     })
 
@@ -497,7 +505,7 @@ describe('StatusBar.vue', () => {
 
       await wrapper.setProps({ language: 'javascript' })
 
-      const select = wrapper.find('.status-select')
+      const select = wrapper.find('[data-testid="language-mode-display"]')
       expect(select.element.value).toBe('javascript')
     })
 
@@ -537,7 +545,7 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      const select = wrapper.find('.status-select')
+      const select = wrapper.find('[data-testid="language-mode-display"]')
       expect(select.element.disabled).toBe(false)
     })
   })

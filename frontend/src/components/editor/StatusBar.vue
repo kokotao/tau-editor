@@ -1,31 +1,40 @@
 <template>
   <div class="status-bar" data-testid="status-bar">
-    <div class="status-left">
+    <div class="status-section status-left">
       <div class="status-item">
-        <span class="status-label" data-testid="cursor-position">行 {{ cursorPosition.line }}, 列 {{ cursorPosition.column }}</span>
+        <span class="status-label" data-testid="cursor-position">{{ cursorPositionLabel }}</span>
       </div>
       <div class="status-item">
-        <span class="status-label" data-testid="encoding-display">UTF-8</span>
+        <span class="status-label" data-testid="line-count">{{ lineCountLabel }}</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label" data-testid="word-count">{{ wordCount }}</span>
       </div>
     </div>
 
-    <div class="status-right">
-      <div class="status-item" v-if="autoSaveEnabled">
-        <span class="status-dot"></span>
-        <span class="status-label" data-testid="auto-save-label">自动保存</span>
+    <div class="status-section status-center">
+      <div class="status-capsule auto-save-capsule" v-if="autoSaveEnabled">
+        <span class="status-icon" data-testid="auto-save-icon">💾</span>
+        <span class="status-label" data-testid="auto-save-label">{{ copy.autoSave }}</span>
         <span class="status-value" data-testid="auto-save-status" v-if="lastSaveTime">
           {{ formatLastSaveTime(lastSaveTime) }}
         </span>
       </div>
+      <div class="status-capsule encoding-capsule">
+        <span class="status-label" data-testid="encoding-display">{{ displayEncoding }}</span>
+      </div>
+    </div>
+
+    <div class="status-section status-right">
       <div class="status-item">
         <label class="status-pill">
-          <span class="pill-prefix">主题</span>
+          <span class="pill-prefix">{{ copy.theme }}</span>
           <select
             class="status-select"
             data-testid="theme-select"
             :value="monacoTheme"
             @change="handleThemeChange"
-            title="编辑器主题"
+            :title="copy.editorThemeTitle"
           >
             <option value="vs">明亮</option>
             <option value="vs-dark">暗夜</option>
@@ -35,13 +44,13 @@
       </div>
       <div class="status-item">
         <label class="status-pill language-pill">
-          <span class="pill-prefix">语言</span>
+          <span class="pill-prefix">{{ copy.language }}</span>
           <select
             class="status-select"
             data-testid="language-mode-display"
             :value="language"
             @change="handleLanguageChange"
-            title="语言模式"
+            :title="copy.languageModeTitle"
           >
             <option value="plaintext">Plain Text</option>
             <option value="javascript">JavaScript</option>
@@ -65,9 +74,6 @@
           </select>
         </label>
       </div>
-      <div class="status-item">
-        <span class="status-label" data-testid="line-count">Ln {{ lineCount }}</span>
-      </div>
     </div>
   </div>
 </template>
@@ -75,21 +81,25 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useEditorStore } from '@/stores/editor';
+import { useSettingsStore } from '@/stores/settings';
+import { getStatusBarI18n } from '@/i18n/ui';
 
 interface StatusBarProps {
   cursorPosition?: { line: number; column: number };
   encoding?: string;
   language?: string;
   monacoTheme?: string;
+  wordCount?: number;
   autoSaveEnabled?: boolean;
   lastSaveTime?: Date;
 }
 
-withDefaults(defineProps<StatusBarProps>(), {
+const props = withDefaults(defineProps<StatusBarProps>(), {
   cursorPosition: () => ({ line: 1, column: 1 }),
   encoding: 'utf-8',
   language: 'plaintext',
   monacoTheme: 'vs-dark',
+  wordCount: 0,
   autoSaveEnabled: true,
   lastSaveTime: undefined,
 });
@@ -101,7 +111,24 @@ const emit = defineEmits<{
 }>();
 
 const editorStore = useEditorStore();
-const lineCount = computed(() => editorStore.lineCount);
+const settingsStore = useSettingsStore();
+const copy = computed(() => getStatusBarI18n(settingsStore.uiLanguage));
+const normalizedLineCount = computed(() => {
+  const rawLineCount = (editorStore as any).lineCount;
+  if (typeof rawLineCount === 'number') {
+    return rawLineCount;
+  }
+
+  if (rawLineCount && typeof rawLineCount === 'object' && 'value' in rawLineCount) {
+    const value = Number((rawLineCount as { value: unknown }).value);
+    return Number.isFinite(value) ? value : 1;
+  }
+
+  return 1;
+});
+const cursorPositionLabel = computed(() => copy.value.rowCol(props.cursorPosition.line, props.cursorPosition.column));
+const lineCountLabel = computed(() => copy.value.lineCount(normalizedLineCount.value));
+const displayEncoding = computed(() => (props.encoding ?? 'utf-8').toUpperCase());
 
 const handleLanguageChange = (event: Event) => {
   emit('language-change', (event.target as HTMLSelectElement).value);
@@ -118,10 +145,10 @@ const formatLastSaveTime = (date: Date) => {
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
 
-  if (seconds < 60) return '刚刚';
-  if (minutes < 60) return `${minutes}分钟前`;
-  if (hours < 24) return `${hours}小时前`;
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  if (seconds < 60) return copy.value.justNow;
+  if (minutes < 60) return copy.value.minutesAgo(minutes);
+  if (hours < 24) return copy.value.hoursAgo(hours);
+  return date.toLocaleTimeString(settingsStore.uiLanguage, { hour: '2-digit', minute: '2-digit' });
 };
 </script>
 
@@ -130,6 +157,7 @@ const formatLastSaveTime = (date: Date) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 24px;
   min-height: 40px;
   padding: 0 14px;
   background:
@@ -140,11 +168,25 @@ const formatLastSaveTime = (date: Date) => {
   border-top: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
 }
 
-.status-left,
-.status-right {
+.status-section {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.status-left {
+  flex: 0 0 auto;
+}
+
+.status-center {
+  flex: 1 1 auto;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.status-right {
+  flex: 0 0 auto;
 }
 
 .status-item {
@@ -163,12 +205,19 @@ const formatLastSaveTime = (date: Date) => {
   font-size: 11px;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
+.status-icon {
+  font-size: 14px;
+}
+
+.status-capsule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 12px;
   border-radius: 999px;
-  background: #4ade80;
-  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .status-pill {

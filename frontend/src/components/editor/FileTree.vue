@@ -1,13 +1,39 @@
 <template>
   <div class="file-tree" role="tree">
     <div v-if="!nested" class="file-tree-header">
-      <span class="file-tree-title">资源管理器</span>
-      <button class="file-tree-action" @click="emit('refresh')" title="刷新">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23,4 23,10 17,10" />
-          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-        </svg>
-      </button>
+      <div class="file-tree-header-top">
+        <div class="file-tree-workspace">
+          <span class="workspace-caption">{{ copy.workspace }}</span>
+          <span class="file-tree-title">{{ workspaceLabel }}</span>
+        </div>
+        <div class="file-tree-header-action">
+          <div class="file-tree-search-shell" data-testid="file-tree-search-shell">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="6" />
+              <line x1="16" y1="16" x2="22" y2="22" />
+            </svg>
+            <input
+              type="text"
+              :placeholder="copy.searchPlaceholder"
+              readonly
+              :aria-label="copy.searchAriaLabel"
+            />
+          </div>
+          <button class="file-tree-action" @click="emit('refresh')" :title="copy.refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23,4 23,10 17,10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="file-tree-operations">
+        <span class="operations-label">{{ copy.quickOps }}</span>
+        <div class="operation-tags">
+          <span>{{ copy.quickCreate }}</span>
+          <span>{{ copy.quickOpen }}</span>
+        </div>
+      </div>
     </div>
 
     <div class="file-tree-content" v-if="!loading">
@@ -107,12 +133,13 @@
       </div>
 
       <div v-if="fileTree.length === 0" class="file-tree-empty">
-        暂无文件
+        <div class="empty-title">{{ copy.emptyTitle }}</div>
+        <div class="empty-hint">{{ copy.emptyHint }}</div>
       </div>
     </div>
 
     <div v-else class="file-tree-loading">
-      <LoadingSpinner size="small" text="加载文件树..." />
+      <LoadingSpinner size="small" :text="copy.loading" />
     </div>
 
     <!-- 右键菜单 -->
@@ -123,26 +150,28 @@
       @click.stop
     >
       <div class="context-menu-item" @click="handleNewFile">
-        新建文件
+        {{ copy.newFile }}
       </div>
       <div class="context-menu-item" @click="handleNewFolder">
-        新建文件夹
+        {{ copy.newFolder }}
       </div>
       <div class="context-menu-divider"></div>
       <div class="context-menu-item" @click="handleRename">
-        重命名
+        {{ copy.rename }}
       </div>
       <div class="context-menu-divider"></div>
       <div class="context-menu-item danger" @click="handleDelete">
-        删除
+        {{ copy.delete }}
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import type { FileTreeNode } from '@/stores/fileSystem';
+import { useSettingsStore } from '@/stores/settings';
+import { getFileTreeI18n } from '@/i18n/ui';
 import LoadingSpinner from '../ui/LoadingSpinner.vue';
 
 // Props
@@ -152,6 +181,7 @@ interface FileTreeProps {
   selectedPath?: string | null;
   loading?: boolean;
   nested?: boolean;
+  workspaceLabel?: string;
 }
 
 const props = withDefaults(defineProps<FileTreeProps>(), {
@@ -159,7 +189,10 @@ const props = withDefaults(defineProps<FileTreeProps>(), {
   selectedPath: null,
   loading: false,
   nested: false,
+  workspaceLabel: '我的工作区',
 });
+const settingsStore = useSettingsStore();
+const copy = computed(() => getFileTreeI18n(settingsStore.uiLanguage));
 
 // Emits
 const emit = defineEmits<{
@@ -309,8 +342,8 @@ onUnmounted(() => {
 
 .file-tree-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px 12px;
   font-size: 11px;
   font-weight: 600;
@@ -318,6 +351,80 @@ onUnmounted(() => {
   letter-spacing: 0.5px;
   color: var(--n-text-color, #999);
   border-bottom: 1px solid var(--n-border-color, #333);
+}
+
+.file-tree-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.file-tree-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-caption {
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--n-muted-text-color, #a2a2a2);
+}
+
+.file-tree-header-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-tree-search-shell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--n-border-color, #333);
+  background: var(--n-background-strong, #1e1e1e);
+  color: var(--n-text-color, #ccc);
+}
+
+.file-tree-search-shell svg {
+  color: var(--n-muted-text-color, #888);
+}
+
+.file-tree-search-shell input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-size: 13px;
+  width: 120px;
+}
+
+.file-tree-operations {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-top: 4px;
+}
+
+.operations-label {
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--n-muted-text-color, #a2a2a2);
+}
+
+.operation-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--n-muted-text-color, #a2a2a2);
 }
 
 .file-tree-action {
@@ -424,14 +531,34 @@ onUnmounted(() => {
   margin-left: 0;
 }
 
-.file-tree-loading,
-.file-tree-empty {
+.file-tree-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
   color: var(--n-text-color, #666);
   font-size: 13px;
+}
+
+.file-tree-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--n-text-color, #666);
+  font-size: 13px;
+}
+
+.file-tree-empty .empty-title {
+  font-weight: 600;
+  color: var(--n-text-color, #ccc);
+}
+
+.file-tree-empty .empty-hint {
+  font-size: 12px;
+  color: var(--n-muted-text-color, #9a9a9a);
 }
 
 .context-menu {

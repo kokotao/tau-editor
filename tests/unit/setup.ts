@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 // 每个测试后清理 React Testing Library
 afterEach(() => {
@@ -39,6 +40,7 @@ Object.defineProperty(window, 'localStorage', {
 
 // 重置所有 Mock
 beforeEach(() => {
+  setActivePinia(createPinia())
   vi.clearAllMocks()
   localStorageMock.getItem.mockReset()
   localStorageMock.setItem.mockReset()

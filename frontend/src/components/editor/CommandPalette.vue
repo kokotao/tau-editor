@@ -8,7 +8,7 @@
             class="palette-search-input"
             :value="query"
             type="text"
-            placeholder="输入命令、分类或快捷键"
+            :placeholder="commandPaletteText.placeholder"
             @input="handleInput"
             @keydown.down.prevent="emit('move', 1)"
             @keydown.up.prevent="emit('move', -1)"
@@ -28,13 +28,13 @@
           >
             <div class="palette-item-main">
               <span class="palette-item-title">{{ command.title }}</span>
-              <span class="palette-item-meta">{{ categoryLabels[command.category] }}</span>
+              <span class="palette-item-meta">{{ commandPaletteText.categoryLabels[command.category] }}</span>
             </div>
             <span v-if="command.shortcut" class="palette-shortcut">{{ command.shortcut }}</span>
           </button>
 
           <div v-if="commands.length === 0" class="palette-empty">
-            没有找到匹配命令
+            {{ commandPaletteText.empty }}
           </div>
         </div>
       </div>
@@ -43,8 +43,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { CommandItem } from '@/stores/commands';
+import { useSettingsStore } from '@/stores/settings';
+import { getCommandPaletteI18n } from '@/i18n/ui';
 
 interface CommandPaletteProps {
   visible: boolean;
@@ -54,6 +56,7 @@ interface CommandPaletteProps {
 }
 
 const props = defineProps<CommandPaletteProps>();
+const settingsStore = useSettingsStore();
 
 const emit = defineEmits<{
   close: [];
@@ -66,12 +69,7 @@ const emit = defineEmits<{
 
 const inputRef = ref<HTMLInputElement | null>(null);
 
-const categoryLabels: Record<CommandItem['category'], string> = {
-  file: '文件',
-  view: '视图',
-  workspace: '工作区',
-  search: '搜索',
-};
+const commandPaletteText = computed(() => getCommandPaletteI18n(settingsStore.uiLanguage));
 
 const handleInput = (event: Event) => {
   emit('update:query', (event.target as HTMLInputElement).value);

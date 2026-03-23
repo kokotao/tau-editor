@@ -17,6 +17,13 @@ interface CommandsState {
   commands: CommandItem[];
 }
 
+const CATEGORY_SEARCH_TOKENS: Record<CommandCategory, string[]> = {
+  file: ['file', '文件'],
+  view: ['view', '视图'],
+  workspace: ['workspace', '工作区'],
+  search: ['search', '搜索', '命令'],
+};
+
 function normalize(text: string): string {
   return text.trim().toLowerCase();
 }
@@ -40,7 +47,7 @@ export const useCommandStore = defineStore('commands', {
         const haystacks = [
           command.title,
           command.id,
-          command.category,
+          ...CATEGORY_SEARCH_TOKENS[command.category],
           command.shortcut ?? '',
           ...(command.keywords ?? []),
         ];

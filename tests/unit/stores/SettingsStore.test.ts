@@ -14,6 +14,16 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
 import { settingsCommands, TauriError } from '@/lib/tauri'
 
+function createMediaQueryList(matches: boolean) {
+  return {
+    matches,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+  }
+}
+
 // Mock Tauri commands
 vi.mock('@/lib/tauri', () => ({
   fileCommands: {
@@ -62,15 +72,18 @@ vi.stubGlobal('window', {
 
 describe('SettingsStore', () => {
   let store: ReturnType<typeof useSettingsStore>
+  let pinia: ReturnType<typeof createPinia>
 
   beforeEach(() => {
-    setActivePinia(createPinia())
-    store = useSettingsStore()
+    pinia = createPinia()
+    setActivePinia(pinia)
+    store = useSettingsStore(pinia)
     vi.clearAllMocks()
     mockClassList.add.mockClear()
     mockClassList.remove.mockClear()
     mockClassList.toggle.mockClear()
     mockMatchMedia.mockClear()
+    mockMatchMedia.mockReturnValue(createMediaQueryList(false))
   })
 
   describe('初始状态', () => {
@@ -130,8 +143,8 @@ describe('SettingsStore', () => {
       expect(store.sidebarCollapsed).toBe(false)
     })
 
-    it('应初始化 Markdown 预览模式为 split', () => {
-      expect(store.markdownPreviewMode).toBe('split')
+    it('应初始化 Markdown 预览模式为 edit', () => {
+      expect(store.markdownPreviewMode).toBe('edit')
     })
 
     it('应初始化关闭前确认为 true', () => {
@@ -178,6 +191,31 @@ describe('SettingsStore', () => {
     })
   })
 
+  describe('主题解析派生值', () => {
+    it('system + 浅色系统应解析为 light 预览主题', () => {
+      mockMatchMedia.mockReturnValue(createMediaQueryList(false))
+
+      expect(store.resolvedTheme).toBe('light')
+      expect(store.previewTheme).toBe('light')
+      expect(store.recommendedMonacoTheme).toBe('vs')
+    })
+
+    it('dark 主题应推荐 vs-dark', () => {
+      store.theme = 'dark'
+
+      expect(store.resolvedTheme).toBe('dark')
+      expect(store.recommendedMonacoTheme).toBe('vs-dark')
+    })
+
+    it('应提供带推荐标记的 Monaco 主题选项', () => {
+      store.theme = 'light'
+      const recommended = store.monacoThemeOptions.find((option) => option.recommended)
+
+      expect(store.monacoThemeOptions).toHaveLength(3)
+      expect(recommended?.value).toBe('vs')
+    })
+  })
+
   describe('更新设置', () => {
     beforeEach(() => {
       vi.mocked(settingsCommands.setAutoSaveInterval).mockResolvedValue()
@@ -211,8 +249,8 @@ describe('SettingsStore', () => {
     it('updateSettings() 更新主题应应用主题', async () => {
       await store.updateSettings({ theme: 'dark' })
 
-      expect(mockClassList.add).toHaveBeenCalledWith('dark')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
+      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
     })
 
     it('updateSettings() 非自动保存/主题设置不应调用 Tauri', async () => {
@@ -246,12 +284,12 @@ describe('SettingsStore', () => {
     })
 
     it('resetToDefaults() 应应用主题', async () => {
-      mockMatchMedia.mockReturnValue({ matches: false })
+      mockMatchMedia.mockReturnValue(createMediaQueryList(false))
 
       await store.resetToDefaults()
 
-      expect(mockClassList.remove).toHaveBeenCalledWith('dark')
-      expect(mockClassList.add).toHaveBeenCalledWith('light')
+      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
     })
   })
 
@@ -260,49 +298,49 @@ describe('SettingsStore', () => {
       store.theme = 'dark'
       store.applyTheme()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('dark')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
+      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
     })
 
     it('applyTheme() light 应添加 light 类', () => {
       store.theme = 'light'
       store.applyTheme()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('light')
-      expect(mockClassList.remove).toHaveBeenCalledWith('dark')
+      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
     })
 
     it('applyTheme() system 暗色模式应添加 dark 类', () => {
       store.theme = 'system'
-      mockMatchMedia.mockReturnValue({ matches: true })
+      mockMatchMedia.mockReturnValue(createMediaQueryList(true))
 
       store.applyTheme()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('dark')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
+      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
     })
 
     it('applyTheme() system 亮色模式应添加 light 类', () => {
       store.theme = 'system'
-      mockMatchMedia.mockReturnValue({ matches: false })
+      mockMatchMedia.mockReturnValue(createMediaQueryList(false))
 
       store.applyTheme()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('light')
-      expect(mockClassList.remove).toHaveBeenCalledWith('dark')
+      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
     })
   })
 
   describe('初始化', () => {
     beforeEach(() => {
       vi.mocked(settingsCommands.getAutoSaveInterval).mockResolvedValue(30)
-      mockMatchMedia.mockReturnValue({ matches: false })
+      mockMatchMedia.mockReturnValue(createMediaQueryList(false))
     })
 
     it('init() 应应用主题', async () => {
       await store.init()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('light')
+      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
     })
 
     it('init() 应从 Tauri 加载设置', async () => {

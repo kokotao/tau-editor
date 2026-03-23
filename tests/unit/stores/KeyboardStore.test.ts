@@ -268,6 +268,31 @@ describe('KeyboardStore', () => {
       document.body.removeChild(input);
     });
 
+    it('在输入框中应允许功能键快捷键', () => {
+      const keyboard = useKeyboardStore();
+      const handler = vi.fn();
+
+      keyboard.register({
+        id: 'command-palette-f1',
+        key: 'F1',
+        handler,
+      });
+
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      input.focus();
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'F1',
+      });
+
+      window.dispatchEvent(event);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+
+      document.body.removeChild(input);
+    });
+
     it('应支持 preventDefault 配置', () => {
       const keyboard = useKeyboardStore();
       

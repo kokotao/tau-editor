@@ -59,6 +59,7 @@ export default defineConfig({
   },
   
   resolve: {
+    dedupe: ['vue', 'pinia'],
     alias: {
       '@': path.resolve(__dirname, './frontend/src'),
       '@components': path.resolve(__dirname, './frontend/src/components'),
@@ -66,6 +67,8 @@ export default defineConfig({
       '@store': path.resolve(__dirname, './frontend/src/stores'),
       '@utils': path.resolve(__dirname, './frontend/src/utils'),
       '@types': path.resolve(__dirname, './frontend/src/types'),
+      vue: path.resolve(__dirname, './node_modules/vue'),
+      pinia: path.resolve(__dirname, './node_modules/pinia'),
     },
   },
 })

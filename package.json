@@ -1,6 +1,6 @@
 {
   "name": "text-editor",
-  "version": "0.1.4",
+  "version": "0.1.9",
   "description": "跨平台文本编辑器 - Cross-platform Text Editor",
   "author": "罗小纯",
   "private": true,
