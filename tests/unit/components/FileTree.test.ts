@@ -121,8 +121,8 @@ describe('FileTree.vue', () => {
       const searchShell = wrapper.find('[data-testid="file-tree-search-shell"]')
       expect(searchShell.exists()).toBe(true)
       const input = searchShell.find('input')
-      expect(input.attributes('readonly')).not.toBeUndefined()
       expect(input.attributes('placeholder')).toBe('在工作区中搜索（仅视觉）')
+      expect((input.element as HTMLInputElement).value).toBe('')
 
       expect(wrapper.find('.operations-label').text()).toBe('轻操作')
       expect(wrapper.find('.operation-tags').text()).toContain('右键创建')

@@ -13,7 +13,7 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
-import { getAppI18n } from '@/i18n/ui';
+import { getAppI18n, getAuthorInfoI18n } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
@@ -53,6 +53,7 @@ const MAX_SIDEBAR_WIDTH = 420;
 const isResizingSidebar = ref(false);
 const sidebarWidth = ref(300);
 const showSettingsPanel = ref(false);
+const showAuthorModal = ref(false);
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -81,6 +82,7 @@ const wordCount = computed(() => {
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
+const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => workspaceStore.currentWorkspaceName ?? appText.value.workspaceNotOpen);
 const currentFileLabel = computed(() => {
   if (!activeTab.value) {
@@ -530,11 +532,6 @@ onUnmounted(() => {
           <p class="sidebar-empty-text">{{ appText.sidebarEmptyDesc.replace('{mode}', currentModeLabel) }}</p>
           <button class="sidebar-empty-action" @click="handleOpenFolder">{{ appText.selectFolder }}</button>
         </div>
-        <button class="sidebar-toggle-handle" data-testid="btn-sidebar-collapse" :title="appText.collapseExplorer" @click="showFileTree = false">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15,18 9,12 15,6" />
-          </svg>
-        </button>
       </aside>
       <div
         v-if="showFileTree"
@@ -543,11 +540,30 @@ onUnmounted(() => {
         :class="{ dragging: isResizingSidebar }"
         @mousedown.prevent="startSidebarResize"
       ></div>
-      <button v-else class="sidebar-expand-fab" data-testid="btn-sidebar-expand" :title="appText.expandExplorer" @click="showFileTree = true">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="9,18 15,12 9,6" />
-        </svg>
-      </button>
+
+      <div class="floating-controls" data-testid="left-bottom-controls">
+        <button
+          class="floating-action-btn"
+          :data-testid="showFileTree ? 'btn-sidebar-collapse' : 'btn-sidebar-expand'"
+          :title="showFileTree ? appText.collapseExplorer : appText.expandExplorer"
+          @click="showFileTree = !showFileTree"
+        >
+          <svg v-if="showFileTree" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15,18 9,12 15,6" />
+          </svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9,18 15,12 9,6" />
+          </svg>
+        </button>
+        <button
+          class="floating-action-btn author-entry-btn"
+          data-testid="btn-author-entry"
+          :title="authorCopy.entry"
+          @click="showAuthorModal = true"
+        >
+          {{ authorCopy.entry }}
+        </button>
+      </div>
 
       <section class="editor-panel">
         <EditorTabs
@@ -625,6 +641,32 @@ onUnmounted(() => {
       @language-change="handleLanguageChange"
       @theme-change="handleThemeChange"
     />
+
+    <div
+      v-if="showAuthorModal"
+      class="app-author-modal-overlay"
+      data-testid="author-modal-overlay"
+      @click="showAuthorModal = false"
+    >
+      <div class="app-author-modal" data-testid="author-modal" @click.stop>
+        <div class="app-author-modal-header">
+          <h4>{{ authorCopy.modalTitle }}</h4>
+          <button type="button" class="app-author-modal-close" @click="showAuthorModal = false">×</button>
+        </div>
+        <div class="app-author-modal-content">
+          <p>{{ authorCopy.nameLabel }}albert_luo</p>
+          <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
+          <a
+            class="app-author-link"
+            href="https://github.com/albertluo"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ authorCopy.githubLabel }}
+          </a>
+        </div>
+      </div>
+    </div>
 
   </div>
 </template>
@@ -815,22 +857,6 @@ body {
   min-height: 0;
 }
 
-.sidebar-toggle-handle {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--surface-muted);
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
 .sidebar-resizer {
   width: 6px;
   cursor: col-resize;
@@ -844,13 +870,20 @@ body {
   background: rgba(77, 171, 255, 0.45);
 }
 
-.sidebar-expand-fab {
+.floating-controls {
   position: absolute;
-  top: 68px;
   left: 8px;
-  z-index: 8;
-  width: 28px;
+  bottom: 12px;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.floating-action-btn {
+  min-width: 28px;
   height: 28px;
+  padding: 0 10px;
   border-radius: 10px;
   border: 1px solid var(--border-soft);
   background: rgba(16, 23, 38, 0.85);
@@ -859,6 +892,83 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.floating-action-btn:hover {
+  border-color: rgba(125, 211, 252, 0.55);
+  color: var(--text-primary);
+}
+
+.author-entry-btn {
+  min-width: 76px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.app-author-modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  background: rgba(2, 6, 23, 0.56);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-author-modal {
+  width: min(360px, 92vw);
+  border-radius: 16px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
+  background: var(--panel, #101726);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+
+.app-author-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+}
+
+.app-author-modal-header h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.app-author-modal-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+}
+
+.app-author-modal-close:hover {
+  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.app-author-modal-content {
+  padding: 14px 16px 18px;
+  line-height: 1.7;
+}
+
+.app-author-modal-content p {
+  margin: 0 0 8px;
+}
+
+.app-author-link {
+  color: var(--accent-blue, #7cc7ff);
+  text-decoration: none;
+}
+
+.app-author-link:hover {
+  text-decoration: underline;
 }
 
 .hero-empty {

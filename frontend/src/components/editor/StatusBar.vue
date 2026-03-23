@@ -10,6 +10,11 @@
       <div class="status-item">
         <span class="status-label" data-testid="word-count">{{ wordCount }}</span>
       </div>
+      <div class="status-item author-info">
+        <button class="author-trigger" data-testid="author-info-trigger" type="button" @click="showAuthorModal = true">
+          {{ authorCopy.entry }}
+        </button>
+      </div>
     </div>
 
     <div class="status-section status-center">
@@ -36,9 +41,13 @@
             @change="handleThemeChange"
             :title="copy.editorThemeTitle"
           >
-            <option value="vs">明亮</option>
-            <option value="vs-dark">暗夜</option>
-            <option value="hc-black">高对比</option>
+            <option
+              v-for="themeOption in themeOptions"
+              :key="themeOption.value"
+              :value="themeOption.value"
+            >
+              {{ copy.themeOptions[themeOption.value] }}
+            </option>
           </select>
         </label>
       </div>
@@ -52,37 +61,51 @@
             @change="handleLanguageChange"
             :title="copy.languageModeTitle"
           >
-            <option value="plaintext">Plain Text</option>
-            <option value="javascript">JavaScript</option>
-            <option value="typescript">TypeScript</option>
-            <option value="python">Python</option>
-            <option value="java">Java</option>
-            <option value="c">C</option>
-            <option value="cpp">C++</option>
-            <option value="csharp">C#</option>
-            <option value="go">Go</option>
-            <option value="rust">Rust</option>
-            <option value="html">HTML</option>
-            <option value="css">CSS</option>
-            <option value="scss">SCSS</option>
-            <option value="json">JSON</option>
-            <option value="xml">XML</option>
-            <option value="markdown">Markdown</option>
-            <option value="yaml">YAML</option>
-            <option value="sql">SQL</option>
-            <option value="shell">Shell</option>
+            <option
+              v-for="languageOption in languageOptions"
+              :key="languageOption.value"
+              :value="languageOption.value"
+            >
+              {{ copy.languageOptions[languageOption.value] }}
+            </option>
           </select>
         </label>
+      </div>
+    </div>
+  </div>
+
+  <div
+    v-if="showAuthorModal"
+    class="author-modal-overlay"
+    data-testid="author-modal-overlay"
+    @click="showAuthorModal = false"
+  >
+    <div class="author-modal" data-testid="author-modal" @click.stop>
+      <div class="author-modal-header">
+        <h4>{{ authorCopy.modalTitle }}</h4>
+        <button type="button" class="author-modal-close" @click="showAuthorModal = false">×</button>
+      </div>
+      <div class="author-modal-content">
+        <p>{{ authorCopy.nameLabel }}albert_luo</p>
+        <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
+        <a
+          class="author-link"
+          href="https://github.com/albertluo"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {{ authorCopy.githubLabel }}
+        </a>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
-import { getStatusBarI18n } from '@/i18n/ui';
+import { getAuthorInfoI18n, getStatusBarI18n, type EditorLanguageMode, type MonacoThemeValue } from '@/i18n/ui';
 
 interface StatusBarProps {
   cursorPosition?: { line: number; column: number };
@@ -113,6 +136,33 @@ const emit = defineEmits<{
 const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
 const copy = computed(() => getStatusBarI18n(settingsStore.uiLanguage));
+const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
+const themeOptions: Array<{ value: MonacoThemeValue }> = [
+  { value: 'vs' },
+  { value: 'vs-dark' },
+  { value: 'hc-black' },
+];
+const languageOptions: Array<{ value: EditorLanguageMode }> = [
+  { value: 'plaintext' },
+  { value: 'javascript' },
+  { value: 'typescript' },
+  { value: 'python' },
+  { value: 'java' },
+  { value: 'c' },
+  { value: 'cpp' },
+  { value: 'csharp' },
+  { value: 'go' },
+  { value: 'rust' },
+  { value: 'html' },
+  { value: 'css' },
+  { value: 'scss' },
+  { value: 'json' },
+  { value: 'xml' },
+  { value: 'markdown' },
+  { value: 'yaml' },
+  { value: 'sql' },
+  { value: 'shell' },
+];
 const normalizedLineCount = computed(() => {
   const rawLineCount = (editorStore as any).lineCount;
   if (typeof rawLineCount === 'number') {
@@ -129,6 +179,7 @@ const normalizedLineCount = computed(() => {
 const cursorPositionLabel = computed(() => copy.value.rowCol(props.cursorPosition.line, props.cursorPosition.column));
 const lineCountLabel = computed(() => copy.value.lineCount(normalizedLineCount.value));
 const displayEncoding = computed(() => (props.encoding ?? 'utf-8').toUpperCase());
+const showAuthorModal = ref(false);
 
 const handleLanguageChange = (event: Event) => {
   emit('language-change', (event.target as HTMLSelectElement).value);
@@ -203,6 +254,95 @@ const formatLastSaveTime = (date: Date) => {
 .status-value {
   opacity: 0.74;
   font-size: 11px;
+}
+
+.author-info {
+  gap: 6px;
+  opacity: 0.82;
+  white-space: nowrap;
+}
+
+.author-trigger {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+}
+
+.author-trigger:hover {
+  border-color: rgba(125, 211, 252, 0.6);
+  color: #e2e8f0;
+}
+
+.author-link {
+  color: var(--accent-blue, #7cc7ff);
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.author-link:hover {
+  color: #7dd3fc;
+  border-color: currentColor;
+}
+
+.author-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+
+.author-modal {
+  min-width: 320px;
+  max-width: 420px;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: linear-gradient(180deg, #111a2f, #0f172a);
+  box-shadow: 0 14px 36px rgba(2, 6, 23, 0.5);
+  padding: 12px 14px;
+}
+
+.author-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.author-modal-header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #f8fafc;
+}
+
+.author-modal-close {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.author-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.author-modal-content p {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 13px;
 }
 
 .status-icon {

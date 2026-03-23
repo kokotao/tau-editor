@@ -1,5 +1,26 @@
 export type UiLanguage = 'zh-CN' | 'en-US';
 export type CommandCategory = 'file' | 'view' | 'workspace' | 'search';
+export type MonacoThemeValue = 'vs' | 'vs-dark' | 'hc-black';
+export type EditorLanguageMode =
+  | 'plaintext'
+  | 'javascript'
+  | 'typescript'
+  | 'python'
+  | 'java'
+  | 'c'
+  | 'cpp'
+  | 'csharp'
+  | 'go'
+  | 'rust'
+  | 'html'
+  | 'css'
+  | 'scss'
+  | 'json'
+  | 'xml'
+  | 'markdown'
+  | 'yaml'
+  | 'sql'
+  | 'shell';
 export type CommandId =
   | 'commandPalette.open'
   | 'file.new'
@@ -21,6 +42,14 @@ interface CommandPaletteText {
   categoryLabels: Record<CommandCategory, string>;
 }
 
+interface AuthorInfoText {
+  entry: string;
+  modalTitle: string;
+  nameLabel: string;
+  emailLabel: string;
+  githubLabel: string;
+}
+
 interface SettingsPanelText {
   title: string;
   close: string;
@@ -40,6 +69,8 @@ interface SettingsPanelText {
   fontFamily: string;
   systemMonospace: string;
   preview: string;
+  fontPreviewLine1: string;
+  fontPreviewLine2: string;
   editor: string;
   autoSave: string;
   autoSaveEnabled: string;
@@ -119,8 +150,10 @@ interface StatusBarText {
   autoSave: string;
   theme: string;
   editorThemeTitle: string;
+  themeOptions: Record<MonacoThemeValue, string>;
   language: string;
   languageModeTitle: string;
+  languageOptions: Record<EditorLanguageMode, string>;
   justNow: string;
   minutesAgo: (minutes: number) => string;
   hoursAgo: (hours: number) => string;
@@ -222,6 +255,23 @@ const COMMAND_PALETTE_TEXTS: Record<UiLanguage, CommandPaletteText> = {
   },
 };
 
+const AUTHOR_INFO_TEXTS: Record<UiLanguage, AuthorInfoText> = {
+  'zh-CN': {
+    entry: '作者信息',
+    modalTitle: '作者信息',
+    nameLabel: '作者：',
+    emailLabel: '邮箱：',
+    githubLabel: '开源地址：GitHub',
+  },
+  'en-US': {
+    entry: 'Author',
+    modalTitle: 'Author Info',
+    nameLabel: 'Author: ',
+    emailLabel: 'Email: ',
+    githubLabel: 'Open Source: GitHub',
+  },
+};
+
 const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
   'zh-CN': {
     title: '设置',
@@ -242,6 +292,8 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontFamily: '字体家族',
     systemMonospace: '系统等宽字体',
     preview: '预览',
+    fontPreviewLine1: 'const hello = "你好，世界";',
+    fontPreviewLine2: 'console.log(hello);',
     editor: '编辑器',
     autoSave: '自动保存',
     autoSaveEnabled: '启用自动保存',
@@ -278,6 +330,8 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontFamily: 'Font Family',
     systemMonospace: 'System Monospace',
     preview: 'Preview',
+    fontPreviewLine1: 'const hello = "Hello, world";',
+    fontPreviewLine2: 'console.log(hello);',
     editor: 'Editor',
     autoSave: 'Auto Save',
     autoSaveEnabled: 'Enable Auto Save',
@@ -425,8 +479,34 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     autoSave: '自动保存',
     theme: '主题',
     editorThemeTitle: '编辑器主题',
+    themeOptions: {
+      vs: '明亮',
+      'vs-dark': '暗夜',
+      'hc-black': '高对比',
+    },
     language: '语言',
     languageModeTitle: '语言模式',
+    languageOptions: {
+      plaintext: '纯文本',
+      javascript: 'JavaScript',
+      typescript: 'TypeScript',
+      python: 'Python',
+      java: 'Java',
+      c: 'C',
+      cpp: 'C++',
+      csharp: 'C#',
+      go: 'Go',
+      rust: 'Rust',
+      html: 'HTML',
+      css: 'CSS',
+      scss: 'SCSS',
+      json: 'JSON',
+      xml: 'XML',
+      markdown: 'Markdown',
+      yaml: 'YAML',
+      sql: 'SQL',
+      shell: 'Shell',
+    },
     justNow: '刚刚',
     minutesAgo: (minutes) => `${minutes} 分钟前`,
     hoursAgo: (hours) => `${hours} 小时前`,
@@ -437,8 +517,34 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     autoSave: 'Auto Save',
     theme: 'Theme',
     editorThemeTitle: 'Editor Theme',
+    themeOptions: {
+      vs: 'Light',
+      'vs-dark': 'Dark',
+      'hc-black': 'High Contrast',
+    },
     language: 'Language',
     languageModeTitle: 'Language Mode',
+    languageOptions: {
+      plaintext: 'Plain Text',
+      javascript: 'JavaScript',
+      typescript: 'TypeScript',
+      python: 'Python',
+      java: 'Java',
+      c: 'C',
+      cpp: 'C++',
+      csharp: 'C#',
+      go: 'Go',
+      rust: 'Rust',
+      html: 'HTML',
+      css: 'CSS',
+      scss: 'SCSS',
+      json: 'JSON',
+      xml: 'XML',
+      markdown: 'Markdown',
+      yaml: 'YAML',
+      sql: 'SQL',
+      shell: 'Shell',
+    },
     justNow: 'Just now',
     minutesAgo: (minutes) => `${minutes} min ago`,
     hoursAgo: (hours) => `${hours} h ago`,
@@ -468,6 +574,10 @@ export function getCommandText(locale: UiLanguage, id: CommandId): CommandText {
 
 export function getCommandPaletteI18n(locale: UiLanguage): CommandPaletteText {
   return COMMAND_PALETTE_TEXTS[normalizeUiLanguage(locale)];
+}
+
+export function getAuthorInfoI18n(locale: UiLanguage): AuthorInfoText {
+  return AUTHOR_INFO_TEXTS[normalizeUiLanguage(locale)];
 }
 
 export function getSettingsPanelI18n(locale: UiLanguage): SettingsPanelText {

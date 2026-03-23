@@ -273,4 +273,27 @@ describe('AppShell', () => {
       markdownPreviewMode: 'preview',
     })
   })
+
+  it('左下角应显示统一控制组并支持作者弹窗', async () => {
+    const wrapper = shallowMount(App, {
+      global: {
+        stubs: {
+          Toolbar: ToolbarStub,
+          SettingsPanel: SettingsPanelStub,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="left-bottom-controls"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="btn-sidebar-collapse"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="btn-sidebar-collapse"]').trigger('click')
+    expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({ sidebarCollapsed: true })
+
+    expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(false)
+    await wrapper.find('[data-testid="btn-author-entry"]').trigger('click')
+    expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(true)
+  })
 })

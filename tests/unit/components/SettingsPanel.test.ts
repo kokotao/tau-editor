@@ -4,9 +4,44 @@
  * 测试设置面板的各项功能，包括主题切换、字体设置、编辑器配置等
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { defineComponent } from 'vue';
+
+const NConfigProviderStub = defineComponent({
+  name: 'NConfigProvider',
+  template: '<div class="n-config-provider"><slot /></div>',
+});
+
+const NSelectStub = defineComponent({
+  name: 'NSelect',
+  props: {
+    value: {
+      type: [String, Number],
+      default: null,
+    },
+    options: {
+      type: Array,
+      default: () => [],
+    },
+  },
+  emits: ['update:value'],
+  template: `
+    <select :data-testid="$attrs['data-testid']" :value="value" @change="$emit('update:value', $event.target.value)">
+      <option v-for="option in options" :key="String(option.value)" :value="String(option.value)">
+        {{ option.label }}
+      </option>
+    </select>
+  `,
+});
+
+vi.mock('naive-ui', () => ({
+  darkTheme: {},
+  NConfigProvider: NConfigProviderStub,
+  NSelect: NSelectStub,
+}));
+
 import SettingsPanel from '@/components/editor/SettingsPanel.vue';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -31,24 +66,37 @@ vi.mock('@/lib/tauri', () => ({
 describe('SettingsPanel', () => {
   let pinia: ReturnType<typeof createPinia>;
   let settingsStore: ReturnType<typeof useSettingsStore>;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+  const mountPanel = () => mount(SettingsPanel, {
+    global: {
+      plugins: [pinia],
+      stubs: {
+        NConfigProvider: NConfigProviderStub,
+        NSelect: NSelectStub,
+        'n-config-provider': NConfigProviderStub,
+        'n-select': NSelectStub,
+      },
+    },
+  });
 
   beforeEach(async () => {
     pinia = createPinia();
     setActivePinia(pinia);
     settingsStore = useSettingsStore(pinia);
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     
     // 重置 store 到初始状态
     settingsStore.$reset();
     await flushPromises();
   });
 
+  afterEach(() => {
+    consoleWarnSpy.mockRestore();
+  });
+
   describe('渲染测试', () => {
     it('应正确渲染设置面板', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       expect(wrapper.find('[data-testid="settings-panel"]').exists()).toBe(true);
       expect(wrapper.find('.settings-header').exists()).toBe(true);
@@ -56,11 +104,7 @@ describe('SettingsPanel', () => {
     });
 
     it('应显示所有设置区域', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const sections = wrapper.findAll('.settings-section');
       expect(sections.length).toBeGreaterThanOrEqual(3); // 外观、字体、编辑器
@@ -74,26 +118,26 @@ describe('SettingsPanel', () => {
     });
 
     it('关闭按钮应触发 close 事件', async () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const closeButton = wrapper.find('.settings-close');
       await closeButton.trigger('click');
 
       expect(wrapper.emitted('close')).toHaveLength(1);
     });
+
+    it('底部作者入口应可打开弹窗', async () => {
+      const wrapper = mountPanel();
+
+      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(false);
+      await wrapper.find('[data-testid="settings-author-entry"]').trigger('click');
+      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(true);
+    });
   });
 
   describe('主题设置测试', () => {
     it('应显示三个主题选项按钮', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const themeButtons = wrapper.findAll('.theme-btn');
       expect(themeButtons.length).toBe(3);
@@ -110,11 +154,7 @@ describe('SettingsPanel', () => {
       settingsStore.updateSettings({ theme: 'dark' });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const themeButtons = wrapper.findAll('.theme-btn');
       // 第二个按钮应该是深色，应该有 active 类
@@ -122,11 +162,7 @@ describe('SettingsPanel', () => {
     });
 
     it('点击主题按钮应更新主题设置', async () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       // 点击浅色主题按钮
       const lightButton = wrapper.findAll('.theme-btn')[0];
@@ -151,37 +187,17 @@ describe('SettingsPanel', () => {
     });
 
     it('应显示 Monaco 主题选择器', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
-
-      const selects = wrapper.findAll('select');
-      const monacoSelect = selects.find((select) => {
-        const values = select.findAll('option').map((option) => option.attributes('value'));
-        return values.includes('vs') && values.includes('vs-dark') && values.includes('hc-black');
-      });
-
-      expect(monacoSelect).toBeDefined();
-      expect(monacoSelect?.findAll('option').length ?? 0).toBeGreaterThanOrEqual(3);
+      const wrapper = mountPanel();
+      expect(wrapper.find('[data-testid="select-monaco-theme"]').exists()).toBe(true);
     });
 
     it('更改 Monaco 主题应更新 store', async () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
-
-      const selects = wrapper.findAll('select');
-      const monacoSelect = selects.find((select) => {
-        const values = select.findAll('option').map((option) => option.attributes('value'));
-        return values.includes('vs') && values.includes('vs-dark') && values.includes('hc-black');
-      });
-
+      const wrapper = mountPanel();
+      const selects = wrapper.findAllComponents({ name: 'Select' });
+      const monacoSelect = selects[1];
       expect(monacoSelect).toBeDefined();
-      await monacoSelect!.setValue('vs-dark');
+
+      monacoSelect!.vm.$emit('update:value', 'vs-dark');
       await flushPromises();
 
       expect(settingsStore.monacoTheme).toBe('vs-dark');
@@ -190,11 +206,7 @@ describe('SettingsPanel', () => {
 
   describe('字体设置测试', () => {
     it('应显示当前字体大小', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const fontSizeValue = wrapper.find('.font-size-value');
       expect(fontSizeValue.text()).toContain(`${settingsStore.fontSize}px`);
@@ -203,11 +215,7 @@ describe('SettingsPanel', () => {
     it('点击增大字体按钮应增加字体大小', async () => {
       const initialSize = settingsStore.fontSize;
       
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const increaseButton = wrapper.findAll('.font-size-btn')[1]; // 第二个是增大
       await increaseButton.trigger('click');
@@ -223,11 +231,7 @@ describe('SettingsPanel', () => {
       
       const initialSize = settingsStore.fontSize;
       
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const decreaseButton = wrapper.findAll('.font-size-btn')[0]; // 第一个是减小
       await decreaseButton.trigger('click');
@@ -241,11 +245,7 @@ describe('SettingsPanel', () => {
       settingsStore.adjustFontSize(5);
       await flushPromises();
       
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const resetButton = wrapper.find('.font-size-reset');
       await resetButton.trigger('click');
@@ -255,11 +255,7 @@ describe('SettingsPanel', () => {
     });
 
     it('应显示字体预览', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const preview = wrapper.find('.font-preview');
       expect(preview.exists()).toBe(true);
@@ -271,11 +267,7 @@ describe('SettingsPanel', () => {
       settingsStore.updateSettings({ fontSize: 18 });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const preview = wrapper.find('.font-preview');
       const style = preview.attributes('style');
@@ -283,19 +275,12 @@ describe('SettingsPanel', () => {
     });
 
     it('更改字体家族应更新 store', async () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
-
-      const selects = wrapper.findAll('select');
-      const fontFamilySelect = selects.find((select) => {
-        return select.findAll('option').some((option) => option.attributes('value') === "'Fira Code', 'JetBrains Mono', monospace");
-      });
-
+      const wrapper = mountPanel();
+      const selects = wrapper.findAllComponents({ name: 'Select' });
+      const fontFamilySelect = selects[2];
       expect(fontFamilySelect).toBeDefined();
-      await fontFamilySelect!.setValue("'Fira Code', 'JetBrains Mono', monospace");
+
+      fontFamilySelect!.vm.$emit('update:value', "'Fira Code', 'JetBrains Mono', monospace");
       await flushPromises();
 
       expect(settingsStore.fontFamily).toBe("'Fira Code', 'JetBrains Mono', monospace");
@@ -304,11 +289,7 @@ describe('SettingsPanel', () => {
 
   describe('编辑器设置测试', () => {
     it('应显示自动保存复选框', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkbox = wrapper.find('input[type="checkbox"]');
       expect(checkbox.exists()).toBe(true);
@@ -318,11 +299,7 @@ describe('SettingsPanel', () => {
       await settingsStore.updateSettings({ autoSaveEnabled: true });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkbox = wrapper.find('input[type="checkbox"]') as any;
       expect(checkbox.element.checked).toBe(true);
@@ -332,11 +309,7 @@ describe('SettingsPanel', () => {
       await settingsStore.updateSettings({ autoSaveEnabled: false });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkbox = wrapper.find('input[type="checkbox"]');
       await checkbox.setValue(true);
@@ -349,82 +322,41 @@ describe('SettingsPanel', () => {
       await settingsStore.updateSettings({ autoSaveEnabled: true });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
-      const selects = wrapper.findAll('select');
-      // 应该能找到自动保存间隔选择器
-      expect(selects.length).toBeGreaterThanOrEqual(2);
+      expect(wrapper.find('[data-testid="select-auto-save-interval"]').exists()).toBe(true);
     });
 
     it('更改自动保存间隔应更新 store', async () => {
       await settingsStore.updateSettings({ autoSaveEnabled: true });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
+      const intervalSelect = wrapper.findAllComponents({ name: 'Select' })[3];
+      expect(intervalSelect).toBeDefined();
 
-      const selects = wrapper.findAll('select');
-      const intervalSelect = selects.find(s => {
-        const options = s.findAll('option');
-        return options.some(o => o.attributes('value') === '30');
-      });
-
-      if (intervalSelect) {
-        await intervalSelect.setValue('30');
-        await flushPromises();
-        expect(settingsStore.autoSaveInterval).toBe(30);
-      }
+      intervalSelect!.vm.$emit('update:value', '30');
+      await flushPromises();
+      expect(settingsStore.autoSaveInterval).toBe(30);
     });
 
     it('应显示缩进大小选择器', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
-
-      const selects = wrapper.findAll('select');
-      const tabSizeSelect = selects.find(s => {
-        const options = s.findAll('option');
-        return options.some(o => o.attributes('value') === '4');
-      });
-
-      expect(tabSizeSelect).toBeDefined();
+      const wrapper = mountPanel();
+      expect(wrapper.find('[data-testid="select-tab-size"]').exists()).toBe(true);
     });
 
     it('更改缩进大小应更新 store', async () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
+      const tabSizeSelect = wrapper.findAllComponents({ name: 'Select' })[4];
+      expect(tabSizeSelect).toBeDefined();
 
-      const selects = wrapper.findAll('select');
-      const tabSizeSelect = selects.find(s => {
-        const options = s.findAll('option');
-        return options.some(o => o.attributes('value') === '4');
-      });
-
-      if (tabSizeSelect) {
-        await tabSizeSelect.setValue('4');
-        await flushPromises();
-        expect(settingsStore.tabSize).toBe(4);
-      }
+      tabSizeSelect!.vm.$emit('update:value', '4');
+      await flushPromises();
+      expect(settingsStore.tabSize).toBe(4);
     });
 
     it('应显示缩略图复选框', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkboxes = wrapper.findAll('input[type="checkbox"]');
       // 至少应该有自动保存和缩略图两个复选框
@@ -435,11 +367,7 @@ describe('SettingsPanel', () => {
       await settingsStore.updateSettings({ minimap: false });
       await flushPromises();
 
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkboxes = wrapper.findAll('input[type="checkbox"]');
       // 找到缩略图复选框（第二个）
@@ -452,22 +380,14 @@ describe('SettingsPanel', () => {
     });
 
     it('应显示自动换行复选框', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkboxes = wrapper.findAll('input[type="checkbox"]');
       expect(checkboxes.length).toBeGreaterThanOrEqual(3);
     });
 
     it('切换自动换行复选框应更新 store', async () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const checkboxes = wrapper.findAll('input[type="checkbox"]');
       // 找到自动换行复选框（第三个）
@@ -483,23 +403,15 @@ describe('SettingsPanel', () => {
 
   describe('样式和布局测试', () => {
     it('应应用正确的 CSS 类', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
-      expect(wrapper.classes()).toContain('settings-panel');
+      expect(wrapper.find('.settings-panel').exists()).toBe(true);
       expect(wrapper.find('.settings-header').exists()).toBe(true);
       expect(wrapper.find('.settings-content').exists()).toBe(true);
     });
 
     it('设置内容区域应该可滚动', () => {
-      const wrapper = mount(SettingsPanel, {
-        global: {
-          plugins: [pinia],
-        },
-      });
+      const wrapper = mountPanel();
 
       const content = wrapper.find('.settings-content');
       const style = content.attributes('style');

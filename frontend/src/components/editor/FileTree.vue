@@ -14,8 +14,8 @@
             </svg>
             <input
               type="text"
+              v-model="searchQuery"
               :placeholder="copy.searchPlaceholder"
-              readonly
               :aria-label="copy.searchAriaLabel"
             />
           </div>
@@ -193,6 +193,7 @@ const props = withDefaults(defineProps<FileTreeProps>(), {
 });
 const settingsStore = useSettingsStore();
 const copy = computed(() => getFileTreeI18n(settingsStore.uiLanguage));
+const searchQuery = ref('');
 
 // Emits
 const emit = defineEmits<{

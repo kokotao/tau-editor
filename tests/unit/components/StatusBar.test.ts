@@ -524,6 +524,38 @@ describe('StatusBar.vue', () => {
     })
   })
 
+  describe('作者信息弹窗', () => {
+    it('点击作者入口应打开弹窗并展示 GitHub 链接', async () => {
+      const wrapper = mount(StatusBar, {
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+        },
+      })
+
+      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(false)
+      await wrapper.find('[data-testid="author-info-trigger"]').trigger('click')
+
+      const modal = wrapper.find('[data-testid="author-modal"]')
+      expect(modal.exists()).toBe(true)
+      const link = modal.find('a.author-link')
+      expect(link.exists()).toBe(true)
+      expect(link.attributes('href')).toBe('https://github.com/albertluo')
+    })
+
+    it('点击遮罩应关闭作者弹窗', async () => {
+      const wrapper = mount(StatusBar, {
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+        },
+      })
+
+      await wrapper.find('[data-testid="author-info-trigger"]').trigger('click')
+      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(true)
+      await wrapper.find('[data-testid="author-modal-overlay"]').trigger('click')
+      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(false)
+    })
+  })
+
   describe('可点击性', () => {
     it('状态项应可点击', () => {
       const wrapper = mount(StatusBar, {
