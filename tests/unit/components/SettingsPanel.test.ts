@@ -126,12 +126,15 @@ describe('SettingsPanel', () => {
       expect(wrapper.emitted('close')).toHaveLength(1);
     });
 
-    it('底部作者入口应可打开弹窗', async () => {
+    it('应在设置页直接显示作者信息与捐赠二维码', async () => {
       const wrapper = mountPanel();
 
-      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(false);
-      await wrapper.find('[data-testid="settings-author-entry"]').trigger('click');
-      expect(wrapper.find('[data-testid="author-modal"]').exists()).toBe(true);
+      const authorSection = wrapper.find('[data-testid="settings-author-section"]');
+      expect(authorSection.exists()).toBe(true);
+      expect(authorSection.text()).toContain('albert_luo');
+      expect(authorSection.text()).toContain('公益捐赠');
+      expect(authorSection.find('img[alt="微信捐赠"]').exists()).toBe(true);
+      expect(authorSection.find('img[alt="支付宝捐赠"]').exists()).toBe(true);
     });
   });
 

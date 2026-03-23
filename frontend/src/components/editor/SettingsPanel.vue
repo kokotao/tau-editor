@@ -136,30 +136,9 @@
         </div>
       </div>
 
-      <div class="settings-footer">
-        <button
-          class="settings-author-entry"
-          data-testid="settings-author-entry"
-          type="button"
-          @click="showAuthorModal = true"
-        >
-          {{ authorCopy.entry }}
-        </button>
-      </div>
-    </div>
-
-    <div
-      v-if="showAuthorModal"
-      class="settings-author-modal-overlay"
-      data-testid="author-modal-overlay"
-      @click="showAuthorModal = false"
-    >
-      <div class="settings-author-modal" data-testid="author-modal" @click.stop>
-        <div class="settings-author-modal-header">
-          <h4>{{ authorCopy.modalTitle }}</h4>
-          <button type="button" class="settings-author-modal-close" @click="showAuthorModal = false">×</button>
-        </div>
-        <div class="settings-author-modal-content">
+      <div class="settings-section settings-section-author" data-testid="settings-author-section">
+        <h4 class="settings-section-title">{{ authorCopy.modalTitle }}</h4>
+        <div class="settings-author-inline">
           <p>{{ authorCopy.nameLabel }}albert_luo</p>
           <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
           <a
@@ -193,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import { useSettingsStore } from '@/stores/settings';
 import { getAuthorInfoI18n, getSettingsPanelI18n, type MonacoThemeValue, type UiLanguage } from '@/i18n/ui';
@@ -204,7 +183,6 @@ const settingsStore = useSettingsStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
 const naiveTheme = computed(() => (settingsStore.resolvedTheme === 'dark' ? darkTheme : null));
-const showAuthorModal = ref(false);
 const naiveThemeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: '#38bdf8',
@@ -541,80 +519,19 @@ const setWordWrap = (event: Event) => {
   color: var(--text-secondary, #cbd5e1);
 }
 
-.settings-footer {
-  padding: 12px 20px 16px;
-  border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+.settings-section-author {
+  margin-bottom: 0;
 }
 
-.settings-author-entry {
-  width: 100%;
-  height: 36px;
-  border-radius: 12px;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-secondary, #cbd5e1);
-  cursor: pointer;
-}
-
-.settings-author-entry:hover {
-  border-color: rgba(125, 211, 252, 0.6);
-  color: var(--text-primary, #f8fafc);
-}
-
-.settings-author-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 24;
-  background: rgba(2, 6, 23, 0.56);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.settings-author-modal {
-  width: min(560px, 92vw);
-  border-radius: 16px;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
-  background: var(--panel, #101726);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
-  overflow: hidden;
-}
-
-.settings-author-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-}
-
-.settings-author-modal-header h4 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.settings-author-modal-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary, #cbd5e1);
-  cursor: pointer;
-}
-
-.settings-author-modal-close:hover {
-  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.settings-author-modal-content {
+.settings-author-inline {
   padding: 14px 16px 18px;
   line-height: 1.7;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.settings-author-modal-content p {
+.settings-author-inline p {
   margin: 0 0 8px;
 }
 

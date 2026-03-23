@@ -7,7 +7,7 @@ if [[ "${RUNNER_OS:-}" != "macOS" && "$(uname -s)" != "Darwin" ]]; then
 fi
 
 BUNDLE_DIR="${1:-frontend/src-tauri/target/universal-apple-darwin/release/bundle}"
-PRODUCT_NAME="${2:-TextEditor}"
+PRODUCT_NAME="${2:-TauEditor}"
 VERSION="${3:-0.0.0}"
 
 MACOS_DIR="${BUNDLE_DIR}/macos"

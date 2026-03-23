@@ -72,7 +72,7 @@ jobs:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: |
           VERSION="${RELEASE_VERSION#v}"
-          ./scripts/package-macos-app.sh "${{ matrix.bundlePath }}" "TextEditor" "${VERSION}"
+          ./scripts/package-macos-app.sh "${{ matrix.bundlePath }}" "TauEditor" "${VERSION}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

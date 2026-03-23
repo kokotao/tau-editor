@@ -75,22 +75,17 @@ test.describe('Sidebar & Markdown Preview', () => {
     await expect(link).toBeVisible();
   });
 
-  test('E2E-UX-004: 设置页底部作者入口可打开弹窗', async ({ page }) => {
+  test('E2E-UX-004: 设置页直接展示作者信息与捐赠区', async ({ page }) => {
     await page.click('[data-testid="btn-settings"]');
     await expect(page.locator('[data-testid="settings-drawer"]')).toBeVisible();
 
     const settingsDrawer = page.locator('[data-testid="settings-drawer"]');
-    const authorEntry = settingsDrawer.locator('[data-testid="settings-author-entry"]');
-    await expect(authorEntry).toBeVisible();
-    await authorEntry.click();
-
-    const modal = page.locator('[data-testid="author-modal"]');
-    await expect(modal).toBeVisible();
-    await expect(modal).toContainText('albert_luo');
-    await expect(modal.locator('a[href="https://github.com/kokotao/tau-editor"]')).toBeVisible();
-
-    await page.locator('[data-testid="author-modal-overlay"]').click({ position: { x: 10, y: 10 } });
-    await expect(modal).toBeHidden();
+    const authorSection = settingsDrawer.locator('[data-testid="settings-author-section"]');
+    await expect(authorSection).toBeVisible();
+    await expect(authorSection).toContainText('albert_luo');
+    await expect(authorSection.locator('a[href="https://github.com/kokotao/tau-editor"]')).toBeVisible();
+    await expect(authorSection.locator('img[alt="微信捐赠"]')).toBeVisible();
+    await expect(authorSection.locator('img[alt="支付宝捐赠"]')).toBeVisible();
   });
 
   test('E2E-UX-005: 左下角仅保留侧栏收起/展开按钮', async ({ page }) => {
