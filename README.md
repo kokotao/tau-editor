@@ -12,8 +12,13 @@
 
 如果 Tau 编辑器帮助到了你，欢迎随缘支持。你的支持会用于持续维护和改进体验。
 
-- 微信收款码：`frontend/src/assets/donation/WeChatPay.jpg`
-- 支付宝收款码：`frontend/src/assets/donation/AliPay.jpg`
+### 微信收款码
+
+![微信收款码](frontend/src/assets/donation/WeChatPay.jpg)
+
+### 支付宝收款码
+
+![支付宝收款码](frontend/src/assets/donation/AliPay.jpg)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-blue.svg)
