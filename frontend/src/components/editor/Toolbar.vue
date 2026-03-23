@@ -122,24 +122,61 @@
           <span class="dirty-indicator">●</span>
           {{ copy.dirtyTip }}
         </span>
-        <label class="toolbar-system-menu" data-testid="system-menu">
-          <span class="toolbar-system-label">{{ copy.systemMenu }}</span>
-          <select
-            class="toolbar-system-select"
-            data-testid="system-menu-select"
+        <div ref="systemMenuRef" class="toolbar-system-menu" data-testid="system-menu">
+          <button
+            type="button"
+            class="toolbar-system-trigger"
+            data-testid="system-menu-trigger"
             :title="copy.systemMenuTitle"
-            @change="handleSystemMenuSelect"
+            @click="toggleSystemMenu"
           >
-            <option value="">{{ copy.systemMenuPlaceholder }}</option>
-            <option
-              v-for="systemAction in systemMenuActions"
-              :key="systemAction.value"
-              :value="systemAction.value"
+            <span class="toolbar-system-label">{{ copy.systemMenu }}</span>
+          </button>
+          <div
+            v-if="systemMenuOpen"
+            class="toolbar-system-panel"
+            data-testid="system-menu-panel"
+            @click.stop
+          >
+            <input
+              ref="systemMenuSearchInputRef"
+              v-model="systemMenuQuery"
+              class="toolbar-system-search"
+              data-testid="system-menu-search"
+              :placeholder="copy.systemMenuSearchPlaceholder"
+              @keydown="handleSystemMenuKeydown"
+            />
+            <div
+              v-if="flatFilteredActions.length === 0"
+              class="toolbar-system-empty"
+              data-testid="system-menu-empty"
             >
-              {{ copy.systemMenuOptions[systemAction.value] }}
-            </option>
-          </select>
-        </label>
+              {{ copy.systemMenuNoResult }}
+            </div>
+            <div
+              v-for="group in groupedFilteredActions"
+              :key="group.group"
+              class="toolbar-system-group"
+              :data-testid="`system-menu-group-${group.group}`"
+            >
+              <div class="toolbar-system-group-title">
+                {{ copy.systemMenuGroups[group.group] }}
+              </div>
+              <button
+                v-for="action in group.actions"
+                :key="action.value"
+                type="button"
+                class="toolbar-system-item"
+                :class="{ active: flatFilteredActions[activeMenuIndex]?.value === action.value }"
+                :data-testid="`system-menu-item-${action.value}`"
+                @mouseenter="setActiveAction(action.value)"
+                @click="runSystemAction(action.value)"
+              >
+                {{ copy.systemMenuOptions[action.value] }}
+              </button>
+            </div>
+          </div>
+        </div>
         <button class="toolbar-btn" data-testid="btn-settings" @click="emit('toggle-settings')" :title="copy.settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3" />
@@ -152,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
 import { getToolbarI18n, type SystemMenuAction } from '@/i18n/ui';
 
@@ -176,12 +213,64 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
 
 const settingsStore = useSettingsStore();
 const copy = computed(() => getToolbarI18n(settingsStore.uiLanguage));
-const systemMenuActions: Array<{ value: SystemMenuAction }> = [
-  { value: 'open-command-palette' },
-  { value: 'toggle-explorer' },
-  { value: 'toggle-settings' },
-  { value: 'refresh-workspace' },
+type SystemMenuGroupId = 'file' | 'view' | 'theme' | 'language';
+
+const systemMenuActions: Array<{ value: SystemMenuAction; group: SystemMenuGroupId; keywords: string[] }> = [
+  { value: 'file-new', group: 'file', keywords: ['new', 'file', '新建', '文件'] },
+  { value: 'file-open', group: 'file', keywords: ['open', 'file', '打开', '文件'] },
+  { value: 'file-open-folder', group: 'file', keywords: ['open', 'folder', 'workspace', '打开', '文件夹', '工作区'] },
+  { value: 'file-save', group: 'file', keywords: ['save', '保存'] },
+  { value: 'file-save-as', group: 'file', keywords: ['save as', '另存为', '导出'] },
+  { value: 'refresh-workspace', group: 'file', keywords: ['refresh', 'workspace', '刷新', '工作区'] },
+  { value: 'find-text', group: 'view', keywords: ['find', 'search', '查找', '搜索'] },
+  { value: 'go-to-line', group: 'view', keywords: ['line', 'goto', '跳转', '行'] },
+  { value: 'open-command-palette', group: 'view', keywords: ['f1', 'palette', 'command', '命令', '面板'] },
+  { value: 'toggle-explorer', group: 'view', keywords: ['explorer', 'sidebar', '资源', '侧栏'] },
+  { value: 'toggle-settings', group: 'view', keywords: ['settings', 'preferences', '设置', '偏好'] },
+  { value: 'toggle-theme', group: 'theme', keywords: ['theme', 'dark', 'light', '主题', '深色', '浅色'] },
+  { value: 'theme-light', group: 'theme', keywords: ['theme', 'light', '浅色', '亮色'] },
+  { value: 'theme-dark', group: 'theme', keywords: ['theme', 'dark', '深色', '暗色'] },
+  { value: 'theme-system', group: 'theme', keywords: ['theme', 'system', '跟随', '系统'] },
+  { value: 'cycle-language-mode', group: 'language', keywords: ['language', 'mode', '语言', '模式'] },
+  { value: 'language-plaintext', group: 'language', keywords: ['plaintext', 'text', '纯文本'] },
+  { value: 'language-markdown', group: 'language', keywords: ['markdown', 'md'] },
+  { value: 'language-typescript', group: 'language', keywords: ['typescript', 'ts'] },
+  { value: 'language-python', group: 'language', keywords: ['python', 'py'] },
+  { value: 'language-json', group: 'language', keywords: ['json'] },
 ];
+const groupOrder: SystemMenuGroupId[] = ['file', 'view', 'theme', 'language'];
+const systemMenuRef = ref<HTMLElement | null>(null);
+const systemMenuSearchInputRef = ref<HTMLInputElement | null>(null);
+const systemMenuOpen = ref(false);
+const systemMenuQuery = ref('');
+const activeMenuIndex = ref(0);
+
+const filteredActions = computed(() => {
+  const keyword = systemMenuQuery.value.trim().toLowerCase();
+  if (!keyword) {
+    return systemMenuActions;
+  }
+
+  return systemMenuActions.filter((action) => {
+    const label = copy.value.systemMenuOptions[action.value].toLowerCase();
+    if (label.includes(keyword)) return true;
+    return action.keywords.some((item) => item.toLowerCase().includes(keyword));
+  });
+});
+
+const groupedFilteredActions = computed(() =>
+  groupOrder
+    .map((group) => ({
+      group,
+      actions: filteredActions.value.filter((action) => action.group === group),
+    }))
+    .filter((entry) => entry.actions.length > 0)
+);
+
+const flatFilteredActions = computed(() =>
+  groupedFilteredActions.value.flatMap((entry) => entry.actions)
+);
+
 const previewModeLabel = computed(() => copy.value.previewModeLabels[props.markdownPreviewMode]);
 const hasIdentity = computed(
   () => Boolean(props.appLabel?.length || props.workspaceLabel?.length || props.currentFileLabel?.length)
@@ -201,13 +290,90 @@ const emit = defineEmits<{
   'system-action': [action: SystemMenuAction];
 }>();
 
-const handleSystemMenuSelect = (event: Event) => {
-  const select = event.target as HTMLSelectElement;
-  const action = select.value as SystemMenuAction | '';
-  if (!action) return;
-  emit('system-action', action);
-  select.value = '';
+const closeSystemMenu = () => {
+  systemMenuOpen.value = false;
+  systemMenuQuery.value = '';
+  activeMenuIndex.value = 0;
 };
+
+const runSystemAction = (action: SystemMenuAction) => {
+  emit('system-action', action);
+  closeSystemMenu();
+};
+
+const toggleSystemMenu = async () => {
+  systemMenuOpen.value = !systemMenuOpen.value;
+  if (systemMenuOpen.value) {
+    systemMenuQuery.value = '';
+    activeMenuIndex.value = 0;
+    await nextTick();
+    systemMenuSearchInputRef.value?.focus();
+  }
+};
+
+const setActiveAction = (action: SystemMenuAction) => {
+  const index = flatFilteredActions.value.findIndex((item) => item.value === action);
+  if (index >= 0) {
+    activeMenuIndex.value = index;
+  }
+};
+
+const handleSystemMenuKeydown = (event: KeyboardEvent) => {
+  const actions = flatFilteredActions.value;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSystemMenu();
+    return;
+  }
+
+  if (actions.length === 0) {
+    return;
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    activeMenuIndex.value = (activeMenuIndex.value + 1) % actions.length;
+    return;
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    activeMenuIndex.value = (activeMenuIndex.value - 1 + actions.length) % actions.length;
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const targetAction = actions[activeMenuIndex.value];
+    if (targetAction) {
+      runSystemAction(targetAction.value);
+    }
+  }
+};
+
+const handleDocumentPointerDown = (event: MouseEvent) => {
+  if (!systemMenuOpen.value) {
+    return;
+  }
+  const target = event.target as Node | null;
+  if (target && systemMenuRef.value?.contains(target)) {
+    return;
+  }
+  closeSystemMenu();
+};
+
+watch(systemMenuQuery, () => {
+  activeMenuIndex.value = 0;
+});
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentPointerDown);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleDocumentPointerDown);
+});
 </script>
 
 <style scoped>
@@ -261,6 +427,10 @@ const handleSystemMenuSelect = (event: Event) => {
 }
 
 .toolbar-system-menu {
+  position: relative;
+}
+
+.toolbar-system-trigger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -269,6 +439,13 @@ const handleSystemMenuSelect = (event: Event) => {
   border-radius: 999px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+}
+
+.toolbar-system-trigger:hover {
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 }
 
 .toolbar-system-label {
@@ -277,20 +454,70 @@ const handleSystemMenuSelect = (event: Event) => {
   white-space: nowrap;
 }
 
-.toolbar-system-select {
-  min-width: 108px;
+.toolbar-system-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
+  background: var(--surface-raised, #1b2436);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
+  z-index: 40;
+}
+
+.toolbar-system-search {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #f8fafc);
+  outline: none;
+}
+
+.toolbar-system-search:focus {
+  border-color: var(--accent-blue-strong, #4dabff);
+}
+
+.toolbar-system-empty {
+  padding: 12px 10px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.toolbar-system-group {
+  margin-top: 8px;
+}
+
+.toolbar-system-group-title {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.toolbar-system-item {
+  width: 100%;
   border: none;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
-  font-size: 12px;
-  font-weight: 600;
-  outline: none;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13px;
   cursor: pointer;
 }
 
-.toolbar-system-select option {
-  background: #1b2230;
-  color: #fff;
+.toolbar-system-item:hover,
+.toolbar-system-item.active {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #f8fafc);
 }
 
 .toolbar-identity {

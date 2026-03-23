@@ -36,6 +36,11 @@ pub fn run() {
       commands::get_large_file_config,
       commands::auto_save_config,
       commands::get_auto_save_interval,
+      commands::get_app_version_info,
+      commands::check_github_update,
+      commands::download_and_install_update,
+      commands::open_project_homepage,
+      commands::open_external_link,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

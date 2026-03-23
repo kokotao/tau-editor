@@ -252,6 +252,16 @@ watch(() => settingsStore.monacoOptions, (newOptions) => {
   }
 }, { deep: true });
 
+watch(() => settingsStore.fontFamily, (newFontFamily) => {
+  if (!editor.value) {
+    return;
+  }
+
+  editor.value.updateOptions({ fontFamily: newFontFamily });
+  monaco.editor.remeasureFonts();
+  editor.value.layout();
+});
+
 // 监听主题变化 (props)
 watch(() => props.theme, (newTheme) => {
   if (editor.value) {

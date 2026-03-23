@@ -112,6 +112,7 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       id: 'view.toggleSettings',
       title: toggleSettings.title,
       category: 'view',
+      shortcut: 'Ctrl+,',
       keywords: toggleSettings.keywords,
       run: actions.toggleSettings,
     },

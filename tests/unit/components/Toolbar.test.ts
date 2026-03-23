@@ -188,19 +188,41 @@ describe('Toolbar.vue', () => {
   })
 
   describe('系统菜单', () => {
-    it('应渲染系统菜单下拉框', () => {
+    it('应渲染系统菜单触发器', () => {
       const wrapper = mountToolbar()
-      const select = wrapper.find('[data-testid="system-menu-select"]')
-      expect(select.exists()).toBe(true)
+      expect(wrapper.find('[data-testid="system-menu-trigger"]').exists()).toBe(true)
     })
 
-    it('系统菜单选择命令应发射 system-action 事件', async () => {
+    it('系统菜单点击命令应发射 system-action 事件', async () => {
       const wrapper = mountToolbar()
-      const select = wrapper.get('[data-testid="system-menu-select"]')
-      await select.setValue('open-command-palette')
+      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await wrapper.get('[data-testid="system-menu-item-open-command-palette"]').trigger('click')
 
       expect(wrapper.emitted('system-action')).toBeTruthy()
       expect(wrapper.emitted('system-action')![0]).toEqual(['open-command-palette'])
+    })
+
+    it('系统菜单应支持切换主题与语言模式快捷项', async () => {
+      const wrapper = mountToolbar()
+      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await wrapper.get('[data-testid="system-menu-item-toggle-theme"]').trigger('click')
+      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await wrapper.get('[data-testid="system-menu-item-cycle-language-mode"]').trigger('click')
+
+      expect(wrapper.emitted('system-action')![0]).toEqual(['toggle-theme'])
+      expect(wrapper.emitted('system-action')![1]).toEqual(['cycle-language-mode'])
+    })
+
+    it('系统菜单应支持按关键字过滤并回车执行', async () => {
+      const wrapper = mountToolbar()
+      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+
+      const search = wrapper.get('[data-testid="system-menu-search"]')
+      await search.setValue('主题')
+      await search.trigger('keydown', { key: 'Enter' })
+
+      expect(wrapper.emitted('system-action')).toBeTruthy()
+      expect(wrapper.emitted('system-action')![0]).toEqual(['toggle-theme'])
     })
   })
 

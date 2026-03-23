@@ -2,10 +2,6 @@
   <div class="file-tree" role="tree">
     <div v-if="!nested" class="file-tree-header">
       <div class="file-tree-header-top">
-        <div class="file-tree-workspace">
-          <span class="workspace-caption">{{ copy.workspace }}</span>
-          <span class="file-tree-title">{{ workspaceLabel }}</span>
-        </div>
         <div class="file-tree-header-action">
           <div class="file-tree-search-shell" data-testid="file-tree-search-shell">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -27,12 +23,9 @@
           </button>
         </div>
       </div>
-      <div class="file-tree-operations">
-        <span class="operations-label">{{ copy.quickOps }}</span>
-        <div class="operation-tags">
-          <span>{{ copy.quickCreate }}</span>
-          <span>{{ copy.quickOpen }}</span>
-        </div>
+      <div class="file-tree-workspace">
+        <span class="workspace-caption">{{ copy.workspace }}</span>
+        <span class="file-tree-title">{{ workspaceLabel }}</span>
       </div>
     </div>
 
@@ -396,15 +389,15 @@ onUnmounted(() => {
 .file-tree-header-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
-  gap: 12px;
+  gap: 8px;
 }
 
 .file-tree-workspace {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
 }
 
 .workspace-caption {
@@ -418,12 +411,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .file-tree-search-shell {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 1;
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid var(--n-border-color, #333);
@@ -442,29 +437,6 @@ onUnmounted(() => {
   color: inherit;
   font-size: 13px;
   width: 120px;
-}
-
-.file-tree-operations {
-  margin-top: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding-top: 4px;
-}
-
-.operations-label {
-  font-size: 11px;
-  letter-spacing: 0.4px;
-  color: var(--n-muted-text-color, #a2a2a2);
-}
-
-.operation-tags {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 11px;
-  color: var(--n-muted-text-color, #a2a2a2);
 }
 
 .file-tree-action {
@@ -495,6 +467,12 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.file-tree-content::-webkit-scrollbar {
+  display: none;
 }
 
 .file-tree-node {

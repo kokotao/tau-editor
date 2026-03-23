@@ -151,11 +151,16 @@ vi.mock('@/services/sessionService', () => ({
 import App from '@/App.vue'
 
 const ToolbarStub = defineComponent({
-  emits: ['toggle-settings'],
+  emits: ['toggle-settings', 'system-action'],
   template: `
-    <button data-testid="btn-settings" @click="$emit('toggle-settings')">
-      toggle settings
-    </button>
+    <div>
+      <button data-testid="btn-settings" @click="$emit('toggle-settings')">
+        toggle settings
+      </button>
+      <button data-testid="btn-system-toggle-settings" @click="$emit('system-action', 'toggle-settings')">
+        system toggle settings
+      </button>
+    </div>
   `,
 })
 
@@ -196,7 +201,7 @@ describe('AppShell', () => {
     vi.clearAllMocks()
   })
 
-  it('打开设置时应渲染抽屉态而不是常驻右栏', async () => {
+  it('点击工具栏设置时应渲染独立页面模式', async () => {
     const wrapper = shallowMount(App, {
       global: {
         stubs: {
@@ -211,16 +216,18 @@ describe('AppShell', () => {
     expect(wrapper.find('.floating-meta').exists()).toBe(false)
     expect(wrapper.find('.settings-sidebar').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(false)
 
     await wrapper.find('[data-testid="btn-settings"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="shell-overlay"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="shell-overlay"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-panel"]').exists()).toBe(true)
   })
 
-  it('点击遮罩应关闭设置抽屉', async () => {
+  it('系统菜单动作应打开设置工作区', async () => {
     const wrapper = shallowMount(App, {
       global: {
         stubs: {
@@ -230,12 +237,44 @@ describe('AppShell', () => {
       },
     })
 
-    await wrapper.find('[data-testid="btn-settings"]').trigger('click')
+    await wrapper.find('[data-testid="btn-system-toggle-settings"]').trigger('click')
     await flushPromises()
-    await wrapper.find('[data-testid="shell-overlay"]').trigger('click')
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
+  })
+
+  it('快捷键应按规则切换 workspace 与 drawer，并支持 Esc 关闭', async () => {
+    const wrapper = shallowMount(App, {
+      global: {
+        stubs: {
+          Toolbar: ToolbarStub,
+          SettingsPanel: SettingsPanelStub,
+        },
+      },
+    })
+
     await flushPromises()
 
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(false)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '<', code: 'Comma', ctrlKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(true)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(false)
   })
 
   it('预览菜单请求切换模式应更新设置', async () => {

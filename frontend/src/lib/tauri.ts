@@ -20,6 +20,45 @@ export interface FileInfo {
   is_dir?: boolean;
 }
 
+export interface AppVersionInfo {
+  version: string;
+  os: string;
+  arch: string;
+  buildTarget: string;
+  homepageUrl: string;
+}
+
+export interface DeviceInfo {
+  os: string;
+  arch: string;
+}
+
+export interface ReleaseAssetInfo {
+  name: string;
+  browserDownloadUrl: string;
+  size: number;
+  contentType?: string | null;
+}
+
+export interface GithubUpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  releaseName: string;
+  releaseNotes: string;
+  releaseUrl: string;
+  publishedAt?: string | null;
+  selectedAsset?: ReleaseAssetInfo | null;
+  device: DeviceInfo;
+  repositoryUrl: string;
+}
+
+export interface DownloadInstallResult {
+  downloadedPath: string;
+  launched: boolean;
+  message: string;
+}
+
 const WEB_UNSUPPORTED =
   '当前是 Web 构建，文件系统命令仅在 Tauri 桌面端可用。';
 
@@ -128,5 +167,127 @@ export const settingsCommands = {
     }
 
     await invokeCommand<void>('auto_save_config', { interval });
+  },
+
+  async getAppVersionInfo(): Promise<AppVersionInfo> {
+    if (!isTauriAvailable()) {
+      const fallbackDevice = getBrowserDeviceInfo();
+      return {
+        version: 'web',
+        os: fallbackDevice.os,
+        arch: fallbackDevice.arch,
+        buildTarget: `web-${fallbackDevice.os}`,
+        homepageUrl: PROJECT_HOMEPAGE_URL,
+      };
+    }
+
+    return invokeCommand<AppVersionInfo>('get_app_version_info');
+  },
+
+  async checkGithubUpdate(repoUrl?: string): Promise<GithubUpdateInfo> {
+    if (!isTauriAvailable()) {
+      const fallbackVersion = await settingsCommands.getAppVersionInfo();
+      return {
+        currentVersion: fallbackVersion.version,
+        latestVersion: fallbackVersion.version,
+        hasUpdate: false,
+        releaseName: '',
+        releaseNotes: '',
+        releaseUrl: repoUrl ?? PROJECT_HOMEPAGE_URL,
+        publishedAt: null,
+        selectedAsset: null,
+        device: {
+          os: fallbackVersion.os,
+          arch: fallbackVersion.arch,
+        },
+        repositoryUrl: repoUrl ?? PROJECT_HOMEPAGE_URL,
+      };
+    }
+
+    return invokeCommand<GithubUpdateInfo>('check_github_update', {
+      repoUrl,
+      repo_url: repoUrl,
+    });
+  },
+
+  async downloadAndInstallUpdate(downloadUrl: string, fileName: string): Promise<DownloadInstallResult> {
+    if (!isTauriAvailable()) {
+      if (typeof window !== 'undefined') {
+        window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+      }
+      return {
+        downloadedPath: '',
+        launched: true,
+        message: 'Web 模式下已在新窗口打开下载链接。',
+      };
+    }
+
+    return invokeCommand<DownloadInstallResult>('download_and_install_update', {
+      downloadUrl,
+      download_url: downloadUrl,
+      fileName,
+      file_name: fileName,
+    });
+  },
+};
+
+const PROJECT_HOMEPAGE_URL = 'https://github.com/kokotao/tau-editor';
+
+function getBrowserDeviceInfo(): DeviceInfo {
+  if (typeof navigator === 'undefined') {
+    return { os: 'web', arch: 'unknown' };
+  }
+
+  const lowerUA = navigator.userAgent.toLowerCase();
+  const lowerPlatform = navigator.platform.toLowerCase();
+
+  const os = lowerUA.includes('windows')
+    ? 'windows'
+    : lowerUA.includes('mac')
+      ? 'macos'
+      : lowerUA.includes('linux')
+        ? 'linux'
+        : 'web';
+
+  const arch = lowerUA.includes('arm64') || lowerUA.includes('aarch64')
+    ? 'aarch64'
+    : lowerUA.includes('x86_64') || lowerUA.includes('win64') || lowerPlatform.includes('x86_64')
+      ? 'x86_64'
+      : 'unknown';
+
+  return { os, arch };
+}
+
+export const appCommands = {
+  async openProjectHomepage(): Promise<void> {
+    if (!isTauriAvailable()) {
+      if (typeof window !== 'undefined') {
+        window.open(PROJECT_HOMEPAGE_URL, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+
+    try {
+      await invokeCommand<void>('open_project_homepage');
+    } catch (error) {
+      if (typeof window !== 'undefined') {
+        window.open(PROJECT_HOMEPAGE_URL, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      throw TauriError.fromError(error, 'open_project_homepage');
+    }
+  },
+
+  async openExternalLink(url: string): Promise<void> {
+    if (!isTauriAvailable()) {
+      if (typeof window !== 'undefined') {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+
+    await invokeCommand<void>('open_external_link', {
+      url,
+    });
   },
 };

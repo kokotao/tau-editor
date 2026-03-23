@@ -1,188 +1,399 @@
 <template>
   <n-config-provider class="settings-provider" :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
-    <div class="settings-panel" data-testid="settings-panel">
-    <div class="settings-header">
-      <h3 class="settings-title">{{ copy.title }}</h3>
-      <button class="settings-close" @click="emit('close')" :title="copy.close">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
-    </div>
-
-    <div class="settings-content">
-      <div class="settings-section">
-        <h4 class="settings-section-title">{{ copy.appearance }}</h4>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.language }}</label>
-          <n-select
-            class="settings-nselect"
-            data-testid="select-ui-language"
-            :value="settingsStore.uiLanguage"
-            :options="uiLanguageOptions"
-            :consistent-menu-width="false"
-            @update:value="setUiLanguage"
-          />
+    <div class="settings-panel" :class="`settings-panel--${mode}`" data-testid="settings-panel">
+      <div class="settings-header">
+        <div class="settings-header-main">
+          <h3 class="settings-title">{{ panelTitle }}</h3>
+          <p class="settings-subtitle">{{ panelSubtitle }}</p>
         </div>
 
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.themeMode }}</label>
-          <div class="theme-selector">
-            <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
-            <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
-            <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
-          </div>
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.editorTheme }}</label>
-          <n-select
-            class="settings-nselect"
-            data-testid="select-monaco-theme"
-            :value="settingsStore.monacoTheme"
-            :options="monacoThemeOptions"
-            :consistent-menu-width="false"
-            @update:value="setMonacoTheme"
-          />
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <h4 class="settings-section-title">{{ copy.font }}</h4>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.fontSize }}</label>
-          <div class="font-size-control">
-            <button class="font-size-btn" @click="decreaseFontSize">-</button>
-            <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
-            <button class="font-size-btn" @click="increaseFontSize">+</button>
-            <button class="font-size-reset" @click="resetFontSize">{{ copy.reset }}</button>
-          </div>
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.fontFamily }}</label>
-          <n-select
-            class="settings-nselect"
-            data-testid="select-font-family"
-            :value="settingsStore.fontFamily"
-            :options="fontFamilyOptions"
-            :consistent-menu-width="false"
-            @update:value="setFontFamily"
-          />
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.preview }}</label>
-          <div class="font-preview" :style="{ fontSize: `${settingsStore.fontSize}px`, fontFamily: settingsStore.fontFamily }">
-            {{ copy.fontPreviewLine1 }}
-            <br>
-            {{ copy.fontPreviewLine2 }}
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <h4 class="settings-section-title">{{ copy.editor }}</h4>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.autoSave }}</label>
-          <label class="settings-checkbox">
-            <input type="checkbox" :checked="settingsStore.autoSaveEnabled" @change="setAutoSave($event)" />
-            <span class="checkbox-text">{{ copy.autoSaveEnabled }}</span>
-          </label>
-        </div>
-
-        <div class="settings-item" v-if="settingsStore.autoSaveEnabled">
-          <label class="settings-label">{{ copy.autoSaveInterval }}</label>
-          <n-select
-            class="settings-nselect"
-            data-testid="select-auto-save-interval"
-            :value="settingsStore.autoSaveInterval"
-            :options="autoSaveIntervalOptions"
-            :consistent-menu-width="false"
-            @update:value="setAutoSaveInterval"
-          />
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.indent }}</label>
-          <n-select
-            class="settings-nselect"
-            data-testid="select-tab-size"
-            :value="settingsStore.tabSize"
-            :options="tabSizeOptions"
-            :consistent-menu-width="false"
-            @update:value="setTabSize"
-          />
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.minimap }}</label>
-          <label class="settings-checkbox">
-            <input type="checkbox" :checked="settingsStore.minimap" @change="setMinimap($event)" />
-            <span class="checkbox-text">{{ copy.minimapEnabled }}</span>
-          </label>
-        </div>
-
-        <div class="settings-item">
-          <label class="settings-label">{{ copy.wordWrap }}</label>
-          <label class="settings-checkbox">
-            <input type="checkbox" :checked="settingsStore.wordWrap" @change="setWordWrap($event)" />
-            <span class="checkbox-text">{{ copy.wordWrapEnabled }}</span>
-          </label>
-        </div>
-      </div>
-
-      <div class="settings-section settings-section-author" data-testid="settings-author-section">
-        <h4 class="settings-section-title">{{ authorCopy.modalTitle }}</h4>
-        <div class="settings-author-inline">
-          <p>{{ authorCopy.nameLabel }}albert_luo</p>
-          <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
-          <a
-            class="settings-author-link"
-            href="https://github.com/kokotao/tau-editor"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div class="settings-header-actions">
+          <button
+            v-if="isDrawerMode"
+            class="settings-action-btn"
+            data-testid="open-full-settings-btn"
+            @click="emit('open-workspace')"
           >
-            {{ authorCopy.githubLabel }}
-          </a>
-          <section class="settings-author-donation">
-            <h5>{{ authorCopy.donationTitle }}</h5>
-            <p class="settings-author-donation-desc">{{ authorCopy.donationDesc }}</p>
-            <div class="settings-author-qr-grid">
-              <figure class="settings-author-qr-card">
-                <img :src="wechatDonateQr" :alt="authorCopy.wechatLabel" loading="lazy" />
-                <figcaption>{{ authorCopy.wechatLabel }}</figcaption>
-              </figure>
-              <figure class="settings-author-qr-card">
-                <img :src="alipayDonateQr" :alt="authorCopy.alipayLabel" loading="lazy" />
-                <figcaption>{{ authorCopy.alipayLabel }}</figcaption>
-              </figure>
-            </div>
-            <p class="settings-author-donation-tip">{{ authorCopy.donationTip }}</p>
-          </section>
+            {{ copy.openFullSettings }}
+          </button>
+          <button class="settings-close" data-testid="settings-close-btn" @click="emit('close')" :title="copy.close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
       </div>
-    </div>
+
+      <div v-if="isWorkspaceMode" class="settings-workspace" data-testid="settings-workspace">
+        <aside class="settings-nav" data-testid="settings-nav">
+          <button
+            v-for="category in categories"
+            :key="category.id"
+            class="settings-nav-item"
+            :class="{ active: activeCategoryValue === category.id }"
+            :data-testid="`settings-nav-${category.id}`"
+            @click="setActiveCategory(category.id)"
+          >
+            {{ category.label }}
+          </button>
+        </aside>
+
+        <section class="settings-detail">
+          <div class="settings-overview">
+            <div class="settings-overview-item">
+              <span>{{ copy.currentVersion }}</span>
+              <strong data-testid="settings-current-version">{{ currentVersionLabel }}</strong>
+            </div>
+            <div class="settings-overview-item">
+              <span>{{ copy.latestVersion }}</span>
+              <strong>{{ latestVersionLabel }}</strong>
+            </div>
+            <div class="settings-overview-item">
+              <span>{{ copy.deviceInfo }}</span>
+              <strong>{{ deviceLabel }}</strong>
+            </div>
+          </div>
+
+          <div v-if="activeCategoryValue === 'general'" class="settings-section" data-testid="settings-general-section">
+            <h4 class="settings-section-title">{{ copy.appearance }}</h4>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.language }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-ui-language"
+                :value="settingsStore.uiLanguage"
+                :options="uiLanguageOptions"
+                :consistent-menu-width="false"
+                @update:value="setUiLanguage"
+              />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.themeMode }}</label>
+              <div class="theme-selector">
+                <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
+                <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
+                <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
+              </div>
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.editorTheme }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-monaco-theme"
+                :value="settingsStore.monacoTheme"
+                :options="monacoThemeOptions"
+                :consistent-menu-width="false"
+                @update:value="setMonacoTheme"
+              />
+            </div>
+          </div>
+
+          <div v-if="activeCategoryValue === 'editor'" class="settings-section" data-testid="settings-editor-section">
+            <h4 class="settings-section-title">{{ copy.editor }}</h4>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.fontSize }}</label>
+              <div class="font-size-control">
+                <button class="font-size-btn" data-testid="decrease-font-btn" @click="decreaseFontSize">-</button>
+                <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
+                <button class="font-size-btn" data-testid="increase-font-btn" @click="increaseFontSize">+</button>
+                <button class="font-size-reset" @click="resetFontSize">{{ copy.reset }}</button>
+              </div>
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.fontFamily }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-font-family"
+                :value="settingsStore.fontFamily"
+                :options="fontFamilyOptions"
+                :consistent-menu-width="false"
+                @update:value="setFontFamily"
+              />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.preview }}</label>
+              <div class="font-preview" :style="{ fontSize: `${settingsStore.fontSize}px`, fontFamily: settingsStore.fontFamily }">
+                {{ copy.fontPreviewLine1 }}
+                <br>
+                {{ copy.fontPreviewLine2 }}
+              </div>
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.autoSave }}</label>
+              <label class="settings-checkbox">
+                <input data-testid="toggle-auto-save" type="checkbox" :checked="settingsStore.autoSaveEnabled" @change="setAutoSave($event)" />
+                <span class="checkbox-text">{{ copy.autoSaveEnabled }}</span>
+              </label>
+            </div>
+
+            <div class="settings-item" v-if="settingsStore.autoSaveEnabled">
+              <label class="settings-label">{{ copy.autoSaveInterval }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-auto-save-interval"
+                :value="settingsStore.autoSaveInterval"
+                :options="autoSaveIntervalOptions"
+                :consistent-menu-width="false"
+                @update:value="setAutoSaveInterval"
+              />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.indent }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-tab-size"
+                :value="settingsStore.tabSize"
+                :options="tabSizeOptions"
+                :consistent-menu-width="false"
+                @update:value="setTabSize"
+              />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.minimap }}</label>
+              <label class="settings-checkbox">
+                <input data-testid="toggle-minimap" type="checkbox" :checked="settingsStore.minimap" @change="setMinimap($event)" />
+                <span class="checkbox-text">{{ copy.minimapEnabled }}</span>
+              </label>
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.wordWrap }}</label>
+              <label class="settings-checkbox">
+                <input data-testid="toggle-word-wrap" type="checkbox" :checked="settingsStore.wordWrap" @change="setWordWrap($event)" />
+                <span class="checkbox-text">{{ copy.wordWrapEnabled }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div
+            v-if="activeCategoryValue === 'updates'"
+            class="settings-section settings-section-update"
+            data-testid="settings-update-section"
+          >
+            <h4 class="settings-section-title">{{ copy.softwareUpdate }}</h4>
+
+            <div class="settings-update-grid">
+              <div class="settings-update-item">
+                <span>{{ copy.currentVersion }}</span>
+                <strong>{{ currentVersionLabel }}</strong>
+              </div>
+              <div class="settings-update-item">
+                <span>{{ copy.latestVersion }}</span>
+                <strong>{{ latestVersionLabel }}</strong>
+              </div>
+              <div class="settings-update-item">
+                <span>{{ copy.deviceInfo }}</span>
+                <strong>{{ deviceLabel }}</strong>
+              </div>
+              <div class="settings-update-item" v-if="releaseDateLabel">
+                <span>{{ copy.releaseDate }}</span>
+                <strong>{{ releaseDateLabel }}</strong>
+              </div>
+              <div class="settings-update-item settings-update-item-wide" v-if="selectedAsset">
+                <span>{{ copy.packageName }}</span>
+                <strong>{{ selectedAsset.name }}</strong>
+              </div>
+            </div>
+
+            <p class="settings-update-status">{{ updateStatusText }}</p>
+            <p class="settings-update-message" v-if="installMessage">{{ installMessage }}</p>
+            <p class="settings-update-notes" v-if="releaseNotesPreview">
+              <span>{{ copy.releaseNotes }}</span>
+              <span>{{ releaseNotesPreview }}</span>
+            </p>
+
+            <div class="settings-update-actions">
+              <button
+                class="settings-update-btn"
+                data-testid="check-updates-btn"
+                @click="checkForUpdate(false)"
+                :disabled="isCheckingUpdate || isInstallingUpdate"
+              >
+                {{ isCheckingUpdate ? copy.checkingForUpdates : copy.checkForUpdates }}
+              </button>
+              <button
+                class="settings-update-btn settings-update-btn-primary"
+                data-testid="install-update-btn"
+                @click="installUpdate"
+                :disabled="!canInstallUpdate"
+              >
+                {{ isInstallingUpdate ? copy.installingUpdate : copy.installUpdate }}
+              </button>
+              <button
+                class="settings-update-btn settings-update-btn-link"
+                data-testid="open-release-btn"
+                @click="handleOpenReleasePage"
+              >
+                {{ copy.openReleasePage }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="activeCategoryValue === 'about'" class="settings-section" data-testid="settings-author-section">
+            <h4 class="settings-section-title">{{ authorCopy.modalTitle }}</h4>
+            <div class="settings-author-inline">
+              <p>{{ authorCopy.nameLabel }}albert_luo</p>
+              <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
+              <p>
+                {{ authorCopy.githubLabel }}
+                <a
+                  class="settings-author-link"
+                  :href="projectHomepageUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.prevent="handleOpenProjectHomepage"
+                >
+                  {{ projectHomepageUrl }}
+                </a>
+              </p>
+              <p>{{ authorCopy.qqGroupLabel }}1091775563</p>
+              <section class="settings-author-donation">
+                <h5>{{ authorCopy.donationTitle }}</h5>
+                <p class="settings-author-donation-desc">{{ authorCopy.donationDesc }}</p>
+                <div class="settings-author-qr-grid">
+                  <figure class="settings-author-qr-card">
+                    <img :src="wechatDonateQr" :alt="authorCopy.wechatLabel" loading="lazy" />
+                    <figcaption>{{ authorCopy.wechatLabel }}</figcaption>
+                  </figure>
+                  <figure class="settings-author-qr-card">
+                    <img :src="alipayDonateQr" :alt="authorCopy.alipayLabel" loading="lazy" />
+                    <figcaption>{{ authorCopy.alipayLabel }}</figcaption>
+                  </figure>
+                </div>
+                <p class="settings-author-donation-tip">{{ authorCopy.donationTip }}</p>
+              </section>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div v-else class="settings-drawer-content" data-testid="settings-quick-drawer">
+        <p class="settings-drawer-tip">{{ copy.quickSettingsDesc }}</p>
+
+        <div class="settings-section">
+          <div class="settings-item">
+            <label class="settings-label">{{ copy.language }}</label>
+            <n-select
+              class="settings-nselect"
+              data-testid="drawer-select-ui-language"
+              :value="settingsStore.uiLanguage"
+              :options="uiLanguageOptions"
+              :consistent-menu-width="false"
+              @update:value="setUiLanguage"
+            />
+          </div>
+
+          <div class="settings-item">
+            <label class="settings-label">{{ copy.themeMode }}</label>
+            <div class="theme-selector">
+              <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
+              <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
+              <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
+            </div>
+          </div>
+
+          <div class="settings-item">
+            <label class="settings-label">{{ copy.fontSize }}</label>
+            <div class="font-size-control">
+              <button class="font-size-btn" data-testid="drawer-decrease-font-btn" @click="decreaseFontSize">-</button>
+              <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
+              <button class="font-size-btn" data-testid="drawer-increase-font-btn" @click="increaseFontSize">+</button>
+            </div>
+          </div>
+
+          <div class="settings-item">
+            <label class="settings-label">{{ copy.autoSave }}</label>
+            <label class="settings-checkbox">
+              <input
+                data-testid="drawer-toggle-auto-save"
+                type="checkbox"
+                :checked="settingsStore.autoSaveEnabled"
+                @change="setAutoSave($event)"
+              />
+              <span class="checkbox-text">{{ copy.autoSaveEnabled }}</span>
+            </label>
+          </div>
+
+          <button class="settings-action-btn settings-action-btn-block" @click="emit('open-workspace')">
+            {{ copy.openFullSettings }}
+          </button>
+        </div>
+      </div>
     </div>
   </n-config-provider>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import { useSettingsStore } from '@/stores/settings';
+import {
+  appCommands,
+  settingsCommands,
+  type AppVersionInfo,
+  type GithubUpdateInfo,
+  type ReleaseAssetInfo,
+} from '@/lib/tauri';
 import { getAuthorInfoI18n, getSettingsPanelI18n, type MonacoThemeValue, type UiLanguage } from '@/i18n/ui';
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 
+export type SettingsCategory = 'general' | 'editor' | 'updates' | 'about';
+type SettingsMode = 'workspace' | 'drawer';
+type UpdateStatus = 'idle' | 'checking' | 'upToDate' | 'available' | 'installing' | 'installTriggered' | 'error';
+
+const props = withDefaults(defineProps<{
+  mode?: SettingsMode;
+  activeCategory?: SettingsCategory;
+}>(), {
+  mode: 'workspace',
+  activeCategory: 'general',
+});
+
+const emit = defineEmits<{
+  close: [];
+  'open-workspace': [];
+  'update:activeCategory': [category: SettingsCategory];
+}>();
+
 const settingsStore = useSettingsStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
+const projectHomepageUrl = 'https://github.com/kokotao/tau-editor';
 const naiveTheme = computed(() => (settingsStore.resolvedTheme === 'dark' ? darkTheme : null));
+const isWorkspaceMode = computed(() => props.mode === 'workspace');
+const isDrawerMode = computed(() => props.mode === 'drawer');
+
+const appVersionInfo = ref<AppVersionInfo | null>(null);
+const updateInfo = ref<GithubUpdateInfo | null>(null);
+const updateStatus = ref<UpdateStatus>('idle');
+const updateError = ref('');
+const installMessage = ref('');
+const isCheckingUpdate = ref(false);
+const isInstallingUpdate = ref(false);
+
+const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() => [
+  { id: 'general', label: copy.value.settingsGeneral },
+  { id: 'editor', label: copy.value.settingsEditor },
+  { id: 'updates', label: copy.value.settingsUpdates },
+  { id: 'about', label: copy.value.settingsAbout },
+]);
+
+const panelTitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsTitle));
+const panelSubtitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsDesc));
+const activeCategoryValue = computed<SettingsCategory>(() => props.activeCategory || 'general');
+const selectedAsset = computed<ReleaseAssetInfo | null>(() => updateInfo.value?.selectedAsset ?? null);
+
 const naiveThemeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: '#38bdf8',
@@ -245,9 +456,71 @@ const tabSizeOptions = computed<SelectOption[]>(() => [
   { label: copy.value.spaces8, value: 8 },
 ]);
 
-const emit = defineEmits<{
-  close: [];
-}>();
+const currentVersionLabel = computed(() => appVersionInfo.value?.version || '--');
+
+const latestVersionLabel = computed(() => {
+  if (!updateInfo.value) {
+    return '--';
+  }
+  return updateInfo.value.latestVersion;
+});
+
+const deviceLabel = computed(() => {
+  const os = updateInfo.value?.device.os || appVersionInfo.value?.os || 'unknown';
+  const arch = updateInfo.value?.device.arch || appVersionInfo.value?.arch || 'unknown';
+  return `${resolveOsLabel(os)} / ${arch}`;
+});
+
+const releaseDateLabel = computed(() => {
+  const publishedAt = updateInfo.value?.publishedAt;
+  if (!publishedAt) {
+    return '';
+  }
+
+  const date = new Date(publishedAt);
+  if (Number.isNaN(date.getTime())) {
+    return publishedAt;
+  }
+
+  return date.toLocaleString();
+});
+
+const releaseNotesPreview = computed(() => {
+  const content = (updateInfo.value?.releaseNotes || '').replace(/\s+/g, ' ').trim();
+  if (!content) {
+    return '';
+  }
+  return content.length > 180 ? `${content.slice(0, 180)}...` : content;
+});
+
+const canInstallUpdate = computed(() => {
+  return Boolean(updateInfo.value?.hasUpdate && selectedAsset.value && !isInstallingUpdate.value && !isCheckingUpdate.value);
+});
+
+const updateStatusText = computed(() => {
+  switch (updateStatus.value) {
+    case 'checking':
+      return copy.value.statusChecking;
+    case 'upToDate':
+      return copy.value.statusUpToDate;
+    case 'available':
+      return selectedAsset.value
+        ? copy.value.statusUpdateAvailable(updateInfo.value?.latestVersion || '--')
+        : copy.value.statusNoMatchedAsset;
+    case 'installing':
+      return copy.value.statusInstalling;
+    case 'installTriggered':
+      return installMessage.value || copy.value.statusInstallTriggered;
+    case 'error':
+      return `${copy.value.statusErrorPrefix}：${updateError.value || 'unknown'}`;
+    default:
+      return copy.value.statusIdle;
+  }
+});
+
+const setActiveCategory = (category: SettingsCategory) => {
+  emit('update:activeCategory', category);
+};
 
 const setTheme = (theme: 'light' | 'dark' | 'system') => {
   settingsStore.updateSettings({ theme });
@@ -301,6 +574,95 @@ const setMinimap = (event: Event) => {
 const setWordWrap = (event: Event) => {
   settingsStore.updateSettings({ wordWrap: (event.target as HTMLInputElement).checked });
 };
+
+const loadVersionInfo = async () => {
+  try {
+    appVersionInfo.value = await settingsCommands.getAppVersionInfo();
+  } catch (error) {
+    console.warn('[Settings] 读取版本信息失败：', error);
+  }
+};
+
+const checkForUpdate = async (silent: boolean) => {
+  if (isCheckingUpdate.value) {
+    return;
+  }
+
+  isCheckingUpdate.value = true;
+  updateError.value = '';
+  installMessage.value = '';
+  updateStatus.value = 'checking';
+
+  try {
+    const result = await settingsCommands.checkGithubUpdate(projectHomepageUrl);
+    if (!result || typeof result.hasUpdate !== 'boolean') {
+      throw new Error('Invalid update response');
+    }
+    updateInfo.value = result;
+
+    if (result.hasUpdate) {
+      updateStatus.value = 'available';
+    } else {
+      updateStatus.value = 'upToDate';
+    }
+  } catch (error) {
+    updateStatus.value = 'error';
+    updateError.value = error instanceof Error ? error.message : String(error);
+    if (silent) {
+      console.warn('[Settings] 自动检查更新失败：', updateError.value);
+    }
+  } finally {
+    isCheckingUpdate.value = false;
+  }
+};
+
+const installUpdate = async () => {
+  if (!selectedAsset.value || isInstallingUpdate.value) {
+    return;
+  }
+
+  isInstallingUpdate.value = true;
+  updateError.value = '';
+  installMessage.value = '';
+  updateStatus.value = 'installing';
+
+  try {
+    const result = await settingsCommands.downloadAndInstallUpdate(
+      selectedAsset.value.browserDownloadUrl,
+      selectedAsset.value.name,
+    );
+    installMessage.value = result.message || copy.value.statusInstallTriggered;
+    updateStatus.value = 'installTriggered';
+  } catch (error) {
+    updateStatus.value = 'error';
+    updateError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isInstallingUpdate.value = false;
+  }
+};
+
+const handleOpenProjectHomepage = async () => {
+  await appCommands.openProjectHomepage();
+};
+
+const handleOpenReleasePage = async () => {
+  const releaseUrl = updateInfo.value?.releaseUrl || projectHomepageUrl;
+  await appCommands.openExternalLink(releaseUrl);
+};
+
+const resolveOsLabel = (os: string): string => {
+  if (os === 'windows') return 'Windows';
+  if (os === 'macos') return 'macOS';
+  if (os === 'linux') return 'Linux';
+  return os;
+};
+
+onMounted(async () => {
+  await loadVersionInfo();
+  if (isWorkspaceMode.value) {
+    await checkForUpdate(true);
+  }
+});
 </script>
 
 <style scoped>
@@ -319,21 +681,43 @@ const setWordWrap = (event: Event) => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--panel, #101726);
+  background:
+    radial-gradient(120% 120% at 10% -10%, rgba(56, 189, 248, 0.16), transparent 45%),
+    radial-gradient(90% 90% at 90% 0%, rgba(14, 165, 233, 0.12), transparent 46%),
+    var(--panel, #101726);
 }
 
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+}
+
+.settings-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .settings-title {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
+}
+
+.settings-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .settings-close {
@@ -354,16 +738,110 @@ const setWordWrap = (event: Event) => {
   border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
-.settings-content {
+.settings-action-btn {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.4);
+  color: var(--text-primary, #f8fafc);
+  cursor: pointer;
+}
+
+.settings-action-btn-block {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.settings-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 14px;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.2);
+}
+
+.settings-nav-item {
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  text-align: left;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.settings-nav-item.active {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 165, 233, 0.2);
+  color: #e0f2fe;
+}
+
+.settings-detail,
+.settings-drawer-content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 20px;
+  padding: 16px;
+}
+
+.settings-drawer-tip {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.settings-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.settings-overview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-overview-item span {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.settings-overview-item strong {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary, #f8fafc);
+  word-break: break-word;
 }
 
 .settings-section {
-  margin-bottom: 28px;
+  margin: 0;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .settings-section-title {
@@ -379,6 +857,10 @@ const setWordWrap = (event: Event) => {
   margin-bottom: 16px;
 }
 
+.settings-item:last-child {
+  margin-bottom: 0;
+}
+
 .settings-label {
   display: block;
   margin-bottom: 8px;
@@ -386,77 +868,20 @@ const setWordWrap = (event: Event) => {
   font-size: 13px;
 }
 
-.settings-select,
 .font-preview,
 .theme-btn,
 .font-size-control,
-.settings-checkbox {
+.settings-checkbox,
+.settings-update-btn {
   border-radius: 14px;
 }
 
-.settings-select-shell,
 .font-preview {
   width: 100%;
-}
-
-.settings-select-shell {
-  position: relative;
-  display: flex;
-  align-items: center;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.06),
-    rgba(255, 255, 255, 0.02)
-  );
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-}
-
-.settings-select-shell:hover {
-  border-color: rgba(125, 211, 252, 0.38);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.08),
-    rgba(255, 255, 255, 0.03)
-  );
-}
-
-.settings-select-shell:focus-within {
-  border-color: rgba(56, 189, 248, 0.9);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
-}
-
-.settings-select {
-  width: 100%;
-  padding: 12px 42px 12px 14px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary, #f8fafc);
-  font: inherit;
-  appearance: none;
-  outline: none;
-  cursor: pointer;
-}
-
-.settings-select-icon {
-  position: absolute;
-  right: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted, #94a3b8);
-  pointer-events: none;
-}
-
-.settings-select option {
-  color: #f8fafc;
-  background: #111a2f;
-}
-
-.font-preview {
   padding: 12px 14px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  line-height: 1.7;
 }
 
 .theme-selector {
@@ -505,10 +930,6 @@ const setWordWrap = (event: Event) => {
   text-align: center;
 }
 
-.font-preview {
-  line-height: 1.7;
-}
-
 .settings-checkbox {
   display: flex;
   align-items: center;
@@ -519,8 +940,93 @@ const setWordWrap = (event: Event) => {
   color: var(--text-secondary, #cbd5e1);
 }
 
-.settings-section-author {
-  margin-bottom: 0;
+.settings-update-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-update-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-update-item span {
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.settings-update-item strong {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary, #f8fafc);
+  word-break: break-word;
+}
+
+.settings-update-item-wide {
+  grid-column: 1 / -1;
+}
+
+.settings-update-status,
+.settings-update-message,
+.settings-update-notes {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.settings-update-status {
+  color: var(--text-primary, #f8fafc);
+}
+
+.settings-update-message {
+  color: #34d399;
+}
+
+.settings-update-notes {
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.settings-update-notes span:first-child {
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.settings-update-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-update-btn {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.3);
+  color: var(--text-primary, #f8fafc);
+  cursor: pointer;
+}
+
+.settings-update-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-update-btn-primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  color: #fff;
+}
+
+.settings-update-btn-link {
+  color: #93c5fd;
 }
 
 .settings-author-inline {
@@ -586,18 +1092,44 @@ const setWordWrap = (event: Event) => {
   color: var(--text-secondary, #cbd5e1);
 }
 
-@media (max-width: 520px) {
-  .settings-author-qr-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .settings-author-link {
   color: var(--accent-blue, #7cc7ff);
   text-decoration: none;
+  word-break: break-all;
 }
 
 .settings-author-link:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .settings-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  }
+
+  .settings-nav-item {
+    flex: 0 0 auto;
+  }
+
+  .settings-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-update-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .settings-author-qr-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

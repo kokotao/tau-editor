@@ -111,7 +111,7 @@ describe('FileTree.vue', () => {
       expect(wrapper.text()).toContain('package.json')
     })
 
-    it('搜索输入壳和操作提示应展示', () => {
+    it('搜索输入壳应展示', () => {
       const wrapper = mount(FileTree, {
         props: {
           fileTree: mockFileTree,
@@ -123,9 +123,6 @@ describe('FileTree.vue', () => {
       const input = searchShell.find('input')
       expect(input.attributes('placeholder')).toBe('在工作区中搜索')
       expect((input.element as HTMLInputElement).value).toBe('')
-
-      expect(wrapper.find('.operations-label').text()).toBe('轻操作')
-      expect(wrapper.find('.operation-tags').text()).toContain('右键创建')
     })
 
     it('输入关键字后应过滤文件树节点', async () => {

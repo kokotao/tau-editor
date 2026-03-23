@@ -571,6 +571,8 @@ describe('StatusBar.vue', () => {
       const link = modal.find('a.author-link')
       expect(link.exists()).toBe(true)
       expect(link.attributes('href')).toBe('https://github.com/kokotao/tau-editor')
+      expect(modal.text()).toContain('https://github.com/kokotao/tau-editor')
+      expect(modal.text()).toContain('1091775563')
     })
 
     it('点击遮罩应关闭作者弹窗', async () => {

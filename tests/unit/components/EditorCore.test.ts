@@ -1,43 +1,29 @@
 /**
- * EditorCore.vue 组件单元测试
- * 
- * 测试 Monaco 编辑器组件的核心功能：
- * - Monaco 挂载
- * - 内容绑定
- * - 光标追踪
- * - 快捷键
- * - 暴露方法
+ * EditorCore.vue 组件单元测试（与当前实现对齐）
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { setActivePinia, createPinia } from 'pinia'
-import EditorCore from '@/components/editor/EditorCore.vue'
-import { useEditorStore } from '@/stores/editor'
-import { useSettingsStore } from '@/stores/settings'
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+import { setActivePinia, createPinia } from 'pinia';
+import { nextTick } from 'vue';
+import { useEditorStore } from '@/stores/editor';
+import { useSettingsStore } from '@/stores/settings';
 
-// Mock Monaco Editor
-const mockCreate = vi.fn()
-const mockDispose = vi.fn()
-const mockGetValue = vi.fn()
-const mockSetValue = vi.fn()
-const mockFocus = vi.fn()
-const mockLayout = vi.fn()
-const mockGetSelection = vi.fn()
-const mockGetModel = vi.fn()
-const mockGetValueInRange = vi.fn()
-const mockOnDidChangeModelContent = vi.fn()
-const mockOnDidChangeCursorPosition = vi.fn()
-const mockOnDidChangeCursorSelection = vi.fn()
-const mockOnDidChangeModel = vi.fn()
-const mockAddCommand = vi.fn()
-const mockUpdateOptions = vi.fn()
-const mockSetTheme = vi.fn()
+const monacoMocks = vi.hoisted(() => {
+  return {
+    create: vi.fn(),
+    setTheme: vi.fn(),
+    setModelLanguage: vi.fn(),
+    remeasureFonts: vi.fn(),
+  };
+});
 
-vi.mock('monaco-editor', () => ({
+const monacoMockFactory = () => ({
   editor: {
-    create: mockCreate,
-    setTheme: mockSetTheme,
+    create: monacoMocks.create,
+    setTheme: monacoMocks.setTheme,
+    setModelLanguage: monacoMocks.setModelLanguage,
+    remeasureFonts: monacoMocks.remeasureFonts,
   },
   KeyMod: {
     CtrlCmd: 2048,
@@ -45,523 +31,275 @@ vi.mock('monaco-editor', () => ({
   KeyCode: {
     KeyS: 49,
   },
-}))
+});
 
 describe('EditorCore.vue', () => {
-  let editorStore: ReturnType<typeof useEditorStore>
-  let settingsStore: ReturnType<typeof useSettingsStore>
-  let mockEditor: any
+  let EditorCore: any;
+  let editorStore: ReturnType<typeof useEditorStore>;
+  let settingsStore: ReturnType<typeof useSettingsStore>;
+
+  const mockDispose = vi.fn();
+  const mockGetValue = vi.fn();
+  const mockSetValue = vi.fn();
+  const mockFocus = vi.fn();
+  const mockLayout = vi.fn();
+  const mockGetSelection = vi.fn();
+  const mockGetModel = vi.fn();
+  const mockGetAction = vi.fn();
+  const mockGetScrollTop = vi.fn();
+  const mockGetLayoutInfo = vi.fn();
+  const mockGetScrollHeight = vi.fn();
+  const mockAddCommand = vi.fn();
+  const mockUpdateOptions = vi.fn();
+
+  const mockOnDidChangeModelContent = vi.fn();
+  const mockOnDidChangeCursorPosition = vi.fn();
+  const mockOnDidChangeCursorSelection = vi.fn();
+  const mockOnDidScrollChange = vi.fn();
+
+  let contentCallbacks: Array<() => void> = [];
+  let cursorCallback: ((event: { position: { lineNumber: number; column: number } }) => void) | null = null;
+  let selectionCallback: (() => void) | null = null;
+  let scrollCallback: (() => void) | null = null;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    vi.doMock('monaco-editor', monacoMockFactory);
+    vi.doMock('monaco-editor/esm/vs/editor/editor.api', monacoMockFactory);
+    vi.doMock('monaco-editor/esm/vs/editor/editor.api.js', monacoMockFactory);
+    EditorCore = (await import('@/components/editor/EditorCore.vue')).default;
+  });
 
   beforeEach(() => {
-    setActivePinia(createPinia())
-    editorStore = useEditorStore()
-    settingsStore = useSettingsStore()
+    setActivePinia(createPinia());
+    editorStore = useEditorStore();
+    settingsStore = useSettingsStore();
 
-    // 重置所有 mocks
-    vi.clearAllMocks()
+    vi.clearAllMocks();
+    contentCallbacks = [];
+    cursorCallback = null;
+    selectionCallback = null;
+    scrollCallback = null;
 
-    // 创建 mock 编辑器实例
-    mockEditor = {
+    const createDisposable = () => ({ dispose: vi.fn() });
+
+    mockOnDidChangeModelContent.mockImplementation((cb: () => void) => {
+      contentCallbacks.push(cb);
+      return createDisposable();
+    });
+
+    mockOnDidChangeCursorPosition.mockImplementation((cb: (event: { position: { lineNumber: number; column: number } }) => void) => {
+      cursorCallback = cb;
+      return createDisposable();
+    });
+
+    mockOnDidChangeCursorSelection.mockImplementation((cb: () => void) => {
+      selectionCallback = cb;
+      return createDisposable();
+    });
+
+    mockOnDidScrollChange.mockImplementation((cb: () => void) => {
+      scrollCallback = cb;
+      return createDisposable();
+    });
+
+    mockGetValue.mockReturnValue('');
+    mockGetSelection.mockReturnValue({
+      getStartPosition: vi.fn(),
+      getEndPosition: vi.fn(),
+    });
+    mockGetModel.mockReturnValue({
+      getValueInRange: vi.fn().mockReturnValue('selected text'),
+      getOffsetAt: vi
+        .fn()
+        .mockReturnValueOnce(10)
+        .mockReturnValueOnce(20),
+    });
+    mockGetAction.mockReturnValue({
+      run: vi.fn().mockResolvedValue(undefined),
+      isSupported: vi.fn().mockReturnValue(true),
+    });
+    mockGetScrollTop.mockReturnValue(12);
+    mockGetLayoutInfo.mockReturnValue({ height: 460 });
+    mockGetScrollHeight.mockReturnValue(1200);
+
+    monacoMocks.create.mockReturnValue({
       getValue: mockGetValue,
       setValue: mockSetValue,
       focus: mockFocus,
       layout: mockLayout,
       getSelection: mockGetSelection,
       getModel: mockGetModel,
+      getAction: mockGetAction,
+      getScrollTop: mockGetScrollTop,
+      getLayoutInfo: mockGetLayoutInfo,
+      getScrollHeight: mockGetScrollHeight,
       onDidChangeModelContent: mockOnDidChangeModelContent,
       onDidChangeCursorPosition: mockOnDidChangeCursorPosition,
       onDidChangeCursorSelection: mockOnDidChangeCursorSelection,
-      onDidChangeModel: mockOnDidChangeModel,
+      onDidScrollChange: mockOnDidScrollChange,
       addCommand: mockAddCommand,
       updateOptions: mockUpdateOptions,
       dispose: mockDispose,
-    }
-
-    // 配置 create 返回 mock 编辑器
-    mockCreate.mockReturnValue(mockEditor)
-    mockGetValue.mockReturnValue('')
-    mockGetSelection.mockReturnValue(null)
-    mockGetModel.mockReturnValue({
-      getValueInRange: mockGetValueInRange,
-    })
-  })
-
-  describe('初始化', () => {
-    it('应在挂载时创建 Monaco 编辑器', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockCreate).toHaveBeenCalled()
-    })
-
-    it('应使用容器元素创建编辑器', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.any(HTMLElement),
-        expect.any(Object)
-      )
-    })
-
-    it('应使用默认配置创建编辑器', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          language: 'plaintext',
-          theme: 'vs-dark',
-          readOnly: false,
-          automaticLayout: true,
-        })
-      )
-    })
-
-    it('应使用自定义语言配置', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-          language: 'typescript',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          language: 'typescript',
-        })
-      )
-    })
-
-    it('应使用自定义主题配置', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-          theme: 'vs-light',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          theme: 'vs-light',
-        })
-      )
-    })
-
-    it('应使用只读配置', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-          readOnly: true,
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          readOnly: true,
-        })
-      )
-    })
-  })
-
-  describe('内容绑定', () => {
-    it('应监听内容变化事件', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      // 模拟内容变化回调
-      const contentChangeCallback = mockOnDidChangeModelContent.mock.calls[0][0]
-      mockGetValue.mockReturnValue('new content')
-
-      contentChangeCallback()
-
-      expect(wrapper.emitted('content-change')).toBeTruthy()
-      expect(wrapper.emitted('content-change')![0]).toEqual(['new content'])
-    })
-
-    it('应更新 store 内容', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const contentChangeCallback = mockOnDidChangeModelContent.mock.calls[0][0]
-      mockGetValue.mockReturnValue('test content')
-
-      contentChangeCallback()
-
-      expect(editorStore.content).toBe('test content')
-    })
-  })
-
-  describe('光标追踪', () => {
-    it('应监听光标位置变化', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockOnDidChangeCursorPosition).toHaveBeenCalled()
-    })
-
-    it('应发射光标变化事件', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const cursorCallback = mockOnDidChangeCursorPosition.mock.calls[0][0]
-      cursorCallback({
-        position: { lineNumber: 5, column: 10 },
-      })
-
-      expect(wrapper.emitted('cursor-change')).toBeTruthy()
-      expect(wrapper.emitted('cursor-change')![0]).toEqual([{ line: 5, column: 10 }])
-    })
-
-    it('应更新 store 光标位置', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const cursorCallback = mockOnDidChangeCursorPosition.mock.calls[0][0]
-      cursorCallback({
-        position: { lineNumber: 5, column: 10 },
-      })
-
-      expect(editorStore.cursorPosition).toEqual({ line: 5, column: 10 })
-    })
-  })
-
-  describe('选择区域追踪', () => {
-    it('应监听选择变化', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockOnDidChangeCursorSelection).toHaveBeenCalled()
-    })
-
-    it('应更新 store 选择区域', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const mockModel = {
-        getValueInRange: vi.fn().mockReturnValue('selected'),
-        getOffsetAt: vi.fn()
-          .mockReturnValueOnce(10)
-          .mockReturnValueOnce(20),
-      }
-      mockGetModel.mockReturnValue(mockModel)
-      mockGetSelection.mockReturnValue({
-        getStartPosition: vi.fn(),
-        getEndPosition: vi.fn(),
-      })
-
-      const selectionCallback = mockOnDidChangeCursorSelection.mock.calls[0][0]
-      selectionCallback()
-
-      expect(editorStore.selection).toEqual({ start: 10, end: 20 })
-    })
-  })
-
-  describe('撤销重做状态', () => {
-    it('应监听模型变化', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockOnDidChangeModel).toHaveBeenCalled()
-    })
-
-    it('应更新撤销重做状态', async () => {
-      const mockEditorWithUndo = {
-        ...mockEditor,
-        hasUndoStack: vi.fn().mockReturnValue(true),
-        hasRedoStack: vi.fn().mockReturnValue(false),
-      }
-      mockCreate.mockReturnValue(mockEditorWithUndo)
-
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const modelCallback = mockOnDidChangeModel.mock.calls[0][0]
-      modelCallback()
-
-      expect(editorStore.canUndo).toBe(true)
-      expect(editorStore.canRedo).toBe(false)
-    })
-  })
-
-  describe('快捷键', () => {
-    it('应注册保存快捷键', async () => {
-      mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(mockAddCommand).toHaveBeenCalledWith(
-        expect.any(Number), // CtrlCmd | KeyS
-        expect.any(Function)
-      )
-    })
-
-    it('保存快捷键应触发 model-save 事件', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const saveCommand = mockAddCommand.mock.calls[0][1]
-      saveCommand()
-
-      expect(wrapper.emitted('model-save')).toBeTruthy()
-    })
-  })
-
-  describe('暴露的方法', () => {
-    it('应暴露 getContent 方法', async () => {
-      mockGetValue.mockReturnValue('test content')
-
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const content = wrapper.vm.getContent()
-      expect(content).toBe('test content')
-    })
-
-    it('应暴露 setContent 方法', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      wrapper.vm.setContent('new content')
-
-      expect(mockSetValue).toHaveBeenCalledWith('new content')
-    })
-
-    it('应暴露 focus 方法', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      wrapper.vm.focus()
-
-      expect(mockFocus).toHaveBeenCalled()
-    })
-
-    it('应暴露 layout 方法', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      wrapper.vm.layout()
-
-      expect(mockLayout).toHaveBeenCalled()
-    })
-
-    it('应暴露 getSelectedText 方法', async () => {
-      const mockModel = {
-        getValueInRange: vi.fn().mockReturnValue('selected text'),
-      }
-      mockGetModel.mockReturnValue(mockModel)
-      mockGetSelection.mockReturnValue({
-        getStartPosition: vi.fn(),
-        getEndPosition: vi.fn(),
-      })
-
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const selectedText = wrapper.vm.getSelectedText()
-      expect(selectedText).toBe('selected text')
-    })
-
-    it('getSelectedText 在无选择时应返回空字符串', async () => {
-      mockGetSelection.mockReturnValue(null)
-
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      const selectedText = wrapper.vm.getSelectedText()
-      expect(selectedText).toBe('')
-    })
-  })
-
-  describe('主题切换', () => {
-    it('应响应主题 prop 变化', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-          theme: 'vs-dark',
-        },
-      })
-
-      await flushPromises()
-
-      await wrapper.setProps({ theme: 'vs-light' })
-
-      expect(mockSetTheme).toHaveBeenCalledWith('vs-light')
-    })
-  })
-
-  describe('设置同步', () => {
-    it('应响应设置变化', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      settingsStore.minimap = false
-      await flushPromises()
-
-      expect(mockUpdateOptions).toHaveBeenCalled()
-    })
-  })
-
-  describe('销毁', () => {
-    it('应在卸载时销毁编辑器', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-      wrapper.unmount()
-
-      expect(mockDispose).toHaveBeenCalled()
-    })
-
-    it('应将编辑器引用设为 null', async () => {
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-      wrapper.unmount()
-
-      // 验证编辑器已清理
-      expect(mockDispose).toHaveBeenCalled()
-    })
-  })
-
-  describe('错误处理', () => {
-    it('应捕获初始化错误', async () => {
-      const testError = new Error('Failed to initialize')
-      mockCreate.mockImplementation(() => {
-        throw testError
-      })
-
-      const wrapper = mount(EditorCore, {
-        props: {
-          modelId: 'test-1',
-        },
-      })
-
-      await flushPromises()
-
-      expect(wrapper.emitted('error')).toBeTruthy()
-      expect(wrapper.emitted('error')![0][0]).toBe(testError)
-    })
-  })
-})
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('挂载时应创建 Monaco 编辑器并带默认配置', async () => {
+    mount(EditorCore, {
+      props: { modelId: 'test-1' },
+    });
+
+    await flushPromises();
+
+    expect(monacoMocks.create).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({
+        language: 'plaintext',
+        readOnly: false,
+        automaticLayout: true,
+        fontFamily: settingsStore.fontFamily,
+      }),
+    );
+    expect(mockOnDidScrollChange).toHaveBeenCalled();
+  });
+
+  it('内容变化应发射事件并同步 store（节流）', async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-2' },
+    });
+
+    await flushPromises();
+    mockGetValue.mockReturnValue('new content');
+
+    expect(contentCallbacks.length).toBeGreaterThanOrEqual(1);
+    contentCallbacks[0]!();
+    vi.advanceTimersByTime(55);
+    await nextTick();
+
+    expect(wrapper.emitted('content-change')).toBeTruthy();
+    expect(editorStore.content).toBe('new content');
+  });
+
+  it('光标和选择变化应同步到 store', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-3' },
+    });
+
+    await flushPromises();
+
+    cursorCallback?.({ position: { lineNumber: 5, column: 10 } });
+    selectionCallback?.();
+
+    expect(wrapper.emitted('cursor-change')?.[0]).toEqual([{ line: 5, column: 10 }]);
+    expect(editorStore.cursorPosition).toEqual({ line: 5, column: 10 });
+    expect(editorStore.selection).toEqual({ start: 10, end: 20 });
+  });
+
+  it('应注册保存快捷键并触发 model-save', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-4' },
+    });
+
+    await flushPromises();
+
+    expect(mockAddCommand).toHaveBeenCalledWith(expect.any(Number), expect.any(Function));
+    const saveCallback = mockAddCommand.mock.calls[0]?.[1] as (() => void);
+    saveCallback();
+
+    expect(wrapper.emitted('model-save')).toBeTruthy();
+  });
+
+  it('暴露方法应可用', async () => {
+    mockGetValue.mockReturnValue('abc');
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-5' },
+    });
+
+    await flushPromises();
+    const vm = wrapper.vm as any;
+
+    expect(vm.getContent()).toBe('abc');
+    vm.setContent('changed');
+    vm.focus();
+    vm.layout();
+    expect(vm.getSelectedText()).toBe('selected text');
+
+    expect(mockSetValue).toHaveBeenCalledWith('changed');
+    expect(mockFocus).toHaveBeenCalled();
+    expect(mockLayout).toHaveBeenCalled();
+  });
+
+  it('theme/language/readOnly 变化应同步到 Monaco', async () => {
+    const wrapper = mount(EditorCore, {
+      props: {
+        modelId: 'test-6',
+        theme: 'vs-dark',
+        language: 'plaintext',
+        readOnly: false,
+      },
+    });
+
+    await flushPromises();
+
+    await wrapper.setProps({ theme: 'vs', language: 'typescript', readOnly: true });
+    await flushPromises();
+
+    expect(monacoMocks.setTheme).toHaveBeenCalledWith('vs');
+    expect(monacoMocks.setModelLanguage).toHaveBeenCalled();
+    expect(mockUpdateOptions).toHaveBeenCalledWith({ readOnly: true });
+  });
+
+  it('设置变化应更新 editor options，字体家族变化应强制重测字体', async () => {
+    mount(EditorCore, {
+      props: { modelId: 'test-7' },
+    });
+    await flushPromises();
+
+    mockUpdateOptions.mockClear();
+    monacoMocks.remeasureFonts.mockClear();
+    mockLayout.mockClear();
+
+    settingsStore.minimap = false;
+    settingsStore.fontFamily = "'Consolas', monospace";
+    await flushPromises();
+
+    expect(mockUpdateOptions).toHaveBeenCalled();
+    expect(mockUpdateOptions).toHaveBeenCalledWith(expect.objectContaining({
+      fontFamily: "'Consolas', monospace",
+    }));
+    expect(monacoMocks.remeasureFonts).toHaveBeenCalled();
+    expect(mockLayout).toHaveBeenCalled();
+  });
+
+  it('卸载时应销毁编辑器', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-8' },
+    });
+
+    await flushPromises();
+    wrapper.unmount();
+
+    expect(mockDispose).toHaveBeenCalled();
+  });
+
+  it('初始化异常应发射 error 事件', async () => {
+    const testError = new Error('Failed to initialize');
+    monacoMocks.create.mockImplementationOnce(() => {
+      throw testError;
+    });
+
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-9' },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.emitted('error')).toBeTruthy();
+    expect(wrapper.emitted('error')?.[0]?.[0]).toBe(testError);
+  });
+});

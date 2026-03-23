@@ -13,7 +13,13 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
-import { getAppI18n, getCommandText, type CommandId, type SystemMenuAction } from '@/i18n/ui';
+import {
+  getAppI18n,
+  getCommandText,
+  type CommandId,
+  type EditorLanguageMode,
+  type SystemMenuAction,
+} from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
@@ -47,12 +53,36 @@ const tabService = createTabService(
   notificationStore,
 );
 const windowService = createWindowService(settingsStore, tabsStore);
+const LANGUAGE_MODE_ORDER: EditorLanguageMode[] = [
+  'plaintext',
+  'javascript',
+  'typescript',
+  'python',
+  'java',
+  'c',
+  'cpp',
+  'csharp',
+  'go',
+  'rust',
+  'html',
+  'css',
+  'scss',
+  'json',
+  'xml',
+  'markdown',
+  'yaml',
+  'sql',
+  'shell',
+];
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
 const isResizingSidebar = ref(false);
 const sidebarWidth = ref(300);
-const showSettingsPanel = ref(false);
+type SettingsContainer = 'workspace' | 'drawer';
+type SettingsCategory = 'general' | 'editor' | 'updates' | 'about';
+const settingsContainer = ref<SettingsContainer | null>(null);
+const activeSettingsCategory = ref<SettingsCategory>('general');
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 type EditorCoreExpose = {
   triggerFindWidget: () => void;
@@ -166,12 +196,21 @@ const handleCycleMarkdownPreview = () => {
   setMarkdownPreviewMode(nextMode);
 };
 
-const handleToggleSettings = () => {
-  showSettingsPanel.value = !showSettingsPanel.value;
+const toggleSettingsContainer = (container: SettingsContainer) => {
+  if (settingsContainer.value === container) {
+    settingsContainer.value = null;
+    return;
+  }
+
+  settingsContainer.value = container;
+};
+
+const handleToolbarToggleSettings = () => {
+  toggleSettingsContainer('workspace');
 };
 
 const closeTransientPanels = () => {
-  showSettingsPanel.value = false;
+  settingsContainer.value = null;
 };
 
 const handleRefresh = async () => {
@@ -233,6 +272,16 @@ const handleThemeChange = (theme: string) => {
   settingsStore.updateSettings({ monacoTheme: theme as 'vs' | 'vs-dark' | 'hc-black' });
 };
 
+const handleCycleLanguageMode = () => {
+  const currentLanguage = activeTab.value?.language ?? editorStore.language;
+  const safeCurrent = LANGUAGE_MODE_ORDER.includes(currentLanguage as EditorLanguageMode)
+    ? (currentLanguage as EditorLanguageMode)
+    : 'plaintext';
+  const currentIndex = LANGUAGE_MODE_ORDER.indexOf(safeCurrent);
+  const nextLanguage = LANGUAGE_MODE_ORDER[(currentIndex + 1) % LANGUAGE_MODE_ORDER.length] ?? 'plaintext';
+  tabService.updateActiveTabLanguage(nextLanguage);
+};
+
 const handleSystemAction = (action: SystemMenuAction) => {
   switch (action) {
     case 'open-command-palette':
@@ -240,6 +289,12 @@ const handleSystemAction = (action: SystemMenuAction) => {
       break;
     case 'toggle-explorer':
       void executeCommand('view.toggleSidebar');
+      break;
+    case 'toggle-theme':
+      settingsStore.toggleTheme();
+      break;
+    case 'cycle-language-mode':
+      handleCycleLanguageMode();
       break;
     case 'toggle-settings':
       void executeCommand('view.toggleSettings');
@@ -276,7 +331,7 @@ const createLocalizedCommands = () => createCommandRegistry({
   findText: handleFindText,
   goToLine: handleGoToLine,
   toggleSidebar: handleToggleFileTree,
-  toggleSettings: handleToggleSettings,
+  toggleSettings: () => toggleSettingsContainer('workspace'),
   openCommandPalette: handleOpenCommandPalette,
 }, settingsStore.uiLanguage);
 
@@ -406,9 +461,26 @@ const startSidebarResize = (event: MouseEvent) => {
 };
 
 const handleShellKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && showSettingsPanel.value) {
+  const isSettingsOpen = settingsContainer.value !== null;
+  if (event.key === 'Escape' && isSettingsOpen) {
+    event.preventDefault();
     closeTransientPanels();
+    return;
   }
+
+  const hasModifier = event.ctrlKey || event.metaKey;
+  const isCommaKey = event.code === 'Comma' || event.key === ',' || event.key === '<';
+  if (!hasModifier || !isCommaKey) {
+    return;
+  }
+
+  event.preventDefault();
+  if (event.shiftKey) {
+    toggleSettingsContainer('drawer');
+    return;
+  }
+
+  toggleSettingsContainer('workspace');
 };
 
 function restoreSession() {
@@ -569,21 +641,21 @@ onUnmounted(() => {
       @undo="handleUndo"
       @redo="handleRedo"
       @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
-      @toggle-settings="() => executeCommand('view.toggleSettings')"
+      @toggle-settings="handleToolbarToggleSettings"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
       @system-action="handleSystemAction"
     />
 
     <div class="main-layout">
       <div
-        v-if="showSettingsPanel"
+        v-if="settingsContainer === 'drawer'"
         class="shell-overlay"
         data-testid="shell-overlay"
         @click="closeTransientPanels"
       ></div>
 
       <aside
-        v-show="showFileTree"
+        v-show="showFileTree && settingsContainer !== 'workspace'"
         class="sidebar"
         data-testid="sidebar-panel"
         :style="{ width: `${sidebarWidth}px` }"
@@ -606,14 +678,18 @@ onUnmounted(() => {
         </div>
       </aside>
       <div
-        v-if="showFileTree"
+        v-if="showFileTree && settingsContainer !== 'workspace'"
         class="sidebar-resizer"
         data-testid="sidebar-resizer"
         :class="{ dragging: isResizingSidebar }"
         @mousedown.prevent="startSidebarResize"
       ></div>
 
-      <div class="floating-controls" data-testid="left-bottom-controls">
+      <div
+        v-if="settingsContainer !== 'workspace'"
+        class="floating-controls"
+        data-testid="left-bottom-controls"
+      >
         <button
           class="floating-action-btn"
           :data-testid="showFileTree ? 'btn-sidebar-collapse' : 'btn-sidebar-expand'"
@@ -629,7 +705,20 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <section class="editor-panel">
+      <section
+        v-if="settingsContainer === 'workspace'"
+        class="settings-page"
+        data-testid="settings-page"
+      >
+        <SettingsPanel
+          mode="workspace"
+          :active-category="activeSettingsCategory"
+          @update:active-category="activeSettingsCategory = $event"
+          @close="closeTransientPanels"
+        />
+      </section>
+
+      <section v-else class="editor-panel">
         <EditorTabs
           :tabs="tabs"
           :active-tab-id="activeTabId"
@@ -688,11 +777,17 @@ onUnmounted(() => {
 
       <transition name="settings-drawer">
         <aside
-          v-if="showSettingsPanel"
+          v-if="settingsContainer === 'drawer'"
           class="settings-drawer"
           data-testid="settings-drawer"
         >
-          <SettingsPanel @close="closeTransientPanels" />
+          <SettingsPanel
+            mode="drawer"
+            :active-category="activeSettingsCategory"
+            @update:active-category="activeSettingsCategory = $event"
+            @open-workspace="toggleSettingsContainer('workspace')"
+            @close="closeTransientPanels"
+          />
         </aside>
       </transition>
     </div>
@@ -806,7 +901,7 @@ body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 380px;
+  width: 520px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -864,6 +959,16 @@ body {
   display: flex;
   flex-direction: column;
   background: rgba(8, 12, 22, 0.3);
+}
+
+.settings-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg, rgba(13, 21, 36, 0.92), rgba(10, 16, 29, 0.96));
+  overflow: hidden;
 }
 
 .editor-stage {
@@ -1057,9 +1162,12 @@ body {
 }
 
 @media (max-width: 960px) {
-  .sidebar,
-  .settings-drawer {
+  .sidebar {
     width: 260px;
+  }
+
+  .settings-drawer {
+    width: min(90vw, 420px);
   }
 
   .hero-card {

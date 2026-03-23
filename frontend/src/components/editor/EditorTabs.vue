@@ -33,14 +33,14 @@
             @keydown.esc.prevent="cancelRename"
           />
           <span v-else class="tab-name" data-testid="tab-title">{{ tab.fileName }}</span>
-          <span class="tab-path">{{ tab.isUntitled ? '未保存' : tab.filePath }}</span>
+          <span class="tab-path">{{ tab.isUntitled ? copy.unsaved : tab.filePath }}</span>
         </div>
 
         <button
           class="tab-close"
           data-testid="btn-close-tab"
           @click.stop="handleTabClose(tab.id)"
-          title="关闭"
+          :title="copy.close"
         >
           <svg width="12" height="12" viewBox="0 0 12 12">
             <path
@@ -61,21 +61,23 @@
       @click.stop
     >
       <div class="context-menu-item" data-testid="menu-close-others" @click="handleCloseOthers">
-        关闭其他标签
+        {{ copy.closeOthers }}
       </div>
       <div class="context-menu-item" data-testid="menu-close-all" @click="handleCloseAll">
-        关闭所有标签
+        {{ copy.closeAll }}
       </div>
       <div class="context-menu-item" @click="renameFromMenu">
-        重命名标签
+        {{ copy.renameTab }}
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { Tab } from '@/stores/tabs';
+import { useSettingsStore } from '@/stores/settings';
+import { getEditorTabsI18n } from '@/i18n/ui';
 
 interface EditorTabsProps {
   tabs?: Tab[];
@@ -104,6 +106,8 @@ const contextMenu = ref({
 
 const renameInput = ref<HTMLInputElement | null>(null);
 const tabsContainerRef = ref<HTMLDivElement | null>(null);
+const settingsStore = useSettingsStore();
+const copy = computed(() => getEditorTabsI18n(settingsStore.uiLanguage));
 const renameState = ref({
   tabId: null as string | null,
   value: '',
@@ -222,9 +226,9 @@ onUnmounted(() => {
 .tabs-container {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 54px;
-  padding: 0 12px;
+  gap: 6px;
+  height: 46px;
+  padding: 0 10px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -238,12 +242,12 @@ onUnmounted(() => {
 .tab {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 180px;
-  max-width: 280px;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 14px 14px 0 0;
+  gap: 8px;
+  min-width: 160px;
+  max-width: 240px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 12px 12px 0 0;
   border: 1px solid transparent;
   background: var(--surface-muted, rgba(255, 255, 255, 0.03));
   color: var(--text-secondary, #cbd5e1);
@@ -266,7 +270,7 @@ onUnmounted(() => {
 .tab-icon {
   display: flex;
   justify-content: center;
-  width: 16px;
+  width: 14px;
   color: var(--accent-amber, #ffd166);
   flex-shrink: 0;
 }
@@ -287,7 +291,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -296,13 +300,13 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted, #94a3b8);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .tab-rename-input {
   width: 100%;
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: 3px 7px;
+  border-radius: 7px;
   border: 1px solid var(--accent-blue-strong, #4dabff);
   background: rgba(0, 0, 0, 0.16);
   color: var(--text-primary, #fff);
@@ -314,11 +318,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: inherit;
   cursor: pointer;

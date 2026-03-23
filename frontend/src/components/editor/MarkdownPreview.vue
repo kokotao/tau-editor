@@ -33,8 +33,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
+import { useSettingsStore } from '@/stores/settings';
+import { getMarkdownPreviewI18n } from '@/i18n/ui';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -74,6 +76,8 @@ const emit = defineEmits<{
 const previewRef = ref<HTMLElement | null>(null);
 const previewScrollRef = ref<HTMLElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
+const settingsStore = useSettingsStore();
+const copy = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
 const html = ref('');
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
 const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
@@ -274,7 +278,7 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
   if (target.kind === 'selection' && target.text) {
     items.push({
       id: 'copy-selection',
-      label: '复制选中文本',
+      label: copy.value.copySelection,
       run: () => copyToClipboard(target.text),
     });
   }
@@ -282,29 +286,29 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
   items.push(
     {
       id: 'copy-markdown',
-      label: '复制全文 Markdown',
+      label: copy.value.copyMarkdown,
       dividerBefore: items.length > 0,
       run: () => copyToClipboard(props.content || ''),
     },
     {
       id: 'refresh-preview',
-      label: '刷新预览',
+      label: copy.value.refreshPreview,
       run: () => scheduleRender(),
     },
     {
       id: 'set-preview-mode-edit',
-      label: '切换为仅编辑',
+      label: copy.value.setPreviewModeEdit,
       dividerBefore: true,
       run: () => requestPreviewModeChange('edit'),
     },
     {
       id: 'set-preview-mode-split',
-      label: '切换为分栏',
+      label: copy.value.setPreviewModeSplit,
       run: () => requestPreviewModeChange('split'),
     },
     {
       id: 'set-preview-mode-preview',
-      label: '切换为仅预览',
+      label: copy.value.setPreviewModePreview,
       run: () => requestPreviewModeChange('preview'),
     },
   );
@@ -313,18 +317,18 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
     items.push(
       {
         id: 'open-link',
-        label: '打开链接',
+        label: copy.value.openLink,
         dividerBefore: true,
         run: () => openAddress(target.resolvedHref!, false),
       },
       {
         id: 'open-link-new-tab',
-        label: '在新窗口打开链接',
+        label: copy.value.openLinkNewWindow,
         run: () => openAddress(target.resolvedHref!, true),
       },
       {
         id: 'copy-link',
-        label: '复制链接地址',
+        label: copy.value.copyLink,
         run: () => copyToClipboard(target.resolvedHref!),
       },
     );
@@ -334,18 +338,18 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
     items.push(
       {
         id: 'open-image',
-        label: '打开图片',
+        label: copy.value.openImage,
         dividerBefore: true,
         run: () => openAddress(target.resolvedSrc!, false),
       },
       {
         id: 'open-image-new-tab',
-        label: '在新窗口查看图片',
+        label: copy.value.openImageNewWindow,
         run: () => openAddress(target.resolvedSrc!, true),
       },
       {
         id: 'copy-image-src',
-        label: '复制图片地址',
+        label: copy.value.copyImageSource,
         run: () => copyToClipboard(target.resolvedSrc!),
       },
     );

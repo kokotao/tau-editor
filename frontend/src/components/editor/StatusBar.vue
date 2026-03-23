@@ -103,14 +103,19 @@
       <div class="author-modal-content">
         <p>{{ authorCopy.nameLabel }}albert_luo</p>
         <p>{{ authorCopy.emailLabel }}480199976@qq.com</p>
-        <a
-          class="author-link"
-          href="https://github.com/kokotao/tau-editor"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <p>
           {{ authorCopy.githubLabel }}
-        </a>
+          <a
+            class="author-link"
+            :href="projectHomepageUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click.prevent="handleOpenProjectHomepage"
+          >
+            {{ projectHomepageUrl }}
+          </a>
+        </p>
+        <p>{{ authorCopy.qqGroupLabel }}1091775563</p>
         <section class="author-donation">
           <h5>{{ authorCopy.donationTitle }}</h5>
           <p class="author-donation-desc">{{ authorCopy.donationDesc }}</p>
@@ -135,6 +140,7 @@
 import { computed, ref } from 'vue';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
+import { appCommands } from '@/lib/tauri';
 import {
   getAuthorInfoI18n,
   getStatusBarI18n,
@@ -175,6 +181,7 @@ const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
 const copy = computed(() => getStatusBarI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
+const projectHomepageUrl = 'https://github.com/kokotao/tau-editor';
 const themeOptions: Array<{ value: MonacoThemeValue }> = [
   { value: 'vs' },
   { value: 'vs-dark' },
@@ -243,6 +250,10 @@ const handleLanguageChange = (event: Event) => {
 
 const handleThemeChange = (event: Event) => {
   emit('theme-change', (event.target as HTMLSelectElement).value);
+};
+
+const handleOpenProjectHomepage = async () => {
+  await appCommands.openProjectHomepage();
 };
 
 const formatLastSaveTime = (date: Date) => {
@@ -341,6 +352,7 @@ const formatLastSaveTime = (date: Date) => {
   text-decoration: none;
   border-bottom: 1px dashed transparent;
   transition: border-color 0.15s ease, color 0.15s ease;
+  word-break: break-all;
 }
 
 .author-link:hover {
