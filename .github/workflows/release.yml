@@ -2,6 +2,15 @@ name: Desktop Build
 
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Git ref to build (branch, tag, or SHA). Example: v0.2.0"
+        required: false
+        default: ""
+      release_tag:
+        description: "Release tag to upload assets to. Example: v0.2.0"
+        required: false
+        default: ""
   push:
     tags:
       - 'v*'
@@ -30,6 +39,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -90,20 +101,39 @@ jobs:
             ${{ matrix.bundlePath }}/**/*.msi
             ${{ matrix.bundlePath }}/**/*.exe
 
+  publish-release:
+    name: Publish GitHub Release Assets
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: build-tauri
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundles-*
+          merge-multiple: true
+          path: release-assets
+
       - name: Upload artifacts to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
-          mapfile -t files < <(find "${{ matrix.bundlePath }}" -type f \
+
+          count=$(find release-assets -type f \
             \( -name '*.dmg' -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
-            | sort)
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No release files found in ${{ matrix.bundlePath }}"
+            | wc -l | tr -d ' ')
+          if [ "${count}" -eq 0 ]; then
+            echo "No release files found in release-assets"
             exit 1
           fi
-          echo "Uploading ${#files[@]} files to release ${RELEASE_TAG}"
-          gh release upload "${RELEASE_TAG}" "${files[@]}" --clobber
+
+          echo "Uploading ${count} files to release ${RELEASE_TAG}"
+          while IFS= read -r -d '' file; do
+            echo "Uploading ${file}"
+            gh release upload "${RELEASE_TAG}" "${file}" --clobber
+          done < <(find release-assets -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
+            -print0)
