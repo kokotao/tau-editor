@@ -1,0 +1,48 @@
+name: Publish Existing Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Actions run ID containing bundles-* artifacts"
+        required: true
+        type: string
+      tag:
+        description: "Release tag to attach assets to (e.g. v0.1.9)"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts from run
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          repo: ${{ github.repository }}
+          run_id: ${{ inputs.run_id }}
+          path: downloaded
+
+      - name: Show downloaded files
+        run: find downloaded -type f | sort
+
+      - name: Upload files to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find downloaded -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
+            | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release files found from run ${GITHUB_RUN_ID}"
+            exit 1
+          fi
+          echo "Uploading ${#files[@]} files to release ${RELEASE_TAG}"
+          gh release upload "${RELEASE_TAG}" "${files[@]}" --clobber

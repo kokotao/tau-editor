@@ -7,7 +7,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-tauri:
@@ -89,3 +89,20 @@ jobs:
             ${{ matrix.bundlePath }}/**/*.rpm
             ${{ matrix.bundlePath }}/**/*.msi
             ${{ matrix.bundlePath }}/**/*.exe
+
+      - name: Upload artifacts to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find "${{ matrix.bundlePath }}" -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
+            | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release files found in ${{ matrix.bundlePath }}"
+            exit 1
+          fi
+          echo "Uploading ${#files[@]} files to release ${RELEASE_TAG}"
+          gh release upload "${RELEASE_TAG}" "${files[@]}" --clobber
