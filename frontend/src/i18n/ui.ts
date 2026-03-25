@@ -104,9 +104,27 @@ interface SettingsPanelText {
   languageZh: string;
   languageEn: string;
   themeMode: string;
+  themeStyle: string;
   themeLight: string;
   themeDark: string;
   themeSystem: string;
+  customTheme: string;
+  customThemeDesc: string;
+  customThemeImportPlaceholder: string;
+  customThemeImport: string;
+  customThemeExport: string;
+  customThemeReset: string;
+  customThemeExported: string;
+  customThemeImported: (count: number) => string;
+  customThemeImportFailed: string;
+  customColorBgApp: string;
+  customColorPanelBase: string;
+  customColorTextPrimary: string;
+  customColorTextSecondary: string;
+  customColorAccentBrand: string;
+  customColorAccentBrandStrong: string;
+  customColorSuccess: string;
+  customColorDanger: string;
   editorTheme: string;
   recommended: string;
   font: string;
@@ -125,6 +143,10 @@ interface SettingsPanelText {
   seconds30: string;
   minute1: string;
   minutes5: string;
+  maxOpenTabs: string;
+  maxOpenTabsHint: string;
+  memoryLimitMB: string;
+  memoryLimitHint: string;
   indent: string;
   spaces2: string;
   spaces4: string;
@@ -435,9 +457,27 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     languageZh: '简体中文',
     languageEn: 'English',
     themeMode: '主题模式',
+    themeStyle: '主题风格',
     themeLight: '浅色',
     themeDark: '深色',
     themeSystem: '系统',
+    customTheme: '自定义配色',
+    customThemeDesc: '在当前主题风格基础上继续微调关键颜色，可导入/导出复用。',
+    customThemeImportPlaceholder: '粘贴 JSON（支持 { "customThemeColors": { ... } } 或直接颜色对象）',
+    customThemeImport: '导入',
+    customThemeExport: '导出',
+    customThemeReset: '重置自定义',
+    customThemeExported: '已复制当前自定义配色 JSON。',
+    customThemeImported: (count) => `已导入 ${count} 个自定义颜色。`,
+    customThemeImportFailed: '导入失败，请检查 JSON 格式。',
+    customColorBgApp: '应用背景',
+    customColorPanelBase: '面板背景',
+    customColorTextPrimary: '主文本',
+    customColorTextSecondary: '次文本',
+    customColorAccentBrand: '品牌主色',
+    customColorAccentBrandStrong: '品牌强调色',
+    customColorSuccess: '成功态颜色',
+    customColorDanger: '危险态颜色',
     editorTheme: '编辑器主题',
     recommended: '推荐',
     font: '字体',
@@ -456,6 +496,10 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     seconds30: '30 秒',
     minute1: '1 分钟',
     minutes5: '5 分钟',
+    maxOpenTabs: '最大标签页数量',
+    maxOpenTabsHint: '已打开标签达到该数量后，将拒绝继续打开新标签。',
+    memoryLimitMB: '标签内存上限 (MB)',
+    memoryLimitHint: '按“字符数 x 2 字节”估算内存，超出后将拒绝打开新标签。',
     indent: '缩进',
     spaces2: '2 空格',
     spaces4: '4 空格',
@@ -500,9 +544,27 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     languageZh: '简体中文',
     languageEn: 'English',
     themeMode: 'Theme Mode',
+    themeStyle: 'Theme Palette',
     themeLight: 'Light',
     themeDark: 'Dark',
     themeSystem: 'System',
+    customTheme: 'Custom Palette',
+    customThemeDesc: 'Fine-tune key colors on top of the selected palette. Supports JSON import/export.',
+    customThemeImportPlaceholder: 'Paste JSON ({ "customThemeColors": { ... } } or plain color map)',
+    customThemeImport: 'Import',
+    customThemeExport: 'Export',
+    customThemeReset: 'Reset Custom',
+    customThemeExported: 'Custom palette JSON copied to clipboard.',
+    customThemeImported: (count) => `Imported ${count} custom colors.`,
+    customThemeImportFailed: 'Import failed. Please check JSON format.',
+    customColorBgApp: 'App Background',
+    customColorPanelBase: 'Panel Background',
+    customColorTextPrimary: 'Primary Text',
+    customColorTextSecondary: 'Secondary Text',
+    customColorAccentBrand: 'Brand Color',
+    customColorAccentBrandStrong: 'Brand Strong',
+    customColorSuccess: 'Success Color',
+    customColorDanger: 'Danger Color',
     editorTheme: 'Editor Theme',
     recommended: 'Recommended',
     font: 'Font',
@@ -521,6 +583,10 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     seconds30: '30 sec',
     minute1: '1 min',
     minutes5: '5 min',
+    maxOpenTabs: 'Max Open Tabs',
+    maxOpenTabsHint: 'Opening new tabs will be blocked after reaching this count.',
+    memoryLimitMB: 'Tab Memory Limit (MB)',
+    memoryLimitHint: 'Estimated as character count x 2 bytes. New tabs are blocked when exceeded.',
     indent: 'Indentation',
     spaces2: '2 spaces',
     spaces4: '4 spaces',

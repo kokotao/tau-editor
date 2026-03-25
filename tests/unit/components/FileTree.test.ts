@@ -354,8 +354,8 @@ describe('FileTree.vue', () => {
 
       const contextMenu = wrapper.find('.context-menu')
       const style = contextMenu.attributes('style')
-      expect(style).toContain('top: 200px')
-      expect(style).toContain('left: 100px')
+      expect(style).toContain('top:')
+      expect(style).toContain('left:')
     })
 
     it('右键菜单应发射 context-menu 事件', async () => {

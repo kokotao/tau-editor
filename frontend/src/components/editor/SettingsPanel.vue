@@ -1,6 +1,10 @@
 <template>
   <n-config-provider class="settings-provider" :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
-    <div class="settings-panel" :class="`settings-panel--${mode}`" data-testid="settings-panel">
+    <div
+      class="settings-panel animate__animated animate__fadeIn animate__faster"
+      :class="`settings-panel--${mode}`"
+      data-testid="settings-panel"
+    >
       <div class="settings-header">
         <div class="settings-header-main">
           <h3 class="settings-title">{{ panelTitle }}</h3>
@@ -55,7 +59,11 @@
             </div>
           </div>
 
-          <div v-if="activeCategoryValue === 'general'" class="settings-section" data-testid="settings-general-section">
+          <div
+            v-if="activeCategoryValue === 'general'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-general-section"
+          >
             <h4 class="settings-section-title">{{ copy.appearance }}</h4>
 
             <div class="settings-item">
@@ -80,6 +88,18 @@
             </div>
 
             <div class="settings-item">
+              <label class="settings-label">{{ copy.themeStyle }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-theme-skin"
+                :value="settingsStore.themeSkin"
+                :options="themeSkinOptions"
+                :consistent-menu-width="false"
+                @update:value="setThemeSkin"
+              />
+            </div>
+
+            <div class="settings-item">
               <label class="settings-label">{{ copy.editorTheme }}</label>
               <n-select
                 class="settings-nselect"
@@ -90,9 +110,59 @@
                 @update:value="setMonacoTheme"
               />
             </div>
+
+            <div class="settings-item custom-theme-settings animate__animated animate__fadeInUp animate__fast">
+              <label class="settings-label">{{ copy.customTheme }}</label>
+              <p class="custom-theme-desc">{{ copy.customThemeDesc }}</p>
+
+              <div class="custom-theme-grid">
+                <div
+                  v-for="(field, index) in customThemeColorFields"
+                  :key="field.key"
+                  class="custom-theme-item animate__animated animate__fadeInUp animate__faster"
+                  :style="{ '--animate-delay': `${index * 36}ms` }"
+                >
+                  <span>{{ field.label }}</span>
+                  <div class="custom-theme-control">
+                    <input
+                      class="custom-color-input"
+                      :data-testid="`custom-color-${field.key}`"
+                      type="color"
+                      :value="getCustomThemeColorValue(field.key)"
+                      @input="setCustomThemeColor(field.key, ($event.target as HTMLInputElement).value)"
+                    />
+                    <code>{{ getCustomThemeColorValue(field.key) }}</code>
+                  </div>
+                </div>
+              </div>
+
+              <div class="custom-theme-actions">
+                <button class="settings-action-btn" data-testid="export-custom-theme-btn" @click="handleExportCustomTheme">
+                  {{ copy.customThemeExport }}
+                </button>
+                <button class="settings-action-btn" data-testid="import-custom-theme-btn" @click="handleImportCustomTheme">
+                  {{ copy.customThemeImport }}
+                </button>
+                <button class="settings-action-btn" data-testid="reset-custom-theme-btn" @click="handleResetCustomTheme">
+                  {{ copy.customThemeReset }}
+                </button>
+              </div>
+
+              <textarea
+                v-model="customThemeImportText"
+                class="custom-theme-import"
+                data-testid="custom-theme-import-textarea"
+                :placeholder="copy.customThemeImportPlaceholder"
+              />
+              <p v-if="customThemeStatusText" class="custom-theme-status">{{ customThemeStatusText }}</p>
+            </div>
           </div>
 
-          <div v-if="activeCategoryValue === 'editor'" class="settings-section" data-testid="settings-editor-section">
+          <div
+            v-if="activeCategoryValue === 'editor'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-editor-section"
+          >
             <h4 class="settings-section-title">{{ copy.editor }}</h4>
 
             <div class="settings-item">
@@ -147,6 +217,32 @@
             </div>
 
             <div class="settings-item">
+              <label class="settings-label">{{ copy.maxOpenTabs }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-max-open-tabs"
+                :value="settingsStore.maxOpenTabs"
+                :options="maxOpenTabsOptions"
+                :consistent-menu-width="false"
+                @update:value="setMaxOpenTabs"
+              />
+              <p class="settings-item-hint">{{ copy.maxOpenTabsHint }}</p>
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.memoryLimitMB }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-memory-limit"
+                :value="settingsStore.memoryLimitMB"
+                :options="memoryLimitOptions"
+                :consistent-menu-width="false"
+                @update:value="setMemoryLimitMB"
+              />
+              <p class="settings-item-hint">{{ copy.memoryLimitHint }}</p>
+            </div>
+
+            <div class="settings-item">
               <label class="settings-label">{{ copy.indent }}</label>
               <n-select
                 class="settings-nselect"
@@ -177,7 +273,7 @@
 
           <div
             v-if="activeCategoryValue === 'updates'"
-            class="settings-section settings-section-update"
+            class="settings-section settings-section-update animate__animated animate__fadeInUp animate__faster"
             data-testid="settings-update-section"
           >
             <h4 class="settings-section-title">{{ copy.softwareUpdate }}</h4>
@@ -239,7 +335,11 @@
             </div>
           </div>
 
-          <div v-if="activeCategoryValue === 'about'" class="settings-section" data-testid="settings-author-section">
+          <div
+            v-if="activeCategoryValue === 'about'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-author-section"
+          >
             <h4 class="settings-section-title">{{ authorCopy.modalTitle }}</h4>
             <div class="settings-author-inline">
               <p>{{ authorCopy.nameLabel }}albert_luo</p>
@@ -277,7 +377,11 @@
         </section>
       </div>
 
-      <div v-else class="settings-drawer-content" data-testid="settings-quick-drawer">
+      <div
+        v-else
+        class="settings-drawer-content animate__animated animate__fadeInUp animate__faster"
+        data-testid="settings-quick-drawer"
+      >
         <p class="settings-drawer-tip">{{ copy.quickSettingsDesc }}</p>
 
         <div class="settings-section">
@@ -300,6 +404,18 @@
               <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
               <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
             </div>
+          </div>
+
+          <div class="settings-item">
+            <label class="settings-label">{{ copy.themeStyle }}</label>
+            <n-select
+              class="settings-nselect"
+              data-testid="drawer-select-theme-skin"
+              :value="settingsStore.themeSkin"
+              :options="themeSkinOptions"
+              :consistent-menu-width="false"
+              @update:value="setThemeSkin"
+            />
           </div>
 
           <div class="settings-item">
@@ -336,7 +452,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
-import { useSettingsStore } from '@/stores/settings';
+import {
+  CUSTOM_THEME_COLOR_FALLBACKS,
+  type CustomThemeColorKey,
+  useSettingsStore,
+} from '@/stores/settings';
 import {
   appCommands,
   settingsCommands,
@@ -344,6 +464,7 @@ import {
   type GithubUpdateInfo,
   type ReleaseAssetInfo,
 } from '@/lib/tauri';
+import type { ThemeSkinId } from '@/utils/themeResolver';
 import { getAuthorInfoI18n, getSettingsPanelI18n, type MonacoThemeValue, type UiLanguage } from '@/i18n/ui';
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
@@ -393,6 +514,8 @@ const panelTitle = computed(() => (isWorkspaceMode.value ? copy.value.title : co
 const panelSubtitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsDesc));
 const activeCategoryValue = computed<SettingsCategory>(() => props.activeCategory || 'general');
 const selectedAsset = computed<ReleaseAssetInfo | null>(() => updateInfo.value?.selectedAsset ?? null);
+const customThemeImportText = ref('');
+const customThemeStatusText = ref('');
 
 const naiveThemeOverrides: GlobalThemeOverrides = {
   common: {
@@ -429,8 +552,25 @@ const monacoThemeOptions = computed<SelectOption[]>(() =>
     value: option.value,
   })),
 );
+const themeSkinOptions = computed<SelectOption[]>(() =>
+  settingsStore.themeSkinOptions.map((option) => ({
+    label: option.label,
+    value: option.value,
+  })),
+);
+const customThemeColorFields = computed<Array<{ key: CustomThemeColorKey; label: string }>>(() => [
+  { key: 'bgApp', label: copy.value.customColorBgApp },
+  { key: 'panelBase', label: copy.value.customColorPanelBase },
+  { key: 'textPrimary', label: copy.value.customColorTextPrimary },
+  { key: 'textSecondary', label: copy.value.customColorTextSecondary },
+  { key: 'accentBrand', label: copy.value.customColorAccentBrand },
+  { key: 'accentBrandStrong', label: copy.value.customColorAccentBrandStrong },
+  { key: 'stateSuccess', label: copy.value.customColorSuccess },
+  { key: 'stateDanger', label: copy.value.customColorDanger },
+]);
 
 const fontFamilyOptions = computed<SelectOption[]>(() => [
+  { label: 'JetBrains Mono Variable', value: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace" },
   { label: 'JetBrains Mono', value: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace" },
   { label: 'Fira Code', value: "'Fira Code', 'JetBrains Mono', monospace" },
   { label: 'Maple Mono', value: "'Maple Mono', 'JetBrains Mono', monospace" },
@@ -448,6 +588,24 @@ const autoSaveIntervalOptions = computed<SelectOption[]>(() => [
   { label: copy.value.seconds30, value: 30 },
   { label: copy.value.minute1, value: 60 },
   { label: copy.value.minutes5, value: 300 },
+]);
+const maxOpenTabsOptions = computed<SelectOption[]>(() => [
+  { label: '10', value: 10 },
+  { label: '20', value: 20 },
+  { label: '30', value: 30 },
+  { label: '40', value: 40 },
+  { label: '60', value: 60 },
+  { label: '80', value: 80 },
+  { label: '100', value: 100 },
+]);
+const memoryLimitOptions = computed<SelectOption[]>(() => [
+  { label: '128 MB', value: 128 },
+  { label: '192 MB', value: 192 },
+  { label: '256 MB', value: 256 },
+  { label: '384 MB', value: 384 },
+  { label: '512 MB', value: 512 },
+  { label: '768 MB', value: 768 },
+  { label: '1024 MB', value: 1024 },
 ]);
 
 const tabSizeOptions = computed<SelectOption[]>(() => [
@@ -526,6 +684,42 @@ const setTheme = (theme: 'light' | 'dark' | 'system') => {
   settingsStore.updateSettings({ theme });
 };
 
+const setThemeSkin = (value: string | number | null) => {
+  if (typeof value !== 'string') return;
+  settingsStore.updateSettings({ themeSkin: value as ThemeSkinId });
+};
+
+const getCustomThemeColorValue = (key: CustomThemeColorKey): string =>
+  settingsStore.customThemeColors[key] ?? CUSTOM_THEME_COLOR_FALLBACKS[key];
+
+const setCustomThemeColor = (key: CustomThemeColorKey, value: string) => {
+  settingsStore.setCustomThemeColor(key, value);
+  customThemeStatusText.value = '';
+};
+
+const handleResetCustomTheme = () => {
+  settingsStore.resetCustomThemeColors();
+  customThemeStatusText.value = '';
+};
+
+const handleExportCustomTheme = async () => {
+  const payload = settingsStore.exportCustomThemeColors();
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(payload);
+    customThemeStatusText.value = copy.value.customThemeExported;
+    return;
+  }
+  customThemeImportText.value = payload;
+  customThemeStatusText.value = copy.value.customThemeExported;
+};
+
+const handleImportCustomTheme = () => {
+  const result = settingsStore.importCustomThemeColors(customThemeImportText.value);
+  customThemeStatusText.value = result.success
+    ? copy.value.customThemeImported(result.applied)
+    : `${copy.value.customThemeImportFailed} (${result.message})`;
+};
+
 const setUiLanguage = (value: string | number | null) => {
   if (typeof value !== 'string') return;
   settingsStore.updateSettings({ uiLanguage: value as UiLanguage });
@@ -565,6 +759,16 @@ const setAutoSaveInterval = (value: string | number | null) => {
 const setTabSize = (value: string | number | null) => {
   if (value === null) return;
   settingsStore.updateSettings({ tabSize: Number(value) });
+};
+
+const setMaxOpenTabs = (value: string | number | null) => {
+  if (value === null) return;
+  settingsStore.updateSettings({ maxOpenTabs: Number(value) });
+};
+
+const setMemoryLimitMB = (value: string | number | null) => {
+  if (value === null) return;
+  settingsStore.updateSettings({ memoryLimitMB: Number(value) });
 };
 
 const setMinimap = (event: Event) => {
@@ -681,10 +885,12 @@ onMounted(async () => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  --animate-duration: 320ms;
   background:
     radial-gradient(120% 120% at 10% -10%, rgba(56, 189, 248, 0.16), transparent 45%),
     radial-gradient(90% 90% at 90% 0%, rgba(14, 165, 233, 0.12), transparent 46%),
     var(--panel, #101726);
+  transition: background-color 260ms ease, color 260ms ease;
 }
 
 .settings-header {
@@ -778,10 +984,12 @@ onMounted(async () => {
   text-align: left;
   padding: 0 12px;
   cursor: pointer;
+  transition: transform 180ms ease, background-color 220ms ease, border-color 220ms ease, color 220ms ease;
 }
 
 .settings-nav-item:hover {
   background: rgba(148, 163, 184, 0.08);
+  transform: translateY(-1px);
 }
 
 .settings-nav-item.active {
@@ -842,6 +1050,14 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --animate-duration: 280ms;
+  transition: border-color 240ms ease, box-shadow 240ms ease, transform 220ms ease;
+}
+
+.settings-section:hover {
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 24px rgba(15, 23, 42, 0.16);
+  transform: translateY(-1px);
 }
 
 .settings-section-title {
@@ -868,6 +1084,13 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.settings-item-hint {
+  margin: 8px 0 0;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .font-preview,
 .theme-btn,
 .font-size-control,
@@ -890,12 +1113,107 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.custom-theme-settings {
+  border-top: 1px dashed var(--border-soft, rgba(148, 163, 184, 0.18));
+  padding-top: 12px;
+}
+
+.custom-theme-desc {
+  margin: 0 0 10px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.custom-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.custom-theme-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: 10px;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  --animate-duration: 260ms;
+  transition: transform 180ms ease, border-color 220ms ease, background-color 220ms ease;
+}
+
+.custom-theme-item:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.custom-theme-item span {
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.custom-theme-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-color-input {
+  width: 28px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.custom-theme-control code {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.custom-theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.custom-theme-import {
+  width: 100%;
+  min-height: 92px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #f8fafc);
+  resize: vertical;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.custom-theme-status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
 .theme-btn {
   height: 42px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
+  transition: transform 180ms ease, border-color 220ms ease, background-color 220ms ease, color 220ms ease;
+}
+
+.theme-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
 }
 
 .theme-btn.active {
@@ -1012,6 +1330,12 @@ onMounted(async () => {
   background: rgba(15, 23, 42, 0.3);
   color: var(--text-primary, #f8fafc);
   cursor: pointer;
+  transition: transform 180ms ease, border-color 220ms ease, opacity 220ms ease;
+}
+
+.settings-update-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(148, 163, 184, 0.36);
 }
 
 .settings-update-btn:disabled {
@@ -1124,6 +1448,19 @@ onMounted(async () => {
 
   .settings-update-grid {
     grid-template-columns: 1fr;
+  }
+
+  .custom-theme-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel,
+  .settings-panel :deep(.animate__animated),
+  .settings-panel .animate__animated {
+    animation: none !important;
+    transition: none !important;
   }
 }
 

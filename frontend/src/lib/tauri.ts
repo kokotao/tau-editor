@@ -134,6 +134,10 @@ export const fileCommands = {
     await invokeCommand<void>('create_file', { path });
   },
 
+  async createFolder(path: string): Promise<void> {
+    await invokeCommand<void>('create_folder', { path });
+  },
+
   async deleteFile(path: string): Promise<void> {
     await invokeCommand<void>('delete_file', { path });
   },
@@ -259,6 +263,14 @@ function getBrowserDeviceInfo(): DeviceInfo {
 }
 
 export const appCommands = {
+  async consumePendingOpenPaths(): Promise<string[]> {
+    if (!isTauriAvailable()) {
+      return [];
+    }
+
+    return invokeCommand<string[]>('consume_pending_open_paths');
+  },
+
   async openProjectHomepage(): Promise<void> {
     if (!isTauriAvailable()) {
       if (typeof window !== 'undefined') {

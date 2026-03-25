@@ -1,12 +1,56 @@
 import { defineStore } from 'pinia';
 import { settingsCommands, TauriError } from '@/lib/tauri';
-import { resolveThemeState, type MonacoThemeId, type ThemeResolution } from '@/utils/themeResolver';
+import {
+  THEME_SKINS,
+  resolveThemeState,
+  type MonacoThemeId,
+  type ThemeResolution,
+  type ThemeSkinId,
+} from '@/utils/themeResolver';
 import { normalizeUiLanguage, type UiLanguage } from '@/i18n/ui';
+
+export const CUSTOM_THEME_COLOR_KEYS = [
+  'bgApp',
+  'panelBase',
+  'textPrimary',
+  'textSecondary',
+  'accentBrand',
+  'accentBrandStrong',
+  'stateSuccess',
+  'stateDanger',
+] as const;
+
+export type CustomThemeColorKey = (typeof CUSTOM_THEME_COLOR_KEYS)[number];
+export type CustomThemeColors = Partial<Record<CustomThemeColorKey, string>>;
+
+export const CUSTOM_THEME_COLOR_VAR_MAP: Record<CustomThemeColorKey, string> = {
+  bgApp: '--bg-app',
+  panelBase: '--panel-base',
+  textPrimary: '--text-primary',
+  textSecondary: '--text-secondary',
+  accentBrand: '--accent-brand',
+  accentBrandStrong: '--accent-brand-strong',
+  stateSuccess: '--state-success',
+  stateDanger: '--state-danger',
+};
+
+export const CUSTOM_THEME_COLOR_FALLBACKS: Record<CustomThemeColorKey, string> = {
+  bgApp: '#0b1020',
+  panelBase: '#101726',
+  textPrimary: '#ecf2ff',
+  textSecondary: '#b6c2d9',
+  accentBrand: '#7cc7ff',
+  accentBrandStrong: '#4dabff',
+  stateSuccess: '#4ade80',
+  stateDanger: '#f87171',
+};
 
 export interface EditorSettings {
   // 编辑器外观
   theme: 'light' | 'dark' | 'system';
+  themeSkin: ThemeSkinId;
   monacoTheme: 'vs' | 'vs-dark' | 'hc-black';
+  customThemeColors: CustomThemeColors;
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
@@ -21,6 +65,8 @@ export interface EditorSettings {
   tabSize: number;
   insertSpaces: boolean;
   trimTrailingWhitespace: boolean;
+  maxOpenTabs: number;
+  memoryLimitMB: number;
 
   // 文件树
   showHiddenFiles: boolean;
@@ -40,9 +86,78 @@ export interface EditorSettings {
 // localStorage 键名
 const STORAGE_KEY = 'text-editor-settings';
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
+const DEFAULT_MAX_OPEN_TABS = 30;
+const DEFAULT_MEMORY_LIMIT_MB = 256;
 
 let systemThemeMediaQuery: MediaQueryList | null = null;
 let systemThemeListenerAttached = false;
+
+function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const [, r, g, b] = trimmed;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+
+  return null;
+}
+
+function normalizeCustomThemeColors(value: unknown): CustomThemeColors {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const result: CustomThemeColors = {};
+  CUSTOM_THEME_COLOR_KEYS.forEach((key) => {
+    const normalized = normalizeHexColor((value as Record<string, unknown>)[key]);
+    if (normalized) {
+      result[key] = normalized;
+    }
+  });
+
+  return result;
+}
+
+function normalizeOpenTabsLimit(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_MAX_OPEN_TABS;
+  }
+  return Math.min(120, Math.max(5, Math.round(parsed)));
+}
+
+function normalizeMemoryLimitMB(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_MEMORY_LIMIT_MB;
+  }
+  return Math.min(2048, Math.max(64, Math.round(parsed)));
+}
+
+function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
+  const style = root.style;
+  if (!style || typeof style.setProperty !== 'function' || typeof style.removeProperty !== 'function') {
+    return;
+  }
+
+  CUSTOM_THEME_COLOR_KEYS.forEach((key) => {
+    const cssVar = CUSTOM_THEME_COLOR_VAR_MAP[key];
+    const color = normalizeHexColor(colors[key]);
+    if (color) {
+      style.setProperty(cssVar, color);
+    } else {
+      style.removeProperty(cssVar);
+    }
+  });
+}
 
 function getPrefersDark(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -52,9 +167,10 @@ function getPrefersDark(): boolean {
   return Boolean(window.matchMedia(SYSTEM_THEME_QUERY)?.matches);
 }
 
-function getThemeResolution(settings: Pick<EditorSettings, 'theme' | 'monacoTheme' | 'uiLanguage'>): ThemeResolution {
+function getThemeResolution(settings: Pick<EditorSettings, 'theme' | 'themeSkin' | 'monacoTheme' | 'uiLanguage'>): ThemeResolution {
   return resolveThemeState({
     theme: settings.theme,
+    themeSkin: settings.themeSkin,
     monacoTheme: settings.monacoTheme,
     prefersDark: getPrefersDark(),
     uiLanguage: settings.uiLanguage,
@@ -64,9 +180,11 @@ function getThemeResolution(settings: Pick<EditorSettings, 'theme' | 'monacoThem
 export const useSettingsStore = defineStore('settings', {
   state: (): EditorSettings => ({
     theme: 'system',
+    themeSkin: 'deep-ocean',
     monacoTheme: 'vs-dark',
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-    fontSize: 14,
+    customThemeColors: {},
+    fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace",
+    fontSize: 15,
     lineHeight: 1.6,
     minimap: true,
     wordWrap: false,
@@ -75,6 +193,8 @@ export const useSettingsStore = defineStore('settings', {
     tabSize: 2,
     insertSpaces: true,
     trimTrailingWhitespace: true,
+    maxOpenTabs: DEFAULT_MAX_OPEN_TABS,
+    memoryLimitMB: DEFAULT_MEMORY_LIMIT_MB,
     showHiddenFiles: false,
     fileTreeWidth: 250,
     sidebarCollapsed: false,
@@ -101,6 +221,7 @@ export const useSettingsStore = defineStore('settings', {
     previewTheme: (state) => getThemeResolution(state).previewTheme,
     recommendedMonacoTheme: (state) => getThemeResolution(state).recommendedMonacoTheme,
     monacoThemeOptions: (state) => getThemeResolution(state).monacoThemeOptions,
+    themeSkinOptions: (state) => getThemeResolution(state).skinOptions,
   },
 
   actions: {
@@ -136,6 +257,9 @@ export const useSettingsStore = defineStore('settings', {
         if (saved) {
           const parsed = JSON.parse(saved);
           this.$patch(parsed);
+          this.customThemeColors = normalizeCustomThemeColors(this.customThemeColors);
+          this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
+          this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
           // Older builds defaulted Markdown to split view, which caused
           // opened files to look half-width on launch. Migrate that startup
           // state back to full-width editing.
@@ -155,7 +279,9 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const toSave = {
           theme: this.theme,
+          themeSkin: this.themeSkin,
           monacoTheme: this.monacoTheme,
+          customThemeColors: this.customThemeColors,
           fontFamily: this.fontFamily,
           fontSize: this.fontSize,
           lineHeight: this.lineHeight,
@@ -166,6 +292,8 @@ export const useSettingsStore = defineStore('settings', {
           tabSize: this.tabSize,
           insertSpaces: this.insertSpaces,
           trimTrailingWhitespace: this.trimTrailingWhitespace,
+          maxOpenTabs: this.maxOpenTabs,
+          memoryLimitMB: this.memoryLimitMB,
           showHiddenFiles: this.showHiddenFiles,
           fileTreeWidth: this.fileTreeWidth,
           sidebarCollapsed: this.sidebarCollapsed,
@@ -185,6 +313,8 @@ export const useSettingsStore = defineStore('settings', {
     // 更新设置
     async updateSettings(partial: Partial<EditorSettings>) {
       this.$patch(partial);
+      this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
+      this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
       
       // 保存到 localStorage
       this.saveToStorage();
@@ -195,7 +325,16 @@ export const useSettingsStore = defineStore('settings', {
       }
       
       // 如果更新了主题，应用主题
-      if (partial.theme !== undefined || partial.monacoTheme !== undefined) {
+      if (partial.customThemeColors !== undefined) {
+        this.customThemeColors = normalizeCustomThemeColors(this.customThemeColors);
+      }
+
+      if (
+        partial.theme !== undefined ||
+        partial.themeSkin !== undefined ||
+        partial.monacoTheme !== undefined ||
+        partial.customThemeColors !== undefined
+      ) {
         this.applyTheme();
       }
 
@@ -219,9 +358,53 @@ export const useSettingsStore = defineStore('settings', {
     applyTheme() {
       const root = document.documentElement;
       const themeState = getThemeResolution(this);
+      const themeSkinClasses = THEME_SKINS.map((skin) => `skin-${skin}`);
 
-      root.classList.remove('light', 'dark', 'theme-light', 'theme-dark');
+      root.classList.remove('light', 'dark', 'theme-light', 'theme-dark', ...themeSkinClasses);
       root.classList.add(themeState.resolvedTheme, `theme-${themeState.resolvedTheme}`, `skin-${themeState.skin}`);
+      applyCustomThemeColors(root, this.customThemeColors);
+    },
+
+    setCustomThemeColor(key: CustomThemeColorKey, color: string) {
+      const next = { ...this.customThemeColors };
+      const normalized = normalizeHexColor(color);
+      if (normalized) {
+        next[key] = normalized;
+      } else {
+        delete next[key];
+      }
+      this.updateSettings({ customThemeColors: next });
+    },
+
+    resetCustomThemeColors() {
+      this.updateSettings({ customThemeColors: {} });
+    },
+
+    exportCustomThemeColors(): string {
+      return JSON.stringify({ customThemeColors: this.customThemeColors }, null, 2);
+    },
+
+    importCustomThemeColors(raw: string): { success: boolean; applied: number; message: string } {
+      try {
+        const parsed = JSON.parse(raw);
+        const candidate =
+          parsed && typeof parsed === 'object' && 'customThemeColors' in parsed
+            ? (parsed as Record<string, unknown>).customThemeColors
+            : parsed;
+        const normalized = normalizeCustomThemeColors(candidate);
+        this.updateSettings({ customThemeColors: normalized });
+        return {
+          success: true,
+          applied: Object.keys(normalized).length,
+          message: 'ok',
+        };
+      } catch (error) {
+        return {
+          success: false,
+          applied: 0,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
     },
 
     applyLanguage() {
@@ -248,7 +431,7 @@ export const useSettingsStore = defineStore('settings', {
 
     // 重置字体大小
     resetFontSize() {
-      this.updateSettings({ fontSize: 14 });
+      this.updateSettings({ fontSize: 15 });
     },
 
     // 初始化

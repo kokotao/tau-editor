@@ -18,15 +18,27 @@ pub fn run() {
 
   log::info!("Tau Editor Tauri App starting...");
 
-  tauri::Builder::default()
+  let startup_open_paths = commands::collect_startup_file_paths();
+
+  let app = tauri::Builder::default()
+    .manage(commands::PendingOpenPaths::default())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+      let open_paths = commands::collect_file_paths_from_cli_args(argv.as_slice());
+      commands::queue_pending_open_paths(app, open_paths);
+    }))
+    .setup(move |app| {
+      commands::queue_pending_open_paths(app.handle(), startup_open_paths.clone());
+      Ok(())
+    })
     .invoke_handler(tauri::generate_handler![
       commands::read_file,
       commands::write_file,
       commands::atomic_write_file,
       commands::list_files,
       commands::create_file,
+      commands::create_folder,
       commands::delete_file,
       commands::rename_file,
       commands::get_file_info,
@@ -41,7 +53,16 @@ pub fn run() {
       commands::download_and_install_update,
       commands::open_project_homepage,
       commands::open_external_link,
+      commands::consume_pending_open_paths,
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application");
+
+  app.run(|app_handle, event| {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let tauri::RunEvent::Opened { urls } = event {
+      let open_paths = commands::collect_paths_from_urls(urls.as_slice());
+      commands::queue_pending_open_paths(app_handle, open_paths);
+    }
+  });
 }

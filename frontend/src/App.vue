@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useFileSystemStore } from '@/stores/fileSystem';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useFileSystemStore, type FileTreeNode } from '@/stores/fileSystem';
 import { useWorkspaceStore } from '@/stores/workspace';
 import { useTabsStore } from '@/stores/tabs';
 import { useEditorStore } from '@/stores/editor';
@@ -13,6 +13,7 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
+import { appCommands, isTauriApp } from '@/lib/tauri';
 import {
   getAppI18n,
   getCommandText,
@@ -43,6 +44,7 @@ const workspaceService = createWorkspaceService(
   tabsStore,
   workspaceStore,
   editorStore,
+  settingsStore,
   notificationStore,
 );
 const tabService = createTabService(
@@ -74,6 +76,30 @@ const LANGUAGE_MODE_ORDER: EditorLanguageMode[] = [
   'sql',
   'shell',
 ];
+const FILE_LANGUAGE_MAP: Record<string, string> = {
+  js: 'javascript',
+  ts: 'typescript',
+  vue: 'vue',
+  py: 'python',
+  java: 'java',
+  rs: 'rust',
+  md: 'markdown',
+  json: 'json',
+  html: 'html',
+  css: 'css',
+  scss: 'scss',
+  xml: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml',
+  sql: 'sql',
+  sh: 'shell',
+  bat: 'shell',
+  cmd: 'shell',
+  go: 'go',
+  c: 'c',
+  cpp: 'cpp',
+  cs: 'csharp',
+};
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
@@ -83,15 +109,82 @@ type SettingsContainer = 'workspace' | 'drawer';
 type SettingsCategory = 'general' | 'editor' | 'updates' | 'about';
 const settingsContainer = ref<SettingsContainer | null>(null);
 const activeSettingsCategory = ref<SettingsCategory>('general');
+const fileTreeContextEntry = ref<FileTreeNode | null>(null);
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 type EditorCoreExpose = {
+  getContent: () => string;
+  focusAtStart: () => void;
   triggerFindWidget: () => void;
   triggerGoToLine: () => void;
 };
 const editorCoreRef = ref<EditorCoreExpose | null>(null);
+const FIRST_INSTALL_GUIDE_KEY = 'text-editor-first-install-guide-v1';
+const GUIDE_LAST_OPENED_AT_KEY = 'text-editor-last-opened-at-v1';
+const GUIDE_LAST_SHOWN_AT_KEY = 'text-editor-guide-last-shown-at-v1';
+const GUIDE_REOPEN_DAYS = 14;
+const GUIDE_REOPEN_INTERVAL_MS = GUIDE_REOPEN_DAYS * 24 * 60 * 60 * 1000;
+let unlistenExternalOpen: (() => void) | null = null;
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
+const normalizeFsPath = (path: string) => path.replace(/\\/g, '/');
+const getParentFsPath = (path: string) => {
+  const normalized = normalizeFsPath(path);
+  const index = normalized.lastIndexOf('/');
+  return index > 0 ? normalized.slice(0, index) : '';
+};
+const joinFsPath = (dir: string, name: string) => {
+  const base = normalizeFsPath(dir).replace(/\/+$/, '');
+  const leaf = name.trim().replace(/^\/+/, '');
+  return `${base}/${leaf}`;
+};
+const detectLanguageFromFileName = (fileName: string) => {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  return FILE_LANGUAGE_MAP[ext] ?? 'plaintext';
+};
+const getContextBaseDirectory = () => {
+  const entry = fileTreeContextEntry.value;
+  if (entry?.type === 'folder') {
+    return normalizeFsPath(entry.path);
+  }
+  if (entry?.type === 'file') {
+    return getParentFsPath(entry.path);
+  }
+  return workspaceStore.currentWorkspacePath ? normalizeFsPath(workspaceStore.currentWorkspacePath) : '';
+};
+const isPathUnderFolder = (path: string, folderPath: string) => {
+  const normalizedPath = normalizeFsPath(path);
+  const normalizedFolder = normalizeFsPath(folderPath);
+  return normalizedPath === normalizedFolder || normalizedPath.startsWith(`${normalizedFolder}/`);
+};
+const estimateTabsMemoryBytes = (additionalContent = '') =>
+  tabsStore.tabs.reduce((total, tab) => total + tab.content.length * 2, 0) + additionalContent.length * 2;
+const ensureAdditionalTabCapacity = (additionalContent: string, sourceLabel: string) => {
+  const maxOpenTabs = Math.max(1, Math.floor(settingsStore.maxOpenTabs));
+  const memoryLimitMB = Math.max(64, Math.floor(settingsStore.memoryLimitMB));
+  const memoryLimitBytes = memoryLimitMB * 1024 * 1024;
+
+  if (tabsStore.tabs.length >= maxOpenTabs) {
+    const title = settingsStore.uiLanguage === 'en-US' ? 'Tab limit reached' : '已达到标签页上限';
+    const message = settingsStore.uiLanguage === 'en-US'
+      ? `Cannot open ${sourceLabel}. Close a tab or increase max open tabs in settings.`
+      : `无法打开 ${sourceLabel}。请先关闭一些标签，或在设置里提高最大标签页数量。`;
+    notificationStore.warning(title, message);
+    return false;
+  }
+
+  const estimatedBytes = estimateTabsMemoryBytes(additionalContent);
+  if (estimatedBytes > memoryLimitBytes) {
+    const title = settingsStore.uiLanguage === 'en-US' ? 'Memory limit reached' : '已达到标签内存上限';
+    const message = settingsStore.uiLanguage === 'en-US'
+      ? `Estimated tab memory exceeds ${memoryLimitMB}MB. Close tabs or raise memory limit in settings.`
+      : `预计标签内存将超过 ${memoryLimitMB}MB。请关闭部分标签，或在设置里提高内存上限。`;
+    notificationStore.warning(title, message);
+    return false;
+  }
+
+  return true;
+};
 
 const fileTree = computed(() => fileSystemStore.fileTree);
 const loading = computed(() => fileSystemStore.loading);
@@ -143,6 +236,9 @@ watch(activeTab, (tab) => {
 
 const handleNewFile = () => {
   workspaceService.createUntitledFile();
+  void nextTick(() => {
+    editorCoreRef.value?.focusAtStart();
+  });
 };
 
 const openFileInEditor = async (filePath: string) => {
@@ -161,10 +257,12 @@ const handleOpenFolder = async () => {
 };
 
 const handleSave = async () => {
+  syncActiveEditorContent();
   await tabService.saveActiveTab();
 };
 
 const handleSaveAs = async () => {
+  syncActiveEditorContent();
   await tabService.saveActiveTabAs();
 };
 
@@ -225,6 +323,157 @@ const handleFileOpen = async (filePath: string) => {
   await openFileInEditor(filePath);
 };
 
+const handleFileTreeContextMenu = (entry: FileTreeNode) => {
+  fileTreeContextEntry.value = entry;
+};
+
+const requestName = (title: string, defaultValue: string) => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const value = window.prompt(title, defaultValue);
+  if (value === null) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const updateTabsAfterPathRename = (oldPath: string, newPath: string, targetType: 'file' | 'folder') => {
+  const oldNormalized = normalizeFsPath(oldPath);
+  const newNormalized = normalizeFsPath(newPath);
+
+  for (const tab of tabsStore.tabs) {
+    if (!tab.filePath) {
+      continue;
+    }
+
+    const tabPathNormalized = normalizeFsPath(tab.filePath);
+    const matched = targetType === 'folder'
+      ? isPathUnderFolder(tabPathNormalized, oldNormalized)
+      : tabPathNormalized === oldNormalized;
+    if (!matched) {
+      continue;
+    }
+
+    const replacedPath = targetType === 'folder'
+      ? tabPathNormalized.replace(oldNormalized, newNormalized)
+      : newNormalized;
+    const nextName = replacedPath.split('/').pop() ?? tab.fileName;
+    tabsStore.updateTab(tab.id, {
+      filePath: replacedPath,
+      fileName: nextName,
+      language: detectLanguageFromFileName(nextName),
+    });
+  }
+};
+
+const closeTabsByPath = (targetPath: string, targetType: 'file' | 'folder') => {
+  const normalizedTarget = normalizeFsPath(targetPath);
+  const tabIds = tabsStore.tabs
+    .filter((tab) => {
+      if (!tab.filePath) {
+        return false;
+      }
+      const normalizedTabPath = normalizeFsPath(tab.filePath);
+      return targetType === 'folder'
+        ? isPathUnderFolder(normalizedTabPath, normalizedTarget)
+        : normalizedTabPath === normalizedTarget;
+    })
+    .map((tab) => tab.id);
+
+  for (const tabId of tabIds) {
+    tabsStore.closeTab(tabId);
+  }
+};
+
+const handleFileTreeCreateFile = async () => {
+  const baseDir = getContextBaseDirectory();
+  if (!baseDir) {
+    notificationStore.warning('无法新建文件', '请先打开一个工作区文件夹');
+    return;
+  }
+
+  const fileName = requestName('请输入新文件名', 'NewFile.txt');
+  if (!fileName) {
+    return;
+  }
+
+  const targetPath = joinFsPath(baseDir, fileName);
+  try {
+    await fileSystemStore.createNewFile(targetPath);
+    await fileSystemStore.refreshFileTree();
+    await openFileInEditor(targetPath);
+    notificationStore.success('新建文件成功', fileName);
+  } catch (error: any) {
+    notificationStore.error('新建文件失败', error?.message || '无法创建文件');
+  }
+};
+
+const handleFileTreeCreateFolder = async () => {
+  const baseDir = getContextBaseDirectory();
+  if (!baseDir) {
+    notificationStore.warning('无法新建文件夹', '请先打开一个工作区文件夹');
+    return;
+  }
+
+  const folderName = requestName('请输入新文件夹名称', 'NewFolder');
+  if (!folderName) {
+    return;
+  }
+
+  const targetPath = joinFsPath(baseDir, folderName);
+  try {
+    await fileSystemStore.createNewFolder(targetPath);
+    fileSystemStore.expandedPaths.add(baseDir);
+    await fileSystemStore.refreshFileTree();
+    notificationStore.success('新建文件夹成功', folderName);
+  } catch (error: any) {
+    notificationStore.error('新建文件夹失败', error?.message || '无法创建文件夹');
+  }
+};
+
+const handleFileTreeRename = async (entry: FileTreeNode) => {
+  fileTreeContextEntry.value = entry;
+  const nextName = requestName('请输入新的名称', entry.name);
+  if (!nextName || nextName === entry.name) {
+    return;
+  }
+
+  const parentDir = getParentFsPath(entry.path);
+  const nextPath = joinFsPath(parentDir, nextName);
+
+  try {
+    await fileSystemStore.renameFileOrFolder(entry.path, nextPath);
+    updateTabsAfterPathRename(entry.path, nextPath, entry.type as 'file' | 'folder');
+    await fileSystemStore.refreshFileTree();
+    notificationStore.success('重命名成功', `${entry.name} -> ${nextName}`);
+  } catch (error: any) {
+    notificationStore.error('重命名失败', error?.message || '无法重命名该项目');
+  }
+};
+
+const handleFileTreeDelete = async (entry: FileTreeNode) => {
+  fileTreeContextEntry.value = entry;
+  if (typeof window !== 'undefined') {
+    const confirmed = window.confirm(`确认删除「${entry.name}」吗？此操作不可恢复。`);
+    if (!confirmed) {
+      return;
+    }
+  }
+
+  try {
+    await fileSystemStore.deleteFileOrFolder(entry.path);
+    closeTabsByPath(entry.path, entry.type as 'file' | 'folder');
+    await fileSystemStore.refreshFileTree();
+    notificationStore.success('删除成功', entry.name);
+  } catch (error: any) {
+    notificationStore.error('删除失败', error?.message || '无法删除该项目');
+  }
+};
+
 const handleTabClick = (tabId: string) => {
   tabService.activateTab(tabId);
 };
@@ -245,8 +494,21 @@ const handleRenameTab = async (tabId: string, nextName: string) => {
   await tabService.renameTab(tabId, nextName);
 };
 
+const handleTabsReorder = (orderedTabIds: string[]) => {
+  tabsStore.reorderTabs(orderedTabIds);
+};
+
 const handleContentChange = (content: string) => {
   tabService.updateActiveTabContent(content);
+};
+
+const syncActiveEditorContent = () => {
+  const tab = activeTab.value;
+  const latestContent = editorCoreRef.value?.getContent();
+  if (!tab || typeof latestContent !== 'string' || latestContent === tab.content) {
+    return;
+  }
+  tabService.updateActiveTabContent(latestContent, { markDirty: true });
 };
 
 const handleCursorChange = (position: { line: number; column: number }) => {
@@ -434,6 +696,209 @@ const registerShortcuts = () => {
     handler: handleToggleFileTree,
     description: getLocalizedCommandTitle('view.toggleSidebar'),
   });
+
+  keyboardStore.register({
+    id: 'zoom-in',
+    key: '=',
+    modifiers: ['ctrl'],
+    handler: () => settingsStore.adjustFontSize(1),
+    description: 'Zoom In',
+  });
+
+  keyboardStore.register({
+    id: 'zoom-in-shift',
+    key: '+',
+    modifiers: ['ctrl', 'shift'],
+    handler: () => settingsStore.adjustFontSize(1),
+    description: 'Zoom In',
+  });
+
+  keyboardStore.register({
+    id: 'zoom-out',
+    key: '-',
+    modifiers: ['ctrl'],
+    handler: () => settingsStore.adjustFontSize(-1),
+    description: 'Zoom Out',
+  });
+
+  keyboardStore.register({
+    id: 'zoom-reset',
+    key: '0',
+    modifiers: ['ctrl'],
+    handler: () => settingsStore.resetFontSize(),
+    description: 'Zoom Reset',
+  });
+};
+
+const getFirstInstallGuideContent = () => {
+  if (settingsStore.uiLanguage === 'en-US') {
+    return `# Tau Editor Quick Start
+
+Welcome to Tau Editor.
+
+## Core Actions
+- Create file: toolbar "New File" or \`Ctrl/Cmd + N\`
+- Open file: toolbar "Open File" or \`Ctrl/Cmd + O\`
+- Save file: \`Ctrl/Cmd + S\`
+- Save as: toolbar "Save As"
+- Command palette: \`F1\` or \`Ctrl/Cmd + Shift + P\`
+
+## Text Zoom
+- Zoom in: \`Ctrl/Cmd + +\`
+- Zoom out: \`Ctrl/Cmd + -\`
+- Reset zoom: \`Ctrl/Cmd + 0\`
+
+## Tips
+- You can open external files from the OS "Open With -> Tau Editor".
+- This guide is an unsaved tab. Save it if you want to keep it.
+`;
+  }
+
+  return `# Tau Editor 使用说明
+
+欢迎使用 Tau Editor。
+
+## 常用操作
+- 新建文件：工具栏「新建文件」或 \`Ctrl/Cmd + N\`
+- 打开文件：工具栏「打开文件」或 \`Ctrl/Cmd + O\`
+- 保存文件：\`Ctrl/Cmd + S\`
+- 另存为：工具栏「另存为」
+- 命令面板：\`F1\` 或 \`Ctrl/Cmd + Shift + P\`
+
+## 文字缩放
+- 放大：\`Ctrl/Cmd + +\`
+- 缩小：\`Ctrl/Cmd + -\`
+- 重置：\`Ctrl/Cmd + 0\`
+
+## 提示
+- 支持在系统里通过“打开方式 -> Tau Editor”直接打开外部文件。
+- 本说明是未保存标签页，如需保留请手动保存。
+`;
+};
+
+const readLocalTimestamp = (key: string): number | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const raw = localStorage.getItem(key);
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const writeLocalTimestamp = (key: string, value: number) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  localStorage.setItem(key, String(value));
+};
+
+const markGuideShown = (timestamp: number) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  localStorage.setItem(FIRST_INSTALL_GUIDE_KEY, '1');
+  writeLocalTimestamp(GUIDE_LAST_SHOWN_AT_KEY, timestamp);
+};
+
+const markAppOpened = (timestamp: number) => {
+  writeLocalTimestamp(GUIDE_LAST_OPENED_AT_KEY, timestamp);
+};
+
+const shouldShowGuideOnLaunch = (timestamp: number) => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const lastOpenedAt = readLocalTimestamp(GUIDE_LAST_OPENED_AT_KEY);
+  if (!lastOpenedAt) {
+    return true;
+  }
+  return timestamp - lastOpenedAt >= GUIDE_REOPEN_INTERVAL_MS;
+};
+
+const findOperationGuideTabId = () => {
+  const guideNames = new Set(['Getting Started.md', '操作说明.md']);
+  return tabsStore.tabs.find((tab) => tab.filePath === null && guideNames.has(tab.fileName))?.id ?? null;
+};
+
+const openOperationGuide = (timestamp: number) => {
+  if (typeof tabsStore.addTab !== 'function') {
+    return false;
+  }
+
+  const existingGuideTabId = findOperationGuideTabId();
+  if (existingGuideTabId) {
+    tabsStore.activateTab(existingGuideTabId);
+    markGuideShown(timestamp);
+    return true;
+  }
+
+  const guideTitle = settingsStore.uiLanguage === 'en-US' ? 'Getting Started.md' : '操作说明.md';
+  const guideContent = getFirstInstallGuideContent();
+  if (!ensureAdditionalTabCapacity(guideContent, guideTitle)) {
+    return false;
+  }
+
+  tabsStore.addTab({
+    filePath: null,
+    fileName: guideTitle,
+    language: 'markdown',
+    isDirty: false,
+    isUntitled: true,
+    content: guideContent,
+  });
+
+  if (workspaceStore.mode === 'empty' && !workspaceStore.currentWorkspacePath) {
+    workspaceStore.setMode('single-file');
+  }
+
+  editorStore.setContent(guideContent, false);
+  editorStore.setLanguage('markdown');
+  editorStore.markAsSaved();
+  markGuideShown(timestamp);
+  return true;
+};
+
+const showOperationGuideOnLaunchIfNeeded = (timestamp: number) => {
+  if (!shouldShowGuideOnLaunch(timestamp)) {
+    return;
+  }
+  openOperationGuide(timestamp);
+};
+
+const openExternalFiles = async (paths: string[]) => {
+  const uniquePaths = Array.from(new Set(paths.filter((path) => typeof path === 'string' && path.trim().length > 0)));
+  for (const filePath of uniquePaths) {
+    await openFileInEditor(filePath);
+  }
+};
+
+const setupExternalFileOpenBridge = async (): Promise<boolean> => {
+  if (!isTauriApp()) {
+    return false;
+  }
+
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+
+    unlistenExternalOpen = await listen<string[] | string>('app:open-file-requested', async (event) => {
+      const payload = event.payload;
+      const paths = Array.isArray(payload) ? payload : typeof payload === 'string' ? [payload] : [];
+      await openExternalFiles(paths);
+    });
+
+    const startupPaths = await appCommands.consumePendingOpenPaths();
+    if (startupPaths.length > 0) {
+      await openExternalFiles(startupPaths);
+      return true;
+    }
+  } catch (error) {
+    console.warn('[App] 外部文件打开桥接初始化失败:', error);
+  }
+
+  return false;
 };
 
 const startSidebarResize = (event: MouseEvent) => {
@@ -596,6 +1061,10 @@ onMounted(async () => {
   restoreSession();
   await windowService.attach();
   registerShortcuts();
+  const launchTimestamp = Date.now();
+  await setupExternalFileOpenBridge();
+  showOperationGuideOnLaunchIfNeeded(launchTimestamp);
+  markAppOpened(launchTimestamp);
   window.addEventListener('keydown', handleShellKeydown);
 });
 
@@ -603,6 +1072,10 @@ onUnmounted(() => {
   saveSession();
   windowService.detach();
   keyboardStore.removeGlobalHandler();
+  if (unlistenExternalOpen) {
+    unlistenExternalOpen();
+    unlistenExternalOpen = null;
+  }
   window.removeEventListener('keydown', handleShellKeydown);
 });
 </script>
@@ -654,36 +1127,47 @@ onUnmounted(() => {
         @click="closeTransientPanels"
       ></div>
 
-      <aside
-        v-show="showFileTree && settingsContainer !== 'workspace'"
-        class="sidebar"
-        data-testid="sidebar-panel"
-        :style="{ width: `${sidebarWidth}px` }"
-      >
-        <FileTree
-          v-if="workspaceStore.currentWorkspacePath"
-          :file-tree="fileTree"
-          :loading="loading"
-          :selected-path="selectedPath"
-          :workspace-label="workspaceLabel"
-          @file-open="handleFileOpen"
-          @folder-toggle="handleFolderToggle"
-          @refresh="handleRefresh"
-          @new-file="handleNewFile"
-        />
-        <div v-else class="sidebar-empty">
-          <p class="sidebar-empty-title">{{ appText.sidebarEmptyTitle }}</p>
-          <p class="sidebar-empty-text">{{ appText.sidebarEmptyDesc.replace('{mode}', currentModeLabel) }}</p>
-          <button class="sidebar-empty-action" @click="handleOpenFolder">{{ appText.selectFolder }}</button>
+      <transition name="sidebar-shell">
+        <div
+          v-if="showFileTree && settingsContainer !== 'workspace'"
+          class="sidebar-shell"
+          :class="{ resizing: isResizingSidebar }"
+          :style="{ '--sidebar-width': `${sidebarWidth}px` }"
+        >
+          <aside
+            class="sidebar"
+            data-testid="sidebar-panel"
+            :style="{ width: `${sidebarWidth}px` }"
+          >
+            <FileTree
+              v-if="workspaceStore.currentWorkspacePath"
+              :file-tree="fileTree"
+              :loading="loading"
+              :selected-path="selectedPath"
+              :workspace-label="workspaceLabel"
+              @file-open="handleFileOpen"
+              @folder-toggle="handleFolderToggle"
+              @context-menu="handleFileTreeContextMenu"
+              @refresh="handleRefresh"
+              @new-file="handleFileTreeCreateFile"
+              @new-folder="handleFileTreeCreateFolder"
+              @rename="handleFileTreeRename"
+              @delete="handleFileTreeDelete"
+            />
+            <div v-else class="sidebar-empty">
+              <p class="sidebar-empty-title">{{ appText.sidebarEmptyTitle }}</p>
+              <p class="sidebar-empty-text">{{ appText.sidebarEmptyDesc.replace('{mode}', currentModeLabel) }}</p>
+              <button class="sidebar-empty-action" @click="handleOpenFolder">{{ appText.selectFolder }}</button>
+            </div>
+          </aside>
+          <div
+            class="sidebar-resizer"
+            data-testid="sidebar-resizer"
+            :class="{ dragging: isResizingSidebar }"
+            @mousedown.prevent="startSidebarResize"
+          ></div>
         </div>
-      </aside>
-      <div
-        v-if="showFileTree && settingsContainer !== 'workspace'"
-        class="sidebar-resizer"
-        data-testid="sidebar-resizer"
-        :class="{ dragging: isResizingSidebar }"
-        @mousedown.prevent="startSidebarResize"
-      ></div>
+      </transition>
 
       <div
         v-if="settingsContainer !== 'workspace'"
@@ -727,6 +1211,7 @@ onUnmounted(() => {
           @tab-close-others="handleCloseOthers"
           @tab-close-all="handleCloseAll"
           @rename-tab="handleRenameTab"
+          @tabs-reorder="handleTabsReorder"
         />
 
         <div
@@ -737,13 +1222,9 @@ onUnmounted(() => {
             [`markdown-mode-${markdownPreviewMode}`]: isMarkdownTab && settingsStore.markdownPreviewEnabled,
           }"
         >
-          <div
-            v-if="!isMarkdownTab || !settingsStore.markdownPreviewEnabled || markdownPreviewMode !== 'preview'"
-            class="editor-pane"
-          >
+          <div class="editor-pane">
             <EditorCore
               ref="editorCoreRef"
-              :key="activeTab.id"
               :model-id="activeTab.id"
               :value="activeTab.content"
               :language="activeTab.language"
@@ -754,16 +1235,19 @@ onUnmounted(() => {
               @model-save="handleSave"
             />
           </div>
-          <MarkdownPreview
-            v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled && markdownPreviewMode !== 'edit'"
+          <div
+            v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
             class="preview-pane"
             data-testid="markdown-preview-pane"
-            :content="activeTab.content"
-            :theme="previewTheme"
-            :source-file-path="activeTab.filePath"
-            :editor-scroll-state="editorScrollState"
-            @request-preview-mode-change="setMarkdownPreviewMode"
-          />
+          >
+            <MarkdownPreview
+              :content="activeTab.content"
+              :theme="previewTheme"
+              :source-file-path="activeTab.filePath"
+              :editor-scroll-state="editorScrollState"
+              @request-preview-mode-change="setMarkdownPreviewMode"
+            />
+          </div>
         </div>
 
         <div v-else class="hero-empty">
@@ -811,6 +1295,10 @@ onUnmounted(() => {
 <style>
 :root {
   color-scheme: dark;
+  --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  --panel-radius: 18px;
+  --panel-gap: 8px;
   --app-bg: #0b1020;
   --panel: #101726;
   --panel-elevated: #151d2d;
@@ -864,7 +1352,14 @@ body {
     radial-gradient(circle at top right, rgba(85, 239, 196, 0.12), transparent 24%),
     var(--app-bg);
   color: var(--text-primary);
-  font-family: 'SF Pro Display', 'PingFang SC', 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-code);
 }
 </style>
 
@@ -884,30 +1379,43 @@ body {
   min-height: 0;
   position: relative;
   overflow: hidden;
+  padding: var(--panel-gap);
+  gap: calc(var(--panel-gap) * 0.8);
+}
+
+.sidebar-shell {
+  display: flex;
+  flex-shrink: 0;
+  min-height: 0;
+  min-width: 0;
+  width: calc(var(--sidebar-width) + 10px);
+  overflow: hidden;
 }
 
 .sidebar,
+.editor-panel,
+.settings-page,
 .settings-drawer {
   flex-shrink: 0;
-  border-right: 1px solid var(--border-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
   background: rgba(9, 14, 26, 0.52);
   backdrop-filter: blur(14px);
   min-height: 0;
   position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
 }
 
 .settings-drawer {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: var(--panel-gap);
+  right: var(--panel-gap);
+  bottom: var(--panel-gap);
   width: 520px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
-  border-left: 1px solid var(--border-soft);
-  border-right: none;
   background: var(--panel-overlay);
   box-shadow: var(--shadow-overlay);
   z-index: var(--z-drawer, 50);
@@ -915,7 +1423,8 @@ body {
 
 .shell-overlay {
   position: absolute;
-  inset: 0;
+  inset: var(--panel-gap);
+  border-radius: calc(var(--panel-radius) + 2px);
   background: rgba(2, 6, 23, 0.48);
   backdrop-filter: blur(4px);
   z-index: calc(var(--z-drawer, 50) - 1);
@@ -958,7 +1467,7 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(8, 12, 22, 0.3);
+  background: rgba(8, 12, 22, 0.34);
 }
 
 .settings-page {
@@ -968,7 +1477,6 @@ body {
   display: flex;
   flex-direction: column;
   background: linear-gradient(160deg, rgba(13, 21, 36, 0.92), rgba(10, 16, 29, 0.96));
-  overflow: hidden;
 }
 
 .editor-stage {
@@ -983,6 +1491,7 @@ body {
   flex: 1;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .markdown-stage {
@@ -990,42 +1499,117 @@ body {
   min-width: 0;
 }
 
-.markdown-stage.markdown-mode-split .editor-pane,
-.markdown-stage.markdown-mode-split .preview-pane {
-  width: 50%;
+.markdown-stage .editor-pane,
+.markdown-stage .preview-pane {
+  transition:
+    flex-basis 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.22s ease;
+  will-change: flex-basis, max-width, opacity, transform;
 }
 
 .markdown-stage.markdown-mode-split .preview-pane {
+  flex-basis: 50%;
+  max-width: 50%;
   border-left: 1px solid var(--border-soft);
+  border-radius: 0 14px 14px 0;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .markdown-stage.markdown-mode-preview .preview-pane {
-  width: 100%;
+  flex-basis: 100%;
+  max-width: 100%;
+  border-left: 1px solid transparent;
+  border-radius: 14px;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.markdown-stage.markdown-mode-split .editor-pane {
+  flex-basis: 50%;
+  max-width: 50%;
+  border-radius: 14px 0 0 14px;
 }
 
 .preview-pane {
-  flex: 1;
+  flex: 0 0 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.markdown-stage.markdown-mode-edit .editor-pane {
+  flex-basis: 100%;
+  max-width: 100%;
+}
+
+.markdown-stage.markdown-mode-edit .preview-pane {
+  flex-basis: 0;
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(22px);
+  border-left: 1px solid transparent;
+  pointer-events: none;
+}
+
+.markdown-stage.markdown-mode-preview .editor-pane {
+  flex-basis: 0;
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(-22px);
+  pointer-events: none;
+}
+
+.sidebar-shell .sidebar {
+  transition: width 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sidebar-shell.resizing .sidebar {
+  transition: none;
+}
+
+.sidebar-shell-enter-active,
+.sidebar-shell-leave-active {
+  transition:
+    width 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease,
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.24s ease;
+}
+
+.sidebar-shell-enter-from,
+.sidebar-shell-leave-to {
+  width: 0;
+  opacity: 0;
+  transform: translateX(-14px) scale(0.985);
+  filter: saturate(0.88);
 }
 
 .sidebar-resizer {
-  width: 6px;
+  width: 10px;
   cursor: col-resize;
   flex-shrink: 0;
+  border-radius: 999px;
+  margin: 14px 0;
   background: transparent;
-  transition: background 0.15s ease;
+  opacity: 0;
+  transition: opacity 0.2s ease, background 0.2s ease, transform 0.2s ease;
 }
 
-.sidebar-resizer:hover,
 .sidebar-resizer.dragging {
+  opacity: 1;
   background: rgba(77, 171, 255, 0.45);
+  transform: scaleX(1.08);
 }
 
 .floating-controls {
   position: absolute;
-  left: 8px;
-  bottom: 12px;
+  left: 16px;
+  bottom: 16px;
   z-index: 9;
   display: flex;
   flex-direction: column;
@@ -1167,7 +1751,14 @@ body {
   }
 
   .settings-drawer {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
     width: min(90vw, 420px);
+  }
+
+  .main-layout {
+    --panel-gap: 6px;
   }
 
   .hero-card {

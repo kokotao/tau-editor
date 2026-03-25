@@ -213,6 +213,16 @@ defineExpose({
     }
   },
   focus: () => editor.value?.focus(),
+  focusAtStart: () => {
+    if (!editor.value) {
+      return;
+    }
+
+    const startPosition = { lineNumber: 1, column: 1 };
+    editor.value.focus();
+    editor.value.setPosition(startPosition);
+    editor.value.revealPositionInCenterIfOutsideViewport(startPosition);
+  },
   layout: () => editor.value?.layout(),
   getSelectedText: () => {
     if (!editor.value) return '';

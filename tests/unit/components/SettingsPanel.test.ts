@@ -173,6 +173,9 @@ describe('SettingsPanel', () => {
     await wrapper.findAll('.theme-btn')[0]?.trigger('click');
     expect(settingsStore.theme).toBe('light');
 
+    const themeSkinSelect = wrapper.find('[data-testid="drawer-select-theme-skin"]');
+    expect(themeSkinSelect.exists()).toBe(true);
+
     const autoSaveToggle = wrapper.find('[data-testid="drawer-toggle-auto-save"]');
     await autoSaveToggle.setValue(false);
     await flushPromises();
@@ -186,5 +189,17 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('[data-testid="settings-author-section"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('albert_luo');
     expect(wrapper.text()).toContain('https://github.com/kokotao/tau-editor');
+  });
+
+  it('editor 分类应支持配置标签上限与内存上限', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const maxOpenTabsSelect = wrapper.find('[data-testid="select-max-open-tabs"]');
+    const memoryLimitSelect = wrapper.find('[data-testid="select-memory-limit"]');
+    expect(maxOpenTabsSelect.exists()).toBe(true);
+    expect(memoryLimitSelect.exists()).toBe(true);
+    expect(settingsStore.maxOpenTabs).toBe(30);
+    expect(settingsStore.memoryLimitMB).toBe(256);
   });
 });

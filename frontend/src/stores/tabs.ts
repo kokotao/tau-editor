@@ -173,6 +173,31 @@ export const useTabsStore = defineStore('tabs', {
         this.activeTabId = prevTab.id;
       }
     },
+
+    // 重新排序标签页
+    reorderTabs(orderedTabIds: string[]) {
+      if (!Array.isArray(orderedTabIds) || orderedTabIds.length === 0) {
+        return;
+      }
+
+      const tabMap = new Map(this.tabs.map((tab) => [tab.id, tab] as const));
+      const reordered: Tab[] = [];
+
+      for (const id of orderedTabIds) {
+        const tab = tabMap.get(id);
+        if (!tab) {
+          continue;
+        }
+        reordered.push(tab);
+        tabMap.delete(id);
+      }
+
+      if (tabMap.size > 0) {
+        reordered.push(...tabMap.values());
+      }
+
+      this.tabs = reordered;
+    },
   },
 
   // 持久化配置 - 暂时禁用，等待类型修复

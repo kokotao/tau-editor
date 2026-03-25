@@ -198,15 +198,22 @@ export class TabService {
     }
   }
 
-  updateActiveTabContent(content: string) {
+  updateActiveTabContent(content: string, options?: { markDirty?: boolean }) {
     const tab = this.tabsStore.activeTab;
     if (!tab) return;
 
+    const markDirty = options?.markDirty ?? true;
+    const nextDirty = markDirty ? true : tab.isDirty;
+
+    if (tab.content === content && this.editorStore.content === content && tab.isDirty === nextDirty) {
+      return;
+    }
+
     this.tabsStore.updateTab(tab.id, {
       content,
-      isDirty: true,
+      isDirty: nextDirty,
     });
-    this.editorStore.setContent(content, true);
+    this.editorStore.setContent(content, markDirty);
   }
 
   updateActiveTabLanguage(languageId: string) {

@@ -286,6 +286,22 @@ export const useFileSystemStore = defineStore('fileSystem', {
       }
     },
 
+    // 创建新文件夹
+    async createNewFolder(folderPath: string): Promise<void> {
+      try {
+        await fileCommands.createFolder(folderPath);
+        this.addEntry({
+          name: folderPath.split('/').pop() || 'New Folder',
+          path: folderPath,
+          type: 'folder',
+          modified: Date.now(),
+        });
+      } catch (error) {
+        const tauriError = error instanceof TauriError ? error : TauriError.fromError(error, 'create_folder');
+        throw new Error(`创建文件夹失败：${tauriError.message}`);
+      }
+    },
+
     // 删除文件
     async deleteFileOrFolder(path: string): Promise<void> {
       try {
