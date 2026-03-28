@@ -1,4 +1,5 @@
 import { save } from '@tauri-apps/plugin-dialog';
+import { fileCommands } from '@/lib/tauri';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
 import type { useNotificationStore } from '@/stores/notification';
@@ -52,6 +53,9 @@ function detectLanguage(fileName: string): string {
 }
 
 const BINARY_PREVIEW_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
+const LARGE_FILE_PREVIEW_PREFIX = '[Large File Preview]';
+const LARGE_FILE_SAVE_CHUNK_BYTES = 1024 * 1024;
+const EDITOR_STORE_CONTENT_SYNC_MAX_CHARS = 1_000_000;
 
 function isBinaryPreviewPath(filePath: string | null | undefined): boolean {
   if (!filePath) return false;
@@ -61,6 +65,10 @@ function isBinaryPreviewPath(filePath: string | null | undefined): boolean {
 
 function isBinaryPreviewContent(content: string): boolean {
   return content.startsWith('[Binary File Preview]');
+}
+
+function isLargeFilePreviewContent(content: string): boolean {
+  return content.startsWith(LARGE_FILE_PREVIEW_PREFIX);
 }
 
 export class TabService {
@@ -88,6 +96,25 @@ export class TabService {
     this.tabsStore.closeAll();
   }
 
+  private async writeLargeFileInChunks(path: string, content: string, chunkBytes = LARGE_FILE_SAVE_CHUNK_BYTES) {
+    const chunkChars = Math.max(64 * 1024, Math.floor(chunkBytes / 2));
+    let offset = 0;
+    let append = false;
+
+    while (offset < content.length) {
+      const chunk = content.slice(offset, offset + chunkChars);
+      await fileCommands.writeFileChunked(path, chunk, append);
+      append = true;
+      offset += chunk.length;
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    if (content.length === 0) {
+      await fileCommands.writeFileChunked(path, '', false);
+    }
+  }
+
   async saveActiveTab() {
     const tab = this.tabsStore.activeTab;
     if (!tab) {
@@ -100,13 +127,31 @@ export class TabService {
       return;
     }
 
+    if (isLargeFilePreviewContent(tab.content)) {
+      this.notificationStore.warning('当前文件为大文件预览', '该标签仅加载了部分内容，暂不支持保存或覆盖原文件');
+      return;
+    }
+
+    if (tab.isLoadingContent) {
+      this.notificationStore.warning('文件仍在加载', '请等待大文件分段加载完成后再保存');
+      return;
+    }
+
     if (tab.isUntitled || !tab.filePath) {
       await this.saveActiveTabAs();
       return;
     }
 
     try {
-      await this.fileSystemStore.writeFileContent(tab.filePath, tab.content);
+      if (tab.isLargeFile) {
+        await this.writeLargeFileInChunks(
+          tab.filePath,
+          tab.content,
+          tab.largeFileChunkSize ?? LARGE_FILE_SAVE_CHUNK_BYTES,
+        );
+      } else {
+        await this.fileSystemStore.writeFileContent(tab.filePath, tab.content);
+      }
       this.tabsStore.updateTab(tab.id, { isDirty: false, isUntitled: false });
       this.editorStore.markAsSaved();
       this.workspaceStore.openSingleFile(tab.filePath);
@@ -129,6 +174,16 @@ export class TabService {
       return;
     }
 
+    if (isLargeFilePreviewContent(tab.content)) {
+      this.notificationStore.warning('当前文件为大文件预览', '该标签仅加载了部分内容，暂不支持另存为');
+      return;
+    }
+
+    if (tab.isLoadingContent) {
+      this.notificationStore.warning('文件仍在加载', '请等待大文件分段加载完成后再另存为');
+      return;
+    }
+
     try {
       const targetPath = await save({
         title: '另存为',
@@ -137,13 +192,25 @@ export class TabService {
 
       if (!targetPath) return;
 
-      await this.fileSystemStore.writeFileContent(targetPath, tab.content);
+      if (tab.isLargeFile) {
+        await this.writeLargeFileInChunks(
+          targetPath,
+          tab.content,
+          tab.largeFileChunkSize ?? LARGE_FILE_SAVE_CHUNK_BYTES,
+        );
+      } else {
+        await this.fileSystemStore.writeFileContent(targetPath, tab.content);
+      }
       this.tabsStore.updateTab(tab.id, {
         filePath: targetPath,
         fileName: getBaseName(targetPath),
         language: detectLanguage(targetPath),
         isDirty: false,
         isUntitled: false,
+        isLargeFile: tab.isLargeFile,
+        isLoadingContent: false,
+        largeFileSize: tab.largeFileSize,
+        largeFileChunkSize: tab.largeFileChunkSize,
       });
       this.editorStore.setLanguage(detectLanguage(targetPath));
       this.editorStore.markAsSaved();
@@ -213,7 +280,11 @@ export class TabService {
       content,
       isDirty: nextDirty,
     });
-    this.editorStore.setContent(content, markDirty);
+    if (content.length <= EDITOR_STORE_CONTENT_SYNC_MAX_CHARS) {
+      this.editorStore.setContent(content, markDirty);
+    } else {
+      this.editorStore.setDirty(nextDirty);
+    }
   }
 
   updateActiveTabLanguage(languageId: string) {
@@ -224,10 +295,12 @@ export class TabService {
   }
 
   syncTabToEditor(tab: Tab | null) {
-    this.editorStore.setContent(tab?.content ?? '', false);
+    const nextContent = tab?.content ?? '';
+    const shouldSyncFullContent = nextContent.length <= EDITOR_STORE_CONTENT_SYNC_MAX_CHARS;
+    this.editorStore.setContent(shouldSyncFullContent ? nextContent : '', false);
     this.editorStore.setLanguage(tab?.language ?? 'plaintext');
     this.editorStore.setDirty(tab?.isDirty ?? false);
-    this.editorStore.setReadOnly(false);
+    this.editorStore.setReadOnly(Boolean(tab?.isLoadingContent));
   }
 }
 

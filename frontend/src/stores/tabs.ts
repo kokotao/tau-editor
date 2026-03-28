@@ -9,6 +9,13 @@ export interface Tab {
   isUntitled: boolean;          // 是否为未保存文件
   content: string;              // 标签内容
   createdAt: number;            // 创建时间戳
+  isLargeFile?: boolean;        // 是否大文件标签
+  isLoadingContent?: boolean;   // 是否仍在分段加载
+  largeFileSize?: number;       // 大文件大小（字节）
+  largeFileChunkSize?: number;  // 分段大小（字节）
+  largeFileLoadedBytes?: number; // 已加载字节数（用于进度显示）
+  largeFileLoadProgress?: number; // 0-100 百分比
+  largeFileLoadSessionId?: number; // 分段加载会话 id（防串写）
 }
 
 export interface TabsState {

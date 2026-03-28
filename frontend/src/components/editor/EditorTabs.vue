@@ -43,7 +43,12 @@
             @keydown.enter.prevent="commitRename"
             @keydown.esc.prevent="cancelRename"
           />
-          <span v-else class="tab-name" data-testid="tab-title">{{ tab.fileName }}</span>
+          <div v-else class="tab-name-row">
+            <span class="tab-name" data-testid="tab-title">{{ tab.fileName }}</span>
+            <span v-if="tab.isLoadingContent" class="tab-loading-pill">
+              {{ getLoadingProgressLabel(tab) }}
+            </span>
+          </div>
           <span class="tab-path">{{ tab.isUntitled ? copy.unsaved : tab.filePath }}</span>
         </div>
 
@@ -139,6 +144,13 @@ const clampMenuPosition = (x: number, y: number, maxWidth: number, maxHeight: nu
     x: Math.max(CONTEXT_MENU_MARGIN, Math.min(x, safeMaxX)),
     y: Math.max(CONTEXT_MENU_MARGIN, Math.min(y, safeMaxY)),
   };
+};
+
+const getLoadingProgressLabel = (tab: Tab) => {
+  const progress = typeof tab.largeFileLoadProgress === 'number'
+    ? Math.max(0, Math.min(100, Math.round(tab.largeFileLoadProgress)))
+    : 0;
+  return copy.value.loadingProgress(progress);
 };
 
 const handleTabClick = (tabId: string) => {
@@ -409,11 +421,31 @@ onUnmounted(() => {
 }
 
 .tab-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
   font-weight: 600;
+}
+
+.tab-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tab-loading-pill {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--accent-blue-strong, #4dabff);
+  border: 1px solid color-mix(in srgb, var(--accent-blue-strong, #4dabff) 50%, transparent);
+  background: color-mix(in srgb, var(--accent-blue-strong, #4dabff) 16%, transparent);
 }
 
 .tab-path {

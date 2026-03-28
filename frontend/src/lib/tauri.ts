@@ -20,6 +20,20 @@ export interface FileInfo {
   is_dir?: boolean;
 }
 
+export interface FileChunk {
+  content: string;
+  offset: number;
+  size: number;
+  totalSize: number;
+  isLast: boolean;
+}
+
+export interface LargeFileConfig {
+  maxLinesForHighlighting: number;
+  maxFileSizeMb: number;
+  chunkSizeKb: number;
+}
+
 export interface AppVersionInfo {
   version: string;
   os: string;
@@ -153,6 +167,56 @@ export const fileCommands = {
 
   async getFileInfo(path: string): Promise<FileInfo> {
     return invokeCommand<FileInfo>('get_file_info', { path });
+  },
+
+  async readFileChunked(path: string, offset: number, chunkSize: number): Promise<FileChunk> {
+    const raw = await invokeCommand<{
+      content: string;
+      offset: number;
+      size: number;
+      total_size?: number;
+      totalSize?: number;
+      is_last?: boolean;
+      isLast?: boolean;
+    }>('read_file_chunked', {
+      path,
+      offset,
+      chunkSize,
+      chunk_size: chunkSize,
+    });
+
+    return {
+      content: raw.content,
+      offset: raw.offset,
+      size: raw.size,
+      totalSize: raw.totalSize ?? raw.total_size ?? raw.size,
+      isLast: raw.isLast ?? raw.is_last ?? true,
+    };
+  },
+
+  async getLargeFileConfig(): Promise<LargeFileConfig> {
+    const raw = await invokeCommand<{
+      max_lines_for_highlighting?: number;
+      maxLinesForHighlighting?: number;
+      max_file_size_mb?: number;
+      maxFileSizeMb?: number;
+      chunk_size_kb?: number;
+      chunkSizeKb?: number;
+    }>('get_large_file_config');
+
+    return {
+      maxLinesForHighlighting: raw.maxLinesForHighlighting ?? raw.max_lines_for_highlighting ?? 10000,
+      maxFileSizeMb: raw.maxFileSizeMb ?? raw.max_file_size_mb ?? 50,
+      chunkSizeKb: raw.chunkSizeKb ?? raw.chunk_size_kb ?? 1024,
+    };
+  },
+
+  async writeFileChunked(path: string, content: string, append: boolean): Promise<void> {
+    await invokeCommand<void>('write_file_chunked', {
+      path,
+      content,
+      append,
+    });
   },
 };
 
@@ -300,6 +364,20 @@ export const appCommands = {
 
     await invokeCommand<void>('open_external_link', {
       url,
+    });
+  },
+
+  async revealInFileManager(path: string): Promise<void> {
+    if (!path.trim()) {
+      return;
+    }
+
+    if (!isTauriAvailable()) {
+      throw new TauriError('仅桌面端支持打开文件所在位置', 'reveal_in_file_manager');
+    }
+
+    await invokeCommand<void>('reveal_in_file_manager', {
+      path,
     });
   },
 };

@@ -114,6 +114,7 @@ const editorScrollState = ref<{ top: number; height: number; scrollHeight: numbe
 type EditorCoreExpose = {
   getContent: () => string;
   focusAtStart: () => void;
+  layout: () => void;
   triggerFindWidget: () => void;
   triggerGoToLine: () => void;
 };
@@ -123,7 +124,10 @@ const GUIDE_LAST_OPENED_AT_KEY = 'text-editor-last-opened-at-v1';
 const GUIDE_LAST_SHOWN_AT_KEY = 'text-editor-guide-last-shown-at-v1';
 const GUIDE_REOPEN_DAYS = 14;
 const GUIDE_REOPEN_INTERVAL_MS = GUIDE_REOPEN_DAYS * 24 * 60 * 60 * 1000;
+const SESSION_SAVE_DEBOUNCE_MS = 600;
+const LARGE_FILE_WORD_COUNT_THRESHOLD_CHARS = 500_000;
 let unlistenExternalOpen: (() => void) | null = null;
+let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -191,6 +195,7 @@ const loading = computed(() => fileSystemStore.loading);
 const selectedPath = computed(() => fileSystemStore.selectedPath);
 const mode = computed(() => workspaceStore.mode);
 const tabs = computed(() => tabsStore.tabs);
+const openedModelIds = computed(() => tabsStore.tabs.map((tab) => tab.id));
 const activeTab = computed(() => tabsStore.activeTab);
 const activeTabId = computed(() => tabsStore.activeTabId);
 const cursorPosition = computed(() => editorStore.cursorPosition);
@@ -206,7 +211,16 @@ const canUndo = computed(() => editorStore.canUndo);
 const canRedo = computed(() => editorStore.canRedo);
 const lineCount = computed(() => editorStore.lineCount);
 const wordCount = computed(() => {
-  const content = activeTab.value?.content ?? '';
+  const tab = activeTab.value;
+  if (!tab) {
+    return 0;
+  }
+
+  if (tab.isLargeFile || tab.content.length > LARGE_FILE_WORD_COUNT_THRESHOLD_CHARS) {
+    return -1;
+  }
+
+  const content = tab.content;
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
@@ -308,7 +322,13 @@ const handleToolbarToggleSettings = () => {
 };
 
 const closeTransientPanels = () => {
+  const wasWorkspaceSettingsOpen = settingsContainer.value === 'workspace';
   settingsContainer.value = null;
+  if (wasWorkspaceSettingsOpen) {
+    void nextTick(() => {
+      editorCoreRef.value?.layout();
+    });
+  }
 };
 
 const handleRefresh = async () => {
@@ -500,6 +520,7 @@ const handleTabsReorder = (orderedTabIds: string[]) => {
 
 const handleContentChange = (content: string) => {
   tabService.updateActiveTabContent(content);
+  scheduleSessionSave();
 };
 
 const syncActiveEditorContent = () => {
@@ -977,6 +998,10 @@ function saveSession() {
     return;
   }
 
+  if (tabsStore.tabs.some((tab) => tab.isLoadingContent)) {
+    return;
+  }
+
   sessionService.save({
     mode: workspaceStore.mode,
     workspacePath: workspaceStore.currentWorkspacePath,
@@ -986,28 +1011,67 @@ function saveSession() {
   });
 }
 
+function cancelScheduledSessionSave() {
+  if (sessionSaveTimer) {
+    clearTimeout(sessionSaveTimer);
+    sessionSaveTimer = null;
+  }
+}
+
+function scheduleSessionSave() {
+  if (!settingsStore.restoreLastSession) {
+    sessionService.clear();
+    return;
+  }
+
+  cancelScheduledSessionSave();
+  sessionSaveTimer = setTimeout(() => {
+    sessionSaveTimer = null;
+    saveSession();
+  }, SESSION_SAVE_DEBOUNCE_MS);
+}
+
 watch(
   () => ({
     mode: workspaceStore.mode,
     workspacePath: workspaceStore.currentWorkspacePath,
     workspaceName: workspaceStore.currentWorkspaceName,
     activeTabId: tabsStore.activeTabId,
-    tabs: tabsStore.tabs,
+    tabOutline: tabsStore.tabs
+      .map((tab) =>
+        [
+          tab.id,
+          tab.filePath ?? '',
+          tab.fileName,
+          tab.language,
+          tab.isDirty ? '1' : '0',
+          tab.isUntitled ? '1' : '0',
+          String(tab.createdAt),
+        ].join('|'),
+      )
+      .join('||'),
   }),
   () => {
-    saveSession();
+    scheduleSessionSave();
   },
-  { deep: true },
+);
+
+watch(
+  () => activeTab.value?.content,
+  () => {
+    scheduleSessionSave();
+  },
 );
 
 watch(
   () => settingsStore.restoreLastSession,
   (enabled) => {
     if (enabled) {
-      saveSession();
+      scheduleSessionSave();
       return;
     }
 
+    cancelScheduledSessionSave();
     sessionService.clear();
   },
 );
@@ -1069,6 +1133,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  cancelScheduledSessionSave();
   saveSession();
   windowService.detach();
   keyboardStore.removeGlobalHandler();
@@ -1190,7 +1255,7 @@ onUnmounted(() => {
       </div>
 
       <section
-        v-if="settingsContainer === 'workspace'"
+        v-show="settingsContainer === 'workspace'"
         class="settings-page"
         data-testid="settings-page"
       >
@@ -1202,7 +1267,7 @@ onUnmounted(() => {
         />
       </section>
 
-      <section v-else class="editor-panel">
+      <section v-show="settingsContainer !== 'workspace'" class="editor-panel">
         <EditorTabs
           :tabs="tabs"
           :active-tab-id="activeTabId"
@@ -1226,8 +1291,12 @@ onUnmounted(() => {
             <EditorCore
               ref="editorCoreRef"
               :model-id="activeTab.id"
+              :file-path="activeTab.filePath"
+              :opened-model-ids="openedModelIds"
               :value="activeTab.content"
               :language="activeTab.language"
+              :is-large-file="Boolean(activeTab.isLargeFile)"
+              :read-only="Boolean(activeTab.isLoadingContent)"
               :theme="settingsStore.monacoTheme"
               @content-change="handleContentChange"
               @cursor-change="handleCursorChange"

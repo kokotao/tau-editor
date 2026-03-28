@@ -1,4 +1,5 @@
 import { open } from '@tauri-apps/plugin-dialog';
+import { fileCommands } from '@/lib/tauri';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
 import type { useNotificationStore } from '@/stores/notification';
@@ -47,7 +48,29 @@ function detectLanguage(fileName: string): string {
   return languageMap[ext] || 'plaintext';
 }
 
+const LARGE_FILE_CHUNK_LOAD_THRESHOLD_BYTES = 12 * 1024 * 1024;
+const LARGE_FILE_DEFAULT_CHUNK_BYTES = 2 * 1024 * 1024;
+const BINARY_PREVIEW_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
+
+function isBinaryPreviewPath(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  return BINARY_PREVIEW_EXTENSIONS.has(ext);
+}
+
+function formatSize(size: number): string {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  if (size >= 1024) {
+    return `${(size / 1024).toFixed(2)} KB`;
+  }
+  return `${size} B`;
+}
+
 export class WorkspaceService {
+  private readonly largeFileLoadSessions = new Map<string, number>();
+  private largeFileLoadSessionSeed = 0;
+
   constructor(
     private readonly fileSystemStore: FileSystemStore,
     private readonly tabsStore: TabsStore,
@@ -57,11 +80,7 @@ export class WorkspaceService {
     private readonly notificationStore: NotificationStore,
   ) {}
 
-  private estimateOpenedTabsMemoryBytes(additionalContent = ''): number {
-    return this.tabsStore.tabs.reduce((total, tab) => total + tab.content.length * 2, 0) + additionalContent.length * 2;
-  }
-
-  private ensureTabCapacity(label: string, additionalContent = ''): boolean {
+  private ensureTabCapacity(label: string, additionalContent = '', additionalBytes?: number): boolean {
     const maxOpenTabs = Math.max(1, Math.floor(this.settingsStore.maxOpenTabs));
     if (this.tabsStore.tabs.length >= maxOpenTabs) {
       const title = this.settingsStore.uiLanguage === 'en-US' ? 'Tab limit reached' : '已达到标签页上限';
@@ -74,7 +93,8 @@ export class WorkspaceService {
 
     const memoryLimitMB = Math.max(64, Math.floor(this.settingsStore.memoryLimitMB));
     const memoryLimitBytes = memoryLimitMB * 1024 * 1024;
-    const estimatedBytes = this.estimateOpenedTabsMemoryBytes(additionalContent);
+    const estimatedBytes = this.tabsStore.tabs.reduce((total, tab) => total + tab.content.length * 2, 0)
+      + (typeof additionalBytes === 'number' ? additionalBytes : additionalContent.length * 2);
     if (estimatedBytes > memoryLimitBytes) {
       const title = this.settingsStore.uiLanguage === 'en-US' ? 'Memory limit reached' : '已达到标签内存上限';
       const message = this.settingsStore.uiLanguage === 'en-US'
@@ -85,6 +105,105 @@ export class WorkspaceService {
     }
 
     return true;
+  }
+
+  private beginLargeFileLoadSession(tabId: string): number {
+    this.largeFileLoadSessionSeed += 1;
+    const sessionId = this.largeFileLoadSessionSeed;
+    this.largeFileLoadSessions.set(tabId, sessionId);
+    return sessionId;
+  }
+
+  private isLargeFileLoadSessionActive(tabId: string, sessionId: number): boolean {
+    return this.largeFileLoadSessions.get(tabId) === sessionId;
+  }
+
+  private calculateLargeFileProgress(loadedBytes: number, totalBytes: number): number {
+    if (totalBytes <= 0) {
+      return 100;
+    }
+    return Math.max(0, Math.min(100, Math.round((loadedBytes / totalBytes) * 100)));
+  }
+
+  private async loadRemainingLargeFileChunks(
+    tabId: string,
+    filePath: string,
+    fileSize: number,
+    chunkSize: number,
+    startOffset: number,
+    fileName: string,
+    sessionId: number,
+    initialContent: string,
+  ) {
+    let offset = startOffset;
+    let loadedBytes = Math.min(fileSize, startOffset);
+    let fullContent = initialContent;
+
+    try {
+      while (offset < fileSize) {
+        const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
+        if (!tab) {
+          this.largeFileLoadSessions.delete(tabId);
+          return;
+        }
+        if (!this.isLargeFileLoadSessionActive(tabId, sessionId)) {
+          return;
+        }
+
+        const chunk = await fileCommands.readFileChunked(
+          filePath,
+          offset,
+          Math.min(chunkSize, fileSize - offset),
+        );
+        if (chunk.size <= 0) {
+          break;
+        }
+
+        fullContent += chunk.content;
+        offset = chunk.offset + chunk.size;
+        loadedBytes = Math.min(fileSize, offset);
+
+        this.tabsStore.updateTab(tabId, {
+          largeFileLoadedBytes: loadedBytes,
+          largeFileLoadProgress: this.calculateLargeFileProgress(loadedBytes, fileSize),
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      if (!this.isLargeFileLoadSessionActive(tabId, sessionId)) {
+        return;
+      }
+
+      this.largeFileLoadSessions.delete(tabId);
+      this.tabsStore.updateTab(tabId, {
+        content: fullContent,
+        isLoadingContent: false,
+        largeFileLoadedBytes: fileSize,
+        largeFileLoadProgress: 100,
+        largeFileLoadSessionId: undefined,
+      });
+      const title = this.settingsStore.uiLanguage === 'en-US' ? 'Large file loaded' : '大文件加载完成';
+      const message = this.settingsStore.uiLanguage === 'en-US'
+        ? `${fileName} is fully loaded and editable now.`
+        : `${fileName} 已完整加载，现在可编辑。`;
+      this.notificationStore.success(title, message);
+    } catch (error: any) {
+      if (!this.isLargeFileLoadSessionActive(tabId, sessionId)) {
+        return;
+      }
+
+      this.largeFileLoadSessions.delete(tabId);
+      this.tabsStore.updateTab(tabId, {
+        isLoadingContent: true,
+        largeFileLoadSessionId: undefined,
+      });
+      const title = this.settingsStore.uiLanguage === 'en-US' ? 'Large file loading failed' : '大文件加载失败';
+      const message = this.settingsStore.uiLanguage === 'en-US'
+        ? `${error?.message || 'Unknown error'}. Reopen the file to retry.`
+        : `${error?.message || '未知错误'}。请重新打开该文件重试。`;
+      this.notificationStore.error(title, message);
+    }
   }
 
   createUntitledFile() {
@@ -116,8 +235,98 @@ export class WorkspaceService {
 
     try {
       this.fileSystemStore.loading = true;
-      const content = await this.fileSystemStore.readFileContent(filePath);
       const fileName = getBaseName(filePath);
+      let content = '';
+
+      let fileSize = 0;
+      try {
+        const fileInfo = await fileCommands.getFileInfo(filePath);
+        fileSize = fileInfo.size;
+      } catch {
+        fileSize = 0;
+      }
+
+      if (fileSize > 0 && !isBinaryPreviewPath(filePath)) {
+        let chunkLoadThresholdBytes = LARGE_FILE_CHUNK_LOAD_THRESHOLD_BYTES;
+        let chunkBytes = LARGE_FILE_DEFAULT_CHUNK_BYTES;
+        try {
+          const config = await fileCommands.getLargeFileConfig();
+          chunkLoadThresholdBytes = Math.min(
+            LARGE_FILE_CHUNK_LOAD_THRESHOLD_BYTES,
+            Math.floor(config.maxFileSizeMb * 1024 * 1024),
+          );
+          chunkBytes = Math.max(
+            256 * 1024,
+            Math.floor(config.chunkSizeKb * 1024),
+          );
+        } catch {
+          // Use fallback defaults when config is unavailable.
+        }
+
+        if (fileSize >= chunkLoadThresholdBytes) {
+          const firstChunk = await fileCommands.readFileChunked(
+            filePath,
+            0,
+            Math.min(chunkBytes, fileSize),
+          );
+          content = firstChunk.content;
+          const initialLoadedBytes = Math.min(fileSize, firstChunk.offset + firstChunk.size);
+          const initialProgress = this.calculateLargeFileProgress(initialLoadedBytes, fileSize);
+          const isFullyLoaded = firstChunk.isLast || initialLoadedBytes >= fileSize;
+          if (!this.ensureTabCapacity(fileName, content, fileSize * 2)) {
+            return;
+          }
+
+          const tabId = this.tabsStore.addTab({
+            filePath,
+            fileName,
+            language: detectLanguage(fileName),
+            isDirty: false,
+            isUntitled: false,
+            content,
+            isLargeFile: true,
+            isLoadingContent: !isFullyLoaded,
+            largeFileSize: fileSize,
+            largeFileChunkSize: chunkBytes,
+            largeFileLoadedBytes: initialLoadedBytes,
+            largeFileLoadProgress: initialProgress,
+            largeFileLoadSessionId: undefined,
+          });
+
+          this.fileSystemStore.selectEntry(filePath);
+          this.workspaceStore.openSingleFile(filePath);
+          if (!isFullyLoaded) {
+            const sessionId = this.beginLargeFileLoadSession(tabId);
+            this.tabsStore.updateTab(tabId, { largeFileLoadSessionId: sessionId });
+
+            const title = this.settingsStore.uiLanguage === 'en-US' ? 'Loading large file' : '正在分段加载大文件';
+            const message = this.settingsStore.uiLanguage === 'en-US'
+              ? `${fileName} ${formatSize(fileSize)} is loading in chunks.`
+              : `${fileName} (${formatSize(fileSize)}) 正在分段加载。`;
+            this.notificationStore.info(title, message);
+
+            void this.loadRemainingLargeFileChunks(
+              tabId,
+              filePath,
+              fileSize,
+              chunkBytes,
+              initialLoadedBytes,
+              fileName,
+              sessionId,
+              content,
+            );
+          } else {
+            this.tabsStore.updateTab(tabId, {
+              isLoadingContent: false,
+              largeFileLoadedBytes: fileSize,
+              largeFileLoadProgress: 100,
+            });
+          }
+          return;
+        }
+      }
+
+      content = await this.fileSystemStore.readFileContent(filePath);
       if (!this.ensureTabCapacity(fileName, content)) {
         return;
       }

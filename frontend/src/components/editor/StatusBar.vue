@@ -8,7 +8,7 @@
         <span class="status-label" data-testid="line-count">{{ lineCountLabel }}</span>
       </div>
       <div class="status-item">
-        <span class="status-label" data-testid="word-count">{{ wordCount }}</span>
+        <span class="status-label" data-testid="word-count">{{ normalizedWordCountLabel }}</span>
       </div>
       <div class="status-item author-info">
         <button class="author-trigger" data-testid="author-info-trigger" type="button" @click="showAuthorModal = true">
@@ -233,6 +233,12 @@ const normalizedLineCount = computed(() => {
 });
 const cursorPositionLabel = computed(() => copy.value.rowCol(props.cursorPosition.line, props.cursorPosition.column));
 const lineCountLabel = computed(() => copy.value.lineCount(normalizedLineCount.value));
+const normalizedWordCountLabel = computed(() => {
+  if (typeof props.wordCount !== 'number' || props.wordCount < 0) {
+    return '--';
+  }
+  return String(props.wordCount);
+});
 const normalizedEncoding = computed<EditorEncoding>(() => {
   const rawEncoding = (props.encoding ?? 'utf-8').toLowerCase();
   const matched = encodingOptions.find((item) => item.value === rawEncoding);

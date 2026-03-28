@@ -1,32 +1,62 @@
 <template>
-  <div ref="editorContainer" class="editor-core" data-testid="editor-container"></div>
+  <div class="editor-core-shell" @contextmenu.prevent>
+    <div ref="editorContainer" class="editor-core" data-testid="editor-container"></div>
+
+    <div
+      v-if="contextMenu.visible"
+      ref="contextMenuRef"
+      class="editor-context-menu"
+      :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
+      @click.stop
+    >
+      <template v-for="entry in contextMenuEntries" :key="entry.key">
+        <div v-if="entry.type === 'divider'" class="editor-context-divider"></div>
+        <button
+          v-else
+          type="button"
+          class="editor-context-item"
+          :disabled="!entry.enabled"
+          @click="handleContextMenuEntryClick(entry)"
+        >
+          {{ entry.label }}
+        </button>
+      </template>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, shallowRef } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import * as monaco from 'monaco-editor';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
+import { useNotificationStore } from '@/stores/notification';
+import { getEditorCoreI18n } from '@/i18n/ui';
+import { appCommands } from '@/lib/tauri';
 
-// Props
 interface EditorCoreProps {
-  modelId: string;           // 编辑器模型 ID
-  value?: string;            // 编辑器内容
-  language?: string;         // 语言模式
-  readOnly?: boolean;        // 只读模式
-  theme?: string;            // Monaco 主题 (vs/vs-dark/hc-black)
-  options?: monaco.editor.IStandaloneEditorConstructionOptions;   // Monaco 配置选项
+  modelId: string;
+  filePath?: string | null;
+  openedModelIds?: string[];
+  value?: string;
+  language?: string;
+  isLargeFile?: boolean;
+  readOnly?: boolean;
+  theme?: string;
+  options?: monaco.editor.IStandaloneEditorConstructionOptions;
 }
 
 const props = withDefaults(defineProps<EditorCoreProps>(), {
+  filePath: null,
+  openedModelIds: () => [],
   value: '',
   language: 'plaintext',
+  isLargeFile: false,
   readOnly: false,
   theme: 'vs-dark',
   options: () => ({}),
 });
 
-// 支持的语言列表
 const SUPPORTED_LANGUAGES = [
   { id: 'plaintext', label: 'Plain Text' },
   { id: 'javascript', label: 'JavaScript' },
@@ -49,7 +79,6 @@ const SUPPORTED_LANGUAGES = [
   { id: 'csharp', label: 'C#' },
 ];
 
-// Emits
 const emit = defineEmits<{
   'content-change': [content: string];
   'cursor-change': [position: { line: number; column: number }];
@@ -58,20 +87,47 @@ const emit = defineEmits<{
   'error': [error: Error];
 }>();
 
-// Refs
 const editorContainer = ref<HTMLElement | null>(null);
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-
-// 事件监听器引用 - 用于清理，避免内存泄漏
 const disposables = ref<monaco.IDisposable[]>([]);
 
-// Stores
 const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
+const notificationStore = useNotificationStore();
+const i18n = computed(() => getEditorCoreI18n(settingsStore.uiLanguage));
 
-// 内容变化节流 (避免频繁更新 store)
+const modelCache = new Map<string, monaco.editor.ITextModel>();
+const viewStateCache = new Map<string, monaco.editor.ICodeEditorViewState | null>();
+const activeModelId = ref(props.modelId);
+let suppressContentEmit = false;
+
 let contentUpdateTimer: ReturnType<typeof setTimeout> | null = null;
-const CONTENT_UPDATE_DELAY = 50; // ms
+let lineCountSyncTimer: ReturnType<typeof setTimeout> | null = null;
+const CONTENT_UPDATE_DELAY = 50;
+const MODEL_STRICT_COMPARE_MAX_CHARS = 300_000;
+
+const contextMenuRef = ref<HTMLElement | null>(null);
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+});
+const CONTEXT_MENU_MARGIN = 8;
+
+type ContextMenuDivider = {
+  type: 'divider';
+  key: string;
+};
+
+type ContextMenuItem = {
+  type: 'item';
+  key: string;
+  label: string;
+  enabled: boolean;
+  action: () => Promise<void> | void;
+};
+
+type ContextMenuEntry = ContextMenuDivider | ContextMenuItem;
 
 const emitScrollState = () => {
   if (!editor.value) {
@@ -85,40 +141,368 @@ const emitScrollState = () => {
   });
 };
 
+const syncLineCountToStore = () => {
+  if (!editor.value) {
+    return;
+  }
+  const model = editor.value.getModel();
+  if (!model) {
+    return;
+  }
+  editorStore.setLineCount(model.getLineCount());
+};
+
+const scheduleLineCountSync = () => {
+  if (lineCountSyncTimer) {
+    clearTimeout(lineCountSyncTimer);
+  }
+  lineCountSyncTimer = setTimeout(() => {
+    lineCountSyncTimer = null;
+    syncLineCountToStore();
+  }, 0);
+};
+
+const applyLargeFilePerformanceOptions = () => {
+  if (!editor.value) {
+    return;
+  }
+
+  if (props.isLargeFile) {
+    editor.value.updateOptions({
+      minimap: { enabled: false },
+      occurrencesHighlight: 'off',
+      selectionHighlight: false,
+      codeLens: false,
+      folding: false,
+      renderValidationDecorations: 'off',
+    });
+    return;
+  }
+
+  editor.value.updateOptions({
+    minimap: { enabled: settingsStore.minimap },
+    occurrencesHighlight: 'singleFile',
+    selectionHighlight: true,
+    codeLens: true,
+    folding: true,
+    renderValidationDecorations: 'on',
+  });
+};
+
+const normalizeModelUri = (modelId: string) =>
+  monaco.Uri.parse(`inmemory://tau-editor/${encodeURIComponent(modelId)}`);
+
+const updateModelContent = (
+  model: monaco.editor.ITextModel,
+  nextValue: string,
+  options?: { strictEqualityCheck?: boolean },
+) => {
+  const strictEqualityCheck = options?.strictEqualityCheck ?? false;
+  if (model.getValueLength() === nextValue.length) {
+    if (!strictEqualityCheck) {
+      return;
+    }
+    if (model.getValue() === nextValue) {
+      return;
+    }
+  }
+
+  suppressContentEmit = true;
+  model.setValue(nextValue);
+  suppressContentEmit = false;
+};
+
+const getOrCreateModel = (modelId: string, content: string, language: string) => {
+  const cachedModel = modelCache.get(modelId);
+  if (cachedModel && !cachedModel.isDisposed()) {
+    if (cachedModel.getLanguageId() !== language) {
+      monaco.editor.setModelLanguage(cachedModel, language);
+    }
+    return cachedModel;
+  }
+
+  const uri = normalizeModelUri(modelId);
+  const existingModel = monaco.editor.getModel(uri);
+  const model = existingModel ?? monaco.editor.createModel(content, language, uri);
+  if (model.getLanguageId() !== language) {
+    monaco.editor.setModelLanguage(model, language);
+  }
+
+  modelCache.set(modelId, model);
+  return model;
+};
+
+const cleanupOrphanModels = (openedModelIds: string[]) => {
+  const keepIds = new Set(openedModelIds);
+  keepIds.add(props.modelId);
+
+  for (const [modelId, model] of modelCache.entries()) {
+    if (keepIds.has(modelId)) {
+      continue;
+    }
+
+    viewStateCache.delete(modelId);
+    modelCache.delete(modelId);
+    if (!model.isDisposed()) {
+      model.dispose();
+    }
+  }
+};
+
+const activateModel = (nextModelId: string) => {
+  if (!editor.value) {
+    return;
+  }
+
+  const currentModel = editor.value.getModel();
+  if (currentModel && activeModelId.value) {
+    viewStateCache.set(activeModelId.value, editor.value.saveViewState());
+  }
+
+  const targetModel = getOrCreateModel(nextModelId, props.value, props.language);
+  if (editor.value.getModel() !== targetModel) {
+    editor.value.setModel(targetModel);
+  }
+
+  if (targetModel.getLanguageId() !== props.language) {
+    monaco.editor.setModelLanguage(targetModel, props.language);
+  }
+  updateModelContent(targetModel, props.value, {
+    strictEqualityCheck: props.value.length <= MODEL_STRICT_COMPARE_MAX_CHARS,
+  });
+
+  const cachedViewState = viewStateCache.get(nextModelId);
+  if (cachedViewState) {
+    editor.value.restoreViewState(cachedViewState);
+  }
+
+  activeModelId.value = nextModelId;
+  applyLargeFilePerformanceOptions();
+  scheduleLineCountSync();
+  emitScrollState();
+};
+
 const triggerEditorAction = async (actionId: string) => {
   if (!editor.value) {
     return;
   }
 
   editor.value.focus();
-  await editor.value.getAction(actionId)?.run();
+  const action = editor.value.getAction(actionId);
+  if (action) {
+    await action.run();
+    return;
+  }
+
+  editor.value.trigger('tau-editor-context-menu', actionId, null);
 };
 
-// 初始化编辑器
+const triggerEditorCommand = (commandId: string) => {
+  if (!editor.value) {
+    return;
+  }
+  editor.value.focus();
+  editor.value.trigger('tau-editor-context-menu', commandId, null);
+};
+
+const handlePasteCommand = async () => {
+  if (!editor.value || props.readOnly) {
+    return;
+  }
+
+  editor.value.focus();
+
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+      const text = await navigator.clipboard.readText();
+      if (text.length > 0) {
+        const selections = editor.value.getSelections() ?? [];
+        if (selections.length > 0) {
+          editor.value.executeEdits(
+            'tau-editor-context-menu',
+            selections.map((selection) => ({
+              range: selection,
+              text,
+              forceMoveMarkers: true,
+            })),
+          );
+          return;
+        }
+      }
+    }
+  } catch {
+    // ignore and fallback to monaco default paste command
+  }
+
+  triggerEditorCommand('editor.action.clipboardPasteAction');
+};
+
+const closeContextMenu = () => {
+  contextMenu.value.visible = false;
+};
+
+const openContextMenu = (x: number, y: number) => {
+  contextMenu.value = {
+    visible: true,
+    x,
+    y,
+  };
+
+  void nextTick(() => {
+    const menu = contextMenuRef.value;
+    const container = editorContainer.value;
+    if (!menu || !container) {
+      return;
+    }
+
+    const maxX = Math.max(CONTEXT_MENU_MARGIN, container.clientWidth - menu.offsetWidth - CONTEXT_MENU_MARGIN);
+    const maxY = Math.max(CONTEXT_MENU_MARGIN, container.clientHeight - menu.offsetHeight - CONTEXT_MENU_MARGIN);
+
+    contextMenu.value.x = Math.max(CONTEXT_MENU_MARGIN, Math.min(contextMenu.value.x, maxX));
+    contextMenu.value.y = Math.max(CONTEXT_MENU_MARGIN, Math.min(contextMenu.value.y, maxY));
+  });
+};
+
+const handleCopyFilePath = async () => {
+  const filePath = props.filePath?.trim();
+  if (!filePath) {
+    notificationStore.info(i18n.value.contextNoFilePath);
+    return;
+  }
+
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(filePath);
+    } else {
+      throw new Error(i18n.value.contextCopyPathFailed);
+    }
+    notificationStore.success(i18n.value.contextCopyPathDone, filePath);
+  } catch (error: any) {
+    notificationStore.error(i18n.value.contextCopyPathFailed, error?.message || i18n.value.contextCopyPathFailed);
+  }
+};
+
+const handleRevealInFolder = async () => {
+  const filePath = props.filePath?.trim();
+  if (!filePath) {
+    notificationStore.info(i18n.value.contextNoFilePath);
+    return;
+  }
+
+  try {
+    await appCommands.revealInFileManager(filePath);
+  } catch (error: any) {
+    notificationStore.error(i18n.value.contextRevealFailed, error?.message || i18n.value.contextRevealFailed);
+  }
+};
+
+const hasFilePath = computed(() => Boolean(props.filePath && props.filePath.trim().length > 0));
+
+const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
+  {
+    type: 'item',
+    key: 'undo',
+    label: i18n.value.contextUndo,
+    enabled: true,
+    action: () => triggerEditorCommand('undo'),
+  },
+  {
+    type: 'item',
+    key: 'redo',
+    label: i18n.value.contextRedo,
+    enabled: true,
+    action: () => triggerEditorCommand('redo'),
+  },
+  { type: 'divider', key: 'divider-edit-1' },
+  {
+    type: 'item',
+    key: 'cut',
+    label: i18n.value.contextCut,
+    enabled: !props.readOnly,
+    action: () => triggerEditorCommand('editor.action.clipboardCutAction'),
+  },
+  {
+    type: 'item',
+    key: 'copy',
+    label: i18n.value.contextCopy,
+    enabled: true,
+    action: () => triggerEditorCommand('editor.action.clipboardCopyAction'),
+  },
+  {
+    type: 'item',
+    key: 'paste',
+    label: i18n.value.contextPaste,
+    enabled: !props.readOnly,
+    action: handlePasteCommand,
+  },
+  {
+    type: 'item',
+    key: 'select-all',
+    label: i18n.value.contextSelectAll,
+    enabled: true,
+    action: () => triggerEditorCommand('editor.action.selectAll'),
+  },
+  { type: 'divider', key: 'divider-edit-2' },
+  {
+    type: 'item',
+    key: 'find',
+    label: i18n.value.contextFind,
+    enabled: true,
+    action: () => triggerEditorAction('actions.find'),
+  },
+  {
+    type: 'item',
+    key: 'replace',
+    label: i18n.value.contextReplace,
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.startFindReplaceAction'),
+  },
+  { type: 'divider', key: 'divider-path' },
+  {
+    type: 'item',
+    key: 'copy-file-path',
+    label: i18n.value.contextCopyFilePath,
+    enabled: hasFilePath.value,
+    action: handleCopyFilePath,
+  },
+  {
+    type: 'item',
+    key: 'reveal-in-folder',
+    label: i18n.value.contextRevealInFolder,
+    enabled: hasFilePath.value,
+    action: handleRevealInFolder,
+  },
+]);
+
+const handleContextMenuEntryClick = (entry: ContextMenuEntry) => {
+  if (entry.type !== 'item' || !entry.enabled) {
+    return;
+  }
+
+  closeContextMenu();
+  void entry.action();
+};
+
 const initEditor = () => {
   if (!editorContainer.value) return;
 
   try {
-    // 优先使用 settingsStore 中的主题，其次使用 props.theme
     const monacoTheme = settingsStore.monacoTheme || props.theme;
-    
-    // 大文件优化选项
+    const initialModel = getOrCreateModel(props.modelId, props.value, props.language);
+
     const largeFileOptimizations = {
-      // 禁用大文件的语法高亮 (超过 10000 行)
       maxTokenizationLineLength: 10000,
-      // 限制折叠范围计算
       folding: true,
-      // 优化大文件性能
       largeFileOptimizations: true,
     };
-    
+
     editor.value = monaco.editor.create(editorContainer.value, {
-      value: props.value,
-      language: props.language,
+      model: initialModel,
       theme: monacoTheme,
       readOnly: props.readOnly,
+      contextmenu: false,
       automaticLayout: true,
-      minimap: { enabled: settingsStore.minimap },
+      minimap: { enabled: props.isLargeFile ? false : settingsStore.minimap },
       fontSize: settingsStore.fontSize,
       fontFamily: settingsStore.fontFamily,
       lineHeight: Math.round(settingsStore.lineHeight * 10),
@@ -130,35 +514,31 @@ const initEditor = () => {
       ...props.options,
     });
 
-    // 清空之前的监听器
-    disposables.value.forEach(d => d.dispose());
+    disposables.value.forEach((disposable) => disposable.dispose());
     disposables.value = [];
 
-    // 监听内容变化 (带节流)
     const contentDisposable = editor.value.onDidChangeModelContent(() => {
-      if (!editor.value) return;
-      
-      // 清除之前的定时器
+      if (!editor.value || suppressContentEmit) return;
+
       if (contentUpdateTimer) {
         clearTimeout(contentUpdateTimer);
       }
-      
-      // 节流更新
+
       contentUpdateTimer = setTimeout(() => {
         const content = editor.value!.getValue();
         emit('content-change', content);
         editorStore.setContent(content);
+        scheduleLineCountSync();
       }, CONTENT_UPDATE_DELAY);
     });
     disposables.value.push(contentDisposable);
 
-    // 监听光标变化
-    const cursorDisposable = editor.value.onDidChangeCursorPosition((e) => {
+    const cursorDisposable = editor.value.onDidChangeCursorPosition((event) => {
       emit('cursor-change', {
-        line: e.position.lineNumber,
-        column: e.position.column,
+        line: event.position.lineNumber,
+        column: event.position.column,
       });
-      editorStore.updateCursorPosition(e.position.lineNumber, e.position.column);
+      editorStore.updateCursorPosition(event.position.lineNumber, event.position.column);
     });
     disposables.value.push(cursorDisposable);
 
@@ -167,49 +547,70 @@ const initEditor = () => {
     });
     disposables.value.push(scrollDisposable);
 
-    // 监听选择变化
-    const selectionDisposable = editor.value.onDidChangeCursorSelection((e) => {
+    const selectionDisposable = editor.value.onDidChangeCursorSelection(() => {
       if (!editor.value) return;
       const selection = editor.value.getSelection();
-      if (selection) {
-        const model = editor.value.getModel();
-        if (model) {
-          const start = model.getOffsetAt(selection.getStartPosition());
-          const end = model.getOffsetAt(selection.getEndPosition());
-          editorStore.updateSelection(start, end);
-        }
-      }
+      if (!selection) return;
+
+      const model = editor.value.getModel();
+      if (!model) return;
+
+      const start = model.getOffsetAt(selection.getStartPosition());
+      const end = model.getOffsetAt(selection.getEndPosition());
+      editorStore.updateSelection(start, end);
     });
     disposables.value.push(selectionDisposable);
 
-    // 监听撤销/重做状态变化
     const undoRedoDisposable = editor.value.onDidChangeModelContent(() => {
       if (!editor.value) return;
-      // Monaco 没有直接的 hasUndoStack API，通过命令状态判断
       const undoState = editor.value.getAction('undo')?.isSupported() ?? false;
       const redoState = editor.value.getAction('redo')?.isSupported() ?? false;
       editorStore.updateUndoRedoState(undoState, redoState);
     });
     disposables.value.push(undoRedoDisposable);
 
-    // 快捷键保存
+    const contextMenuDisposable = editor.value.onContextMenu((event) => {
+      if (!editorContainer.value) {
+        return;
+      }
+
+      event.event.preventDefault();
+      event.event.stopPropagation();
+
+      const bounds = editorContainer.value.getBoundingClientRect();
+      const eventX = (event.event as any).posx ?? (event.event.browserEvent?.clientX ?? bounds.left);
+      const eventY = (event.event as any).posy ?? (event.event.browserEvent?.clientY ?? bounds.top);
+      const relativeX = eventX - bounds.left;
+      const relativeY = eventY - bounds.top;
+
+      openContextMenu(relativeX, relativeY);
+    });
+    disposables.value.push(contextMenuDisposable);
+
     editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       emit('model-save');
     });
 
+    activeModelId.value = props.modelId;
+    applyLargeFilePerformanceOptions();
+    scheduleLineCountSync();
+    cleanupOrphanModels(props.openedModelIds);
     emitScrollState();
-
   } catch (error) {
     emit('error', error as Error);
   }
 };
 
-// 暴露的方法
 defineExpose({
   getContent: () => editor.value?.getValue() || '',
   setContent: (content: string) => {
-    if (editor.value) {
-      editor.value.setValue(content);
+    if (!editor.value) {
+      return;
+    }
+
+    const model = editor.value.getModel();
+    if (model) {
+      updateModelContent(model, content, { strictEqualityCheck: true });
     }
   },
   focus: () => editor.value?.focus(),
@@ -233,11 +634,13 @@ defineExpose({
     return model.getValueInRange(selection);
   },
   setLanguage: (language: string) => {
-    if (editor.value) {
-      const model = editor.value.getModel();
-      if (model) {
-        monaco.editor.setModelLanguage(model, language);
-      }
+    if (!editor.value) {
+      return;
+    }
+
+    const model = editor.value.getModel();
+    if (model) {
+      monaco.editor.setModelLanguage(model, language);
     }
   },
   setTheme: (theme: string) => {
@@ -253,94 +656,227 @@ defineExpose({
   },
 });
 
-// 支持的语言列表已在组件外部定义，可直接从文件导入使用
+watch(
+  () => settingsStore.monacoOptions,
+  (newOptions) => {
+    if (editor.value) {
+      editor.value.updateOptions(newOptions);
+      applyLargeFilePerformanceOptions();
+    }
+  },
+  { deep: true },
+);
 
-// 监听设置变化
-watch(() => settingsStore.monacoOptions, (newOptions) => {
-  if (editor.value) {
-    editor.value.updateOptions(newOptions);
-  }
-}, { deep: true });
+watch(
+  () => settingsStore.fontFamily,
+  (newFontFamily) => {
+    if (!editor.value) {
+      return;
+    }
 
-watch(() => settingsStore.fontFamily, (newFontFamily) => {
-  if (!editor.value) {
+    editor.value.updateOptions({ fontFamily: newFontFamily });
+    monaco.editor.remeasureFonts();
+    editor.value.layout();
+  },
+);
+
+watch(
+  () => props.theme,
+  (newTheme) => {
+    if (editor.value) {
+      monaco.editor.setTheme(newTheme);
+    }
+  },
+);
+
+watch(
+  () => settingsStore.monacoTheme,
+  (newTheme) => {
+    if (editor.value) {
+      monaco.editor.setTheme(newTheme);
+    }
+  },
+);
+
+watch(
+  () => props.modelId,
+  (nextModelId) => {
+    activateModel(nextModelId);
+    cleanupOrphanModels(props.openedModelIds);
+  },
+);
+
+watch(
+  () => props.openedModelIds,
+  (modelIds) => {
+    cleanupOrphanModels(modelIds);
+  },
+  { deep: true },
+);
+
+watch(
+  () => props.language,
+  (nextLanguage) => {
+    if (!editor.value) {
+      return;
+    }
+
+    const model = editor.value.getModel();
+    if (model && model.getLanguageId() !== nextLanguage) {
+      monaco.editor.setModelLanguage(model, nextLanguage);
+    }
+  },
+);
+
+watch(
+  () => props.readOnly,
+  (readOnly) => {
+    if (editor.value) {
+      editor.value.updateOptions({ readOnly });
+    }
+  },
+);
+
+watch(
+  () => props.isLargeFile,
+  () => {
+    applyLargeFilePerformanceOptions();
+  },
+);
+
+watch(
+  () => props.value,
+  (nextValue) => {
+    if (!editor.value) {
+      return;
+    }
+
+    const model = editor.value.getModel();
+    if (model) {
+      updateModelContent(model, nextValue, {
+        strictEqualityCheck: nextValue.length <= MODEL_STRICT_COMPARE_MAX_CHARS,
+      });
+      scheduleLineCountSync();
+    }
+  },
+);
+
+const handleWindowPointerDown = (event: MouseEvent) => {
+  if (!contextMenu.value.visible) {
     return;
   }
 
-  editor.value.updateOptions({ fontFamily: newFontFamily });
-  monaco.editor.remeasureFonts();
-  editor.value.layout();
-});
-
-// 监听主题变化 (props)
-watch(() => props.theme, (newTheme) => {
-  if (editor.value) {
-    monaco.editor.setTheme(newTheme);
+  const target = event.target as Node | null;
+  if (target && contextMenuRef.value?.contains(target)) {
+    return;
   }
-});
 
-// 监听 settingsStore 中的 Monaco 主题变化
-watch(() => settingsStore.monacoTheme, (newTheme) => {
-  if (editor.value) {
-    monaco.editor.setTheme(newTheme);
-  }
-});
+  closeContextMenu();
+};
 
-// 监听语言变化 - 动态切换语言模式
-watch(() => props.language, (newLanguage) => {
-  if (editor.value) {
-    const model = editor.value.getModel();
-    if (model) {
-      monaco.editor.setModelLanguage(model, newLanguage);
-    }
-  }
-});
+const handleWindowResize = () => {
+  closeContextMenu();
+};
 
-watch(() => props.readOnly, (readOnly) => {
-  if (editor.value) {
-    editor.value.updateOptions({ readOnly });
-  }
-});
-
-watch(() => props.value, (newValue) => {
-  if (!editor.value) return;
-
-  const currentValue = editor.value.getValue();
-  if (currentValue === newValue) return;
-
-  editor.value.setValue(newValue);
-});
-
-// 生命周期
 onMounted(() => {
   initEditor();
+  window.addEventListener('mousedown', handleWindowPointerDown);
+  window.addEventListener('resize', handleWindowResize);
 });
 
 onBeforeUnmount(() => {
-  // 清除内容更新定时器
   if (contentUpdateTimer) {
     clearTimeout(contentUpdateTimer);
     contentUpdateTimer = null;
   }
-  
-  // 清理所有事件监听器
-  disposables.value.forEach(d => d.dispose());
+  if (lineCountSyncTimer) {
+    clearTimeout(lineCountSyncTimer);
+    lineCountSyncTimer = null;
+  }
+
+  window.removeEventListener('mousedown', handleWindowPointerDown);
+  window.removeEventListener('resize', handleWindowResize);
+
+  disposables.value.forEach((disposable) => disposable.dispose());
   disposables.value = [];
-  
-  // 销毁编辑器实例
+
   if (editor.value) {
+    const model = editor.value.getModel();
+    if (model && activeModelId.value) {
+      viewStateCache.set(activeModelId.value, editor.value.saveViewState());
+    }
     editor.value.dispose();
     editor.value = null;
   }
+
+  for (const model of modelCache.values()) {
+    if (!model.isDisposed()) {
+      model.dispose();
+    }
+  }
+  modelCache.clear();
+  viewStateCache.clear();
 });
 </script>
 
 <style scoped>
+.editor-core-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  overflow: hidden;
+}
+
 .editor-core {
   width: 100%;
   height: 100%;
   min-height: 400px;
   overflow: hidden;
   display: block;
+}
+
+.editor-context-menu {
+  position: absolute;
+  z-index: 5000;
+  min-width: 200px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border-default, #2a3a57) 85%, transparent);
+  background: color-mix(in srgb, var(--color-panel-base, #111b2f) 95%, #05080f 5%);
+  box-shadow: 0 14px 28px rgba(5, 12, 26, 0.28);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.editor-context-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary, #eef2ff);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.editor-context-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent-brand, #4c8dff) 18%, transparent);
+}
+
+.editor-context-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.editor-context-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: color-mix(in srgb, var(--color-border-default, #2a3a57) 85%, transparent);
 }
 </style>

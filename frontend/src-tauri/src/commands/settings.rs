@@ -239,6 +239,21 @@ pub fn open_external_link(url: String) -> Result<(), String> {
     open_external_url(&url)
 }
 
+#[tauri::command]
+pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("路径不能为空".to_string());
+    }
+
+    let target = PathBuf::from(trimmed);
+    if !target.exists() {
+        return Err("目标路径不存在".to_string());
+    }
+
+    open_in_file_manager(&target)
+}
+
 fn parse_github_repo(url: &str) -> Result<(String, String), String> {
     let trimmed = url.trim().trim_end_matches('/');
 
@@ -801,6 +816,52 @@ fn open_external_url(url: &str) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("打开浏览器失败：{error}"))
+}
+
+fn open_in_file_manager(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("open");
+        if path.is_file() {
+            command.arg("-R").arg(path);
+        } else {
+            command.arg(path);
+        }
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("打开文件管理器失败：{error}"))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("explorer");
+        if path.is_file() {
+            command.arg(format!("/select,{}", path.display()));
+        } else {
+            command.arg(path);
+        }
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("打开文件管理器失败：{error}"))?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let open_target = if path.is_dir() {
+            path.to_path_buf()
+        } else {
+            path.parent().map(Path::to_path_buf).unwrap_or_else(|| path.to_path_buf())
+        };
+        Command::new("xdg-open")
+            .arg(open_target)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("打开文件管理器失败：{error}"))?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

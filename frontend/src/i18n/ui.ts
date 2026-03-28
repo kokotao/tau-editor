@@ -228,6 +228,7 @@ interface EditorTabsText {
   closeOthers: string;
   closeAll: string;
   renameTab: string;
+  loadingProgress: (progress: number) => string;
 }
 
 interface FileTreeText {
@@ -289,6 +290,12 @@ interface EditorCoreText {
   contextFind: string;
   contextReplace: string;
   contextSelectAll: string;
+  contextCopyFilePath: string;
+  contextRevealInFolder: string;
+  contextNoFilePath: string;
+  contextCopyPathDone: string;
+  contextCopyPathFailed: string;
+  contextRevealFailed: string;
   searchPlaceholder: string;
   replacePlaceholder: string;
   searchPrevious: string;
@@ -779,6 +786,7 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     closeOthers: '关闭其他标签',
     closeAll: '关闭所有标签',
     renameTab: '重命名标签',
+    loadingProgress: (progress) => `加载中 ${progress}%`,
   },
   'en-US': {
     unsaved: 'Unsaved',
@@ -786,6 +794,7 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     closeOthers: 'Close Others',
     closeAll: 'Close All',
     renameTab: 'Rename Tab',
+    loadingProgress: (progress) => `Loading ${progress}%`,
   },
 };
 
@@ -968,6 +977,12 @@ const EDITOR_CORE_TEXTS: Record<UiLanguage, EditorCoreText> = {
     contextFind: '查找',
     contextReplace: '替换',
     contextSelectAll: '全选',
+    contextCopyFilePath: '复制文件路径',
+    contextRevealInFolder: '打开文件所在位置',
+    contextNoFilePath: '当前标签没有文件路径',
+    contextCopyPathDone: '文件路径已复制',
+    contextCopyPathFailed: '复制文件路径失败',
+    contextRevealFailed: '打开文件所在位置失败',
     searchPlaceholder: '查找',
     replacePlaceholder: '替换为',
     searchPrevious: '上一个',
@@ -987,6 +1002,12 @@ const EDITOR_CORE_TEXTS: Record<UiLanguage, EditorCoreText> = {
     contextFind: 'Find',
     contextReplace: 'Replace',
     contextSelectAll: 'Select All',
+    contextCopyFilePath: 'Copy File Path',
+    contextRevealInFolder: 'Reveal in Folder',
+    contextNoFilePath: 'Current tab has no file path',
+    contextCopyPathDone: 'File path copied',
+    contextCopyPathFailed: 'Failed to copy file path',
+    contextRevealFailed: 'Failed to open file location',
     searchPlaceholder: 'Find',
     replacePlaceholder: 'Replace with',
     searchPrevious: 'Previous',

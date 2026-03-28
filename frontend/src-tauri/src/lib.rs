@@ -43,6 +43,7 @@ pub fn run() {
       commands::rename_file,
       commands::get_file_info,
       commands::read_file_chunked,
+      commands::write_file_chunked,
       commands::get_file_line_count,
       commands::read_file_lines,
       commands::get_large_file_config,
@@ -53,6 +54,7 @@ pub fn run() {
       commands::download_and_install_update,
       commands::open_project_homepage,
       commands::open_external_link,
+      commands::reveal_in_file_manager,
       commands::consume_pending_open_paths,
     ])
     .build(tauri::generate_context!())
