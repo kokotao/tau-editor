@@ -72,10 +72,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Tauri bundles
-        uses: tauri-apps/tauri-action@v0
-        with:
-          projectPath: frontend
-          args: ${{ matrix.args }}
+        working-directory: frontend
+        run: pnpm tauri build ${{ matrix.args }}
 
       - name: Package macOS DMG and ZIP artifacts
         if: matrix.platform == 'macos-latest'
@@ -113,6 +111,21 @@ jobs:
           pattern: bundles-*
           merge-multiple: true
           path: release-assets
+
+      - name: Ensure GitHub Release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists"
+            exit 0
+          fi
+
+          gh release create "${RELEASE_TAG}" --title "${RELEASE_TAG}" --notes ""
 
       - name: Upload artifacts to GitHub Release
         env:
