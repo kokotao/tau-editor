@@ -13,7 +13,8 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
-import { appCommands, isTauriApp } from '@/lib/tauri';
+import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
+import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
   getAppI18n,
   getCommandText,
@@ -126,8 +127,11 @@ const GUIDE_REOPEN_DAYS = 14;
 const GUIDE_REOPEN_INTERVAL_MS = GUIDE_REOPEN_DAYS * 24 * 60 * 60 * 1000;
 const SESSION_SAVE_DEBOUNCE_MS = 600;
 const LARGE_FILE_WORD_COUNT_THRESHOLD_CHARS = 500_000;
+const EXTERNAL_FILE_SYNC_INTERVAL_MS = 1500;
 let unlistenExternalOpen: (() => void) | null = null;
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let externalFileSyncTimer: ReturnType<typeof setInterval> | null = null;
+let externalFileSyncInFlight = false;
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -922,6 +926,100 @@ const setupExternalFileOpenBridge = async (): Promise<boolean> => {
   return false;
 };
 
+const reloadTabContentFromDisk = async (tabId: string, filePath: string, modifiedAt: number | null) => {
+  const content = await fileSystemStore.readFileContent(filePath);
+  tabsStore.updateTab(tabId, {
+    content,
+    isDirty: false,
+    lastKnownModified: modifiedAt,
+    externalModifiedAt: null,
+  });
+
+  if (tabsStore.activeTabId === tabId) {
+    tabService.syncTabToEditor(tabsStore.activeTab);
+    editorStore.markAsSaved();
+  }
+};
+
+const syncActiveTabExternalChanges = async () => {
+  if (!isTauriApp() || externalFileSyncInFlight) {
+    return;
+  }
+
+  const tab = activeTab.value;
+  if (!tab?.filePath) {
+    return;
+  }
+
+  externalFileSyncInFlight = true;
+
+  try {
+    const fileInfo = await fileCommands.getFileInfo(tab.filePath);
+    const observedModified = normalizeModifiedTimestamp(fileInfo.modified);
+    const action = resolveExternalFileSyncAction({
+      filePath: tab.filePath,
+      isUntitled: tab.isUntitled,
+      isLoadingContent: tab.isLoadingContent,
+      isDirty: tab.isDirty,
+      lastKnownModified: tab.lastKnownModified ?? null,
+      externalModifiedAt: tab.externalModifiedAt ?? null,
+      observedModified,
+    });
+
+    if (action === 'flag') {
+      tabsStore.updateTab(tab.id, {
+        externalModifiedAt: observedModified,
+      });
+      notificationStore.warning(
+        settingsStore.uiLanguage === 'en-US' ? 'External change detected' : '检测到外部文件更新',
+        settingsStore.uiLanguage === 'en-US'
+          ? 'The file changed on disk. Save or discard your local edits before reloading.'
+          : '该文件已被其他编辑器修改。请先保存或处理当前未保存内容，再重新加载。',
+      );
+    } else if (action === 'reload') {
+      await reloadTabContentFromDisk(
+        tab.id,
+        tab.filePath,
+        observedModified ?? tab.externalModifiedAt ?? tab.lastKnownModified ?? null,
+      );
+      if (workspaceStore.currentWorkspacePath && isPathUnderFolder(tab.filePath, workspaceStore.currentWorkspacePath)) {
+        await fileSystemStore.refreshFileTree();
+      }
+    } else if ((tab.lastKnownModified === null || tab.lastKnownModified === undefined) && observedModified !== null) {
+      tabsStore.updateTab(tab.id, {
+        lastKnownModified: observedModified,
+      });
+    }
+  } catch (error) {
+    console.warn('[App] 外部文件同步检查失败:', error);
+  } finally {
+    externalFileSyncInFlight = false;
+  }
+};
+
+const startExternalFileSync = () => {
+  if (!isTauriApp()) {
+    return;
+  }
+
+  if (externalFileSyncTimer) {
+    clearInterval(externalFileSyncTimer);
+  }
+
+  externalFileSyncTimer = setInterval(() => {
+    void syncActiveTabExternalChanges();
+  }, EXTERNAL_FILE_SYNC_INTERVAL_MS);
+};
+
+const stopExternalFileSync = () => {
+  if (!externalFileSyncTimer) {
+    return;
+  }
+
+  clearInterval(externalFileSyncTimer);
+  externalFileSyncTimer = null;
+};
+
 const startSidebarResize = (event: MouseEvent) => {
   if (!showFileTree.value) {
     return;
@@ -1118,6 +1216,13 @@ watch(
   },
 );
 
+watch(
+  () => activeTab.value?.id,
+  () => {
+    void syncActiveTabExternalChanges();
+  },
+);
+
 onMounted(async () => {
   workspaceStore.loadFromStorage();
   await settingsStore.init();
@@ -1127,6 +1232,7 @@ onMounted(async () => {
   registerShortcuts();
   const launchTimestamp = Date.now();
   await setupExternalFileOpenBridge();
+  startExternalFileSync();
   showOperationGuideOnLaunchIfNeeded(launchTimestamp);
   markAppOpened(launchTimestamp);
   window.addEventListener('keydown', handleShellKeydown);
@@ -1141,6 +1247,7 @@ onUnmounted(() => {
     unlistenExternalOpen();
     unlistenExternalOpen = null;
   }
+  stopExternalFileSync();
   window.removeEventListener('keydown', handleShellKeydown);
 });
 </script>

@@ -33,6 +33,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notification';
 import { getEditorCoreI18n } from '@/i18n/ui';
 import { appCommands } from '@/lib/tauri';
+import { ensureMonacoSetup } from '@/lib/monaco/setupMonaco';
 
 interface EditorCoreProps {
   modelId: string;
@@ -487,6 +488,7 @@ const initEditor = () => {
   if (!editorContainer.value) return;
 
   try {
+    ensureMonacoSetup();
     const monacoTheme = settingsStore.monacoTheme || props.theme;
     const initialModel = getOrCreateModel(props.modelId, props.value, props.language);
 
@@ -510,6 +512,13 @@ const initEditor = () => {
       tabSize: settingsStore.tabSize,
       insertSpaces: settingsStore.insertSpaces,
       trimAutoWhitespace: settingsStore.trimTrailingWhitespace,
+      quickSuggestions: { other: true, comments: false, strings: false },
+      suggestOnTriggerCharacters: true,
+      wordBasedSuggestions: 'currentDocument',
+      snippetSuggestions: 'inline',
+      acceptSuggestionOnEnter: 'smart',
+      tabCompletion: 'on',
+      parameterHints: { enabled: true },
       ...largeFileOptimizations,
       ...props.options,
     });

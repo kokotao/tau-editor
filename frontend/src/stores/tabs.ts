@@ -16,6 +16,8 @@ export interface Tab {
   largeFileLoadedBytes?: number; // 已加载字节数（用于进度显示）
   largeFileLoadProgress?: number; // 0-100 百分比
   largeFileLoadSessionId?: number; // 分段加载会话 id（防串写）
+  lastKnownModified?: number | null; // 最近一次已加载或已保存的磁盘修改时间
+  externalModifiedAt?: number | null; // 外部检测到但尚未合并的修改时间
 }
 
 export interface TabsState {

@@ -1,5 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { fileCommands } from '@/lib/tauri';
+import { normalizeModifiedTimestamp } from '@/services/externalFileSync';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
 import type { useNotificationStore } from '@/stores/notification';
@@ -239,11 +240,14 @@ export class WorkspaceService {
       let content = '';
 
       let fileSize = 0;
+      let lastKnownModified: number | null = null;
       try {
         const fileInfo = await fileCommands.getFileInfo(filePath);
         fileSize = fileInfo.size;
+        lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
       } catch {
         fileSize = 0;
+        lastKnownModified = null;
       }
 
       if (fileSize > 0 && !isBinaryPreviewPath(filePath)) {
@@ -291,6 +295,8 @@ export class WorkspaceService {
             largeFileLoadedBytes: initialLoadedBytes,
             largeFileLoadProgress: initialProgress,
             largeFileLoadSessionId: undefined,
+            lastKnownModified,
+            externalModifiedAt: null,
           });
 
           this.fileSystemStore.selectEntry(filePath);
@@ -338,6 +344,8 @@ export class WorkspaceService {
         isDirty: false,
         isUntitled: false,
         content,
+        lastKnownModified,
+        externalModifiedAt: null,
       });
 
       this.fileSystemStore.selectEntry(filePath);

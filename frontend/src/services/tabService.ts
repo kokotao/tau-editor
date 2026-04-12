@@ -1,5 +1,6 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { fileCommands } from '@/lib/tauri';
+import { normalizeModifiedTimestamp } from '@/services/externalFileSync';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
 import type { useNotificationStore } from '@/stores/notification';
@@ -152,7 +153,19 @@ export class TabService {
       } else {
         await this.fileSystemStore.writeFileContent(tab.filePath, tab.content);
       }
-      this.tabsStore.updateTab(tab.id, { isDirty: false, isUntitled: false });
+      let lastKnownModified: number | null = null;
+      try {
+        const fileInfo = await fileCommands.getFileInfo(tab.filePath);
+        lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
+      } catch {
+        lastKnownModified = null;
+      }
+      this.tabsStore.updateTab(tab.id, {
+        isDirty: false,
+        isUntitled: false,
+        lastKnownModified,
+        externalModifiedAt: null,
+      });
       this.editorStore.markAsSaved();
       this.workspaceStore.openSingleFile(tab.filePath);
       this.notificationStore.success('保存成功', tab.fileName);
@@ -201,6 +214,13 @@ export class TabService {
       } else {
         await this.fileSystemStore.writeFileContent(targetPath, tab.content);
       }
+      let lastKnownModified: number | null = null;
+      try {
+        const fileInfo = await fileCommands.getFileInfo(targetPath);
+        lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
+      } catch {
+        lastKnownModified = null;
+      }
       this.tabsStore.updateTab(tab.id, {
         filePath: targetPath,
         fileName: getBaseName(targetPath),
@@ -211,6 +231,8 @@ export class TabService {
         isLoadingContent: false,
         largeFileSize: tab.largeFileSize,
         largeFileChunkSize: tab.largeFileChunkSize,
+        lastKnownModified,
+        externalModifiedAt: null,
       });
       this.editorStore.setLanguage(detectLanguage(targetPath));
       this.editorStore.markAsSaved();

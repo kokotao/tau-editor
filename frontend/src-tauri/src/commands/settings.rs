@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs;
-#[cfg(all(unix, not(target_os = "macos")))]
+use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -212,6 +213,7 @@ fn is_rate_limited_error(message: &str) -> bool {
 /// 注意：不同系统对安装权限和交互要求不同，命令会尽力触发系统安装流程。
 #[tauri::command]
 pub async fn download_and_install_update(
+    app: tauri::AppHandle,
     download_url: String,
     file_name: String,
 ) -> Result<DownloadInstallResult, String> {
@@ -220,7 +222,7 @@ pub async fn download_and_install_update(
     let download_path = build_download_path(&file_name)?;
     download_file(&download_url, &download_path).await?;
 
-    let launch_message = launch_installer(&download_path)?;
+    let launch_message = launch_installer(&app, &download_path)?;
 
     Ok(DownloadInstallResult {
         downloaded_path: download_path.to_string_lossy().to_string(),
@@ -691,6 +693,13 @@ fn sanitize_file_name(file_name: &str) -> String {
     sanitized
 }
 
+fn current_unix_timestamp() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("系统时间异常：{error}"))
+        .map(|duration| duration.as_secs())
+}
+
 async fn download_file(url: &str, path: &Path) -> Result<(), String> {
     let client = Client::builder()
         .user_agent(HTTP_USER_AGENT)
@@ -718,7 +727,7 @@ async fn download_file(url: &str, path: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn launch_installer(path: &Path) -> Result<String, String> {
+fn launch_installer(_app: &tauri::AppHandle, path: &Path) -> Result<String, String> {
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -746,7 +755,43 @@ fn launch_installer(path: &Path) -> Result<String, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn launch_installer(path: &Path) -> Result<String, String> {
+fn launch_installer(app: &tauri::AppHandle, path: &Path) -> Result<String, String> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if extension == "dmg" {
+        let mount_point = mount_dmg(path)?;
+        let source_app = find_first_app_in_directory(&mount_point)?;
+        let current_executable = std::env::current_exe()
+            .map_err(|error| format!("获取当前应用路径失败：{error}"))?;
+        let target_app = find_app_bundle_from_executable_path(&current_executable)?;
+        let script_path = write_macos_update_script_file()?;
+
+        Command::new("/bin/bash")
+            .arg(&script_path)
+            .arg(std::process::id().to_string())
+            .arg(&source_app)
+            .arg(&target_app)
+            .arg(&mount_point)
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("启动 macOS 更新脚本失败：{error}"))?;
+
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            app_handle.exit(0);
+        });
+
+        return Ok("更新包已准备完成，应用将退出并自动替换为新版本。".to_string());
+    }
+
     Command::new("open")
         .arg(path)
         .spawn()
@@ -756,7 +801,7 @@ fn launch_installer(path: &Path) -> Result<String, String> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn launch_installer(path: &Path) -> Result<String, String> {
+fn launch_installer(_app: &tauri::AppHandle, path: &Path) -> Result<String, String> {
     let lower_name = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -784,6 +829,117 @@ fn launch_installer(path: &Path) -> Result<String, String> {
         .map_err(|error| format!("打开安装包失败：{error}"))?;
 
     Ok("已打开安装包，请按系统提示完成安装。".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn mount_dmg(path: &Path) -> Result<PathBuf, String> {
+    let output = Command::new("hdiutil")
+        .arg("attach")
+        .arg(path)
+        .arg("-nobrowse")
+        .output()
+        .map_err(|error| format!("挂载 DMG 失败：{error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("挂载 DMG 失败：{}", stderr.trim()));
+    }
+
+    parse_hdiutil_mount_point(&output.stdout)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_hdiutil_mount_point(raw: &[u8]) -> Result<PathBuf, String> {
+    let output = String::from_utf8_lossy(raw);
+    for line in output.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(mount_point) = trimmed.split('\t').last() {
+            let candidate = PathBuf::from(mount_point.trim());
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err("无法解析 DMG 挂载点".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn find_first_app_in_directory(dir: &Path) -> Result<PathBuf, String> {
+    let entries = fs::read_dir(dir).map_err(|error| format!("读取挂载目录失败：{error}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("读取挂载目录条目失败：{error}"))?;
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("app") {
+            return Ok(path);
+        }
+    }
+
+    Err("DMG 中未找到可安装的 .app 应用".to_string())
+}
+
+fn find_app_bundle_from_executable_path(executable_path: &Path) -> Result<PathBuf, String> {
+    for ancestor in executable_path.ancestors() {
+        if ancestor.extension().and_then(|value| value.to_str()) == Some("app") {
+            return Ok(ancestor.to_path_buf());
+        }
+    }
+
+    Err("当前进程不在 .app 包内，无法执行 macOS 自动替换更新".to_string())
+}
+
+fn build_macos_update_script() -> String {
+    r#"#!/bin/bash
+set -euo pipefail
+
+PID="$1"
+SOURCE_APP="$2"
+TARGET_APP="$3"
+MOUNT_POINT="$4"
+DMG_PATH="$5"
+
+while kill -0 "$PID" 2>/dev/null; do
+  sleep 1
+done
+
+sleep 1
+rm -rf "$TARGET_APP"
+ditto "$SOURCE_APP" "$TARGET_APP"
+xattr -dr com.apple.quarantine "$TARGET_APP" >/dev/null 2>&1 || true
+open "$TARGET_APP"
+hdiutil detach "$MOUNT_POINT" -quiet >/dev/null 2>&1 || true
+rm -f "$DMG_PATH"
+rm -f "$0"
+"#
+        .to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn write_macos_update_script_file() -> Result<PathBuf, String> {
+    let mut script_path = std::env::temp_dir();
+    script_path.push(format!("tau-editor-update-{}.sh", current_unix_timestamp()?));
+
+    let mut file = fs::File::create(&script_path)
+        .map_err(|error| format!("创建更新脚本失败：{error}"))?;
+    file.write_all(build_macos_update_script().as_bytes())
+        .map_err(|error| format!("写入更新脚本失败：{error}"))?;
+
+    #[cfg(unix)]
+    {
+        let mut permissions = file
+            .metadata()
+            .map_err(|error| format!("读取更新脚本权限失败：{error}"))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions)
+            .map_err(|error| format!("设置更新脚本可执行权限失败：{error}"))?;
+    }
+
+    Ok(script_path)
 }
 
 fn open_external_url(url: &str) -> Result<(), String> {
@@ -978,5 +1134,22 @@ mod tests {
     fn test_is_rate_limited_error() {
         assert!(is_rate_limited_error("GitHub Release 接口返回异常（403）：API rate limit exceeded"));
         assert!(!is_rate_limited_error("network timeout"));
+    }
+
+    #[test]
+    fn test_find_app_bundle_from_executable_path() {
+        let exe_path = PathBuf::from("/Applications/Tau Editor.app/Contents/MacOS/text-editor");
+        let bundle_path = find_app_bundle_from_executable_path(&exe_path).expect("bundle path should resolve");
+        assert_eq!(bundle_path, PathBuf::from("/Applications/Tau Editor.app"));
+    }
+
+    #[test]
+    fn test_build_macos_update_script_contains_replace_flow() {
+        let script = build_macos_update_script();
+        assert!(script.contains("while kill -0 \"$PID\""));
+        assert!(script.contains("rm -rf \"$TARGET_APP\""));
+        assert!(script.contains("ditto \"$SOURCE_APP\" \"$TARGET_APP\""));
+        assert!(script.contains("open \"$TARGET_APP\""));
+        assert!(script.contains("hdiutil detach \"$MOUNT_POINT\""));
     }
 }
