@@ -27,8 +27,8 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: "--target universal-apple-darwin --bundles app"
-            bundlePath: frontend/src-tauri/target/universal-apple-darwin/release/bundle
+            args: ""
+            bundlePath: frontend/src-tauri/target/release/bundle
           - platform: ubuntu-22.04
             args: ""
             bundlePath: frontend/src-tauri/target/release/bundle
@@ -74,14 +74,6 @@ jobs:
       - name: Build Tauri bundles
         working-directory: frontend
         run: pnpm tauri build ${{ matrix.args }}
-
-      - name: Package macOS DMG and ZIP artifacts
-        if: matrix.platform == 'macos-latest'
-        env:
-          RELEASE_VERSION: ${{ inputs.release_tag || github.ref_name }}
-        run: |
-          VERSION="${RELEASE_VERSION#v}"
-          ./scripts/package-macos-app.sh "${{ matrix.bundlePath }}" "TauEditor" "${VERSION}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
