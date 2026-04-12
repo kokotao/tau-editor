@@ -202,4 +202,26 @@ describe('SettingsPanel', () => {
     expect(settingsStore.maxOpenTabs).toBe(30);
     expect(settingsStore.memoryLimitMB).toBe(256);
   });
+
+  it('editor 分类应展示 Markdown 预览主题选择器并默认选中文档站清朗', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const markdownPreviewThemeSelect = wrapper.find('[data-testid="select-markdown-preview-theme"]');
+    expect(markdownPreviewThemeSelect.exists()).toBe(true);
+    expect(settingsStore.markdownPreviewTheme).toBe('docs-clean');
+    expect(wrapper.text()).toContain('Markdown 预览主题');
+    expect(wrapper.text()).toContain('文档站清朗');
+  });
+
+  it('切换 Markdown 预览主题选择器后应更新 store', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const markdownPreviewThemeSelect = wrapper.findComponent('[data-testid="select-markdown-preview-theme"]');
+    markdownPreviewThemeSelect.vm.$emit('update:value', 'graphite-night');
+    await flushPromises();
+
+    expect(settingsStore.markdownPreviewTheme).toBe('graphite-night');
+  });
 });

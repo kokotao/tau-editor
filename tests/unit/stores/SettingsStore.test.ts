@@ -72,9 +72,25 @@ vi.stubGlobal('document', {
 
 // Mock window.matchMedia
 const mockMatchMedia = vi.fn()
+const localStorageState = new Map<string, string>()
+const localStorageMock = {
+  getItem: vi.fn((key: string) => localStorageState.get(key) ?? null),
+  setItem: vi.fn((key: string, value: string) => {
+    localStorageState.set(key, String(value))
+  }),
+  removeItem: vi.fn((key: string) => {
+    localStorageState.delete(key)
+  }),
+  clear: vi.fn(() => {
+    localStorageState.clear()
+  }),
+}
+
 vi.stubGlobal('window', {
   matchMedia: mockMatchMedia,
+  localStorage: localStorageMock,
 })
+vi.stubGlobal('localStorage', localStorageMock)
 
 describe('SettingsStore', () => {
   let store: ReturnType<typeof useSettingsStore>
@@ -85,7 +101,12 @@ describe('SettingsStore', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     store = useSettingsStore(pinia)
+    localStorage.clear()
     vi.clearAllMocks()
+    localStorageMock.getItem.mockClear()
+    localStorageMock.setItem.mockClear()
+    localStorageMock.removeItem.mockClear()
+    localStorageMock.clear.mockClear()
     mockClassList.add.mockClear()
     mockClassList.remove.mockClear()
     mockClassList.toggle.mockClear()
@@ -170,6 +191,10 @@ describe('SettingsStore', () => {
 
     it('应初始化 Markdown 预览模式为 edit', () => {
       expect(store.markdownPreviewMode).toBe('edit')
+    })
+
+    it('应初始化 Markdown 预览主题为 docs-clean', () => {
+      expect(store.markdownPreviewTheme).toBe('docs-clean')
     })
 
     it('应初始化关闭前确认为 true', () => {
@@ -302,6 +327,16 @@ describe('SettingsStore', () => {
 
       expect(settingsCommands.setAutoSaveInterval).not.toHaveBeenCalled()
     })
+
+    it('updateSettings() 应持久化 Markdown 预览主题', async () => {
+      await store.updateSettings({ markdownPreviewTheme: 'paper-soft' })
+
+      expect(localStorage.setItem).toHaveBeenCalled()
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.markdownPreviewTheme).toBe('paper-soft')
+    })
   })
 
   describe('重置设置', () => {
@@ -338,6 +373,38 @@ describe('SettingsStore', () => {
 
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
       expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+    })
+
+    it('resetToDefaults() 应重置 Markdown 预览主题', async () => {
+      store.markdownPreviewTheme = 'graphite-night'
+
+      await store.resetToDefaults()
+
+      expect(store.markdownPreviewTheme).toBe('docs-clean')
+    })
+  })
+
+  describe('本地持久化', () => {
+    it('saveToStorage() 应写入 Markdown 预览主题', () => {
+      store.markdownPreviewTheme = 'editorial-warm'
+
+      store.saveToStorage()
+
+      expect(localStorage.setItem).toHaveBeenCalled()
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.markdownPreviewTheme).toBe('editorial-warm')
+    })
+
+    it('loadFromStorage() 应恢复 Markdown 预览主题', () => {
+      vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
+        markdownPreviewTheme: 'paper-soft',
+      }))
+
+      store.loadFromStorage()
+
+      expect(store.markdownPreviewTheme).toBe('paper-soft')
     })
   })
 

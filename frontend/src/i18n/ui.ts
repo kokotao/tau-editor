@@ -136,6 +136,11 @@ interface SettingsPanelText {
   fontPreviewLine1: string;
   fontPreviewLine2: string;
   editor: string;
+  markdownPreviewTheme: string;
+  markdownPreviewThemeDocsClean: string;
+  markdownPreviewThemePaperSoft: string;
+  markdownPreviewThemeEditorialWarm: string;
+  markdownPreviewThemeGraphiteNight: string;
   autoSave: string;
   autoSaveEnabled: string;
   autoSaveInterval: string;
@@ -270,6 +275,10 @@ interface MarkdownPreviewText {
   copySelection: string;
   copyMarkdown: string;
   refreshPreview: string;
+  previewThemeDocsClean: string;
+  previewThemePaperSoft: string;
+  previewThemeEditorialWarm: string;
+  previewThemeGraphiteNight: string;
   setPreviewModeEdit: string;
   setPreviewModeSplit: string;
   setPreviewModePreview: string;
@@ -496,6 +505,11 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontPreviewLine1: 'const hello = "你好，世界";',
     fontPreviewLine2: 'console.log(hello);',
     editor: '编辑器',
+    markdownPreviewTheme: 'Markdown 预览主题',
+    markdownPreviewThemeDocsClean: '文档站清朗',
+    markdownPreviewThemePaperSoft: '护眼纸张',
+    markdownPreviewThemeEditorialWarm: '出版暖页',
+    markdownPreviewThemeGraphiteNight: '夜读石墨',
     autoSave: '自动保存',
     autoSaveEnabled: '启用自动保存',
     autoSaveInterval: '自动保存间隔',
@@ -583,6 +597,11 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontPreviewLine1: 'const hello = "Hello, world";',
     fontPreviewLine2: 'console.log(hello);',
     editor: 'Editor',
+    markdownPreviewTheme: 'Markdown Preview Theme',
+    markdownPreviewThemeDocsClean: 'Docs Clean',
+    markdownPreviewThemePaperSoft: 'Paper Soft',
+    markdownPreviewThemeEditorialWarm: 'Editorial Warm',
+    markdownPreviewThemeGraphiteNight: 'Graphite Night',
     autoSave: 'Auto Save',
     autoSaveEnabled: 'Enable Auto Save',
     autoSaveInterval: 'Auto Save Interval',
@@ -941,6 +960,10 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
     copySelection: '复制选中文本',
     copyMarkdown: '复制全文 Markdown',
     refreshPreview: '刷新预览',
+    previewThemeDocsClean: '切换到文档站清朗',
+    previewThemePaperSoft: '切换到护眼纸张',
+    previewThemeEditorialWarm: '切换到出版暖页',
+    previewThemeGraphiteNight: '切换到夜读石墨',
     setPreviewModeEdit: '切换为仅编辑',
     setPreviewModeSplit: '切换为分栏',
     setPreviewModePreview: '切换为仅预览',
@@ -955,6 +978,10 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
     copySelection: 'Copy Selected Text',
     copyMarkdown: 'Copy Full Markdown',
     refreshPreview: 'Refresh Preview',
+    previewThemeDocsClean: 'Switch to Docs Clean',
+    previewThemePaperSoft: 'Switch to Paper Soft',
+    previewThemeEditorialWarm: 'Switch to Editorial Warm',
+    previewThemeGraphiteNight: 'Switch to Graphite Night',
     setPreviewModeEdit: 'Switch to Edit Only',
     setPreviewModeSplit: 'Switch to Split',
     setPreviewModePreview: 'Switch to Preview Only',

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { useSettingsStore } from '@/stores/settings';
 import MarkdownPreview from '@/components/editor/MarkdownPreview.vue';
 import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
 
@@ -17,6 +18,9 @@ const flushRender = async () => {
 };
 
 const menuSelector = '[data-testid="markdown-preview-context-menu"]';
+const queryBody = (selector: string) => document.body.querySelector(selector) as HTMLElement | null;
+const getMenuElement = () => document.body.querySelector(menuSelector) as HTMLElement | null;
+const getMenuStyle = () => getMenuElement()?.getAttribute('style') ?? '';
 
 const openContextMenu = async (
   wrapper: ReturnType<typeof mount>,
@@ -58,6 +62,7 @@ describe('MarkdownPreview', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    document.body.innerHTML = '';
   });
 
   it('应使用假定时器渲染 markdown 内容', async () => {
@@ -77,6 +82,7 @@ describe('MarkdownPreview', () => {
 
   it('右键空白处应打开菜单并定位', async () => {
     const wrapper = mount(MarkdownPreview, {
+      attachTo: document.body,
       props: {
         content: 'menu',
         theme: 'dark',
@@ -86,15 +92,16 @@ describe('MarkdownPreview', () => {
     await flushRender();
     await openContextMenu(wrapper);
 
-    const menu = wrapper.find(menuSelector);
-    expect(menu.exists()).toBe(true);
-    const style = menu.attributes('style');
+    expect(getMenuElement()).not.toBeNull();
+    const style = getMenuStyle();
     expect(style).toContain('top: 240px');
     expect(style).toContain('left: 120px');
+    wrapper.unmount();
   });
 
   it('点击外部或按下 Escape 应关闭菜单', async () => {
     const wrapper = mount(MarkdownPreview, {
+      attachTo: document.body,
       props: {
         content: 'close',
         theme: 'dark',
@@ -103,18 +110,19 @@ describe('MarkdownPreview', () => {
 
     await flushRender();
     await openContextMenu(wrapper);
-    expect(wrapper.find(menuSelector).exists()).toBe(true);
+    expect(getMenuElement()).not.toBeNull();
 
     document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await flushPromises();
-    expect(wrapper.find(menuSelector).exists()).toBe(false);
+    expect(getMenuElement()).toBeNull();
 
     await openContextMenu(wrapper);
-    expect(wrapper.find(menuSelector).exists()).toBe(true);
+    expect(getMenuElement()).not.toBeNull();
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await flushPromises();
-    expect(wrapper.find(menuSelector).exists()).toBe(false);
+    expect(getMenuElement()).toBeNull();
+    wrapper.unmount();
   });
 
   it('文本选区应显示复制选中文本并可执行', async () => {
@@ -132,13 +140,13 @@ describe('MarkdownPreview', () => {
     mockSelection('selected text', textNode);
     await openContextMenu(wrapper, '#selection-target', 60, 70);
 
-    const copySelection = wrapper.find('[data-testid="preview-menu-copy-selection"]');
-    expect(copySelection.exists()).toBe(true);
-    await copySelection.trigger('click');
+    const copySelection = queryBody('[data-testid="preview-menu-copy-selection"]');
+    expect(copySelection).not.toBeNull();
+    copySelection?.click();
     await flushPromises();
 
     expect(clipboard).toHaveBeenCalledWith('selected text');
-    expect(wrapper.find(menuSelector).exists()).toBe(false);
+    expect(getMenuElement()).toBeNull();
   });
 
   it('链接上下文应展示链接菜单并执行复制', async () => {
@@ -154,13 +162,13 @@ describe('MarkdownPreview', () => {
     await flushRender();
     await openContextMenu(wrapper, 'a', 100, 200);
 
-    const copyLink = wrapper.find('[data-testid="preview-menu-copy-link"]');
-    expect(copyLink.exists()).toBe(true);
-    await copyLink.trigger('click');
+    const copyLink = queryBody('[data-testid="preview-menu-copy-link"]');
+    expect(copyLink).not.toBeNull();
+    copyLink?.click();
     await flushPromises();
 
     expect(clipboard).toHaveBeenCalledWith('https://example.com/');
-    expect(wrapper.find(menuSelector).exists()).toBe(false);
+    expect(getMenuElement()).toBeNull();
   });
 
   it('图片上下文应展示图片菜单并执行复制', async () => {
@@ -176,13 +184,13 @@ describe('MarkdownPreview', () => {
     await flushRender();
     await openContextMenu(wrapper, 'img', 110, 210);
 
-    const copyImage = wrapper.find('[data-testid="preview-menu-copy-image-src"]');
-    expect(copyImage.exists()).toBe(true);
-    await copyImage.trigger('click');
+    const copyImage = queryBody('[data-testid="preview-menu-copy-image-src"]');
+    expect(copyImage).not.toBeNull();
+    copyImage?.click();
     await flushPromises();
 
     expect(clipboard).toHaveBeenCalledWith('https://example.com/a.png');
-    expect(wrapper.find(menuSelector).exists()).toBe(false);
+    expect(getMenuElement()).toBeNull();
   });
 
   it('点击预览模式菜单项应发射模式切换事件', async () => {
@@ -196,10 +204,73 @@ describe('MarkdownPreview', () => {
     await flushRender();
     await openContextMenu(wrapper);
 
-    const previewMode = wrapper.find('[data-testid="preview-menu-set-preview-mode-preview"]');
-    expect(previewMode.exists()).toBe(true);
-    await previewMode.trigger('click');
+    const previewMode = queryBody('[data-testid="preview-menu-set-preview-mode-preview"]');
+    expect(previewMode).not.toBeNull();
+    previewMode?.click();
 
     expect(wrapper.emitted('request-preview-mode-change')).toEqual([['preview']]);
+  });
+
+  it('应根据设置中的阅读主题渲染预览主题类', async () => {
+    const settingsStore = useSettingsStore();
+    await settingsStore.updateSettings({ markdownPreviewTheme: 'paper-soft' });
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'theme',
+        theme: 'light',
+      },
+    });
+
+    await flushRender();
+
+    expect(wrapper.get('[data-testid="markdown-preview"]').classes()).toContain('markdown-preview--paper-soft');
+  });
+
+  it('右键菜单应提供主题切换并将当前主题标记为禁用', async () => {
+    const settingsStore = useSettingsStore();
+    await settingsStore.updateSettings({ markdownPreviewTheme: 'editorial-warm' });
+    const wrapper = mount(MarkdownPreview, {
+      attachTo: document.body,
+      props: {
+        content: 'theme menu',
+        theme: 'light',
+      },
+    });
+
+    await flushRender();
+    await openContextMenu(wrapper);
+
+    const themeTrigger = queryBody('[data-testid="preview-menu-theme-editorial-warm"]');
+    const alternateTheme = queryBody('[data-testid="preview-menu-theme-graphite-night"]');
+
+    expect(queryBody('[data-testid="preview-menu-theme-docs-clean"]')).not.toBeNull();
+    expect(queryBody('[data-testid="preview-menu-theme-paper-soft"]')).not.toBeNull();
+    expect(themeTrigger).not.toBeNull();
+    expect(alternateTheme).not.toBeNull();
+    expect(themeTrigger?.getAttribute('disabled')).not.toBeNull();
+
+    alternateTheme?.click();
+    expect(settingsStore.markdownPreviewTheme).toBe('graphite-night');
+    wrapper.unmount();
+  });
+
+  it('右键菜单应通过 body teleport 渲染以避免预览面板位移动画影响定位', async () => {
+    const wrapper = mount(MarkdownPreview, {
+      attachTo: document.body,
+      props: {
+        content: 'teleport',
+        theme: 'dark',
+      },
+    });
+
+    await flushRender();
+    await openContextMenu(wrapper, '[data-testid="markdown-preview"]', 135, 185);
+
+    const menu = getMenuElement();
+    expect(menu).not.toBeNull();
+    expect(menu?.parentElement).toBe(document.body);
+    expect(getMenuStyle()).toContain('top: 185px');
+    expect(getMenuStyle()).toContain('left: 135px');
+    wrapper.unmount();
   });
 });

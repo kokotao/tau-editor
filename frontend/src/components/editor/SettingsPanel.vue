@@ -197,6 +197,18 @@
             </div>
 
             <div class="settings-item">
+              <label class="settings-label">{{ copy.markdownPreviewTheme }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-markdown-preview-theme"
+                :value="settingsStore.markdownPreviewTheme"
+                :options="markdownPreviewThemeOptions"
+                :consistent-menu-width="false"
+                @update:value="setMarkdownPreviewTheme"
+              />
+            </div>
+
+            <div class="settings-item">
               <label class="settings-label">{{ copy.autoSave }}</label>
               <label class="settings-checkbox">
                 <input data-testid="toggle-auto-save" type="checkbox" :checked="settingsStore.autoSaveEnabled" @change="setAutoSave($event)" />
@@ -454,6 +466,7 @@ import { computed, onMounted, ref } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import {
   CUSTOM_THEME_COLOR_FALLBACKS,
+  type MarkdownPreviewTheme,
   type CustomThemeColorKey,
   useSettingsStore,
 } from '@/stores/settings';
@@ -588,6 +601,12 @@ const autoSaveIntervalOptions = computed<SelectOption[]>(() => [
   { label: copy.value.seconds30, value: 30 },
   { label: copy.value.minute1, value: 60 },
   { label: copy.value.minutes5, value: 300 },
+]);
+const markdownPreviewThemeOptions = computed<SelectOption[]>(() => [
+  { label: copy.value.markdownPreviewThemeDocsClean, value: 'docs-clean' },
+  { label: copy.value.markdownPreviewThemePaperSoft, value: 'paper-soft' },
+  { label: copy.value.markdownPreviewThemeEditorialWarm, value: 'editorial-warm' },
+  { label: copy.value.markdownPreviewThemeGraphiteNight, value: 'graphite-night' },
 ]);
 const maxOpenTabsOptions = computed<SelectOption[]>(() => [
   { label: '10', value: 10 },
@@ -754,6 +773,11 @@ const setAutoSave = (event: Event) => {
 const setAutoSaveInterval = (value: string | number | null) => {
   if (value === null) return;
   settingsStore.updateSettings({ autoSaveInterval: Number(value) });
+};
+
+const setMarkdownPreviewTheme = (value: string | number | null) => {
+  if (typeof value !== 'string') return;
+  settingsStore.updateSettings({ markdownPreviewTheme: value as MarkdownPreviewTheme });
 };
 
 const setTabSize = (value: string | number | null) => {

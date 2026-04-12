@@ -20,8 +20,16 @@ export const CUSTOM_THEME_COLOR_KEYS = [
   'stateDanger',
 ] as const;
 
+export const MARKDOWN_PREVIEW_THEMES = [
+  'docs-clean',
+  'paper-soft',
+  'editorial-warm',
+  'graphite-night',
+] as const;
+
 export type CustomThemeColorKey = (typeof CUSTOM_THEME_COLOR_KEYS)[number];
 export type CustomThemeColors = Partial<Record<CustomThemeColorKey, string>>;
+export type MarkdownPreviewTheme = (typeof MARKDOWN_PREVIEW_THEMES)[number];
 
 export const CUSTOM_THEME_COLOR_VAR_MAP: Record<CustomThemeColorKey, string> = {
   bgApp: '--bg-app',
@@ -76,6 +84,7 @@ export interface EditorSettings {
   // Markdown 预览
   markdownPreviewMode: 'edit' | 'split' | 'preview';
   markdownPreviewEnabled: boolean;
+  markdownPreviewTheme: MarkdownPreviewTheme;
 
   // 其他
   confirmBeforeClose: boolean;
@@ -142,6 +151,13 @@ function normalizeMemoryLimitMB(value: unknown): number {
   return Math.min(2048, Math.max(64, Math.round(parsed)));
 }
 
+function normalizeMarkdownPreviewTheme(value: unknown): MarkdownPreviewTheme {
+  if (typeof value === 'string' && MARKDOWN_PREVIEW_THEMES.includes(value as MarkdownPreviewTheme)) {
+    return value as MarkdownPreviewTheme;
+  }
+  return 'docs-clean';
+}
+
 function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
   const style = root.style;
   if (!style || typeof style.setProperty !== 'function' || typeof style.removeProperty !== 'function') {
@@ -200,6 +216,7 @@ export const useSettingsStore = defineStore('settings', {
     sidebarCollapsed: false,
     markdownPreviewMode: 'edit',
     markdownPreviewEnabled: true,
+    markdownPreviewTheme: 'docs-clean',
     confirmBeforeClose: true,
     restoreLastSession: true,
     uiLanguage: 'zh-CN',
@@ -260,6 +277,7 @@ export const useSettingsStore = defineStore('settings', {
           this.customThemeColors = normalizeCustomThemeColors(this.customThemeColors);
           this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
           this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
+          this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
           // Older builds defaulted Markdown to split view, which caused
           // opened files to look half-width on launch. Migrate that startup
           // state back to full-width editing.
@@ -299,6 +317,7 @@ export const useSettingsStore = defineStore('settings', {
           sidebarCollapsed: this.sidebarCollapsed,
           markdownPreviewMode: this.markdownPreviewMode,
           markdownPreviewEnabled: this.markdownPreviewEnabled,
+          markdownPreviewTheme: this.markdownPreviewTheme,
           confirmBeforeClose: this.confirmBeforeClose,
           restoreLastSession: this.restoreLastSession,
           uiLanguage: this.uiLanguage,
@@ -315,6 +334,7 @@ export const useSettingsStore = defineStore('settings', {
       this.$patch(partial);
       this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
       this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
+      this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
       
       // 保存到 localStorage
       this.saveToStorage();

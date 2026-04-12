@@ -219,12 +219,12 @@ describe('AppShell', () => {
     expect(wrapper.find('.floating-meta').exists()).toBe(false)
     expect(wrapper.find('.settings-sidebar').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toContain('display: none;')
 
     await wrapper.find('[data-testid="btn-settings"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="shell-overlay"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-panel"]').exists()).toBe(true)
@@ -242,7 +242,7 @@ describe('AppShell', () => {
 
     await wrapper.find('[data-testid="btn-system-toggle-settings"]').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
   })
 
@@ -260,11 +260,11 @@ describe('AppShell', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
     await flushPromises()
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
     await flushPromises()
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toContain('display: none;')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '<', code: 'Comma', ctrlKey: true, shiftKey: true }))
     await flushPromises()
@@ -272,12 +272,12 @@ describe('AppShell', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
     await flushPromises()
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
-    expect(wrapper.find('[data-testid="settings-page"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toContain('display: none;')
   })
 
   it('预览菜单请求切换模式应更新设置', async () => {
