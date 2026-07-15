@@ -80,6 +80,108 @@ describe('MarkdownPreview', () => {
     expect(wrapper.find('[data-testid="markdown-preview"]').html()).toContain('<p>hello</p>');
   });
 
+  it('scrollToSourceLine 应滚动到对应源代码行的标题', async () => {
+    renderMarkdownMock.mockReturnValue('<h2 data-source-line="3">Target</h2>');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+    });
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: '## Target',
+        theme: 'dark',
+      },
+    });
+
+    await flushRender();
+    (wrapper.vm as any).scrollToSourceLine(3);
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
+  it('旧 Mermaid 渲染完成时不应将最新预览标记为可定位', async () => {
+    renderMarkdownMock.mockImplementation((raw) => `<h2 data-source-line="1">${raw}</h2>`);
+    let resolveFirstRender: (() => void) | undefined;
+    let resolveSecondRender: (() => void) | undefined;
+    const firstRender = new Promise<void>((resolve) => {
+      resolveFirstRender = resolve;
+    });
+    const secondRender = new Promise<void>((resolve) => {
+      resolveSecondRender = resolve;
+    });
+    renderMermaidMock.mockReturnValueOnce(firstRender).mockReturnValueOnce(secondRender);
+
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+    });
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'first',
+        theme: 'dark',
+      },
+    });
+
+    vi.advanceTimersByTime(180);
+    await flushPromises();
+    await wrapper.setProps({ content: 'second' });
+    vi.advanceTimersByTime(180);
+    await flushPromises();
+
+    resolveFirstRender?.();
+    await flushPromises();
+    (wrapper.vm as any).scrollToSourceLine(1);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    resolveSecondRender?.();
+    await flushPromises();
+    (wrapper.vm as any).scrollToSourceLine(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
+  it('新 Mermaid 渲染先完成时仍应等待旧渲染结束后才允许定位', async () => {
+    renderMarkdownMock.mockImplementation((raw) => `<h2 data-source-line="1">${raw}</h2>`);
+    let resolveFirstRender: (() => void) | undefined;
+    let resolveSecondRender: (() => void) | undefined;
+    const firstRender = new Promise<void>((resolve) => {
+      resolveFirstRender = resolve;
+    });
+    const secondRender = new Promise<void>((resolve) => {
+      resolveSecondRender = resolve;
+    });
+    renderMermaidMock.mockReturnValueOnce(firstRender).mockReturnValueOnce(secondRender);
+
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+    });
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'first',
+        theme: 'dark',
+      },
+    });
+
+    vi.advanceTimersByTime(180);
+    await flushPromises();
+    await wrapper.setProps({ content: 'second' });
+    vi.advanceTimersByTime(180);
+    await flushPromises();
+
+    resolveSecondRender?.();
+    await flushPromises();
+    (wrapper.vm as any).scrollToSourceLine(1);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    resolveFirstRender?.();
+    await flushPromises();
+    (wrapper.vm as any).scrollToSourceLine(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  });
+
   it('右键空白处应打开菜单并定位', async () => {
     const wrapper = mount(MarkdownPreview, {
       attachTo: document.body,

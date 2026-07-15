@@ -89,6 +89,11 @@ const copy = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
 const previewThemeClass = computed(() => `markdown-preview--${settingsStore.markdownPreviewTheme}`);
 const html = ref('');
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
+let isPreviewReady = false;
+let isRenderingMermaid = false;
+let renderVersion = 0;
+let activeRenderTasks = 0;
+let completedRenderVersion: number | null = null;
 const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 const contextMenu = ref({
   visible: false,
@@ -488,17 +493,48 @@ const scheduleRender = () => {
     clearTimeout(renderTimer);
   }
 
+  const currentRenderVersion = ++renderVersion;
+  isPreviewReady = false;
+  completedRenderVersion = null;
+
   renderTimer = setTimeout(async () => {
-    html.value = renderMarkdown(props.content || '');
-    await nextTick();
-    if (previewRef.value) {
-      await renderMermaidDiagrams(previewRef.value, props.theme);
-    }
-    if (latestEditorScrollState.value) {
-      syncPreviewScroll(latestEditorScrollState.value);
+    activeRenderTasks += 1;
+    isRenderingMermaid = true;
+    try {
+      html.value = renderMarkdown(props.content || '');
+      await nextTick();
+      if (previewRef.value) {
+        await renderMermaidDiagrams(previewRef.value, props.theme);
+      }
+      if (currentRenderVersion === renderVersion && latestEditorScrollState.value) {
+        syncPreviewScroll(latestEditorScrollState.value);
+      }
+    } finally {
+      if (currentRenderVersion !== renderVersion) {
+        activeRenderTasks -= 1;
+        isRenderingMermaid = activeRenderTasks > 0;
+        isPreviewReady = activeRenderTasks === 0 && completedRenderVersion === renderVersion;
+        return;
+      }
+      completedRenderVersion = currentRenderVersion;
+      activeRenderTasks -= 1;
+      isRenderingMermaid = activeRenderTasks > 0;
+      isPreviewReady = activeRenderTasks === 0 && completedRenderVersion === renderVersion;
     }
   }, 150);
 };
+
+defineExpose({
+  scrollToSourceLine: (line: number) => {
+    if (!isPreviewReady || isRenderingMermaid || !previewRef.value) {
+      return;
+    }
+
+    const sourceLine = Number.isFinite(line) ? Math.max(1, Math.floor(line)) : 1;
+    const target = previewRef.value.querySelector<HTMLElement>(`[data-source-line="${sourceLine}"]`);
+    target?.scrollIntoView({ block: 'center' });
+  },
+});
 
 watch(
   () => [props.content, props.theme],
@@ -527,6 +563,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  renderVersion += 1;
+  completedRenderVersion = null;
+  isPreviewReady = false;
   if (renderTimer) {
     clearTimeout(renderTimer);
     renderTimer = null;

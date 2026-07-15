@@ -633,6 +633,34 @@ defineExpose({
     editor.value.setPosition(startPosition);
     editor.value.revealPositionInCenterIfOutsideViewport(startPosition);
   },
+  revealLine: (line: number, column = 1) => {
+    if (!editor.value) {
+      return;
+    }
+
+    const model = editor.value.getModel();
+    if (!model) {
+      return;
+    }
+
+    const lineCount = model.getLineCount();
+    if (lineCount < 1) {
+      return;
+    }
+
+    const requestedLine = Number.isFinite(line) ? Math.floor(line) : 1;
+    const requestedColumn = Number.isFinite(column) ? Math.floor(column) : 1;
+    const lineNumber = Math.min(lineCount, Math.max(1, requestedLine));
+    const maxColumn = model.getLineMaxColumn(lineNumber);
+    const position = {
+      lineNumber,
+      column: Math.min(maxColumn, Math.max(1, requestedColumn)),
+    };
+
+    editor.value.setPosition(position);
+    editor.value.revealPositionInCenterIfOutsideViewport(position);
+    editor.value.focus();
+  },
   layout: () => editor.value?.layout(),
   getSelectedText: () => {
     if (!editor.value) return '';

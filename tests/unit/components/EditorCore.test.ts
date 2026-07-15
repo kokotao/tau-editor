@@ -15,6 +15,9 @@ const monacoMocks = vi.hoisted(() => {
     setTheme: vi.fn(),
     setModelLanguage: vi.fn(),
     remeasureFonts: vi.fn(),
+    getModel: vi.fn(),
+    createModel: vi.fn(),
+    parseUri: vi.fn((value: string) => value),
   };
 });
 
@@ -24,6 +27,11 @@ const monacoMockFactory = () => ({
     setTheme: monacoMocks.setTheme,
     setModelLanguage: monacoMocks.setModelLanguage,
     remeasureFonts: monacoMocks.remeasureFonts,
+    getModel: monacoMocks.getModel,
+    createModel: monacoMocks.createModel,
+  },
+  Uri: {
+    parse: monacoMocks.parseUri,
   },
   KeyMod: {
     CtrlCmd: 2048,
@@ -43,6 +51,9 @@ describe('EditorCore.vue', () => {
   const mockSetValue = vi.fn();
   const mockFocus = vi.fn();
   const mockLayout = vi.fn();
+  const mockSetPosition = vi.fn();
+  const mockRevealPositionInCenterIfOutsideViewport = vi.fn();
+  const mockSaveViewState = vi.fn();
   const mockGetSelection = vi.fn();
   const mockGetModel = vi.fn();
   const mockGetAction = vi.fn();
@@ -56,6 +67,7 @@ describe('EditorCore.vue', () => {
   const mockOnDidChangeCursorPosition = vi.fn();
   const mockOnDidChangeCursorSelection = vi.fn();
   const mockOnDidScrollChange = vi.fn();
+  const mockOnContextMenu = vi.fn();
 
   let contentCallbacks: Array<() => void> = [];
   let cursorCallback: ((event: { position: { lineNumber: number; column: number } }) => void) | null = null;
@@ -102,19 +114,31 @@ describe('EditorCore.vue', () => {
       scrollCallback = cb;
       return createDisposable();
     });
+    mockOnContextMenu.mockReturnValue(createDisposable());
 
     mockGetValue.mockReturnValue('');
     mockGetSelection.mockReturnValue({
       getStartPosition: vi.fn(),
       getEndPosition: vi.fn(),
     });
-    mockGetModel.mockReturnValue({
+    const textModel = {
       getValueInRange: vi.fn().mockReturnValue('selected text'),
       getOffsetAt: vi
         .fn()
         .mockReturnValueOnce(10)
         .mockReturnValueOnce(20),
-    });
+      getLanguageId: vi.fn().mockReturnValue('plaintext'),
+      isDisposed: vi.fn().mockReturnValue(false),
+      getValueLength: vi.fn().mockReturnValue(0),
+      getValue: mockGetValue,
+      setValue: mockSetValue,
+      getLineCount: vi.fn().mockReturnValue(1),
+      getLineMaxColumn: vi.fn().mockReturnValue(1),
+      dispose: vi.fn(),
+    };
+    mockGetModel.mockReturnValue(textModel);
+    monacoMocks.getModel.mockReturnValue(undefined);
+    monacoMocks.createModel.mockReturnValue(textModel);
     mockGetAction.mockReturnValue({
       run: vi.fn().mockResolvedValue(undefined),
       isSupported: vi.fn().mockReturnValue(true),
@@ -128,6 +152,8 @@ describe('EditorCore.vue', () => {
       setValue: mockSetValue,
       focus: mockFocus,
       layout: mockLayout,
+      setPosition: mockSetPosition,
+      revealPositionInCenterIfOutsideViewport: mockRevealPositionInCenterIfOutsideViewport,
       getSelection: mockGetSelection,
       getModel: mockGetModel,
       getAction: mockGetAction,
@@ -138,7 +164,9 @@ describe('EditorCore.vue', () => {
       onDidChangeCursorPosition: mockOnDidChangeCursorPosition,
       onDidChangeCursorSelection: mockOnDidChangeCursorSelection,
       onDidScrollChange: mockOnDidScrollChange,
+      onContextMenu: mockOnContextMenu,
       addCommand: mockAddCommand,
+      saveViewState: mockSaveViewState,
       updateOptions: mockUpdateOptions,
       dispose: mockDispose,
     });
@@ -232,6 +260,23 @@ describe('EditorCore.vue', () => {
     expect(mockSetValue).toHaveBeenCalledWith('changed');
     expect(mockFocus).toHaveBeenCalled();
     expect(mockLayout).toHaveBeenCalled();
+  });
+
+  it('revealLine 应将行列限制在模型范围内并聚焦编辑器', async () => {
+    mockGetModel.mockReturnValue({
+      getLineCount: vi.fn().mockReturnValue(3),
+      getLineMaxColumn: vi.fn().mockImplementation((line: number) => line === 3 ? 4 : 8),
+    });
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-reveal-line' },
+    });
+
+    await flushPromises();
+    (wrapper.vm as any).revealLine(99, 99);
+
+    expect(mockSetPosition).toHaveBeenCalledWith({ lineNumber: 3, column: 4 });
+    expect(mockRevealPositionInCenterIfOutsideViewport).toHaveBeenCalledWith({ lineNumber: 3, column: 4 });
+    expect(mockFocus).toHaveBeenCalled();
   });
 
   it('theme/language/readOnly 变化应同步到 Monaco', async () => {
