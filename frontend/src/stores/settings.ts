@@ -80,6 +80,8 @@ export interface EditorSettings {
   showHiddenFiles: boolean;
   fileTreeWidth: number;
   sidebarCollapsed: boolean;
+  contextRailWidth: number;
+  contextRailCollapsed: boolean;
 
   // Markdown 预览
   markdownPreviewMode: 'edit' | 'split' | 'preview';
@@ -97,6 +99,9 @@ const STORAGE_KEY = 'text-editor-settings';
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
 const DEFAULT_MAX_OPEN_TABS = 30;
 const DEFAULT_MEMORY_LIMIT_MB = 256;
+const MIN_CONTEXT_RAIL_WIDTH = 240;
+const MAX_CONTEXT_RAIL_WIDTH = 420;
+const DEFAULT_CONTEXT_RAIL_WIDTH = 300;
 
 let systemThemeMediaQuery: MediaQueryList | null = null;
 let systemThemeListenerAttached = false;
@@ -149,6 +154,18 @@ function normalizeMemoryLimitMB(value: unknown): number {
     return DEFAULT_MEMORY_LIMIT_MB;
   }
   return Math.min(2048, Math.max(64, Math.round(parsed)));
+}
+
+function normalizeContextRailWidth(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_CONTEXT_RAIL_WIDTH;
+  }
+  return Math.min(MAX_CONTEXT_RAIL_WIDTH, Math.max(MIN_CONTEXT_RAIL_WIDTH, Math.round(parsed)));
+}
+
+function normalizeContextRailCollapsed(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : false;
 }
 
 function normalizeMarkdownPreviewTheme(value: unknown): MarkdownPreviewTheme {
@@ -214,6 +231,8 @@ export const useSettingsStore = defineStore('settings', {
     showHiddenFiles: false,
     fileTreeWidth: 250,
     sidebarCollapsed: false,
+    contextRailWidth: DEFAULT_CONTEXT_RAIL_WIDTH,
+    contextRailCollapsed: false,
     markdownPreviewMode: 'edit',
     markdownPreviewEnabled: true,
     markdownPreviewTheme: 'docs-clean',
@@ -277,6 +296,8 @@ export const useSettingsStore = defineStore('settings', {
           this.customThemeColors = normalizeCustomThemeColors(this.customThemeColors);
           this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
           this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
+          this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
+          this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
           this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
           // Older builds defaulted Markdown to split view, which caused
           // opened files to look half-width on launch. Migrate that startup
@@ -315,6 +336,8 @@ export const useSettingsStore = defineStore('settings', {
           showHiddenFiles: this.showHiddenFiles,
           fileTreeWidth: this.fileTreeWidth,
           sidebarCollapsed: this.sidebarCollapsed,
+          contextRailWidth: this.contextRailWidth,
+          contextRailCollapsed: this.contextRailCollapsed,
           markdownPreviewMode: this.markdownPreviewMode,
           markdownPreviewEnabled: this.markdownPreviewEnabled,
           markdownPreviewTheme: this.markdownPreviewTheme,
@@ -334,6 +357,8 @@ export const useSettingsStore = defineStore('settings', {
       this.$patch(partial);
       this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
       this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
+      this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
+      this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
       this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
       
       // 保存到 localStorage

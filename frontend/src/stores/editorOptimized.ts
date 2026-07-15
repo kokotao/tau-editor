@@ -240,7 +240,7 @@ export const useEditorStore = defineStore('editor', {
       
       return {
         count: this.contentCache.size,
-        totalSizeKB: Math.round(totalSize / 1024),
+        totalSizeKB: Math.ceil(totalSize / 1024),
         maxSize: MAX_CACHED_CONTENTS,
       };
     },

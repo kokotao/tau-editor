@@ -43,6 +43,7 @@ class PerformanceMonitor {
   private frameCount: number = 0;
   private lastFrameTime: number = 0;
   private rafId: number | null = null;
+  private fileLoadSampleCounts: Record<string, number> = {};
   
   constructor() {
     this.startMonitoring();
@@ -143,13 +144,11 @@ class PerformanceMonitor {
    */
   recordFileLoadTime(filePath: string, sizeKB: number, timeMs: number) {
     const sizeCategory = this.categorizeFileSize(sizeKB);
-    if (!this.metrics.fileLoadTime[sizeCategory]) {
-      this.metrics.fileLoadTime[sizeCategory] = 0;
-    }
-    // 记录平均时间
-    const count = Object.keys(this.metrics.fileLoadTime).length;
-    this.metrics.fileLoadTime[sizeCategory] = 
-      (this.metrics.fileLoadTime[sizeCategory] * (count - 1) + timeMs) / count;
+    const count = (this.fileLoadSampleCounts[sizeCategory] ?? 0) + 1;
+    const previousAverage = this.metrics.fileLoadTime[sizeCategory] ?? 0;
+    this.fileLoadSampleCounts[sizeCategory] = count;
+    this.metrics.fileLoadTime[sizeCategory] =
+      (previousAverage * (count - 1) + timeMs) / count;
     
     console.log(`[Performance] File loaded: ${filePath} (${sizeKB}KB) in ${timeMs.toFixed(2)}ms`);
   }

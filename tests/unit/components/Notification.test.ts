@@ -188,7 +188,7 @@ describe('Notification', () => {
       expect(title.text()).toBe('测试标题');
     });
 
-    it'应显示通知消息', () => {
+    it('应显示通知消息', () => {
       notificationStore.info('标题', '详细内容消息');
 
       const wrapper = mount(Notification, {
@@ -202,7 +202,7 @@ describe('Notification', () => {
       expect(message.text()).toBe('详细内容消息');
     });
 
-    it'无消息时应不显示消息元素', () => {
+    it('无消息时应不显示消息元素', () => {
       notificationStore.info('仅标题');
 
       const wrapper = mount(Notification, {
@@ -216,8 +216,8 @@ describe('Notification', () => {
     });
   });
 
-  describe'关闭功能', () => {
-    it'应显示关闭按钮', () => {
+  describe('关闭功能', () => {
+    it('应显示关闭按钮', () => {
       notificationStore.info('测试');
 
       const wrapper = mount(Notification, {
@@ -230,7 +230,7 @@ describe('Notification', () => {
       expect(closeButton.exists()).toBe(true);
     });
 
-    it'点击关闭按钮应移除通知', async () => {
+    it('点击关闭按钮应移除通知', async () => {
       notificationStore.info('测试');
 
       expect(notificationStore.notifications).toHaveLength(1);
@@ -247,7 +247,7 @@ describe('Notification', () => {
       expect(notificationStore.notifications).toHaveLength(0);
     });
 
-    it'应能关闭特定通知', async () => {
+    it('应能关闭特定通知', async () => {
       notificationStore.info('通知 1');
       notificationStore.success('通知 2');
       notificationStore.error('通知 3');
@@ -269,8 +269,8 @@ describe('Notification', () => {
     });
   });
 
-  describe'操作按钮', () => {
-    it'应显示操作按钮当通知有 action', () => {
+  describe('操作按钮', () => {
+    it('应显示操作按钮当通知有 action', () => {
       notificationStore.error('错误', '请重试', {
         label: '重试',
         handler: vi.fn(),
@@ -287,7 +287,7 @@ describe('Notification', () => {
       expect(actionButton.text()).toBe('重试');
     });
 
-    it'无 action 时应不显示操作按钮', () => {
+    it('无 action 时应不显示操作按钮', () => {
       notificationStore.info('普通通知');
 
       const wrapper = mount(Notification, {
@@ -300,7 +300,7 @@ describe('Notification', () => {
       expect(actionButton.exists()).toBe(false);
     });
 
-    it'点击操作按钮应执行 handler 并关闭通知', async () => {
+    it('点击操作按钮应执行 handler 并关闭通知', async () => {
       const handler = vi.fn();
       
       notificationStore.error('错误', '请重试', {
@@ -324,8 +324,8 @@ describe('Notification', () => {
     });
   });
 
-  describe'进度条', () => {
-    it'应显示进度条当 duration > 0', () => {
+  describe('进度条', () => {
+    it('应显示进度条当 duration > 0', () => {
       notificationStore.info('测试', '消息', 5000);
 
       const wrapper = mount(Notification, {
@@ -338,7 +338,7 @@ describe('Notification', () => {
       expect(progress.exists()).toBe(true);
     });
 
-    it'不应显示进度条当 duration = 0', () => {
+    it('不应显示进度条当 duration = 0', () => {
       notificationStore.add({
         type: 'info',
         title: '持久通知',
@@ -355,7 +355,7 @@ describe('Notification', () => {
       expect(progress.exists()).toBe(false);
     });
 
-    it'进度条应有正确的动画持续时间', () => {
+    it('进度条应有正确的动画持续时间', () => {
       notificationStore.info('测试', '消息', 10000);
 
       const wrapper = mount(Notification, {
@@ -370,8 +370,8 @@ describe('Notification', () => {
     });
   });
 
-  describe'容器定位', () => {
-    it'应使用固定定位在右上角', () => {
+  describe('容器定位', () => {
+    it('应使用固定定位在右上角', () => {
       const wrapper = mount(Notification, {
         global: {
           plugins: [pinia],
@@ -385,8 +385,8 @@ describe('Notification', () => {
     });
   });
 
-  describe'多通知布局', () => {
-    it'应垂直排列多个通知', () => {
+  describe('多通知布局', () => {
+    it('应垂直排列多个通知', () => {
       notificationStore.info('通知 1');
       notificationStore.success('通知 2');
       notificationStore.warning('通知 3');
@@ -405,7 +405,7 @@ describe('Notification', () => {
       expect(items).toHaveLength(3);
     });
 
-    it'应限制最大宽度', () => {
+    it('应限制最大宽度', () => {
       const wrapper = mount(Notification, {
         global: {
           plugins: [pinia],
@@ -417,8 +417,8 @@ describe('Notification', () => {
     });
   });
 
-  describe'TransitionGroup 动画', () => {
-    it'应使用 TransitionGroup 包装通知列表', () => {
+  describe('TransitionGroup 动画', () => {
+    it('应使用 TransitionGroup 包装通知列表', () => {
       const wrapper = mount(Notification, {
         global: {
           plugins: [pinia],

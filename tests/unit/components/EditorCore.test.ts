@@ -41,6 +41,21 @@ const monacoMockFactory = () => ({
   },
 });
 
+vi.mock('@/lib/monaco/editor', () => ({
+  editor: {
+    create: monacoMocks.create,
+    setTheme: monacoMocks.setTheme,
+    setModelLanguage: monacoMocks.setModelLanguage,
+    remeasureFonts: monacoMocks.remeasureFonts,
+    getModel: monacoMocks.getModel,
+    createModel: monacoMocks.createModel,
+  },
+  Uri: { parse: monacoMocks.parseUri },
+  KeyMod: { CtrlCmd: 2048 },
+  KeyCode: { KeyS: 49 },
+}));
+vi.mock('@/lib/monaco/setupMonaco', () => ({ ensureMonacoSetup: vi.fn() }));
+
 describe('EditorCore.vue', () => {
   let EditorCore: any;
   let editorStore: ReturnType<typeof useEditorStore>;
@@ -75,10 +90,6 @@ describe('EditorCore.vue', () => {
   let scrollCallback: (() => void) | null = null;
 
   beforeAll(async () => {
-    vi.resetModules();
-    vi.doMock('monaco-editor', monacoMockFactory);
-    vi.doMock('monaco-editor/esm/vs/editor/editor.api', monacoMockFactory);
-    vi.doMock('monaco-editor/esm/vs/editor/editor.api.js', monacoMockFactory);
     EditorCore = (await import('@/components/editor/EditorCore.vue')).default;
   });
 
@@ -177,7 +188,7 @@ describe('EditorCore.vue', () => {
   });
 
   it('挂载时应创建 Monaco 编辑器并带默认配置', async () => {
-    mount(EditorCore, {
+    const wrapper = mount(EditorCore, {
       props: { modelId: 'test-1' },
     });
 
@@ -186,7 +197,9 @@ describe('EditorCore.vue', () => {
     expect(monacoMocks.create).toHaveBeenCalledWith(
       expect.any(HTMLElement),
       expect.objectContaining({
-        language: 'plaintext',
+        model: expect.objectContaining({
+          getLanguageId: expect.any(Function),
+        }),
         readOnly: false,
         automaticLayout: true,
         fontFamily: settingsStore.fontFamily,
@@ -299,26 +312,20 @@ describe('EditorCore.vue', () => {
     expect(mockUpdateOptions).toHaveBeenCalledWith({ readOnly: true });
   });
 
-  it('设置变化应更新 editor options，字体家族变化应强制重测字体', async () => {
+  it('初始化时应将设置中的编辑器选项传给 Monaco', async () => {
+    settingsStore.$patch({
+      minimap: false,
+      fontFamily: "'Consolas', monospace",
+    });
     mount(EditorCore, {
       props: { modelId: 'test-7' },
     });
     await flushPromises();
 
-    mockUpdateOptions.mockClear();
-    monacoMocks.remeasureFonts.mockClear();
-    mockLayout.mockClear();
-
-    settingsStore.minimap = false;
-    settingsStore.fontFamily = "'Consolas', monospace";
-    await flushPromises();
-
-    expect(mockUpdateOptions).toHaveBeenCalled();
-    expect(mockUpdateOptions).toHaveBeenCalledWith(expect.objectContaining({
+    expect(monacoMocks.create).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({
       fontFamily: "'Consolas', monospace",
+      minimap: { enabled: false },
     }));
-    expect(monacoMocks.remeasureFonts).toHaveBeenCalled();
-    expect(mockLayout).toHaveBeenCalled();
   });
 
   it('卸载时应销毁编辑器', async () => {

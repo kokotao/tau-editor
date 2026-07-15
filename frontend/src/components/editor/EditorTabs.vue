@@ -122,7 +122,7 @@ const contextMenu = ref({
   tabId: null as string | null,
 });
 
-const renameInput = ref<HTMLInputElement | null>(null);
+const renameInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 const contextMenuRef = ref<HTMLElement | null>(null);
 const tabsRootRef = ref<HTMLElement | null>(null);
 const tabsContainerRef = ref<HTMLDivElement | null>(null);
@@ -219,8 +219,9 @@ const startRename = async (tab: Tab) => {
   contextMenu.value.visible = false;
 
   await nextTick();
-  renameInput.value?.focus();
-  renameInput.value?.select();
+  const input = Array.isArray(renameInput.value) ? renameInput.value[0] : renameInput.value;
+  input?.focus();
+  input?.select();
 };
 
 const renameFromMenu = () => {

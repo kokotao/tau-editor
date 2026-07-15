@@ -214,6 +214,8 @@ interface ToolbarText {
   redo: string;
   collapseExplorer: string;
   expandExplorer: string;
+  collapseContext: string;
+  expandContext: string;
   markdownViewPrefix: string;
   dirtyTip: string;
   settings: string;
@@ -700,6 +702,8 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     redo: '重做',
     collapseExplorer: '折叠资源管理器',
     expandExplorer: '展开资源管理器',
+    collapseContext: '收起上下文栏',
+    expandContext: '展开上下文栏',
     markdownViewPrefix: 'Markdown 视图',
     dirtyTip: '当前标签未保存',
     settings: '设置',
@@ -753,6 +757,8 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     redo: 'Redo',
     collapseExplorer: 'Collapse Explorer',
     expandExplorer: 'Expand Explorer',
+    collapseContext: 'Collapse Context Rail',
+    expandContext: 'Expand Context Rail',
     markdownViewPrefix: 'Markdown View',
     dirtyTip: 'Current tab has unsaved changes',
     settings: 'Settings',

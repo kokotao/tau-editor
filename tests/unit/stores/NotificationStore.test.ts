@@ -155,7 +155,7 @@ describe('NotificationStore', () => {
     });
   });
 
-  describe'移除通知', () => {
+  describe('移除通知', () => {
     it('应移除指定 ID 的通知', () => {
       const id1 = notification.add({ type: 'info', title: '通知 1' });
       const id2 = notification.add({ type: 'info', title: '通知 2' });
@@ -204,8 +204,8 @@ describe('NotificationStore', () => {
     });
   });
 
-  describe'自动消失功能', () => {
-    it'应在指定时间后自动消失', () => {
+  describe('自动消失功能', () => {
+    it('应在指定时间后自动消失', () => {
       notification.add({
         type: 'info',
         title: '临时通知',
@@ -223,7 +223,7 @@ describe('NotificationStore', () => {
       expect(notification.notifications).toHaveLength(0);
     });
 
-    it'不应自动消失 duration=0 的通知', () => {
+    it('不应自动消失 duration=0 的通知', () => {
       notification.add({
         type: 'info',
         title: '持久通知',
@@ -235,7 +235,7 @@ describe('NotificationStore', () => {
       expect(notification.notifications).toHaveLength(1);
     });
 
-    it'应为不同通知创建独立的定时器', () => {
+    it('应为不同通知创建独立的定时器', () => {
       notification.add({ type: 'info', title: '通知 1', duration: 1000 });
       notification.add({ type: 'info', title: '通知 2', duration: 3000 });
 
@@ -252,8 +252,8 @@ describe('NotificationStore', () => {
     });
   });
 
-  describe'通知操作', () => {
-    it'应支持执行操作并移除通知', () => {
+  describe('通知操作', () => {
+    it('应支持执行操作并移除通知', () => {
       const actionHandler = vi.fn();
       
       const id = notification.add({
@@ -270,14 +270,15 @@ describe('NotificationStore', () => {
       if (notif?.action?.handler) {
         notif.action.handler();
       }
+      notification.dismiss(id);
 
       expect(actionHandler).toHaveBeenCalledTimes(1);
       expect(notification.notifications).toHaveLength(0); // 操作后应移除
     });
   });
 
-  describe'状态管理', () => {
-    it'应保持通知的顺序', () => {
+  describe('状态管理', () => {
+    it('应保持通知的顺序', () => {
       notification.add({ type: 'info', title: '第一个' });
       notification.add({ type: 'info', title: '第二个' });
       notification.add({ type: 'info', title: '第三个' });
@@ -289,7 +290,7 @@ describe('NotificationStore', () => {
       ]);
     });
 
-    it'应支持多个相同类型的通知', () => {
+    it('应支持多个相同类型的通知', () => {
       notification.success('成功 1');
       notification.success('成功 2');
       notification.success('成功 3');

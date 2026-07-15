@@ -1,6 +1,51 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
-import { defineComponent } from 'vue'
+
+const componentStubs = vi.hoisted(() => ({
+  toolbar: {
+    emits: ['toggle-settings', 'toggle-file-tree', 'toggle-context-rail', 'system-action'],
+    template: `
+      <div>
+        <button data-testid="btn-settings" @click="$emit('toggle-settings')">toggle settings</button>
+        <button data-testid="btn-system-toggle-settings" @click="$emit('system-action', 'toggle-settings')">system toggle settings</button>
+        <button data-testid="btn-toggle-file-tree" @click="$emit('toggle-file-tree')">toggle file tree</button>
+        <button data-testid="btn-toggle-context-rail" @click="$emit('toggle-context-rail')">toggle context rail</button>
+      </div>
+    `,
+  },
+  settingsPanel: {
+    emits: ['close'],
+    template: '<div data-testid="settings-panel"><button data-testid="settings-panel-close" @click="$emit(\'close\')">close</button></div>',
+  },
+  markdownPreview: {
+    props: ['content', 'theme', 'sourceFilePath', 'editorScrollState'],
+    emits: ['request-preview-mode-change'],
+    methods: { scrollToSourceLine: vi.fn() },
+    template: '<div data-testid="markdown-preview-stub" @click="$emit(\'request-preview-mode-change\', \'preview\')"></div>',
+  },
+  editorCore: {
+    emits: ['scroll-change'],
+    methods: {
+      revealLine: vi.fn(),
+      triggerFindWidget: vi.fn(),
+      triggerGoToLine: vi.fn(),
+      focusAtStart: vi.fn(),
+      layout: vi.fn(),
+    },
+    template: '<div data-testid="editor-core-stub"></div>',
+  },
+  contextRail: {
+    emits: ['navigate', 'find', 'go-to-line', 'toggle-collapse'],
+    template: `
+      <div data-testid="context-rail-stub">
+        <button data-testid="context-rail-navigate" @click="$emit('navigate', 7)">navigate</button>
+        <button data-testid="context-rail-find" @click="$emit('find')">find</button>
+        <button data-testid="context-rail-go-to-line" @click="$emit('go-to-line')">go to line</button>
+        <button data-testid="context-rail-collapse" @click="$emit('toggle-collapse')">collapse</button>
+      </div>
+    `,
+  },
+}))
 
 const storeMocks = vi.hoisted(() => ({
   fileSystem: {
@@ -43,12 +88,33 @@ const storeMocks = vi.hoisted(() => ({
   },
   settings: {
     sidebarCollapsed: false,
+    contextRailCollapsed: false,
     markdownPreviewMode: 'edit',
     previewTheme: 'dark',
     markdownPreviewEnabled: true,
     monacoTheme: 'vs-dark',
     autoSaveEnabled: true,
     fileTreeWidth: 300,
+    contextRailWidth: 300,
+    theme: 'dark',
+    themeSkin: 'deep-ocean',
+    resolvedTheme: 'dark',
+    themeSkinOptions: [],
+    monacoThemeOptions: [],
+    customThemeColors: {},
+    fontFamily: 'monospace',
+    fontSize: 15,
+    lineHeight: 1.6,
+    minimap: true,
+    wordWrap: false,
+    autoSaveInterval: 30,
+    tabSize: 2,
+    setCustomThemeColor: vi.fn(),
+    resetCustomThemeColors: vi.fn(),
+    exportCustomThemeColors: vi.fn(),
+    importCustomThemeColors: vi.fn(),
+    adjustFontSize: vi.fn(),
+    resetFontSize: vi.fn(),
     maxOpenTabs: 30,
     memoryLimitMB: 256,
     uiLanguage: 'zh-CN',
@@ -97,6 +163,9 @@ vi.mock('@/stores/editor', () => ({
 
 vi.mock('@/stores/settings', () => ({
   useSettingsStore: () => storeMocks.settings,
+  CUSTOM_THEME_COLOR_KEYS: [],
+  CUSTOM_THEME_COLOR_FALLBACKS: {},
+  MARKDOWN_PREVIEW_THEMES: [],
 }))
 
 vi.mock('@/stores/notification', () => ({
@@ -153,39 +222,24 @@ vi.mock('@/services/sessionService', () => ({
 
 import App from '@/App.vue'
 
-const ToolbarStub = defineComponent({
-  emits: ['toggle-settings', 'system-action'],
-  template: `
-    <div>
-      <button data-testid="btn-settings" @click="$emit('toggle-settings')">
-        toggle settings
-      </button>
-      <button data-testid="btn-system-toggle-settings" @click="$emit('system-action', 'toggle-settings')">
-        system toggle settings
-      </button>
-    </div>
-  `,
-})
+const ToolbarStub = componentStubs.toolbar
+const SettingsPanelStub = componentStubs.settingsPanel
+const MarkdownPreviewStub = componentStubs.markdownPreview
+const ContextRailStub = componentStubs.contextRail
+vi.mock('../../../frontend/src/components/editor/Toolbar.vue', () => ({ default: componentStubs.toolbar }))
+vi.mock('../../../frontend/src/components/editor/SettingsPanel.vue', () => ({ default: componentStubs.settingsPanel }))
+vi.mock('../../../frontend/src/components/editor/MarkdownPreview.vue', () => ({ default: componentStubs.markdownPreview }))
+vi.mock('../../../frontend/src/components/editor/EditorCore.vue', () => ({ default: componentStubs.editorCore }))
+vi.mock('../../../frontend/src/components/editor/ContextRail.vue', () => ({ default: componentStubs.contextRail }))
 
-const SettingsPanelStub = defineComponent({
-  emits: ['close'],
-  template: `
-    <div data-testid="settings-panel">
-      <button data-testid="settings-panel-close" @click="$emit('close')">close</button>
-    </div>
-  `,
-})
-
-const MarkdownPreviewStub = defineComponent({
-  props: ['content', 'theme', 'sourceFilePath', 'editorScrollState'],
-  emits: ['request-preview-mode-change'],
-  template: `
-    <div
-      data-testid="markdown-preview-stub"
-      @click="$emit('request-preview-mode-change', 'preview')"
-    ></div>
-  `,
-})
+const appShellStubs = {
+  Toolbar: false,
+  SettingsPanel: false,
+  MarkdownPreview: false,
+  EditorCore: false,
+  ContextRail: false,
+  Transition: false,
+}
 
 describe('AppShell', () => {
   beforeEach(() => {
@@ -193,6 +247,7 @@ describe('AppShell', () => {
     storeMocks.workspace.currentWorkspacePath = null
     storeMocks.workspace.currentWorkspaceName = null
     storeMocks.settings.sidebarCollapsed = false
+    storeMocks.settings.contextRailCollapsed = false
     storeMocks.command.paletteOpen = false
     storeMocks.command.query = ''
     storeMocks.command.highlightedIndex = 0
@@ -207,10 +262,7 @@ describe('AppShell', () => {
   it('点击工具栏设置时应渲染独立页面模式', async () => {
     const wrapper = shallowMount(App, {
       global: {
-        stubs: {
-          Toolbar: ToolbarStub,
-          SettingsPanel: SettingsPanelStub,
-        },
+        stubs: appShellStubs,
       },
     })
 
@@ -219,12 +271,12 @@ describe('AppShell', () => {
     expect(wrapper.find('.floating-meta').exists()).toBe(false)
     expect(wrapper.find('.settings-sidebar').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toContain('display: none;')
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('false')
 
     await wrapper.find('[data-testid="btn-settings"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('true')
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="shell-overlay"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-panel"]').exists()).toBe(true)
@@ -233,26 +285,20 @@ describe('AppShell', () => {
   it('系统菜单动作应打开设置工作区', async () => {
     const wrapper = shallowMount(App, {
       global: {
-        stubs: {
-          Toolbar: ToolbarStub,
-          SettingsPanel: SettingsPanelStub,
-        },
+        stubs: appShellStubs,
       },
     })
 
     await wrapper.find('[data-testid="btn-system-toggle-settings"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('true')
     expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
   })
 
   it('快捷键应按规则切换 workspace 与 drawer，并支持 Esc 关闭', async () => {
     const wrapper = shallowMount(App, {
       global: {
-        stubs: {
-          Toolbar: ToolbarStub,
-          SettingsPanel: SettingsPanelStub,
-        },
+        stubs: appShellStubs,
       },
     })
 
@@ -264,7 +310,7 @@ describe('AppShell', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
     await flushPromises()
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toContain('display: none;')
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('false')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '<', code: 'Comma', ctrlKey: true, shiftKey: true }))
     await flushPromises()
@@ -272,12 +318,11 @@ describe('AppShell', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma', ctrlKey: true }))
     await flushPromises()
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toBeUndefined()
-    expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('true')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('style')).toContain('display: none;')
+    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('false')
   })
 
   it('预览菜单请求切换模式应更新设置', async () => {
@@ -296,11 +341,7 @@ describe('AppShell', () => {
 
     const wrapper = shallowMount(App, {
       global: {
-        stubs: {
-          Toolbar: ToolbarStub,
-          SettingsPanel: SettingsPanelStub,
-          MarkdownPreview: MarkdownPreviewStub,
-        },
+        stubs: appShellStubs,
       },
     })
 
@@ -319,10 +360,7 @@ describe('AppShell', () => {
   it('左下角应显示统一控制组且仅保留侧栏按钮', async () => {
     const wrapper = shallowMount(App, {
       global: {
-        stubs: {
-          Toolbar: ToolbarStub,
-          SettingsPanel: SettingsPanelStub,
-        },
+        stubs: appShellStubs,
       },
     })
 
@@ -352,17 +390,13 @@ describe('AppShell', () => {
 
     const wrapper = shallowMount(App, {
       global: {
-        stubs: {
-          Toolbar: ToolbarStub,
-          SettingsPanel: SettingsPanelStub,
-          MarkdownPreview: MarkdownPreviewStub,
-        },
+        stubs: appShellStubs,
       },
     })
 
     await flushPromises()
 
-    const editorCore = wrapper.findComponent({ name: 'EditorCore' })
+    const editorCore = wrapper.findComponent(componentStubs.editorCore)
     expect(editorCore.exists()).toBe(true)
 
     const nextScrollState = { top: 120, height: 300, scrollHeight: 900 }
@@ -371,5 +405,51 @@ describe('AppShell', () => {
 
     const preview = wrapper.findComponent(MarkdownPreviewStub)
     expect(preview.props('editorScrollState')).toEqual(nextScrollState)
+  })
+
+  it('窄屏默认收起 ContextRail，并允许通过 Toolbar 打开抽屉', async () => {
+    const originalInnerWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 799 })
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="context-rail-shell"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="btn-toggle-context-rail"]').trigger('click')
+    await flushPromises()
+
+    expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({
+      sidebarCollapsed: true,
+      contextRailCollapsed: false,
+    })
+    expect(wrapper.find('[data-testid="context-rail-shell"]').exists()).toBe(true)
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+  })
+
+  it('窄屏默认收起文件树，并允许通过 Toolbar 打开左侧抽屉', async () => {
+    const originalInnerWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 799 })
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.sidebar-shell').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="btn-toggle-file-tree"]').trigger('click')
+    await flushPromises()
+
+    expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({
+      sidebarCollapsed: false,
+      contextRailCollapsed: true,
+    })
+    expect(wrapper.find('.sidebar-shell').exists()).toBe(true)
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
   })
 })

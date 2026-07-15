@@ -113,6 +113,17 @@
             <line x1="16" y1="4" x2="16" y2="20" />
           </svg>
         </button>
+        <button
+          class="toolbar-btn"
+          data-testid="btn-toggle-context-rail"
+          @click="emit('toggle-context-rail')"
+          :title="contextRailVisible ? copy.collapseContext : copy.expandContext"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <line x1="15" y1="4" x2="15" y2="20" />
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -200,6 +211,7 @@ interface ToolbarProps {
   isMarkdown?: boolean;
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
   sidebarVisible?: boolean;
+  contextRailVisible?: boolean;
   workspaceLabel?: string;
   currentFileLabel?: string;
   appLabel?: string;
@@ -209,6 +221,7 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
   isMarkdown: false,
   markdownPreviewMode: 'split',
   sidebarVisible: true,
+  contextRailVisible: true,
 });
 
 const settingsStore = useSettingsStore();
@@ -285,6 +298,7 @@ const emit = defineEmits<{
   'undo': [];
   'redo': [];
   'toggle-file-tree': [];
+  'toggle-context-rail': [];
   'toggle-settings': [];
   'cycle-markdown-preview': [];
   'system-action': [action: SystemMenuAction];

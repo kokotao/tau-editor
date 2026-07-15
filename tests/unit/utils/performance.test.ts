@@ -12,10 +12,7 @@ describe('PerformanceMonitor', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     // 重置单例
-    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb: any) => {
-      cb(performance.now());
-      return 1;
-    });
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 1);
   });
 
   afterEach(() => {
@@ -62,7 +59,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['<100KB']).toBeDefined();
     });
 
-    it'应正确分类小文件 (<100KB)', () => {
+    it('应正确分类小文件 (<100KB)', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/small.txt', 50, 100);
 
@@ -70,7 +67,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['<100KB']).toBeDefined();
     });
 
-    it'应正确分类中等文件 (100-500KB)', () => {
+    it('应正确分类中等文件 (100-500KB)', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/medium.txt', 200, 150);
 
@@ -78,7 +75,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['100-500KB']).toBeDefined();
     });
 
-    it'应正确分类大文件 (500KB-1MB)', () => {
+    it('应正确分类大文件 (500KB-1MB)', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/large.txt', 800, 300);
 
@@ -86,7 +83,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['500KB-1MB']).toBeDefined();
     });
 
-    it'应正确分类超大文件 (1-5MB)', () => {
+    it('应正确分类超大文件 (1-5MB)', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/xlarge.txt', 2000, 500);
 
@@ -94,7 +91,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['1-5MB']).toBeDefined();
     });
 
-    it'应正确分类巨型文件 (5-10MB)', () => {
+    it('应正确分类巨型文件 (5-10MB)', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/huge.txt', 8000, 1000);
 
@@ -102,7 +99,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['5-10MB']).toBeDefined();
     });
 
-    it'应正确分类超巨型文件 (>10MB)', () => {
+    it('应正确分类超巨型文件 (>10MB)', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/massive.txt', 15000, 2000);
 
@@ -110,7 +107,7 @@ describe('PerformanceMonitor', () => {
       expect(report.fileLoadTime['>10MB']).toBeDefined();
     });
 
-    it'应计算同一类别的平均加载时间', () => {
+    it('应计算同一类别的平均加载时间', () => {
       monitor = new PerformanceMonitor();
       monitor.recordFileLoadTime('/test/file1.txt', 50, 100);
       monitor.recordFileLoadTime('/test/file2.txt', 60, 150);
@@ -122,7 +119,7 @@ describe('PerformanceMonitor', () => {
   });
 
   describe('打字延迟记录', () => {
-    it'应记录打字延迟样本', () => {
+    it('应记录打字延迟样本', () => {
       monitor = new PerformanceMonitor();
       monitor.recordTypingLatency(50);
 
@@ -131,7 +128,7 @@ describe('PerformanceMonitor', () => {
       expect(report.typingLatency[0]).toBe(50);
     });
 
-    it'应记录多个延迟样本', () => {
+    it('应记录多个延迟样本', () => {
       monitor = new PerformanceMonitor();
       monitor.recordTypingLatency(50);
       monitor.recordTypingLatency(60);
@@ -141,7 +138,7 @@ describe('PerformanceMonitor', () => {
       expect(report.typingLatency).toHaveLength(3);
     });
 
-    it'应限制样本数量为 100 个', () => {
+    it('应限制样本数量为 100 个', () => {
       monitor = new PerformanceMonitor();
 
       // 添加 150 个样本
@@ -156,7 +153,7 @@ describe('PerformanceMonitor', () => {
       expect(report.typingLatency[99]).toBe(149);
     });
 
-    it'应计算平均打字延迟', () => {
+    it('应计算平均打字延迟', () => {
       monitor = new PerformanceMonitor();
       monitor.recordTypingLatency(50);
       monitor.recordTypingLatency(60);
@@ -166,7 +163,7 @@ describe('PerformanceMonitor', () => {
       expect(avgLatency).toBe(60);
     });
 
-    it'无样本时平均延迟应为 0', () => {
+    it('无样本时平均延迟应为 0', () => {
       monitor = new PerformanceMonitor();
       const avgLatency = monitor.getAverageTypingLatency();
       expect(avgLatency).toBe(0);
@@ -174,7 +171,7 @@ describe('PerformanceMonitor', () => {
   });
 
   describe('Monaco 加载时间', () => {
-    it'应记录 Monaco 加载时间', () => {
+    it('应记录 Monaco 加载时间', () => {
       monitor = new PerformanceMonitor();
       monitor.recordMonacoLoadTime(500);
 
@@ -182,7 +179,7 @@ describe('PerformanceMonitor', () => {
       expect(report.monacoLoadTime).toBe(500);
     });
 
-    it'应覆盖之前的 Monaco 加载时间', () => {
+    it('应覆盖之前的 Monaco 加载时间', () => {
       monitor = new PerformanceMonitor();
       monitor.recordMonacoLoadTime(500);
       monitor.recordMonacoLoadTime(300);
@@ -193,7 +190,7 @@ describe('PerformanceMonitor', () => {
   });
 
   describe('性能报告', () => {
-    it'应返回完整的性能报告', () => {
+    it('应返回完整的性能报告', () => {
       monitor = new PerformanceMonitor();
       monitor.recordMonacoLoadTime(400);
       monitor.recordFileLoadTime('/test.txt', 50, 100);
@@ -211,7 +208,7 @@ describe('PerformanceMonitor', () => {
       expect(report).toHaveProperty('typingLatency');
     });
 
-    it'应返回对象的副本而非引用', () => {
+    it('应返回对象的副本而非引用', () => {
       monitor = new PerformanceMonitor();
       const report1 = monitor.getReport();
       report1.startupTime = 9999;
@@ -222,7 +219,7 @@ describe('PerformanceMonitor', () => {
   });
 
   describe('停止监控', () => {
-    it'应停止性能监控', () => {
+    it('应停止性能监控', () => {
       monitor = new PerformanceMonitor();
       const stopSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
 
@@ -234,14 +231,14 @@ describe('PerformanceMonitor', () => {
 });
 
 describe('getPerformanceMonitor', () => {
-  it'应返回单例实例', () => {
+  it('应返回单例实例', () => {
     const monitor1 = getPerformanceMonitor();
     const monitor2 = getPerformanceMonitor();
 
     expect(monitor1).toBe(monitor2);
   });
 
-  it'首次调用应创建新实例', () => {
+  it('首次调用应创建新实例', () => {
     const monitor = getPerformanceMonitor();
     expect(monitor).toBeDefined();
     expect(monitor).toBeInstanceOf(PerformanceMonitor);
