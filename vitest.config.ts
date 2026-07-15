@@ -56,6 +56,11 @@ export default defineConfig({
       'html': './test-results/html/index.html',
       'junit': './test-results/junit.xml',
     },
+    server: {
+      deps: {
+        inline: ['@vue/test-utils'],
+      },
+    },
   },
   
   resolve: {
@@ -67,8 +72,8 @@ export default defineConfig({
       '@store': path.resolve(__dirname, './frontend/src/stores'),
       '@utils': path.resolve(__dirname, './frontend/src/utils'),
       '@types': path.resolve(__dirname, './frontend/src/types'),
-      vue: path.resolve(__dirname, './node_modules/vue'),
-      pinia: path.resolve(__dirname, './node_modules/pinia'),
+      '@vue/test-utils': path.resolve(__dirname, './node_modules/@vue/test-utils/dist/vue-test-utils.esm-bundler.mjs'),
+      vue: path.resolve(__dirname, './frontend/node_modules/vue/index.js'),
     },
   },
 })

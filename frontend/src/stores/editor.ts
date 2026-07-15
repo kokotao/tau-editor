@@ -73,6 +73,7 @@ export const useEditorStore = defineStore('editor', {
         return;
       }
       this.content = content;
+      this.setLineCount(content.split(/\r\n|\r|\n/).length);
       this.isDirty = markDirty;
     },
 

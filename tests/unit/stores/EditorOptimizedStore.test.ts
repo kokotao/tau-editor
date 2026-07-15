@@ -6,11 +6,10 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import { useEditorStore } from '@/stores/editorOptimized';
-
-// Mock Tauri commands
-const mockReadFile = vi.fn();
-const mockWriteFile = vi.fn();
+const { mockReadFile, mockWriteFile } = vi.hoisted(() => ({
+  mockReadFile: vi.fn(),
+  mockWriteFile: vi.fn(),
+}));
 
 vi.mock('@/lib/tauri', () => ({
   fileCommands: {
@@ -24,11 +23,14 @@ vi.mock('@/lib/tauri', () => ({
   },
 }));
 
+import { useEditorStore } from '@/stores/editorOptimized';
+
 describe('EditorOptimized Store', () => {
   let pinia: ReturnType<typeof createPinia>;
   let store: ReturnType<typeof useEditorStore>;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     pinia = createPinia();
     setActivePinia(pinia);
     store = useEditorStore();
@@ -42,6 +44,7 @@ describe('EditorOptimized Store', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -282,12 +285,13 @@ describe('EditorOptimized Store', () => {
     it('getCachedContent 应更新访问时间', () => {
       store.cacheContent('/test/file.txt', 'test content', 'plaintext');
       const cached1 = store.getCachedContent('/test/file.txt');
+      const firstAccessed = cached1?.lastAccessed ?? 0;
       
       // 等待一小段时间
       vi.advanceTimersByTime(100);
       
       const cached2 = store.getCachedContent('/test/file.txt');
-      expect(cached2?.lastAccessed).toBeGreaterThan(cached1?.lastAccessed || 0);
+      expect(cached2?.lastAccessed).toBeGreaterThan(firstAccessed);
     });
 
     it('getCachedContent 对于不存在的缓存应返回 null', () => {

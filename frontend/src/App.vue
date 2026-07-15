@@ -13,6 +13,8 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
+import { buildDocumentOutline } from '@/services/documentOutlineService';
+import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
@@ -28,6 +30,7 @@ import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
 import EditorCore from './components/editor/EditorCore.vue';
 import MarkdownPreview from './components/editor/MarkdownPreview.vue';
+import ContextRail from './components/editor/ContextRail.vue';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
@@ -104,8 +107,18 @@ const FILE_LANGUAGE_MAP: Record<string, string> = {
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
+const MIN_CONTEXT_RAIL_WIDTH = 240;
+const MAX_CONTEXT_RAIL_WIDTH = 420;
 const isResizingSidebar = ref(false);
+const isResizingContextRail = ref(false);
 const sidebarWidth = ref(300);
+const contextRailWidth = ref(300);
+const fileTreeDrawerOpen = ref(false);
+const contextRailDrawerOpen = ref(false);
+const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
+const syncViewportWidth = () => {
+  viewportWidth.value = window.innerWidth;
+};
 type SettingsContainer = 'workspace' | 'drawer';
 type SettingsCategory = 'general' | 'editor' | 'updates' | 'about';
 const settingsContainer = ref<SettingsContainer | null>(null);
@@ -118,8 +131,11 @@ type EditorCoreExpose = {
   layout: () => void;
   triggerFindWidget: () => void;
   triggerGoToLine: () => void;
+  revealLine: (line: number, column?: number) => void;
 };
 const editorCoreRef = ref<EditorCoreExpose | null>(null);
+type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
+const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
 const FIRST_INSTALL_GUIDE_KEY = 'text-editor-first-install-guide-v1';
 const GUIDE_LAST_OPENED_AT_KEY = 'text-editor-last-opened-at-v1';
 const GUIDE_LAST_SHOWN_AT_KEY = 'text-editor-guide-last-shown-at-v1';
@@ -135,6 +151,8 @@ let externalFileSyncInFlight = false;
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
+const clampContextRailWidth = (value: number) =>
+  Math.min(MAX_CONTEXT_RAIL_WIDTH, Math.max(MIN_CONTEXT_RAIL_WIDTH, value));
 const normalizeFsPath = (path: string) => path.replace(/\\/g, '/');
 const getParentFsPath = (path: string) => {
   const normalized = normalizeFsPath(path);
@@ -241,11 +259,72 @@ const currentModeLabel = computed(() =>
 );
 const filteredCommands = computed(() => commandStore.filteredCommands);
 const highlightedCommand = computed(() => commandStore.highlightedCommand);
+const documentOutline = computed(() => {
+  const tab = activeTab.value;
+  if (!tab || tab.isLargeFile) {
+    return [];
+  }
+  return buildDocumentOutline({ content: tab.content, language: tab.language });
+});
+const workbenchSidebarVisibility = computed(() => resolveWorkbenchSidebarVisibility({
+  viewportWidth: viewportWidth.value,
+  sidebarCollapsed: settingsStore.sidebarCollapsed,
+  contextRailCollapsed: settingsStore.contextRailCollapsed,
+  fileTreeDrawerOpen: fileTreeDrawerOpen.value,
+  contextRailDrawerOpen: contextRailDrawerOpen.value,
+}));
+const isFileTreeDrawerBreakpoint = computed(() => viewportWidth.value < 1024);
+const isContextRailDrawerBreakpoint = computed(() =>
+  viewportWidth.value < 800 || (viewportWidth.value >= 1024 && viewportWidth.value < 1280),
+);
 const showFileTree = computed({
-  get: () => !settingsStore.sidebarCollapsed,
+  get: () => workbenchSidebarVisibility.value.fileTreeVisible,
   set: (nextVisible: boolean) => {
+    if (isFileTreeDrawerBreakpoint.value) {
+      fileTreeDrawerOpen.value = nextVisible;
+      if (nextVisible) {
+        contextRailDrawerOpen.value = false;
+        void settingsStore.updateSettings({ sidebarCollapsed: false, contextRailCollapsed: true });
+        return;
+      }
+      void settingsStore.updateSettings({ sidebarCollapsed: true });
+      return;
+    }
     void settingsStore.updateSettings({ sidebarCollapsed: !nextVisible });
   },
+});
+const showContextRail = computed({
+  get: () => workbenchSidebarVisibility.value.contextRailVisible,
+  set: (nextVisible: boolean) => {
+    if (isContextRailDrawerBreakpoint.value) {
+      contextRailDrawerOpen.value = nextVisible;
+      if (viewportWidth.value < 800) {
+        fileTreeDrawerOpen.value = false;
+        void settingsStore.updateSettings({
+          sidebarCollapsed: nextVisible,
+          contextRailCollapsed: !nextVisible,
+        });
+        return;
+      }
+      void settingsStore.updateSettings({ contextRailCollapsed: !nextVisible });
+      return;
+    }
+    if (nextVisible && viewportWidth.value >= 800 && viewportWidth.value < 1024) {
+      fileTreeDrawerOpen.value = false;
+      void settingsStore.updateSettings({ sidebarCollapsed: true, contextRailCollapsed: false });
+      return;
+    }
+    void settingsStore.updateSettings({ contextRailCollapsed: !nextVisible });
+  },
+});
+
+watch(viewportWidth, () => {
+  if (isFileTreeDrawerBreakpoint.value) {
+    fileTreeDrawerOpen.value = false;
+  }
+  if (isContextRailDrawerBreakpoint.value) {
+    contextRailDrawerOpen.value = false;
+  }
 });
 
 watch(activeTab, (tab) => {
@@ -294,6 +373,15 @@ const handleRedo = () => {
 
 const handleToggleFileTree = () => {
   showFileTree.value = !showFileTree.value;
+};
+
+const handleToggleContextRail = () => {
+  showContextRail.value = !showContextRail.value;
+};
+
+const handleContextNavigate = (line: number) => {
+  editorCoreRef.value?.revealLine(line);
+  markdownPreviewRef.value?.scrollToSourceLine(line);
 };
 
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
@@ -1044,6 +1132,29 @@ const startSidebarResize = (event: MouseEvent) => {
   document.addEventListener('mouseup', onUp);
 };
 
+const startContextRailResize = (event: MouseEvent) => {
+  if (!showContextRail.value) {
+    return;
+  }
+  isResizingContextRail.value = true;
+  const startX = event.clientX;
+  const startWidth = contextRailWidth.value;
+
+  const onMove = (moveEvent: MouseEvent) => {
+    contextRailWidth.value = clampContextRailWidth(startWidth - (moveEvent.clientX - startX));
+  };
+
+  const onUp = () => {
+    isResizingContextRail.value = false;
+    void settingsStore.updateSettings({ contextRailWidth: contextRailWidth.value });
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+};
+
 const handleShellKeydown = (event: KeyboardEvent) => {
   const isSettingsOpen = settingsContainer.value !== null;
   if (event.key === 'Escape' && isSettingsOpen) {
@@ -1193,6 +1304,13 @@ watch(
 );
 
 watch(
+  () => settingsStore.contextRailWidth,
+  (width) => {
+    contextRailWidth.value = clampContextRailWidth(width);
+  },
+);
+
+watch(
   () => settingsStore.uiLanguage,
   () => {
     refreshLocalizedCommands();
@@ -1224,9 +1342,11 @@ watch(
 );
 
 onMounted(async () => {
+  window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
   await settingsStore.init();
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
+  contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
   restoreSession();
   await windowService.attach();
   registerShortcuts();
@@ -1249,6 +1369,7 @@ onUnmounted(() => {
   }
   stopExternalFileSync();
   window.removeEventListener('keydown', handleShellKeydown);
+  window.removeEventListener('resize', syncViewportWidth);
 });
 </script>
 
@@ -1276,6 +1397,7 @@ onUnmounted(() => {
       :workspace-label="workspaceLabel"
       :current-file-label="currentFileLabel"
       :sidebar-visible="showFileTree"
+      :context-rail-visible="showContextRail"
       :is-markdown="isMarkdownTab && settingsStore.markdownPreviewEnabled"
       :markdown-preview-mode="markdownPreviewMode"
       @new-file="handleNewFile"
@@ -1286,6 +1408,7 @@ onUnmounted(() => {
       @undo="handleUndo"
       @redo="handleRedo"
       @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
+      @toggle-context-rail="handleToggleContextRail"
       @toggle-settings="handleToolbarToggleSettings"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
       @system-action="handleSystemAction"
@@ -1365,6 +1488,7 @@ onUnmounted(() => {
         v-show="settingsContainer === 'workspace'"
         class="settings-page"
         data-testid="settings-page"
+        :data-active="settingsContainer === 'workspace' ? 'true' : 'false'"
       >
         <SettingsPanel
           mode="workspace"
@@ -1417,6 +1541,7 @@ onUnmounted(() => {
             data-testid="markdown-preview-pane"
           >
             <MarkdownPreview
+              ref="markdownPreviewRef"
               :content="activeTab.content"
               :theme="previewTheme"
               :source-file-path="activeTab.filePath"
@@ -1434,6 +1559,32 @@ onUnmounted(() => {
           </div>
         </div>
       </section>
+
+      <transition name="context-rail-shell">
+        <div
+          v-if="showContextRail && settingsContainer !== 'workspace'"
+          class="context-rail-shell"
+          :class="{ resizing: isResizingContextRail }"
+          :style="{ '--context-rail-width': `${contextRailWidth}px` }"
+          data-testid="context-rail-shell"
+        >
+          <div
+            class="context-rail-resizer"
+            data-testid="context-rail-resizer"
+            :class="{ dragging: isResizingContextRail }"
+            @mousedown.prevent="startContextRailResize"
+          ></div>
+          <ContextRail
+            :outline="documentOutline"
+            :language="activeTab?.language"
+            :locale="settingsStore.uiLanguage"
+            @navigate="handleContextNavigate"
+            @find="editorCoreRef?.triggerFindWidget()"
+            @go-to-line="editorCoreRef?.triggerGoToLine()"
+            @toggle-collapse="showContextRail = false"
+          />
+        </div>
+      </transition>
 
       <transition name="settings-drawer">
         <aside
@@ -1566,6 +1717,34 @@ samp {
   min-width: 0;
   width: calc(var(--sidebar-width) + 10px);
   overflow: hidden;
+}
+
+.context-rail-shell {
+  display: flex;
+  flex: 0 0 var(--context-rail-width);
+  width: var(--context-rail-width);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  background: rgba(9, 14, 26, 0.52);
+  box-shadow: var(--shadow-soft);
+}
+
+.context-rail-resizer {
+  width: 10px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  opacity: 0;
+  background: transparent;
+  transition: opacity .2s ease, background .2s ease;
+}
+
+.context-rail-shell:hover .context-rail-resizer,
+.context-rail-resizer.dragging {
+  opacity: 1;
+  background: rgba(77, 171, 255, .45);
 }
 
 .sidebar,
@@ -1765,6 +1944,19 @@ samp {
   filter: saturate(0.88);
 }
 
+.context-rail-shell-enter-active,
+.context-rail-shell-leave-active {
+  transition: width .24s ease, flex-basis .24s ease, opacity .2s ease, transform .24s ease;
+}
+
+.context-rail-shell-enter-from,
+.context-rail-shell-leave-to {
+  width: 0;
+  flex-basis: 0;
+  opacity: 0;
+  transform: translateX(12px);
+}
+
 .sidebar-resizer {
   width: 10px;
   cursor: col-resize;
@@ -1943,6 +2135,109 @@ samp {
 
   .hero-card h1 {
     font-size: 28px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .main-layout {
+    --panel-gap: 0px;
+    gap: 0;
+    padding: 0;
+  }
+
+  .sidebar-shell {
+    width: var(--sidebar-width);
+  }
+
+  .sidebar,
+  .editor-panel,
+  .settings-page,
+  .context-rail-shell {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--panel);
+    backdrop-filter: none;
+  }
+
+  .sidebar {
+    border-right: 1px solid var(--border-soft);
+  }
+
+  .context-rail-shell {
+    border-left: 1px solid var(--border-soft);
+  }
+
+  .sidebar-resizer {
+    width: 1px;
+    margin: 0;
+  }
+
+  .sidebar-resizer:hover,
+  .sidebar-resizer.dragging {
+    opacity: 1;
+    background: var(--accent-blue);
+  }
+
+  .context-rail-resizer {
+    width: 1px;
+  }
+
+  .context-rail-shell:hover .context-rail-resizer,
+  .context-rail-resizer.dragging {
+    background: var(--accent-blue);
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .context-rail-shell {
+    position: absolute;
+    z-index: calc(var(--z-drawer, 50) - 1);
+    top: var(--panel-gap);
+    right: var(--panel-gap);
+    bottom: var(--panel-gap);
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+@media (min-width: 800px) and (max-width: 1023px) {
+  .sidebar-shell {
+    position: absolute;
+    z-index: calc(var(--z-drawer, 50) - 1);
+    top: var(--panel-gap);
+    left: var(--panel-gap);
+    bottom: var(--panel-gap);
+    box-shadow: var(--shadow-overlay);
+  }
+
+  .context-rail-shell {
+    position: absolute;
+    z-index: calc(var(--z-drawer, 50) - 1);
+    top: var(--panel-gap);
+    right: var(--panel-gap);
+    bottom: var(--panel-gap);
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+@media (max-width: 799px) {
+  .sidebar-shell {
+    position: fixed;
+    z-index: calc(var(--z-drawer, 50) + 1);
+    inset: 0 auto 0 0;
+    width: min(var(--sidebar-width), 100vw);
+    max-width: 100vw;
+  }
+
+  .context-rail-shell {
+    position: fixed;
+    z-index: calc(var(--z-drawer, 50) + 1);
+    inset: 0 0 0 auto;
+    width: min(var(--context-rail-width), 100vw);
+    max-width: 100vw;
+    border: 0;
+    border-radius: 0;
+    box-shadow: var(--shadow-overlay);
   }
 }
 </style>

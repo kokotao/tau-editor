@@ -189,6 +189,11 @@ describe('SettingsStore', () => {
       expect(store.sidebarCollapsed).toBe(false)
     })
 
+    it('应初始化 ContextRail 宽度和折叠状态', () => {
+      expect(store.contextRailWidth).toBe(300)
+      expect(store.contextRailCollapsed).toBe(false)
+    })
+
     it('应初始化 Markdown 预览模式为 edit', () => {
       expect(store.markdownPreviewMode).toBe('edit')
     })
@@ -405,6 +410,39 @@ describe('SettingsStore', () => {
       store.loadFromStorage()
 
       expect(store.markdownPreviewTheme).toBe('paper-soft')
+    })
+
+    it('应持久化并恢复 ContextRail 布局设置', () => {
+      store.contextRailWidth = 344
+      store.contextRailCollapsed = true
+      store.saveToStorage()
+
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.contextRailWidth).toBe(344)
+      expect(saved.contextRailCollapsed).toBe(true)
+
+      vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
+        contextRailWidth: 280,
+        contextRailCollapsed: false,
+      }))
+      store.loadFromStorage()
+
+      expect(store.contextRailWidth).toBe(280)
+      expect(store.contextRailCollapsed).toBe(false)
+    })
+
+    it('应将持久化的 ContextRail 宽度和折叠状态规范为有效值', () => {
+      vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
+        contextRailWidth: 999,
+        contextRailCollapsed: 'true',
+      }))
+
+      store.loadFromStorage()
+
+      expect(store.contextRailWidth).toBe(420)
+      expect(store.contextRailCollapsed).toBe(false)
     })
   })
 

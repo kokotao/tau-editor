@@ -1,6 +1,6 @@
 {
   "name": "text-editor",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Tau 编辑器 - Tau Editor",
   "author": "罗小纯",
   "private": true,
@@ -17,7 +17,7 @@
     "lint:fix": "eslint src --ext ts,tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "cd frontend && pnpm type-check",
     "test": "pnpm test:unit && pnpm test:e2e",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",

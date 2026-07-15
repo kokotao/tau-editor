@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Toolbar from '@/components/editor/Toolbar.vue'
 
@@ -179,6 +179,20 @@ describe('Toolbar.vue', () => {
       expect(wrapper.emitted('toggle-file-tree')).toBeTruthy()
     })
 
+    it('切换 ContextRail 按钮应发射 toggle-context-rail 事件', async () => {
+      const wrapper = mountToolbar({ contextRailVisible: false })
+
+      await wrapper.get('[data-testid="btn-toggle-context-rail"]').trigger('click')
+
+      expect(wrapper.emitted('toggle-context-rail')).toEqual([[]])
+    })
+
+    it('ContextRail 收起时仍应保留可重新打开的工具栏按钮', () => {
+      const wrapper = mountToolbar({ contextRailVisible: false })
+
+      expect(wrapper.find('[data-testid="btn-toggle-context-rail"]').exists()).toBe(true)
+    })
+
     it('切换设置按钮应发射 toggle-settings 事件', async () => {
       const wrapper = mountToolbar()
       const toggleSettingsBtn = wrapper.get('[data-testid="btn-settings"]')
@@ -196,6 +210,7 @@ describe('Toolbar.vue', () => {
     it('系统菜单点击命令应发射 system-action 事件', async () => {
       const wrapper = mountToolbar()
       await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await flushPromises()
       await wrapper.get('[data-testid="system-menu-item-open-command-palette"]').trigger('click')
 
       expect(wrapper.emitted('system-action')).toBeTruthy()
@@ -205,8 +220,10 @@ describe('Toolbar.vue', () => {
     it('系统菜单应支持切换主题与语言模式快捷项', async () => {
       const wrapper = mountToolbar()
       await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await flushPromises()
       await wrapper.get('[data-testid="system-menu-item-toggle-theme"]').trigger('click')
       await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await flushPromises()
       await wrapper.get('[data-testid="system-menu-item-cycle-language-mode"]').trigger('click')
 
       expect(wrapper.emitted('system-action')![0]).toEqual(['toggle-theme'])
@@ -216,6 +233,7 @@ describe('Toolbar.vue', () => {
     it('系统菜单应支持按关键字过滤并回车执行', async () => {
       const wrapper = mountToolbar()
       await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
+      await flushPromises()
 
       const search = wrapper.get('[data-testid="system-menu-search"]')
       await search.setValue('主题')
