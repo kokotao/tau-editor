@@ -3,11 +3,10 @@
 /// 支持分块读取、流式传输、大文件优化等
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, SeekFrom};
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 /// 文件分块
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,15 +74,24 @@ pub async fn read_file_chunked(
         .await
         .map_err(|e| format!("读取文件失败：{}", e))?;
     
-    // 转换为字符串 (UTF-8)
-    let content = String::from_utf8_lossy(&buffer).to_string();
-    
-    let is_last = (offset + actual_size) >= total_size;
+    let mut is_last = (offset + actual_size) >= total_size;
+    let mut decoded_size = buffer.len();
+    if !is_last {
+        decoded_size = trim_incomplete_utf8_suffix_len(&buffer);
+        // 防止出现 size=0 导致前端 offset 无法推进
+        if decoded_size == 0 {
+            decoded_size = buffer.len();
+        }
+        is_last = (offset + decoded_size as u64) >= total_size;
+    }
+
+    // 转换为字符串 (UTF-8)，对内部非法字节做 lossy 兜底
+    let content = String::from_utf8_lossy(&buffer[..decoded_size]).to_string();
     
     Ok(FileChunk {
         content,
         offset,
-        size: actual_size,
+        size: decoded_size as u64,
         total_size,
         is_last,
     })
@@ -183,12 +191,96 @@ pub async fn get_large_file_config() -> Result<LargeFileConfig, String> {
     })
 }
 
+/// 分块写入文件（支持追加）
+#[tauri::command]
+pub async fn write_file_chunked(
+    path: String,
+    content: String,
+    append: bool,
+) -> Result<(), String> {
+    validate_path(&path)?;
+
+    let mut options = fs::OpenOptions::new();
+    options.create(true).write(true);
+    if append {
+        options.append(true);
+    } else {
+        options.truncate(true);
+    }
+
+    let mut file = options
+        .open(&path)
+        .await
+        .map_err(|e| format!("打开文件失败：{}", e))?;
+
+    file.write_all(content.as_bytes())
+        .await
+        .map_err(|e| format!("写入文件分块失败：{}", e))?;
+    file.flush()
+        .await
+        .map_err(|e| format!("刷新文件失败：{}", e))?;
+
+    Ok(())
+}
+
 /// 验证路径安全性
 fn validate_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("路径不能为空".to_string());
     }
     Ok(())
+}
+
+/// 计算可安全解码的 UTF-8 前缀长度，避免把多字节字符截断到当前分片尾部。
+fn trim_incomplete_utf8_suffix_len(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+
+    let mut continuation_count = 0usize;
+    let mut index = bytes.len();
+
+    while index > 0 && continuation_count < 4 {
+        let byte = bytes[index - 1];
+        if (byte & 0b1100_0000) == 0b1000_0000 {
+            continuation_count += 1;
+            index -= 1;
+            continue;
+        }
+
+        let expected_len = utf8_leading_byte_len(byte);
+        if expected_len == 0 {
+            return bytes.len();
+        }
+
+        let actual_len = continuation_count + 1;
+        if actual_len < expected_len {
+            return bytes.len().saturating_sub(actual_len);
+        }
+
+        return bytes.len();
+    }
+
+    // 全是 continuation byte，说明结尾不是完整字符
+    if continuation_count > 0 {
+        bytes.len().saturating_sub(continuation_count)
+    } else {
+        bytes.len()
+    }
+}
+
+fn utf8_leading_byte_len(byte: u8) -> usize {
+    if (byte & 0b1000_0000) == 0 {
+        1
+    } else if (byte & 0b1110_0000) == 0b1100_0000 {
+        2
+    } else if (byte & 0b1111_0000) == 0b1110_0000 {
+        3
+    } else if (byte & 0b1111_1000) == 0b1111_0000 {
+        4
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]
@@ -199,5 +291,19 @@ mod tests {
     fn test_validate_path() {
         assert!(validate_path("").is_err());
         assert!(validate_path("/tmp/test.txt").is_ok());
+    }
+
+    #[test]
+    fn test_trim_incomplete_utf8_suffix_len_complete_chunk() {
+        let content = "hello世界";
+        let bytes = content.as_bytes();
+        assert_eq!(trim_incomplete_utf8_suffix_len(bytes), bytes.len());
+    }
+
+    #[test]
+    fn test_trim_incomplete_utf8_suffix_len_incomplete_tail() {
+        let bytes = "你好".as_bytes();
+        let partial = &bytes[..4];
+        assert_eq!(trim_incomplete_utf8_suffix_len(partial), 3);
     }
 }

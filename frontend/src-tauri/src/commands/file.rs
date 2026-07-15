@@ -682,6 +682,31 @@ pub async fn create_file(path: String) -> Result<(), String> {
         .map_err(|e| format!("创建文件失败：{}", e))
 }
 
+/// 创建新文件夹
+///
+/// # 参数
+/// * `path` - 新文件夹路径
+///
+/// # 返回
+/// * `Ok(())` - 创建成功
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn create_folder(path: String) -> Result<(), String> {
+    validate_path(&path)?;
+
+    let target = Path::new(&path);
+    if target.exists() {
+        if target.is_dir() {
+            return Err("文件夹已存在".to_string());
+        }
+        return Err("同名文件已存在".to_string());
+    }
+
+    fs::create_dir_all(target)
+        .await
+        .map_err(|e| format!("创建文件夹失败：{}", e))
+}
+
 /// 删除文件或目录
 /// 
 /// # 参数

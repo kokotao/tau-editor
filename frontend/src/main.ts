@@ -1,5 +1,8 @@
 import './assets/main.css'
 import './assets/workbench-theme.css'
+import 'animate.css'
+import '@fontsource-variable/manrope'
+import '@fontsource-variable/jetbrains-mono'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

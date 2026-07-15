@@ -2,10 +2,13 @@
   <div
     ref="previewScrollRef"
     class="markdown-preview"
+    :class="previewThemeClass"
     data-testid="markdown-preview"
     @contextmenu.prevent="handleContextMenu"
   >
     <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
+  </div>
+  <teleport to="body">
     <div
       v-if="contextMenu.visible"
       ref="menuRef"
@@ -29,7 +32,7 @@
         </button>
       </template>
     </div>
-  </div>
+  </teleport>
 </template>
 
 <script setup lang="ts">
@@ -61,6 +64,11 @@ interface PreviewMenuItem {
   run: () => void | Promise<void>;
 }
 
+type PreviewThemeOption = {
+  value: 'docs-clean' | 'paper-soft' | 'editorial-warm' | 'graphite-night';
+  label: string;
+};
+
 const MENU_MARGIN = 8;
 const MENU_ESTIMATED_WIDTH = 220;
 const MENU_ITEM_HEIGHT = 36;
@@ -78,6 +86,7 @@ const previewScrollRef = ref<HTMLElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 const settingsStore = useSettingsStore();
 const copy = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
+const previewThemeClass = computed(() => `markdown-preview--${settingsStore.markdownPreviewTheme}`);
 const html = ref('');
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
 const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
@@ -272,6 +281,25 @@ const requestPreviewModeChange = (mode: 'edit' | 'split' | 'preview') => {
   emit('request-preview-mode-change', mode);
 };
 
+const getPreviewThemeOptions = (): PreviewThemeOption[] => [
+  {
+    value: 'docs-clean',
+    label: copy.value.previewThemeDocsClean,
+  },
+  {
+    value: 'paper-soft',
+    label: copy.value.previewThemePaperSoft,
+  },
+  {
+    value: 'editorial-warm',
+    label: copy.value.previewThemeEditorialWarm,
+  },
+  {
+    value: 'graphite-night',
+    label: copy.value.previewThemeGraphiteNight,
+  },
+];
+
 const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[] => {
   const items: PreviewMenuItem[] = [];
 
@@ -295,6 +323,13 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
       label: copy.value.refreshPreview,
       run: () => scheduleRender(),
     },
+    ...getPreviewThemeOptions().map((themeOption, index) => ({
+      id: `theme-${themeOption.value}`,
+      label: themeOption.label,
+      dividerBefore: index === 0,
+      disabled: themeOption.value === settingsStore.markdownPreviewTheme,
+      run: () => settingsStore.updateSettings({ markdownPreviewTheme: themeOption.value }),
+    })),
     {
       id: 'set-preview-mode-edit',
       label: copy.value.setPreviewModeEdit,
@@ -504,18 +539,176 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .markdown-preview {
+  --preview-bg: #f6f8fc;
+  --preview-surface: #ffffff;
+  --preview-text: #243245;
+  --preview-heading: #0f172a;
+  --preview-heading-accent: rgba(59, 130, 246, 0.18);
+  --preview-muted: #526176;
+  --preview-border: rgba(148, 163, 184, 0.3);
+  --preview-quote-border: #93c5fd;
+  --preview-quote-bg: rgba(219, 234, 254, 0.55);
+  --preview-inline-code-bg: rgba(37, 99, 235, 0.08);
+  --preview-inline-code-text: #1d4ed8;
+  --preview-code-bg: #f8fafc;
+  --preview-code-text: #1e293b;
+  --preview-code-border: rgba(148, 163, 184, 0.35);
+  --preview-link: #2563eb;
+  --preview-link-hover: #1d4ed8;
+  --preview-table-header-bg: rgba(226, 232, 240, 0.7);
+  --preview-table-row-alt: rgba(248, 250, 252, 0.95);
+  --preview-mermaid-error-bg: rgba(254, 226, 226, 0.9);
+  --preview-mermaid-error-border: rgba(248, 113, 113, 0.45);
+  --preview-mermaid-error-text: #991b1b;
+  --preview-menu-bg: rgba(255, 255, 255, 0.96);
+  --preview-menu-border: rgba(148, 163, 184, 0.25);
+  --preview-menu-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+  --preview-menu-text: #334155;
+  --preview-menu-hover-bg: rgba(37, 99, 235, 0.08);
+  --preview-menu-hover-text: #0f172a;
+  --preview-menu-disabled-text: #94a3b8;
   position: relative;
   height: 100%;
   overflow: auto;
-  background: var(--panel, #101726);
+  background: var(--preview-bg);
+  color: var(--preview-text);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.markdown-preview--docs-clean {
+  --preview-bg: #f5f8fc;
+  --preview-surface: #ffffff;
+  --preview-text: #243245;
+  --preview-heading: #0f172a;
+  --preview-heading-accent: rgba(96, 165, 250, 0.18);
+  --preview-muted: #526176;
+  --preview-border: rgba(148, 163, 184, 0.28);
+  --preview-quote-border: #60a5fa;
+  --preview-quote-bg: rgba(219, 234, 254, 0.62);
+  --preview-inline-code-bg: rgba(59, 130, 246, 0.08);
+  --preview-inline-code-text: #1d4ed8;
+  --preview-code-bg: #eff6ff;
+  --preview-code-text: #1e293b;
+  --preview-code-border: rgba(148, 163, 184, 0.32);
+  --preview-link: #2563eb;
+  --preview-link-hover: #1d4ed8;
+  --preview-table-header-bg: rgba(226, 232, 240, 0.9);
+  --preview-table-row-alt: rgba(248, 250, 252, 0.92);
+  --preview-mermaid-error-bg: rgba(254, 242, 242, 0.95);
+  --preview-mermaid-error-border: rgba(248, 113, 113, 0.45);
+  --preview-mermaid-error-text: #991b1b;
+  --preview-menu-bg: rgba(255, 255, 255, 0.98);
+  --preview-menu-border: rgba(203, 213, 225, 0.85);
+  --preview-menu-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  --preview-menu-text: #334155;
+  --preview-menu-hover-bg: rgba(37, 99, 235, 0.08);
+  --preview-menu-hover-text: #0f172a;
+  --preview-menu-disabled-text: #94a3b8;
+}
+
+.markdown-preview--paper-soft {
+  --preview-bg: #f4ecd8;
+  --preview-surface: rgba(255, 251, 240, 0.96);
+  --preview-text: #4d4438;
+  --preview-heading: #342a21;
+  --preview-heading-accent: rgba(191, 145, 91, 0.18);
+  --preview-muted: #76695a;
+  --preview-border: rgba(145, 123, 97, 0.28);
+  --preview-quote-border: #bf915b;
+  --preview-quote-bg: rgba(245, 228, 194, 0.68);
+  --preview-inline-code-bg: rgba(166, 124, 82, 0.12);
+  --preview-inline-code-text: #8c4b1f;
+  --preview-code-bg: #f8efe1;
+  --preview-code-text: #4b3b2d;
+  --preview-code-border: rgba(145, 123, 97, 0.3);
+  --preview-link: #9d5f26;
+  --preview-link-hover: #7a4218;
+  --preview-table-header-bg: rgba(233, 216, 189, 0.82);
+  --preview-table-row-alt: rgba(255, 250, 242, 0.82);
+  --preview-mermaid-error-bg: rgba(255, 239, 234, 0.9);
+  --preview-mermaid-error-border: rgba(234, 88, 12, 0.35);
+  --preview-mermaid-error-text: #9a3412;
+  --preview-menu-bg: rgba(255, 251, 243, 0.97);
+  --preview-menu-border: rgba(145, 123, 97, 0.32);
+  --preview-menu-shadow: 0 18px 38px rgba(75, 59, 45, 0.18);
+  --preview-menu-text: #5c4b3e;
+  --preview-menu-hover-bg: rgba(191, 145, 91, 0.14);
+  --preview-menu-hover-text: #342a21;
+  --preview-menu-disabled-text: #a79885;
+}
+
+.markdown-preview--editorial-warm {
+  --preview-bg: #fcf4ee;
+  --preview-surface: rgba(255, 250, 246, 0.98);
+  --preview-text: #45332d;
+  --preview-heading: #2c1814;
+  --preview-heading-accent: rgba(190, 92, 64, 0.18);
+  --preview-muted: #735851;
+  --preview-border: rgba(166, 120, 110, 0.3);
+  --preview-quote-border: #c26b4f;
+  --preview-quote-bg: rgba(249, 221, 212, 0.62);
+  --preview-inline-code-bg: rgba(194, 107, 79, 0.12);
+  --preview-inline-code-text: #9a3412;
+  --preview-code-bg: #fff1eb;
+  --preview-code-text: #4a2d25;
+  --preview-code-border: rgba(166, 120, 110, 0.28);
+  --preview-link: #b45309;
+  --preview-link-hover: #92400e;
+  --preview-table-header-bg: rgba(248, 221, 212, 0.85);
+  --preview-table-row-alt: rgba(255, 247, 243, 0.9);
+  --preview-mermaid-error-bg: rgba(254, 226, 226, 0.92);
+  --preview-mermaid-error-border: rgba(220, 38, 38, 0.34);
+  --preview-mermaid-error-text: #991b1b;
+  --preview-menu-bg: rgba(255, 248, 244, 0.98);
+  --preview-menu-border: rgba(166, 120, 110, 0.32);
+  --preview-menu-shadow: 0 18px 42px rgba(78, 45, 37, 0.16);
+  --preview-menu-text: #5b433c;
+  --preview-menu-hover-bg: rgba(194, 107, 79, 0.12);
+  --preview-menu-hover-text: #2c1814;
+  --preview-menu-disabled-text: #b09a93;
+}
+
+.markdown-preview--graphite-night {
+  --preview-bg: #13181f;
+  --preview-surface: rgba(21, 28, 38, 0.96);
+  --preview-text: #d6dde8;
+  --preview-heading: #f8fafc;
+  --preview-heading-accent: rgba(94, 234, 212, 0.18);
+  --preview-muted: #9aa7bb;
+  --preview-border: rgba(100, 116, 139, 0.34);
+  --preview-quote-border: #5eead4;
+  --preview-quote-bg: rgba(45, 212, 191, 0.08);
+  --preview-inline-code-bg: rgba(45, 212, 191, 0.12);
+  --preview-inline-code-text: #99f6e4;
+  --preview-code-bg: #0f172a;
+  --preview-code-text: #e2e8f0;
+  --preview-code-border: rgba(71, 85, 105, 0.48);
+  --preview-link: #7dd3fc;
+  --preview-link-hover: #bae6fd;
+  --preview-table-header-bg: rgba(30, 41, 59, 0.92);
+  --preview-table-row-alt: rgba(15, 23, 42, 0.8);
+  --preview-mermaid-error-bg: rgba(127, 29, 29, 0.32);
+  --preview-mermaid-error-border: rgba(248, 113, 113, 0.4);
+  --preview-mermaid-error-text: #fecaca;
+  --preview-menu-bg: rgba(18, 24, 34, 0.98);
+  --preview-menu-border: rgba(71, 85, 105, 0.54);
+  --preview-menu-shadow: 0 20px 45px rgba(2, 6, 23, 0.45);
+  --preview-menu-text: #d6dde8;
+  --preview-menu-hover-bg: rgba(45, 212, 191, 0.12);
+  --preview-menu-hover-text: #f8fafc;
+  --preview-menu-disabled-text: #64748b;
 }
 
 .markdown-preview-content {
   max-width: 900px;
   margin: 0 auto;
   padding: 24px;
-  color: var(--text-primary, #ecf2ff);
+  color: var(--preview-text);
   line-height: 1.65;
+  background: var(--preview-surface);
+  min-height: 100%;
 }
 
 .markdown-preview-content :deep(h1),
@@ -524,29 +717,104 @@ onBeforeUnmount(() => {
   line-height: 1.3;
   margin-top: 1.3em;
   margin-bottom: 0.45em;
+  color: var(--preview-heading);
+}
+
+.markdown-preview-content :deep(h1),
+.markdown-preview-content :deep(h2) {
+  padding-bottom: 0.18em;
+  border-bottom: 1px solid var(--preview-heading-accent);
+}
+
+.markdown-preview-content :deep(p),
+.markdown-preview-content :deep(li),
+.markdown-preview-content :deep(td),
+.markdown-preview-content :deep(th) {
+  color: var(--preview-text);
+}
+
+.markdown-preview-content :deep(strong) {
+  color: var(--preview-heading);
 }
 
 .markdown-preview-content :deep(code) {
   padding: 2px 6px;
   border-radius: 6px;
-  background: var(--surface-muted, rgba(255, 255, 255, 0.06));
+  background: var(--preview-inline-code-bg);
+  color: var(--preview-inline-code-text);
 }
 
 .markdown-preview-content :deep(pre) {
   overflow: auto;
   padding: 12px;
   border-radius: 12px;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
-  background: rgba(9, 14, 26, 0.45);
+  border: 1px solid var(--preview-code-border);
+  background: var(--preview-code-bg);
+  color: var(--preview-code-text);
+}
+
+.markdown-preview-content :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.markdown-preview-content :deep(blockquote) {
+  margin: 1.1rem 0;
+  padding: 0.85rem 1rem;
+  border-left: 4px solid var(--preview-quote-border);
+  border-radius: 0 12px 12px 0;
+  background: var(--preview-quote-bg);
+  color: var(--preview-muted);
+}
+
+.markdown-preview-content :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--preview-border);
+  margin: 1.75rem 0;
+}
+
+.markdown-preview-content :deep(a) {
+  color: var(--preview-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--preview-link) 35%, transparent);
+  text-underline-offset: 0.15em;
+}
+
+.markdown-preview-content :deep(a:hover) {
+  color: var(--preview-link-hover);
+}
+
+.markdown-preview-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  border: 1px solid var(--preview-border);
+  overflow: hidden;
+}
+
+.markdown-preview-content :deep(th),
+.markdown-preview-content :deep(td) {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--preview-border);
+}
+
+.markdown-preview-content :deep(th) {
+  background: var(--preview-table-header-bg);
+  color: var(--preview-heading);
+}
+
+.markdown-preview-content :deep(tr:nth-child(even) td) {
+  background: var(--preview-table-row-alt);
 }
 
 .markdown-preview-content :deep(.markdown-mermaid-error) {
   margin: 12px 0;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  background: rgba(248, 113, 113, 0.12);
-  color: #fecaca;
+  border: 1px solid var(--preview-mermaid-error-border);
+  background: var(--preview-mermaid-error-bg);
+  color: var(--preview-mermaid-error-text);
 }
 
 .markdown-preview-content :deep(.markdown-mermaid-diagram) {
@@ -560,15 +828,16 @@ onBeforeUnmount(() => {
   min-width: 220px;
   padding: 6px;
   border-radius: 12px;
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
-  background: var(--surface-raised, #1b2436);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--preview-menu-border);
+  background: var(--preview-menu-bg);
+  box-shadow: var(--preview-menu-shadow);
+  backdrop-filter: blur(14px);
 }
 
 .preview-context-menu-divider {
   height: 1px;
   margin: 6px 4px;
-  background: var(--border-soft, rgba(148, 163, 184, 0.2));
+  background: var(--preview-border);
 }
 
 .preview-context-menu-item {
@@ -579,19 +848,23 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 8px;
   text-align: left;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--preview-menu-text);
   background: transparent;
   font-size: 13px;
   cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .preview-context-menu-item:hover {
-  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
-  color: var(--text-primary, #f8fafc);
+  background: var(--preview-menu-hover-bg);
+  color: var(--preview-menu-hover-text);
 }
 
 .preview-context-menu-item.disabled {
-  opacity: 0.5;
+  color: var(--preview-menu-disabled-text);
+  opacity: 0.9;
   cursor: not-allowed;
 }
 </style>

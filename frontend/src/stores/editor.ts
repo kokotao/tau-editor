@@ -4,6 +4,7 @@ import { fileCommands, TauriError } from '@/lib/tauri';
 
 export interface EditorState {
   content: string;              // 当前编辑器内容
+  lineCountValue: number;       // 当前行数（由编辑器侧增量更新，避免重复全量 split）
   language: string;             // 语言模式
   encoding: string;             // 文件编码
   cursorPosition: {
@@ -28,6 +29,7 @@ export interface EditorState {
 export const useEditorStore = defineStore('editor', {
   state: (): EditorState => ({
     content: '',
+    lineCountValue: 1,
     language: 'plaintext',
     encoding: 'utf-8',
     cursorPosition: { line: 1, column: 1 },
@@ -60,15 +62,26 @@ export const useEditorStore = defineStore('editor', {
 
     // 行数统计
     lineCount: (state) => {
-      return state.content.split('\n').length;
+      return Math.max(1, state.lineCountValue || 1);
     },
   },
 
   actions: {
     // 设置内容
     setContent(content: string, markDirty: boolean = true) {
+      if (this.content === content && this.isDirty === markDirty) {
+        return;
+      }
       this.content = content;
       this.isDirty = markDirty;
+    },
+
+    setLineCount(lineCount: number) {
+      const normalized = Number.isFinite(lineCount) ? Math.max(1, Math.floor(lineCount)) : 1;
+      if (this.lineCountValue === normalized) {
+        return;
+      }
+      this.lineCountValue = normalized;
     },
 
     // 更新光标位置
@@ -83,6 +96,9 @@ export const useEditorStore = defineStore('editor', {
 
     // 设置语言模式
     setLanguage(language: string) {
+      if (this.language === language) {
+        return;
+      }
       this.language = language;
     },
 
@@ -97,6 +113,9 @@ export const useEditorStore = defineStore('editor', {
     },
 
     setDirty(isDirty: boolean) {
+      if (this.isDirty === isDirty) {
+        return;
+      }
       this.isDirty = isDirty;
     },
 
@@ -108,6 +127,9 @@ export const useEditorStore = defineStore('editor', {
 
     // 设置只读模式
     setReadOnly(readOnly: boolean) {
+      if (this.isReadOnly === readOnly) {
+        return;
+      }
       this.isReadOnly = readOnly;
     },
 
@@ -120,6 +142,7 @@ export const useEditorStore = defineStore('editor', {
     reset() {
       this.$patch({
         content: '',
+        lineCountValue: 1,
         language: 'plaintext',
         encoding: 'utf-8',
         cursorPosition: { line: 1, column: 1 },

@@ -1,5 +1,5 @@
 <template>
-  <div class="file-tree" role="tree">
+  <div ref="fileTreeRootRef" class="file-tree" role="tree">
     <div v-if="!nested" class="file-tree-header">
       <div class="file-tree-header-top">
         <div class="file-tree-header-action">
@@ -120,7 +120,11 @@
             :selected-path="selectedPath"
             @file-open="(path) => emit('file-open', path)"
             @folder-toggle="(path) => emit('folder-toggle', path)"
-            @contextMenu="(entry, event) => emit('contextMenu', entry, event)"
+            @context-menu="(entry, event) => emit('contextMenu', entry, event)"
+            @new-file="emit('new-file')"
+            @new-folder="emit('new-folder')"
+            @rename="(entry) => emit('rename', entry)"
+            @delete="(entry) => emit('delete', entry)"
           />
         </div>
       </div>
@@ -138,8 +142,9 @@
     <!-- 右键菜单 -->
     <div
       v-if="contextMenu.visible"
+      ref="contextMenuRef"
       class="context-menu"
-      :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+      :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
       @click.stop
     >
       <div class="context-menu-item" @click="handleNewFile">
@@ -161,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { FileTreeNode } from '@/stores/fileSystem';
 import { useSettingsStore } from '@/stores/settings';
 import { getFileTreeI18n } from '@/i18n/ui';
@@ -208,6 +213,19 @@ const contextMenu = ref({
   y: 0,
   entry: null as FileTreeNode | null,
 });
+const contextMenuRef = ref<HTMLElement | null>(null);
+const fileTreeRootRef = ref<HTMLElement | null>(null);
+const CONTEXT_MENU_MARGIN = 8;
+
+const clampMenuPosition = (x: number, y: number, maxWidth: number, maxHeight: number) => {
+  const safeMaxX = Math.max(CONTEXT_MENU_MARGIN, maxWidth - CONTEXT_MENU_MARGIN);
+  const safeMaxY = Math.max(CONTEXT_MENU_MARGIN, maxHeight - CONTEXT_MENU_MARGIN);
+
+  return {
+    x: Math.max(CONTEXT_MENU_MARGIN, Math.min(x, safeMaxX)),
+    y: Math.max(CONTEXT_MENU_MARGIN, Math.min(y, safeMaxY)),
+  };
+};
 
 const filterTreeByQuery = (entries: FileTreeNode[], query: string): FileTreeNode[] => {
   if (!query) {
@@ -315,14 +333,42 @@ const handleItemKeyDown = (event: KeyboardEvent, entry: FileTreeNode) => {
   }
 };
 
-const handleContextMenu = (event: MouseEvent, entry: FileTreeNode) => {
-  event.preventDefault();
+const openContextMenu = async (event: MouseEvent, entry: FileTreeNode) => {
+  const rootRect = fileTreeRootRef.value?.getBoundingClientRect();
+  const localX = rootRect ? event.clientX - rootRect.left : event.clientX;
+  const localY = rootRect ? event.clientY - rootRect.top : event.clientY;
+  const viewportWidth = rootRect?.width ?? window.innerWidth;
+  const viewportHeight = rootRect?.height ?? window.innerHeight;
+  const estimated = clampMenuPosition(localX, localY, viewportWidth - 180, viewportHeight - 160);
+
   contextMenu.value = {
     visible: true,
-    x: event.clientX,
-    y: event.clientY,
+    x: estimated.x,
+    y: estimated.y,
     entry,
   };
+
+  await nextTick();
+
+  if (!contextMenu.value.visible || !contextMenuRef.value) {
+    return;
+  }
+
+  const menuRect = contextMenuRef.value.getBoundingClientRect();
+  const adjusted = clampMenuPosition(
+    localX,
+    localY,
+    viewportWidth - menuRect.width - CONTEXT_MENU_MARGIN,
+    viewportHeight - menuRect.height - CONTEXT_MENU_MARGIN,
+  );
+
+  contextMenu.value.x = adjusted.x;
+  contextMenu.value.y = adjusted.y;
+};
+
+const handleContextMenu = (event: MouseEvent, entry: FileTreeNode) => {
+  event.preventDefault();
+  void openContextMenu(event, entry);
   emit('contextMenu', entry, event);
 };
 
@@ -366,6 +412,7 @@ onUnmounted(() => {
 
 <style scoped>
 .file-tree {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -580,7 +627,7 @@ onUnmounted(() => {
 }
 
 .context-menu {
-  position: fixed;
+  position: absolute;
   background: var(--n-color, #252526);
   border: 1px solid var(--n-border-color, #333);
   border-radius: 4px;

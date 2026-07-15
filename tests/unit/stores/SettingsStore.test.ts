@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
 import { settingsCommands, TauriError } from '@/lib/tauri'
+import { THEME_SKINS } from '@/utils/themeResolver'
 
 function createMediaQueryList(matches: boolean) {
   return {
@@ -57,31 +58,60 @@ const mockClassList = {
   remove: vi.fn(),
   toggle: vi.fn(),
 }
+const mockStyle = {
+  setProperty: vi.fn(),
+  removeProperty: vi.fn(),
+}
 
 vi.stubGlobal('document', {
   documentElement: {
     classList: mockClassList,
+    style: mockStyle,
   },
 })
 
 // Mock window.matchMedia
 const mockMatchMedia = vi.fn()
+const localStorageState = new Map<string, string>()
+const localStorageMock = {
+  getItem: vi.fn((key: string) => localStorageState.get(key) ?? null),
+  setItem: vi.fn((key: string, value: string) => {
+    localStorageState.set(key, String(value))
+  }),
+  removeItem: vi.fn((key: string) => {
+    localStorageState.delete(key)
+  }),
+  clear: vi.fn(() => {
+    localStorageState.clear()
+  }),
+}
+
 vi.stubGlobal('window', {
   matchMedia: mockMatchMedia,
+  localStorage: localStorageMock,
 })
+vi.stubGlobal('localStorage', localStorageMock)
 
 describe('SettingsStore', () => {
   let store: ReturnType<typeof useSettingsStore>
   let pinia: ReturnType<typeof createPinia>
+  const themeResetClassArgs = ['light', 'dark', 'theme-light', 'theme-dark', ...THEME_SKINS.map((skin) => `skin-${skin}`)]
 
   beforeEach(() => {
     pinia = createPinia()
     setActivePinia(pinia)
     store = useSettingsStore(pinia)
+    localStorage.clear()
     vi.clearAllMocks()
+    localStorageMock.getItem.mockClear()
+    localStorageMock.setItem.mockClear()
+    localStorageMock.removeItem.mockClear()
+    localStorageMock.clear.mockClear()
     mockClassList.add.mockClear()
     mockClassList.remove.mockClear()
     mockClassList.toggle.mockClear()
+    mockStyle.setProperty.mockClear()
+    mockStyle.removeProperty.mockClear()
     mockMatchMedia.mockClear()
     mockMatchMedia.mockReturnValue(createMediaQueryList(false))
   })
@@ -95,12 +125,20 @@ describe('SettingsStore', () => {
       expect(store.monacoTheme).toBe('vs-dark')
     })
 
-    it('应初始化字体族', () => {
-      expect(store.fontFamily).toBe("'JetBrains Mono', 'Fira Code', monospace")
+    it('应初始化主题风格为 deep-ocean', () => {
+      expect(store.themeSkin).toBe('deep-ocean')
     })
 
-    it('应初始化字体大小为 14', () => {
-      expect(store.fontSize).toBe(14)
+    it('应初始化自定义主题颜色为空对象', () => {
+      expect(store.customThemeColors).toEqual({})
+    })
+
+    it('应初始化字体族', () => {
+      expect(store.fontFamily).toBe("'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace")
+    })
+
+    it('应初始化字体大小为 15', () => {
+      expect(store.fontSize).toBe(15)
     })
 
     it('应初始化行高为 1.6', () => {
@@ -127,6 +165,14 @@ describe('SettingsStore', () => {
       expect(store.tabSize).toBe(2)
     })
 
+    it('应初始化最大标签页数量为 30', () => {
+      expect(store.maxOpenTabs).toBe(30)
+    })
+
+    it('应初始化标签内存上限为 256MB', () => {
+      expect(store.memoryLimitMB).toBe(256)
+    })
+
     it('应初始化插入空格为 true', () => {
       expect(store.insertSpaces).toBe(true)
     })
@@ -147,6 +193,10 @@ describe('SettingsStore', () => {
       expect(store.markdownPreviewMode).toBe('edit')
     })
 
+    it('应初始化 Markdown 预览主题为 docs-clean', () => {
+      expect(store.markdownPreviewTheme).toBe('docs-clean')
+    })
+
     it('应初始化关闭前确认为 true', () => {
       expect(store.confirmBeforeClose).toBe(true)
     })
@@ -161,8 +211,8 @@ describe('SettingsStore', () => {
       const options = store.monacoOptions
 
       expect(options).toEqual({
-        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-        fontSize: 14,
+        fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace",
+        fontSize: 15,
         lineHeight: 16,
         minimap: { enabled: true },
         wordWrap: 'off',
@@ -250,13 +300,42 @@ describe('SettingsStore', () => {
       await store.updateSettings({ theme: 'dark' })
 
       expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
+    })
+
+    it('updateSettings() 更新主题风格应应用对应 skin 类', async () => {
+      await store.updateSettings({ themeSkin: 'forest-moss' })
+
+      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-forest-moss')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
+    })
+
+    it('updateSettings() 更新自定义配色应写入 CSS 变量', async () => {
+      await store.updateSettings({
+        customThemeColors: {
+          accentBrand: '#123456',
+          stateSuccess: '#00aa66',
+        },
+      })
+
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--accent-brand', '#123456')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--state-success', '#00aa66')
     })
 
     it('updateSettings() 非自动保存/主题设置不应调用 Tauri', async () => {
       await store.updateSettings({ fontSize: 16 })
 
       expect(settingsCommands.setAutoSaveInterval).not.toHaveBeenCalled()
+    })
+
+    it('updateSettings() 应持久化 Markdown 预览主题', async () => {
+      await store.updateSettings({ markdownPreviewTheme: 'paper-soft' })
+
+      expect(localStorage.setItem).toHaveBeenCalled()
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.markdownPreviewTheme).toBe('paper-soft')
     })
   })
 
@@ -269,12 +348,16 @@ describe('SettingsStore', () => {
       store.fontSize = 20
       store.theme = 'dark'
       store.minimap = false
+      store.maxOpenTabs = 80
+      store.memoryLimitMB = 512
 
       await store.resetToDefaults()
 
-      expect(store.fontSize).toBe(14)
+      expect(store.fontSize).toBe(15)
       expect(store.theme).toBe('system')
       expect(store.minimap).toBe(true)
+      expect(store.maxOpenTabs).toBe(30)
+      expect(store.memoryLimitMB).toBe(256)
     })
 
     it('resetToDefaults() 应同步自动保存到 Tauri', async () => {
@@ -288,8 +371,40 @@ describe('SettingsStore', () => {
 
       await store.resetToDefaults()
 
-      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
       expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+    })
+
+    it('resetToDefaults() 应重置 Markdown 预览主题', async () => {
+      store.markdownPreviewTheme = 'graphite-night'
+
+      await store.resetToDefaults()
+
+      expect(store.markdownPreviewTheme).toBe('docs-clean')
+    })
+  })
+
+  describe('本地持久化', () => {
+    it('saveToStorage() 应写入 Markdown 预览主题', () => {
+      store.markdownPreviewTheme = 'editorial-warm'
+
+      store.saveToStorage()
+
+      expect(localStorage.setItem).toHaveBeenCalled()
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.markdownPreviewTheme).toBe('editorial-warm')
+    })
+
+    it('loadFromStorage() 应恢复 Markdown 预览主题', () => {
+      vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
+        markdownPreviewTheme: 'paper-soft',
+      }))
+
+      store.loadFromStorage()
+
+      expect(store.markdownPreviewTheme).toBe('paper-soft')
     })
   })
 
@@ -299,7 +414,7 @@ describe('SettingsStore', () => {
       store.applyTheme()
 
       expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
     it('applyTheme() light 应添加 light 类', () => {
@@ -307,7 +422,7 @@ describe('SettingsStore', () => {
       store.applyTheme()
 
       expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
     it('applyTheme() system 暗色模式应添加 dark 类', () => {
@@ -317,7 +432,7 @@ describe('SettingsStore', () => {
       store.applyTheme()
 
       expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
     it('applyTheme() system 亮色模式应添加 light 类', () => {
@@ -327,7 +442,7 @@ describe('SettingsStore', () => {
       store.applyTheme()
 
       expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
-      expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark', 'theme-light', 'theme-dark')
+      expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
   })
 
@@ -438,6 +553,26 @@ describe('SettingsStore', () => {
         store.monacoTheme = theme
         expect(store.monacoTheme).toBe(theme)
       })
+    })
+
+    it('应支持所有主题风格', () => {
+      THEME_SKINS.forEach((skin) => {
+        store.themeSkin = skin
+        expect(store.themeSkin).toBe(skin)
+      })
+    })
+
+    it('应支持自定义配色导入导出', () => {
+      store.importCustomThemeColors(JSON.stringify({
+        customThemeColors: {
+          bgApp: '#101010',
+          accentBrand: '#aa22cc',
+        },
+      }))
+
+      const exported = JSON.parse(store.exportCustomThemeColors())
+      expect(exported.customThemeColors.bgApp).toBe('#101010')
+      expect(exported.customThemeColors.accentBrand).toBe('#aa22cc')
     })
 
     it('应支持合理的字体大小范围', () => {

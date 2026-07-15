@@ -14,10 +14,13 @@
     "tauri:build:mac:universal": "pnpm tauri build --target universal-apple-darwin"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/manrope": "^5.2.8",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@vueuse/core": "^14.2.1",
+    "animate.css": "^4.1.1",
     "dompurify": "^3.3.3",
     "marked": "^17.0.4",
     "mermaid": "^11.13.0",
