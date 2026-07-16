@@ -216,6 +216,17 @@ fn validate_existing_segment(root: &Path, candidate: &Path) -> Result<(), Comman
 }
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), CommandError> {
+    atomic_write_with_directory_sync(path, content, sync_parent_directory)
+}
+
+fn atomic_write_with_directory_sync<F>(
+    path: &Path,
+    content: &[u8],
+    sync_parent_directory: F,
+) -> Result<(), CommandError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
     let parent = path
         .parent()
         .ok_or_else(|| CommandError::new("PATH_OUTSIDE_WORKSPACE", "目标路径没有父目录"))?;
@@ -242,9 +253,13 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), CommandError> {
             .map_err(|error| CommandError::io(format!("无法同步临时文件：{error}")))?;
         fs::rename(&temporary_path, path)
             .map_err(|error| CommandError::io(format!("无法原子替换文件：{error}")))?;
-        File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| CommandError::io(format!("无法同步目标目录：{error}")))?;
+        if let Err(error) = sync_parent_directory(parent) {
+            log::warn!(
+                "文件已通过 rename 提交，但无法同步父目录 {}：{}",
+                parent.display(),
+                error
+            );
+        }
         Ok(())
     })();
 
@@ -252,6 +267,16 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), CommandError> {
         let _ = fs::remove_file(&temporary_path);
     }
     write_result
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(parent: &Path) -> std::io::Result<()> {
+    File::open(parent).and_then(|directory| directory.sync_all())
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn reject_empty_or_nul(value: &str) -> Result<(), CommandError> {
@@ -298,4 +323,34 @@ fn read_os_randomness(buffer: &mut [u8]) -> bool {
 #[cfg(not(unix))]
 fn read_os_randomness(_buffer: &mut [u8]) -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::io;
+
+    use tempfile::TempDir;
+
+    use super::atomic_write_with_directory_sync;
+
+    #[test]
+    fn does_not_report_an_error_after_rename_when_directory_sync_is_unsupported() {
+        let temp_dir = TempDir::new().expect("temporary workspace");
+        let document = temp_dir.path().join("document.txt");
+        fs::write(&document, "before").expect("write initial content");
+
+        let result = atomic_write_with_directory_sync(&document, b"after", |_| {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "directory fsync is unsupported",
+            ))
+        });
+
+        assert!(result.is_ok(), "rename has already committed the write");
+        assert_eq!(
+            fs::read_to_string(document).expect("read document"),
+            "after"
+        );
+    }
 }
