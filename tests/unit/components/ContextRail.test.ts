@@ -41,4 +41,22 @@ describe('ContextRail', () => {
     expect(wrapper.emitted('go-to-line')).toHaveLength(1);
     expect(wrapper.emitted('toggle-collapse')).toHaveLength(1);
   });
+
+  it('renders Markdown tasks and links as contextual navigation targets', async () => {
+    const wrapper = mount(ContextRail, {
+      props: {
+        language: 'markdown',
+        tasks: [{ id: 'task-1', label: 'Ship release', completed: false, line: 7 }],
+        links: [{ id: 'link-8-1', label: 'Guide', target: 'docs/guide.md', external: false, line: 8 }],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="context-task-task-1"]').text()).toContain('Ship release');
+    expect(wrapper.get('[data-testid="context-link-link-8-1"]').text()).toContain('Guide');
+
+    await wrapper.get('[data-testid="context-task-task-1"]').trigger('click');
+    await wrapper.get('[data-testid="context-link-link-8-1"]').trigger('click');
+
+    expect(wrapper.emitted('navigate')).toEqual([[7], [8]]);
+  });
 });

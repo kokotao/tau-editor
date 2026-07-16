@@ -14,6 +14,7 @@ import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
 import { buildDocumentOutline } from '@/services/documentOutlineService';
+import { collectMarkdownContext } from '@/services/markdownService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
@@ -265,6 +266,13 @@ const documentOutline = computed(() => {
     return [];
   }
   return buildDocumentOutline({ content: tab.content, language: tab.language });
+});
+const markdownContext = computed(() => {
+  const tab = activeTab.value;
+  if (!tab || tab.isLargeFile || tab.language !== 'markdown') {
+    return { tasks: [], links: [] };
+  }
+  return collectMarkdownContext(tab.content);
 });
 const workbenchSidebarVisibility = computed(() => resolveWorkbenchSidebarVisibility({
   viewportWidth: viewportWidth.value,
@@ -1576,6 +1584,8 @@ onUnmounted(() => {
           ></div>
           <ContextRail
             :outline="documentOutline"
+            :tasks="markdownContext.tasks"
+            :links="markdownContext.links"
             :language="activeTab?.language"
             :locale="settingsStore.uiLanguage"
             @navigate="handleContextNavigate"

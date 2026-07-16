@@ -27,6 +27,82 @@ marked.setOptions({
   breaks: true,
 });
 
+export interface MarkdownTask {
+  id: string;
+  label: string;
+  completed: boolean;
+  line: number;
+}
+
+export interface MarkdownLink {
+  id: string;
+  label: string;
+  target: string;
+  external: boolean;
+  line: number;
+}
+
+export interface MarkdownContext {
+  tasks: MarkdownTask[];
+  links: MarkdownLink[];
+}
+
+const isExternalMarkdownLink = (target: string) => /^(?:https?:|mailto:|#)/i.test(target);
+
+export function collectMarkdownContext(content: string): MarkdownContext {
+  const tasks: MarkdownTask[] = [];
+  const links: MarkdownLink[] = [];
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+
+  for (const [index, line] of content.split(/\r?\n/).entries()) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fence) {
+      const marker = fenceMatch?.[1];
+      if (
+        marker
+        && marker[0] === fence.marker
+        && marker.length >= fence.length
+        && /^\s*(?:`{3,}|~{3,})\s*$/.test(line)
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMatch?.[1]) {
+      fence = { marker: fenceMatch[1][0] as '`' | '~', length: fenceMatch[1].length };
+      continue;
+    }
+
+    const lineNumber = index + 1;
+    const taskMatch = line.match(/^\s*(?:[-+*]|\d+[.)])\s+\[([ xX])\]\s+(.+?)\s*$/);
+    if (taskMatch?.[1] !== undefined && taskMatch[2] !== undefined) {
+      tasks.push({
+        id: `task-${lineNumber}`,
+        label: taskMatch[2],
+        completed: taskMatch[1].toLowerCase() === 'x',
+        line: lineNumber,
+      });
+    }
+
+    let linkIndex = 0;
+    for (const match of line.matchAll(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+      const label = match[1];
+      const target = match[2];
+      if (label === undefined || target === undefined) continue;
+      linkIndex += 1;
+      links.push({
+        id: `link-${lineNumber}-${linkIndex}`,
+        label,
+        target,
+        external: isExternalMarkdownLink(target),
+        line: lineNumber,
+      });
+    }
+  }
+
+  return { tasks, links };
+}
+
 const HTML_BLOCK_TAGS = new Set([
   'address', 'article', 'aside', 'base', 'basefont', 'blockquote', 'body', 'caption', 'center',
   'col', 'colgroup', 'dd', 'details', 'dialog', 'dir', 'div', 'dl', 'dt', 'fieldset', 'figcaption',

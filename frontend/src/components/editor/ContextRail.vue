@@ -40,6 +40,45 @@
       <p v-else class="context-rail-empty" data-testid="context-rail-empty">{{ copy.empty }}</p>
     </section>
 
+    <section v-if="tasks.length" class="context-rail-section" aria-labelledby="context-tasks-heading">
+      <div class="context-rail-section-header">
+        <h3 id="context-tasks-heading">{{ copy.tasks }}</h3>
+        <span>{{ tasks.length }}</span>
+      </div>
+      <button
+        v-for="task in tasks"
+        :key="task.id"
+        type="button"
+        class="context-work-item"
+        :class="{ completed: task.completed }"
+        :data-testid="`context-task-${task.id}`"
+        @click="emit('navigate', task.line)"
+      >
+        <span>{{ task.completed ? '✓' : '○' }}</span>
+        <span>{{ task.label }}</span>
+        <small>{{ task.line }}</small>
+      </button>
+    </section>
+
+    <section v-if="links.length" class="context-rail-section" aria-labelledby="context-links-heading">
+      <div class="context-rail-section-header">
+        <h3 id="context-links-heading">{{ copy.links }}</h3>
+        <span>{{ links.length }}</span>
+      </div>
+      <button
+        v-for="link in links"
+        :key="link.id"
+        type="button"
+        class="context-work-item"
+        :data-testid="`context-link-${link.id}`"
+        @click="emit('navigate', link.line)"
+      >
+        <span>{{ link.external ? '↗' : '↳' }}</span>
+        <span>{{ link.label }}</span>
+        <small>{{ link.line }}</small>
+      </button>
+    </section>
+
     <section class="context-rail-section context-rail-actions" aria-labelledby="context-actions-heading">
       <div class="context-rail-section-header">
         <h3 id="context-actions-heading">{{ copy.actions }}</h3>
@@ -53,15 +92,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { OutlineItem } from '@/services/documentOutlineService';
+import type { MarkdownLink, MarkdownTask } from '@/services/markdownService';
 
 interface ContextRailProps {
   outline?: OutlineItem[];
+  tasks?: MarkdownTask[];
+  links?: MarkdownLink[];
   language?: string;
   locale?: 'zh-CN' | 'en-US';
 }
 
 const props = withDefaults(defineProps<ContextRailProps>(), {
   outline: () => [],
+  tasks: () => [],
+  links: () => [],
   language: 'plaintext',
   locale: 'en-US',
 });
@@ -78,6 +122,8 @@ const copy = computed(() => props.locale === 'zh-CN'
       context: '上下文',
       outline: '文档大纲',
       actions: '快捷操作',
+      tasks: '任务',
+      links: '链接',
       collapse: '收起上下文栏',
       empty: '当前文档没有可导航的结构。',
       find: '查找',
@@ -87,6 +133,8 @@ const copy = computed(() => props.locale === 'zh-CN'
       context: 'Context',
       outline: 'Document outline',
       actions: 'Quick actions',
+      tasks: 'Tasks',
+      links: 'Links',
       collapse: 'Collapse context rail',
       empty: 'No navigation targets in this document.',
       find: 'Find',
@@ -186,6 +234,7 @@ const outlineKindLabel = (kind: OutlineItem['kind']) => {
 }
 
 .context-outline-item,
+.context-work-item,
 .context-rail-actions button {
   border: 0;
   background: transparent;
@@ -205,8 +254,31 @@ const outlineKindLabel = (kind: OutlineItem['kind']) => {
   font-size: 12px;
 }
 
+.context-work-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.context-work-item small {
+  color: var(--text-muted);
+  font-family: var(--font-code);
+}
+
+.context-work-item.completed span:nth-child(2) {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
 .context-outline-item:hover,
 .context-outline-item:focus-visible,
+.context-work-item:hover,
+.context-work-item:focus-visible,
 .context-rail-actions button:hover,
 .context-rail-actions button:focus-visible {
   background: var(--surface-hover);
