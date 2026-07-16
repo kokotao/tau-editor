@@ -23,6 +23,8 @@ import {
   gitCommands,
   isTauriApp,
   type GitStatusResponse,
+  searchCommands,
+  type WorkspaceSearchMatch,
   workspaceCommands,
 } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
@@ -34,6 +36,7 @@ import {
   type SystemMenuAction,
 } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
+import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
@@ -127,6 +130,11 @@ const contextRailDrawerOpen = ref(false);
 const paletteMode = ref<'commands' | 'quick-open'>('commands');
 const workspaceRuntimeId = ref<string | null>(null);
 const gitStatus = ref<GitStatusResponse | null>(null);
+const workspaceSearchOpen = ref(false);
+const workspaceSearchQuery = ref('');
+const workspaceSearchResults = ref<WorkspaceSearchMatch[]>([]);
+const workspaceSearchLoading = ref(false);
+const workspaceSearchError = ref<string | null>(null);
 const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
 const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
@@ -798,6 +806,43 @@ const handleOpenQuickOpen = () => {
   commandStore.openPalette();
 };
 
+const handleOpenWorkspaceSearch = () => {
+  if (!workspaceRuntimeId.value) {
+    notificationStore.warning('工作区搜索不可用', '请先打开本地工作区。');
+    return;
+  }
+  workspaceSearchOpen.value = true;
+};
+
+const handleWorkspaceSearch = async (query: string) => {
+  if (!workspaceRuntimeId.value || !query.trim()) {
+    return;
+  }
+  workspaceSearchLoading.value = true;
+  workspaceSearchError.value = null;
+  try {
+    const response = await searchCommands.workspace(workspaceRuntimeId.value, query, {
+      isRegex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      maxResults: 200,
+    });
+    workspaceSearchResults.value = response.matches;
+  } catch (error: any) {
+    workspaceSearchError.value = error?.message || '项目搜索失败';
+  } finally {
+    workspaceSearchLoading.value = false;
+  }
+};
+
+const handleWorkspaceSearchNavigate = async (relativePath: string, line: number) => {
+  const root = workspaceStore.currentWorkspacePath;
+  if (!root) return;
+  await openFileInEditor(joinFsPath(root, relativePath));
+  await nextTick();
+  editorCoreRef.value?.revealLine(line);
+};
+
 const handleFindText = () => {
   editorCoreRef.value?.triggerFindWidget();
 };
@@ -870,6 +915,14 @@ const registerShortcuts = () => {
     modifiers: ['ctrl'],
     handler: () => void executeCommand('file.new'),
     description: getLocalizedCommandTitle('file.new'),
+  });
+
+  keyboardStore.register({
+    id: 'workspace-search',
+    key: 'f',
+    modifiers: ['ctrl', 'shift'],
+    handler: handleOpenWorkspaceSearch,
+    description: 'Search Workspace',
   });
 
   keyboardStore.register({
@@ -1535,6 +1588,17 @@ onUnmounted(() => {
       @select="handlePaletteSelect"
       @select-highlighted="handlePaletteSelectHighlighted"
       @update:query="commandStore.setQuery"
+    />
+    <WorkspaceSearchPanel
+      :visible="workspaceSearchOpen"
+      :query="workspaceSearchQuery"
+      :results="workspaceSearchResults"
+      :loading="workspaceSearchLoading"
+      :error="workspaceSearchError"
+      @close="workspaceSearchOpen = false"
+      @update:query="workspaceSearchQuery = $event"
+      @search="handleWorkspaceSearch"
+      @navigate="handleWorkspaceSearchNavigate"
     />
 
     <Toolbar
