@@ -1,7 +1,7 @@
 /// 文本编辑器 Tauri 应用库
 ///
 /// 提供所有 Tauri 命令和后端服务。
-mod commands;
+pub mod commands;
 mod models;
 mod services;
 mod utils;
@@ -22,6 +22,7 @@ pub fn run() {
 
   let app = tauri::Builder::default()
     .manage(commands::PendingOpenPaths::default())
+    .manage(commands::WorkspaceRegistry::default())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -56,6 +57,16 @@ pub fn run() {
       commands::open_external_link,
       commands::reveal_in_file_manager,
       commands::consume_pending_open_paths,
+      commands::resolve_workspace,
+      commands::get_file_revision,
+      commands::write_file_if_revision,
+      commands::git_status,
+      commands::git_diff,
+      commands::git_stage,
+      commands::git_unstage,
+      commands::git_discard,
+      commands::search_workspace,
+      commands::apply_workspace_replace,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");

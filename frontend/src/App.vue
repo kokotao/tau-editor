@@ -14,8 +14,19 @@ import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
 import { buildDocumentOutline } from '@/services/documentOutlineService';
+import { collectMarkdownContext, createStandaloneHtml } from '@/services/markdownService';
+import { rankQuickOpenFiles } from '@/services/quickOpenService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
-import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
+import {
+  appCommands,
+  fileCommands,
+  gitCommands,
+  isTauriApp,
+  type GitStatusResponse,
+  searchCommands,
+  type WorkspaceSearchMatch,
+  workspaceCommands,
+} from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
   getAppI18n,
@@ -25,6 +36,7 @@ import {
   type SystemMenuAction,
 } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
+import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
@@ -115,6 +127,14 @@ const sidebarWidth = ref(300);
 const contextRailWidth = ref(300);
 const fileTreeDrawerOpen = ref(false);
 const contextRailDrawerOpen = ref(false);
+const paletteMode = ref<'commands' | 'quick-open'>('commands');
+const workspaceRuntimeId = ref<string | null>(null);
+const gitStatus = ref<GitStatusResponse | null>(null);
+const workspaceSearchOpen = ref(false);
+const workspaceSearchQuery = ref('');
+const workspaceSearchResults = ref<WorkspaceSearchMatch[]>([]);
+const workspaceSearchLoading = ref(false);
+const workspaceSearchError = ref<string | null>(null);
 const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
 const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
@@ -258,13 +278,36 @@ const currentModeLabel = computed(() =>
   mode.value === 'single-file' ? appText.value.singleFileMode : appText.value.emptyMode,
 );
 const filteredCommands = computed(() => commandStore.filteredCommands);
-const highlightedCommand = computed(() => commandStore.highlightedCommand);
+const flattenFileTree = (nodes: FileTreeNode[]): Array<{ path: string; name: string }> => nodes.flatMap((node) => [
+  ...(node.type === 'file' ? [{ path: node.path, name: node.name }] : []),
+  ...(node.children ? flattenFileTree(node.children) : []),
+]);
+const quickOpenCommands = computed(() => rankQuickOpenFiles(
+  flattenFileTree(fileSystemStore.fileTree),
+  commandStore.query,
+).map((file) => ({
+  id: `quick-open:${file.path}`,
+  title: file.name,
+  category: 'workspace' as const,
+  keywords: [file.path],
+})));
+const paletteCommands = computed(() => paletteMode.value === 'quick-open'
+  ? quickOpenCommands.value
+  : filteredCommands.value);
+const highlightedCommand = computed(() => paletteCommands.value[commandStore.highlightedIndex] ?? paletteCommands.value[0] ?? null);
 const documentOutline = computed(() => {
   const tab = activeTab.value;
   if (!tab || tab.isLargeFile) {
     return [];
   }
   return buildDocumentOutline({ content: tab.content, language: tab.language });
+});
+const markdownContext = computed(() => {
+  const tab = activeTab.value;
+  if (!tab || tab.isLargeFile || tab.language !== 'markdown') {
+    return { tasks: [], links: [] };
+  }
+  return collectMarkdownContext(tab.content);
 });
 const workbenchSidebarVisibility = computed(() => resolveWorkbenchSidebarVisibility({
   viewportWidth: viewportWidth.value,
@@ -382,6 +425,77 @@ const handleToggleContextRail = () => {
 const handleContextNavigate = (line: number) => {
   editorCoreRef.value?.revealLine(line);
   markdownPreviewRef.value?.scrollToSourceLine(line);
+};
+
+const refreshWorkspaceContext = async (workspacePath: string | null) => {
+  workspaceRuntimeId.value = null;
+  gitStatus.value = null;
+  if (!workspacePath || !isTauriApp()) {
+    return;
+  }
+
+  try {
+    const runtime = await workspaceCommands.resolveWorkspace(workspacePath);
+    workspaceRuntimeId.value = runtime.workspaceId;
+    gitStatus.value = await gitCommands.status(runtime.workspaceId);
+  } catch (error) {
+    // 非 Git 工作区或暂时不可访问时保持空上下文，不打断编辑流程。
+    console.debug('[WorkspaceContext] unavailable', error);
+  }
+};
+
+const handleSelectGitEntry = async (relativePath: string) => {
+  if (!workspaceRuntimeId.value) {
+    return;
+  }
+  try {
+    const diff = await gitCommands.diff(workspaceRuntimeId.value, relativePath);
+    const summary = diff.split('\n').slice(0, 6).join('\n') || '没有可显示的工作区差异';
+    notificationStore.info(`Git Diff · ${relativePath}`, summary);
+  } catch (error: any) {
+    notificationStore.error('读取 Git Diff 失败', error?.message || '无法读取变更');
+  }
+};
+
+const handleReloadExternalChange = async () => {
+  const tab = activeTab.value;
+  if (!tab?.filePath) {
+    return;
+  }
+  try {
+    await reloadTabContentFromDisk(tab.id, tab.filePath, tab.externalModifiedAt ?? tab.lastKnownModified ?? null);
+    notificationStore.info('文件已重新加载', tab.fileName);
+  } catch (error: any) {
+    notificationStore.error('重新加载失败', error?.message || '无法读取磁盘文件');
+  }
+};
+
+const handleKeepExternalChange = () => {
+  const tab = activeTab.value;
+  if (!tab) {
+    return;
+  }
+  tabsStore.updateTab(tab.id, {
+    lastKnownModified: tab.externalModifiedAt ?? tab.lastKnownModified ?? null,
+    externalModifiedAt: null,
+  });
+  notificationStore.info('已保留当前修改', '下次保存将使用当前编辑内容。');
+};
+
+const handleExportMarkdownHtml = () => {
+  const tab = activeTab.value;
+  if (!tab || tab.language !== 'markdown' || typeof document === 'undefined') {
+    return;
+  }
+  const html = createStandaloneHtml(tab.content, tab.fileName.replace(/\.md$/i, ''));
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${tab.fileName.replace(/\.md$/i, '') || 'tau-document'}.html`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  notificationStore.success('HTML 导出完成', anchor.download);
 };
 
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
@@ -683,7 +797,50 @@ const handleSystemAction = (action: SystemMenuAction) => {
 };
 
 const handleOpenCommandPalette = () => {
+  paletteMode.value = 'commands';
   commandStore.openPalette();
+};
+
+const handleOpenQuickOpen = () => {
+  paletteMode.value = 'quick-open';
+  commandStore.openPalette();
+};
+
+const handleOpenWorkspaceSearch = () => {
+  if (!workspaceRuntimeId.value) {
+    notificationStore.warning('工作区搜索不可用', '请先打开本地工作区。');
+    return;
+  }
+  workspaceSearchOpen.value = true;
+};
+
+const handleWorkspaceSearch = async (query: string) => {
+  if (!workspaceRuntimeId.value || !query.trim()) {
+    return;
+  }
+  workspaceSearchLoading.value = true;
+  workspaceSearchError.value = null;
+  try {
+    const response = await searchCommands.workspace(workspaceRuntimeId.value, query, {
+      isRegex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      maxResults: 200,
+    });
+    workspaceSearchResults.value = response.matches;
+  } catch (error: any) {
+    workspaceSearchError.value = error?.message || '项目搜索失败';
+  } finally {
+    workspaceSearchLoading.value = false;
+  }
+};
+
+const handleWorkspaceSearchNavigate = async (relativePath: string, line: number) => {
+  const root = workspaceStore.currentWorkspacePath;
+  if (!root) return;
+  await openFileInEditor(joinFsPath(root, relativePath));
+  await nextTick();
+  editorCoreRef.value?.revealLine(line);
 };
 
 const handleFindText = () => {
@@ -735,6 +892,11 @@ const executeCommand = async (id: string) => {
 
 const handlePaletteSelect = async (id: string) => {
   commandStore.closePalette();
+  if (id.startsWith('quick-open:')) {
+    paletteMode.value = 'commands';
+    await openFileInEditor(id.slice('quick-open:'.length));
+    return;
+  }
   await executeCommand(id);
 };
 
@@ -753,6 +915,22 @@ const registerShortcuts = () => {
     modifiers: ['ctrl'],
     handler: () => void executeCommand('file.new'),
     description: getLocalizedCommandTitle('file.new'),
+  });
+
+  keyboardStore.register({
+    id: 'workspace-search',
+    key: 'f',
+    modifiers: ['ctrl', 'shift'],
+    handler: handleOpenWorkspaceSearch,
+    description: 'Search Workspace',
+  });
+
+  keyboardStore.register({
+    id: 'quick-open',
+    key: 'p',
+    modifiers: ['ctrl'],
+    handler: handleOpenQuickOpen,
+    description: 'Quick Open',
   });
 
   keyboardStore.register({
@@ -1181,20 +1359,38 @@ const handleShellKeydown = (event: KeyboardEvent) => {
 function restoreSession() {
   if (!settingsStore.restoreLastSession) {
     sessionService.clear();
+    sessionService.clearRecoveryDrafts();
     workspaceStore.setEmptyMode();
     tabsStore.closeAll();
     return;
   }
 
   const snapshot = sessionService.load();
-  if (!snapshot) return;
+  const recoveryDrafts = sessionService.loadRecoveryDrafts() ?? [];
+  if (!snapshot && recoveryDrafts.length === 0) return;
 
-  tabsStore.restoreSession(snapshot.tabs, snapshot.activeTabId);
+  const shouldRestoreDrafts = recoveryDrafts.length > 0 && (
+    typeof window === 'undefined'
+    || window.confirm(`检测到 ${recoveryDrafts.length} 个未保存草稿，是否恢复？`)
+  );
+  if (recoveryDrafts.length > 0 && !shouldRestoreDrafts) {
+    sessionService.clearRecoveryDrafts();
+  }
 
-  if (snapshot.workspacePath && snapshot.mode === 'workspace') {
+  const restoredTabs = shouldRestoreDrafts
+    ? [
+        ...(snapshot?.tabs ?? []).filter((tab) => !recoveryDrafts.some((draft) => draft.id === tab.id)),
+        ...recoveryDrafts,
+      ]
+    : snapshot?.tabs ?? [];
+  const activeTabId = snapshot?.activeTabId ?? restoredTabs[0]?.id ?? null;
+
+  tabsStore.restoreSession(restoredTabs, activeTabId);
+
+  if (snapshot?.workspacePath && snapshot.mode === 'workspace') {
     workspaceStore.openWorkspace(snapshot.workspacePath);
     void fileSystemStore.syncFromWorkspace();
-  } else if (snapshot.tabs.length > 0) {
+  } else if (restoredTabs.length > 0) {
     workspaceStore.setMode('single-file');
   } else {
     workspaceStore.setEmptyMode();
@@ -1204,6 +1400,7 @@ function restoreSession() {
 function saveSession() {
   if (!settingsStore.restoreLastSession) {
     sessionService.clear();
+    sessionService.clearRecoveryDrafts();
     return;
   }
 
@@ -1218,6 +1415,7 @@ function saveSession() {
     activeTabId: tabsStore.activeTabId,
     tabs: tabsStore.tabs,
   });
+  sessionService.saveRecoveryDrafts(tabsStore.tabs);
 }
 
 function cancelScheduledSessionSave() {
@@ -1282,12 +1480,14 @@ watch(
 
     cancelScheduledSessionSave();
     sessionService.clear();
+    sessionService.clearRecoveryDrafts();
   },
 );
 
 watch(
   () => workspaceStore.currentWorkspacePath,
   (workspacePath) => {
+    void refreshWorkspaceContext(workspacePath);
     if (workspacePath) {
       return;
     }
@@ -1348,6 +1548,7 @@ onMounted(async () => {
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
   restoreSession();
+  await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
   await windowService.attach();
   registerShortcuts();
   const launchTimestamp = Date.now();
@@ -1379,14 +1580,25 @@ onUnmounted(() => {
     <CommandPalette
       :visible="commandStore.paletteOpen"
       :query="commandStore.query"
-      :commands="filteredCommands"
+      :commands="paletteCommands"
       :highlighted-index="commandStore.highlightedIndex"
-      @close="commandStore.closePalette()"
+      @close="commandStore.closePalette(); paletteMode = 'commands'"
       @move="commandStore.moveHighlight"
       @highlight="commandStore.setHighlightedIndex"
       @select="handlePaletteSelect"
       @select-highlighted="handlePaletteSelectHighlighted"
       @update:query="commandStore.setQuery"
+    />
+    <WorkspaceSearchPanel
+      :visible="workspaceSearchOpen"
+      :query="workspaceSearchQuery"
+      :results="workspaceSearchResults"
+      :loading="workspaceSearchLoading"
+      :error="workspaceSearchError"
+      @close="workspaceSearchOpen = false"
+      @update:query="workspaceSearchQuery = $event"
+      @search="handleWorkspaceSearch"
+      @navigate="handleWorkspaceSearchNavigate"
     />
 
     <Toolbar
@@ -1576,11 +1788,20 @@ onUnmounted(() => {
           ></div>
           <ContextRail
             :outline="documentOutline"
+            :tasks="markdownContext.tasks"
+            :links="markdownContext.links"
+            :git-branch="gitStatus?.branch"
+            :git-entries="gitStatus?.entries"
+            :external-conflict-file-name="activeTab?.externalModifiedAt ? activeTab.fileName : null"
             :language="activeTab?.language"
             :locale="settingsStore.uiLanguage"
             @navigate="handleContextNavigate"
             @find="editorCoreRef?.triggerFindWidget()"
             @go-to-line="editorCoreRef?.triggerGoToLine()"
+            @select-git="handleSelectGitEntry"
+            @reload-external="handleReloadExternalChange"
+            @keep-external="handleKeepExternalChange"
+            @export-html="handleExportMarkdownHtml"
             @toggle-collapse="showContextRail = false"
           />
         </div>

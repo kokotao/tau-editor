@@ -224,7 +224,7 @@ pub async fn write_file_chunked(
 }
 
 /// 验证路径安全性
-fn validate_path(path: &str) -> Result<(), String> {
+pub fn validate_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("路径不能为空".to_string());
     }

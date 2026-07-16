@@ -41,4 +41,54 @@ describe('ContextRail', () => {
     expect(wrapper.emitted('go-to-line')).toHaveLength(1);
     expect(wrapper.emitted('toggle-collapse')).toHaveLength(1);
   });
+
+  it('renders Markdown tasks and links as contextual navigation targets', async () => {
+    const wrapper = mount(ContextRail, {
+      props: {
+        language: 'markdown',
+        tasks: [{ id: 'task-1', label: 'Ship release', completed: false, line: 7 }],
+        links: [{ id: 'link-8-1', label: 'Guide', target: 'docs/guide.md', external: false, line: 8 }],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="context-task-task-1"]').text()).toContain('Ship release');
+    expect(wrapper.get('[data-testid="context-link-link-8-1"]').text()).toContain('Guide');
+
+    await wrapper.get('[data-testid="context-task-task-1"]').trigger('click');
+    await wrapper.get('[data-testid="context-link-link-8-1"]').trigger('click');
+
+    expect(wrapper.emitted('navigate')).toEqual([[7], [8]]);
+  });
+
+  it('renders workspace Git changes in the contextual rail', () => {
+    const wrapper = mount(ContextRail, {
+      props: {
+        gitBranch: 'main',
+        gitEntries: [{ path: 'src/App.vue', indexStatus: 'M', worktreeStatus: ' ' }],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="context-git-branch"]').text()).toContain('main');
+    expect(wrapper.get('[data-testid="context-git-entry-src-App.vue"]').text()).toContain('src/App.vue');
+  });
+
+  it('offers explicit actions when the active file has an external change conflict', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { externalConflictFileName: 'notes.md' },
+    });
+
+    expect(wrapper.get('[data-testid="context-external-conflict"]').text()).toContain('notes.md');
+    await wrapper.get('[data-testid="context-conflict-reload"]').trigger('click');
+    await wrapper.get('[data-testid="context-conflict-keep"]').trigger('click');
+
+    expect(wrapper.emitted('reload-external')).toHaveLength(1);
+    expect(wrapper.emitted('keep-external')).toHaveLength(1);
+  });
+
+  it('offers HTML export in Markdown context', async () => {
+    const wrapper = mount(ContextRail, { props: { language: 'markdown' } });
+
+    await wrapper.get('[data-testid="context-action-export-html"]').trigger('click');
+    expect(wrapper.emitted('export-html')).toHaveLength(1);
+  });
 });

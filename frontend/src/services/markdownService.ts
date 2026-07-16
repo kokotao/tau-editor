@@ -27,6 +27,82 @@ marked.setOptions({
   breaks: true,
 });
 
+export interface MarkdownTask {
+  id: string;
+  label: string;
+  completed: boolean;
+  line: number;
+}
+
+export interface MarkdownLink {
+  id: string;
+  label: string;
+  target: string;
+  external: boolean;
+  line: number;
+}
+
+export interface MarkdownContext {
+  tasks: MarkdownTask[];
+  links: MarkdownLink[];
+}
+
+const isExternalMarkdownLink = (target: string) => /^(?:https?:|mailto:|#)/i.test(target);
+
+export function collectMarkdownContext(content: string): MarkdownContext {
+  const tasks: MarkdownTask[] = [];
+  const links: MarkdownLink[] = [];
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+
+  for (const [index, line] of content.split(/\r?\n/).entries()) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fence) {
+      const marker = fenceMatch?.[1];
+      if (
+        marker
+        && marker[0] === fence.marker
+        && marker.length >= fence.length
+        && /^\s*(?:`{3,}|~{3,})\s*$/.test(line)
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMatch?.[1]) {
+      fence = { marker: fenceMatch[1][0] as '`' | '~', length: fenceMatch[1].length };
+      continue;
+    }
+
+    const lineNumber = index + 1;
+    const taskMatch = line.match(/^\s*(?:[-+*]|\d+[.)])\s+\[([ xX])\]\s+(.+?)\s*$/);
+    if (taskMatch?.[1] !== undefined && taskMatch[2] !== undefined) {
+      tasks.push({
+        id: `task-${lineNumber}`,
+        label: taskMatch[2],
+        completed: taskMatch[1].toLowerCase() === 'x',
+        line: lineNumber,
+      });
+    }
+
+    let linkIndex = 0;
+    for (const match of line.matchAll(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+      const label = match[1];
+      const target = match[2];
+      if (label === undefined || target === undefined) continue;
+      linkIndex += 1;
+      links.push({
+        id: `link-${lineNumber}-${linkIndex}`,
+        label,
+        target,
+        external: isExternalMarkdownLink(target),
+        line: lineNumber,
+      });
+    }
+  }
+
+  return { tasks, links };
+}
+
 const HTML_BLOCK_TAGS = new Set([
   'address', 'article', 'aside', 'base', 'basefont', 'blockquote', 'body', 'caption', 'center',
   'col', 'colgroup', 'dd', 'details', 'dialog', 'dir', 'div', 'dl', 'dt', 'fieldset', 'figcaption',
@@ -198,6 +274,30 @@ export function renderMarkdown(raw: string): string {
 
   const parsed = marked.parse(raw, { renderer }) as string;
   return DOMPurify.sanitize(parsed);
+}
+
+const escapeHtmlText = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+export function createStandaloneHtml(markdown: string, title: string): string {
+  const safeTitle = escapeHtmlText(title || 'Tau Editor Export');
+  const body = renderMarkdown(markdown);
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${safeTitle}</title>
+<style>body{max-width:860px;margin:48px auto;padding:0 24px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7;color:#1f2937}pre{overflow:auto;padding:16px;background:#f3f4f6;border-radius:8px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
 }
 
 export async function renderMermaidDiagrams(

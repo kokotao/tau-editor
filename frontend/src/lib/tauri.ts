@@ -102,12 +102,14 @@ async function invokeCommand<T>(
 export class TauriError extends Error {
   command?: string;
   cause?: unknown;
+  code?: string;
 
-  constructor(message: string, command?: string, cause?: unknown) {
+  constructor(message: string, command?: string, cause?: unknown, code?: string) {
     super(message);
     this.name = 'TauriError';
     this.command = command;
     this.cause = cause;
+    this.code = code;
   }
 
   static fromError(error: unknown, command?: string): TauriError {
@@ -119,9 +121,138 @@ export class TauriError extends Error {
       return new TauriError(error.message, command, error);
     }
 
+    if (typeof error === 'object' && error !== null) {
+      const candidate = error as { code?: unknown; message?: unknown };
+      const message = typeof candidate.message === 'string'
+        ? candidate.message
+        : String(error);
+      const code = typeof candidate.code === 'string' ? candidate.code : undefined;
+      return new TauriError(message, command, error, code);
+    }
+
     return new TauriError(String(error), command, error);
   }
 }
+
+export interface ResolvedWorkspace {
+  workspaceId: string;
+  rootPath: string;
+}
+
+export interface FileRevision {
+  exists: boolean;
+  size: number | null;
+  modifiedMs: number | null;
+  revision: string | null;
+  contentHash: string | null;
+}
+
+export interface WriteFileResponse {
+  revision: string;
+}
+
+export interface GitStatusEntry {
+  path: string;
+  indexStatus: string;
+  worktreeStatus: string;
+}
+
+export interface GitStatusResponse {
+  branch: string;
+  entries: GitStatusEntry[];
+}
+
+export interface WorkspaceSearchOptions {
+  isRegex: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  maxResults: number;
+}
+
+export interface WorkspaceSearchMatch {
+  path: string;
+  line: number;
+  column: number;
+  length: number;
+  preview: string;
+}
+
+export interface WorkspaceSearchResponse {
+  matches: WorkspaceSearchMatch[];
+  truncated: boolean;
+  scannedFiles: number;
+}
+
+/**
+ * v0.3.0 工作区运行时桥接。后续文件/Git 命令只能接受此处返回的 workspaceId。
+ */
+export const workspaceCommands = {
+  async resolveWorkspace(path: string): Promise<ResolvedWorkspace> {
+    return invokeCommand<ResolvedWorkspace>('resolve_workspace', { path });
+  },
+
+  async getFileRevision(
+    workspaceId: string,
+    relativePath: string,
+    includeHash = false,
+  ): Promise<FileRevision> {
+    return invokeCommand<FileRevision>('get_file_revision', {
+      workspaceId,
+      relativePath,
+      includeHash,
+    });
+  },
+
+  async writeFileIfRevision(
+    workspaceId: string,
+    relativePath: string,
+    content: string,
+    expectedRevision: string,
+  ): Promise<WriteFileResponse> {
+    return invokeCommand<WriteFileResponse>('write_file_if_revision', {
+      workspaceId,
+      relativePath,
+      content,
+      expectedRevision,
+    });
+  },
+};
+
+export const gitCommands = {
+  async status(workspaceId: string): Promise<GitStatusResponse> {
+    return invokeCommand<GitStatusResponse>('git_status', { workspaceId });
+  },
+
+  async diff(workspaceId: string, relativePath: string, staged = false): Promise<string> {
+    return invokeCommand<string>('git_diff', { workspaceId, relativePath, staged });
+  },
+
+  async stage(workspaceId: string, relativePaths: string[]): Promise<void> {
+    await invokeCommand<void>('git_stage', { workspaceId, relativePaths });
+  },
+
+  async unstage(workspaceId: string, relativePaths: string[]): Promise<void> {
+    await invokeCommand<void>('git_unstage', { workspaceId, relativePaths });
+  },
+
+  async discard(workspaceId: string, relativePaths: string[]): Promise<void> {
+    await invokeCommand<void>('git_discard', { workspaceId, relativePaths });
+  },
+};
+
+export const searchCommands = {
+  async workspace(
+    workspaceId: string,
+    query: string,
+    options: WorkspaceSearchOptions,
+  ): Promise<WorkspaceSearchResponse> {
+    return invokeCommand<WorkspaceSearchResponse>('search_workspace', {
+      workspaceId,
+      query,
+      options,
+    });
+  },
+};
 
 export const fileCommands = {
   async readFile(path: string): Promise<string> {

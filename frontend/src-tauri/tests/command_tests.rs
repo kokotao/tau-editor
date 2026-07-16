@@ -287,7 +287,7 @@ async fn test_read_file_no_permission() {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&file_path).unwrap().permissions();
         perms.set_mode(0o000);
-        fs::set_permissions(&file_path, perms).unwrap();
+        fs::set_permissions(&file_path, perms.clone()).unwrap();
         
         let result = file::read_file(file_path.to_string_lossy().to_string()).await;
         assert!(result.is_err());
@@ -333,7 +333,7 @@ async fn test_write_file_readonly_directory() {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&readonly_dir).unwrap().permissions();
         perms.set_mode(0o555); // 只读 + 执行
-        fs::set_permissions(&readonly_dir, perms).unwrap();
+        fs::set_permissions(&readonly_dir, perms.clone()).unwrap();
         
         let file_path = readonly_dir.join("cannot_write.txt");
         let result = file::write_file(
@@ -397,8 +397,8 @@ async fn test_list_files_distinguish_files_and_dirs() {
     let file_entry = files.iter().find(|f| f.name == "file.txt").unwrap();
     let dir_entry = files.iter().find(|f| f.name == "dir").unwrap();
     
-    assert!(!file_entry.is_dir);
-    assert!(dir_entry.is_dir);
+    assert_eq!(file_entry.file_type, "file");
+    assert_eq!(dir_entry.file_type, "folder");
 }
 
 #[tokio::test]
@@ -416,7 +416,7 @@ async fn test_list_files_includes_metadata() {
     
     let file_entry = files.iter().find(|f| f.name == "meta_test.txt").unwrap();
     
-    assert!(file_entry.size > 0);
+    assert!(file_entry.size.unwrap_or_default() > 0);
     assert!(file_entry.modified.is_some());
 }
 

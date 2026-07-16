@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
+import { createStandaloneHtml, renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
 
 describe('markdownService', () => {
   it('应渲染 markdown 标题', () => {
@@ -130,5 +130,13 @@ describe('markdownService', () => {
     const container = document.createElement('div');
     container.innerHTML = '<p>plain</p>';
     await expect(renderMermaidDiagrams(container, 'dark')).resolves.toBeUndefined();
+  });
+
+  it('导出独立 HTML 时应包含净化后的正文与标题', () => {
+    const html = createStandaloneHtml('# Release', 'Release Notes');
+
+    expect(html).toContain('<title>Release Notes</title>');
+    expect(html).toContain('<h1 data-source-line="1">Release</h1>');
+    expect(html).not.toContain('<script>');
   });
 });
