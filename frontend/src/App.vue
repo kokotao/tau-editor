@@ -1265,20 +1265,38 @@ const handleShellKeydown = (event: KeyboardEvent) => {
 function restoreSession() {
   if (!settingsStore.restoreLastSession) {
     sessionService.clear();
+    sessionService.clearRecoveryDrafts();
     workspaceStore.setEmptyMode();
     tabsStore.closeAll();
     return;
   }
 
   const snapshot = sessionService.load();
-  if (!snapshot) return;
+  const recoveryDrafts = sessionService.loadRecoveryDrafts();
+  if (!snapshot && recoveryDrafts.length === 0) return;
 
-  tabsStore.restoreSession(snapshot.tabs, snapshot.activeTabId);
+  const shouldRestoreDrafts = recoveryDrafts.length > 0 && (
+    typeof window === 'undefined'
+    || window.confirm(`检测到 ${recoveryDrafts.length} 个未保存草稿，是否恢复？`)
+  );
+  if (recoveryDrafts.length > 0 && !shouldRestoreDrafts) {
+    sessionService.clearRecoveryDrafts();
+  }
 
-  if (snapshot.workspacePath && snapshot.mode === 'workspace') {
+  const restoredTabs = shouldRestoreDrafts
+    ? [
+        ...(snapshot?.tabs ?? []).filter((tab) => !recoveryDrafts.some((draft) => draft.id === tab.id)),
+        ...recoveryDrafts,
+      ]
+    : snapshot?.tabs ?? [];
+  const activeTabId = snapshot?.activeTabId ?? restoredTabs[0]?.id ?? null;
+
+  tabsStore.restoreSession(restoredTabs, activeTabId);
+
+  if (snapshot?.workspacePath && snapshot.mode === 'workspace') {
     workspaceStore.openWorkspace(snapshot.workspacePath);
     void fileSystemStore.syncFromWorkspace();
-  } else if (snapshot.tabs.length > 0) {
+  } else if (restoredTabs.length > 0) {
     workspaceStore.setMode('single-file');
   } else {
     workspaceStore.setEmptyMode();
@@ -1288,6 +1306,7 @@ function restoreSession() {
 function saveSession() {
   if (!settingsStore.restoreLastSession) {
     sessionService.clear();
+    sessionService.clearRecoveryDrafts();
     return;
   }
 
@@ -1302,6 +1321,7 @@ function saveSession() {
     activeTabId: tabsStore.activeTabId,
     tabs: tabsStore.tabs,
   });
+  sessionService.saveRecoveryDrafts(tabsStore.tabs);
 }
 
 function cancelScheduledSessionSave() {
@@ -1366,6 +1386,7 @@ watch(
 
     cancelScheduledSessionSave();
     sessionService.clear();
+    sessionService.clearRecoveryDrafts();
   },
 );
 
