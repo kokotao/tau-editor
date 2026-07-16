@@ -15,6 +15,7 @@ import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
 import { buildDocumentOutline } from '@/services/documentOutlineService';
 import { collectMarkdownContext } from '@/services/markdownService';
+import { rankQuickOpenFiles } from '@/services/quickOpenService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
@@ -116,6 +117,7 @@ const sidebarWidth = ref(300);
 const contextRailWidth = ref(300);
 const fileTreeDrawerOpen = ref(false);
 const contextRailDrawerOpen = ref(false);
+const paletteMode = ref<'commands' | 'quick-open'>('commands');
 const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
 const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
@@ -259,7 +261,23 @@ const currentModeLabel = computed(() =>
   mode.value === 'single-file' ? appText.value.singleFileMode : appText.value.emptyMode,
 );
 const filteredCommands = computed(() => commandStore.filteredCommands);
-const highlightedCommand = computed(() => commandStore.highlightedCommand);
+const flattenFileTree = (nodes: FileTreeNode[]): Array<{ path: string; name: string }> => nodes.flatMap((node) => [
+  ...(node.type === 'file' ? [{ path: node.path, name: node.name }] : []),
+  ...(node.children ? flattenFileTree(node.children) : []),
+]);
+const quickOpenCommands = computed(() => rankQuickOpenFiles(
+  flattenFileTree(fileSystemStore.fileTree),
+  commandStore.query,
+).map((file) => ({
+  id: `quick-open:${file.path}`,
+  title: file.name,
+  category: 'workspace' as const,
+  keywords: [file.path],
+})));
+const paletteCommands = computed(() => paletteMode.value === 'quick-open'
+  ? quickOpenCommands.value
+  : filteredCommands.value);
+const highlightedCommand = computed(() => paletteCommands.value[commandStore.highlightedIndex] ?? paletteCommands.value[0] ?? null);
 const documentOutline = computed(() => {
   const tab = activeTab.value;
   if (!tab || tab.isLargeFile) {
@@ -691,6 +709,12 @@ const handleSystemAction = (action: SystemMenuAction) => {
 };
 
 const handleOpenCommandPalette = () => {
+  paletteMode.value = 'commands';
+  commandStore.openPalette();
+};
+
+const handleOpenQuickOpen = () => {
+  paletteMode.value = 'quick-open';
   commandStore.openPalette();
 };
 
@@ -743,6 +767,11 @@ const executeCommand = async (id: string) => {
 
 const handlePaletteSelect = async (id: string) => {
   commandStore.closePalette();
+  if (id.startsWith('quick-open:')) {
+    paletteMode.value = 'commands';
+    await openFileInEditor(id.slice('quick-open:'.length));
+    return;
+  }
   await executeCommand(id);
 };
 
@@ -761,6 +790,14 @@ const registerShortcuts = () => {
     modifiers: ['ctrl'],
     handler: () => void executeCommand('file.new'),
     description: getLocalizedCommandTitle('file.new'),
+  });
+
+  keyboardStore.register({
+    id: 'quick-open',
+    key: 'p',
+    modifiers: ['ctrl'],
+    handler: handleOpenQuickOpen,
+    description: 'Quick Open',
   });
 
   keyboardStore.register({
@@ -1387,9 +1424,9 @@ onUnmounted(() => {
     <CommandPalette
       :visible="commandStore.paletteOpen"
       :query="commandStore.query"
-      :commands="filteredCommands"
+      :commands="paletteCommands"
       :highlighted-index="commandStore.highlightedIndex"
-      @close="commandStore.closePalette()"
+      @close="commandStore.closePalette(); paletteMode = 'commands'"
       @move="commandStore.moveHighlight"
       @highlight="commandStore.setHighlightedIndex"
       @select="handlePaletteSelect"
