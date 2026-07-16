@@ -78,6 +78,21 @@ describe('workspaceCommands', () => {
     }, undefined);
   });
 
+  it('通过 workspaceId 发起取消暂存和恢复工作区文件请求', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await gitCommands.unstage('runtime-id', ['notes.md']);
+    await gitCommands.discard('runtime-id', ['notes.md']);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'git_unstage', {
+      workspaceId: 'runtime-id', relativePaths: ['notes.md'],
+    }, undefined);
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'git_discard', {
+      workspaceId: 'runtime-id', relativePaths: ['notes.md'],
+    }, undefined);
+  });
+
   it('将搜索选项和 workspaceId 一起提交给受限项目搜索命令', async () => {
     invokeMock.mockResolvedValueOnce({ matches: [], truncated: false, scannedFiles: 2 });
 

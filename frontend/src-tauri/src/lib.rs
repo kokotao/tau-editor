@@ -63,6 +63,8 @@ pub fn run() {
       commands::git_status,
       commands::git_diff,
       commands::git_stage,
+      commands::git_unstage,
+      commands::git_discard,
       commands::search_workspace,
     ])
     .build(tauri::generate_context!())

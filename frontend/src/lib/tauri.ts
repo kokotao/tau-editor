@@ -230,6 +230,14 @@ export const gitCommands = {
   async stage(workspaceId: string, relativePaths: string[]): Promise<void> {
     await invokeCommand<void>('git_stage', { workspaceId, relativePaths });
   },
+
+  async unstage(workspaceId: string, relativePaths: string[]): Promise<void> {
+    await invokeCommand<void>('git_unstage', { workspaceId, relativePaths });
+  },
+
+  async discard(workspaceId: string, relativePaths: string[]): Promise<void> {
+    await invokeCommand<void>('git_discard', { workspaceId, relativePaths });
+  },
 };
 
 export const searchCommands = {

@@ -9,7 +9,8 @@ use std::process::Command;
 
 use tempfile::TempDir;
 use text_editor_lib::{
-    git_diff_for_registry, git_stage_for_registry, git_status_for_registry,
+    git_diff_for_registry, git_discard_for_registry, git_stage_for_registry,
+    git_status_for_registry, git_unstage_for_registry,
     resolve_workspace_for_registry, WorkspaceRegistry,
 };
 
@@ -76,4 +77,10 @@ fn stages_a_selected_file_and_returns_its_worktree_diff() {
         .expect("status succeeds");
     let entry = status.entries.iter().find(|entry| entry.path == "notes.md").expect("entry");
     assert_eq!(entry.index_status, "M");
+
+    git_unstage_for_registry(&registry, &workspace.workspace_id, &["notes.md".to_string()])
+        .expect("unstage succeeds");
+    git_discard_for_registry(&registry, &workspace.workspace_id, &["notes.md".to_string()])
+        .expect("discard succeeds");
+    assert_eq!(fs::read_to_string(temp_dir.path().join("notes.md")).expect("read document"), "before\n");
 }

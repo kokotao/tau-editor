@@ -39,6 +39,24 @@ pub fn git_stage(
     git_stage_for_registry(registry.inner(), &workspace_id, &relative_paths)
 }
 
+#[tauri::command]
+pub fn git_unstage(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_id: String,
+    relative_paths: Vec<String>,
+) -> Result<(), CommandError> {
+    git_unstage_for_registry(registry.inner(), &workspace_id, &relative_paths)
+}
+
+#[tauri::command]
+pub fn git_discard(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_id: String,
+    relative_paths: Vec<String>,
+) -> Result<(), CommandError> {
+    git_discard_for_registry(registry.inner(), &workspace_id, &relative_paths)
+}
+
 pub fn git_status_for_registry(
     registry: &WorkspaceRegistry,
     workspace_id: &str,
@@ -107,6 +125,42 @@ pub fn git_stage_for_registry(
     }
     let root = workspace_root_for_registry(registry, workspace_id)?;
     let mut args = vec!["-C".to_string(), root.to_string_lossy().into_owned(), "add".to_string(), "--".to_string()];
+    args.extend(relative_paths.iter().cloned());
+    run_git(&args)?;
+    Ok(())
+}
+
+pub fn git_unstage_for_registry(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    relative_paths: &[String],
+) -> Result<(), CommandError> {
+    run_git_for_paths(registry, workspace_id, &["reset", "HEAD", "--"], relative_paths)
+}
+
+pub fn git_discard_for_registry(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    relative_paths: &[String],
+) -> Result<(), CommandError> {
+    run_git_for_paths(registry, workspace_id, &["restore", "--worktree", "--"], relative_paths)
+}
+
+fn run_git_for_paths(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    operation: &[&str],
+    relative_paths: &[String],
+) -> Result<(), CommandError> {
+    if relative_paths.is_empty() {
+        return Ok(());
+    }
+    for path in relative_paths {
+        validate_relative_path(path)?;
+    }
+    let root = workspace_root_for_registry(registry, workspace_id)?;
+    let mut args = vec!["-C".to_string(), root.to_string_lossy().into_owned()];
+    args.extend(operation.iter().map(|part| (*part).to_string()));
     args.extend(relative_paths.iter().cloned());
     run_git(&args)?;
     Ok(())
