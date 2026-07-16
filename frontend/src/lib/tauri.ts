@@ -123,6 +123,58 @@ export class TauriError extends Error {
   }
 }
 
+export interface ResolvedWorkspace {
+  workspaceId: string;
+  rootPath: string;
+}
+
+export interface FileRevision {
+  exists: boolean;
+  size: number | null;
+  modifiedMs: number | null;
+  revision: string | null;
+  contentHash: string | null;
+}
+
+export interface WriteFileResponse {
+  revision: string;
+}
+
+/**
+ * v0.3.0 工作区运行时桥接。后续文件/Git 命令只能接受此处返回的 workspaceId。
+ */
+export const workspaceCommands = {
+  async resolveWorkspace(path: string): Promise<ResolvedWorkspace> {
+    return invokeCommand<ResolvedWorkspace>('resolve_workspace', { path });
+  },
+
+  async getFileRevision(
+    workspaceId: string,
+    relativePath: string,
+    includeHash = false,
+  ): Promise<FileRevision> {
+    return invokeCommand<FileRevision>('get_file_revision', {
+      workspaceId,
+      relativePath,
+      includeHash,
+    });
+  },
+
+  async writeFileIfRevision(
+    workspaceId: string,
+    relativePath: string,
+    content: string,
+    expectedRevision: string,
+  ): Promise<WriteFileResponse> {
+    return invokeCommand<WriteFileResponse>('write_file_if_revision', {
+      workspaceId,
+      relativePath,
+      content,
+      expectedRevision,
+    });
+  },
+};
+
 export const fileCommands = {
   async readFile(path: string): Promise<string> {
     return invokeCommand<string>('read_file', { path });

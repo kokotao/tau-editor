@@ -22,6 +22,7 @@ pub fn run() {
 
   let app = tauri::Builder::default()
     .manage(commands::PendingOpenPaths::default())
+    .manage(commands::WorkspaceRegistry::default())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -56,6 +57,9 @@ pub fn run() {
       commands::open_external_link,
       commands::reveal_in_file_manager,
       commands::consume_pending_open_paths,
+      commands::resolve_workspace,
+      commands::get_file_revision,
+      commands::write_file_if_revision,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");

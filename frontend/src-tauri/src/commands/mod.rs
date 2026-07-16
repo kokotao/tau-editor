@@ -6,8 +6,10 @@ mod file;
 mod file_optimized;
 mod settings;
 mod startup;
+mod workspace;
 
 pub use file::*;
 pub use file_optimized::*;
 pub use settings::*;
 pub use startup::*;
+pub use workspace::*;
