@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { workspaceCommands } from '@/lib/tauri';
+import { TauriError, workspaceCommands } from '@/lib/tauri';
 
 const invokeMock = vi.fn();
 
@@ -39,5 +39,20 @@ describe('workspaceCommands', () => {
       relativePath: 'notes.md',
       includeHash: false,
     }, undefined);
+  });
+
+  it('保留结构化 FILE_CONFLICT 错误码，供冲突界面可靠分流', async () => {
+    invokeMock.mockRejectedValueOnce({
+      code: 'FILE_CONFLICT',
+      message: '文件已被外部修改',
+    });
+
+    await expect(
+      workspaceCommands.writeFileIfRevision('runtime-id', 'notes.md', 'next', '1:4'),
+    ).rejects.toMatchObject({
+      name: 'TauriError',
+      code: 'FILE_CONFLICT',
+      message: '文件已被外部修改',
+    } satisfies Partial<TauriError>);
   });
 });

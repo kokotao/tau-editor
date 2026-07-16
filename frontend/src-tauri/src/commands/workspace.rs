@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -19,11 +19,13 @@ use tauri::State;
 use crate::models::{CommandError, FileRevision, WriteFileResponse};
 
 static NEXT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_DIRECT_WRITE_BYTES: usize = 4 * 1024 * 1024;
 
 /// 仅在当前应用运行期保存的工作区根目录注册表。
 #[derive(Default)]
 pub struct WorkspaceRegistry {
     roots: Mutex<HashMap<String, PathBuf>>,
+    write_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -108,11 +110,29 @@ pub fn get_file_revision_for_registry(
     registry: &WorkspaceRegistry,
     workspace_id: &str,
     relative_path: &str,
-    _include_hash: bool,
+    include_hash: bool,
 ) -> Result<FileRevision, CommandError> {
+    if include_hash {
+        return Err(CommandError::new(
+            "HASH_UNSUPPORTED",
+            "当前版本不支持内容哈希 revision，请使用标准 revision",
+        ));
+    }
     let path = resolve_workspace_path(registry, workspace_id, relative_path)?;
-    match fs::metadata(path) {
-        Ok(metadata) => FileRevision::from_metadata(&metadata),
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(CommandError::new(
+            "SYMLINK_ESCAPE",
+            "不支持通过符号链接访问文件",
+        )),
+        Ok(metadata) if !metadata.is_file() => Err(CommandError::new(
+            "NOT_A_FILE",
+            "目标路径不是普通文件",
+        )),
+        Ok(_) => {
+            let metadata = fs::metadata(&path)
+                .map_err(|error| CommandError::io(format!("无法读取文件元数据：{error}")))?;
+            FileRevision::from_metadata(&metadata)
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileRevision::missing()),
         Err(error) => Err(CommandError::io(format!("无法读取文件元数据：{error}"))),
     }
@@ -126,18 +146,69 @@ pub fn write_file_if_revision_for_registry(
     content: &str,
     expected_revision: &str,
 ) -> Result<WriteFileResponse, CommandError> {
-    let path = resolve_workspace_path(registry, workspace_id, relative_path)?;
-    let current = match fs::metadata(&path) {
-        Ok(metadata) => FileRevision::from_metadata(&metadata)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(CommandError::new("FILE_NOT_FOUND", "目标文件不存在"));
-        }
-        Err(error) => return Err(CommandError::io(format!("无法读取文件元数据：{error}"))),
-    };
+    write_file_if_revision_with_before_commit(
+        registry,
+        workspace_id,
+        relative_path,
+        content,
+        expected_revision,
+        || {},
+    )
+}
 
-    if current.revision.as_deref() != Some(expected_revision) {
-        return Err(CommandError::new("FILE_CONFLICT", "文件已被外部修改"));
+#[doc(hidden)]
+pub fn write_file_if_revision_with_before_commit_for_test<F>(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    relative_path: &str,
+    content: &str,
+    expected_revision: &str,
+    before_commit: F,
+) -> Result<WriteFileResponse, CommandError>
+where
+    F: FnOnce(),
+{
+    write_file_if_revision_with_before_commit(
+        registry,
+        workspace_id,
+        relative_path,
+        content,
+        expected_revision,
+        before_commit,
+    )
+}
+
+fn write_file_if_revision_with_before_commit<F>(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    relative_path: &str,
+    content: &str,
+    expected_revision: &str,
+    before_commit: F,
+) -> Result<WriteFileResponse, CommandError>
+where
+    F: FnOnce(),
+{
+    if content.len() > MAX_DIRECT_WRITE_BYTES {
+        return Err(CommandError::new(
+            "TOO_LARGE",
+            "直接条件写入最大支持 4MiB，请使用分段写入事务",
+        ));
     }
+    let path = resolve_workspace_path(registry, workspace_id, relative_path)?;
+    let write_lock = get_write_lock(registry, &path)?;
+    let _write_guard = write_lock
+        .lock()
+        .map_err(|_| CommandError::io("文件写入锁不可用"))?;
+
+    ensure_expected_revision(&path, expected_revision)?;
+    before_commit();
+
+    let revalidated_path = resolve_workspace_path(registry, workspace_id, relative_path)?;
+    if revalidated_path != path {
+        return Err(CommandError::new("FILE_CONFLICT", "文件路径在写入期间发生变化"));
+    }
+    ensure_expected_revision(&path, expected_revision)?;
 
     atomic_write(&path, content.as_bytes())?;
     let revision = fs::metadata(&path)
@@ -147,6 +218,35 @@ pub fn write_file_if_revision_for_registry(
         .ok_or_else(|| CommandError::io("写入后的文件缺少 revision"))?;
 
     Ok(WriteFileResponse { revision })
+}
+
+fn ensure_expected_revision(path: &Path, expected_revision: &str) -> Result<(), CommandError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => CommandError::new("FILE_NOT_FOUND", "目标文件不存在"),
+        _ => CommandError::io(format!("无法读取文件元数据：{error}")),
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(CommandError::new("NOT_A_FILE", "目标路径不是普通文件"));
+    }
+    let current = FileRevision::from_metadata(&metadata)?;
+    if current.revision.as_deref() != Some(expected_revision) {
+        return Err(CommandError::new("FILE_CONFLICT", "文件已被外部修改"));
+    }
+    Ok(())
+}
+
+fn get_write_lock(
+    registry: &WorkspaceRegistry,
+    path: &Path,
+) -> Result<Arc<Mutex<()>>, CommandError> {
+    let mut locks = registry
+        .write_locks
+        .lock()
+        .map_err(|_| CommandError::io("文件写入锁注册表不可用"))?;
+    Ok(locks
+        .entry(path.to_path_buf())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone())
 }
 
 fn resolve_workspace_path(
@@ -162,6 +262,12 @@ fn resolve_workspace_path(
         .get(workspace_id)
         .cloned()
         .ok_or_else(|| CommandError::new("WORKSPACE_NOT_FOUND", "工作区已失效，请重新打开"))?;
+    let current_root = fs::canonicalize(&root).map_err(|error| {
+        CommandError::new("WORKSPACE_NOT_FOUND", format!("工作区已不可用：{error}"))
+    })?;
+    if current_root != root || !current_root.is_dir() {
+        return Err(CommandError::new("SYMLINK_ESCAPE", "工作区根目录已发生变化"));
+    }
 
     let relative = Path::new(relative_path);
     if relative.is_absolute()
@@ -251,7 +357,7 @@ where
         temporary
             .sync_all()
             .map_err(|error| CommandError::io(format!("无法同步临时文件：{error}")))?;
-        fs::rename(&temporary_path, path)
+        replace_existing_file(&temporary_path, path)
             .map_err(|error| CommandError::io(format!("无法原子替换文件：{error}")))?;
         if let Err(error) = sync_parent_directory(parent) {
             log::warn!(
@@ -267,6 +373,50 @@ where
         let _ = fs::remove_file(&temporary_path);
     }
     write_result
+}
+
+#[cfg(not(windows))]
+fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<()> {
+    fs::rename(temporary_path, path)
+}
+
+#[cfg(windows)]
+fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let temporary_wide = temporary_path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let target_wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let moved = unsafe {
+        MoveFileExW(
+            temporary_wide.as_ptr(),
+            target_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 #[cfg(unix)]

@@ -102,12 +102,14 @@ async function invokeCommand<T>(
 export class TauriError extends Error {
   command?: string;
   cause?: unknown;
+  code?: string;
 
-  constructor(message: string, command?: string, cause?: unknown) {
+  constructor(message: string, command?: string, cause?: unknown, code?: string) {
     super(message);
     this.name = 'TauriError';
     this.command = command;
     this.cause = cause;
+    this.code = code;
   }
 
   static fromError(error: unknown, command?: string): TauriError {
@@ -117,6 +119,15 @@ export class TauriError extends Error {
 
     if (error instanceof Error) {
       return new TauriError(error.message, command, error);
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const candidate = error as { code?: unknown; message?: unknown };
+      const message = typeof candidate.message === 'string'
+        ? candidate.message
+        : String(error);
+      const code = typeof candidate.code === 'string' ? candidate.code : undefined;
+      return new TauriError(message, command, error, code);
     }
 
     return new TauriError(String(error), command, error);
