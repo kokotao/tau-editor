@@ -4465,7 +4465,7 @@ dependencies = [
 
 [[package]]
 name = "text-editor"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chardetng",

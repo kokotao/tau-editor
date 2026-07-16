@@ -2,10 +2,10 @@
 /// 
 /// 包含所有暴露给前端的 Tauri 命令
 
-mod file;
-mod file_optimized;
+pub mod file;
+pub mod file_optimized;
 mod git;
-mod settings;
+pub mod settings;
 mod search;
 mod replace;
 mod startup;

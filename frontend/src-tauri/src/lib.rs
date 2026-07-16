@@ -1,7 +1,7 @@
 /// 文本编辑器 Tauri 应用库
 ///
 /// 提供所有 Tauri 命令和后端服务。
-mod commands;
+pub mod commands;
 mod models;
 mod services;
 mod utils;
