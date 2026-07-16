@@ -63,6 +63,7 @@ pub fn run() {
       commands::git_status,
       commands::git_diff,
       commands::git_stage,
+      commands::search_workspace,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");

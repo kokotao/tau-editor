@@ -30,6 +30,7 @@ thiserror = "1"
 anyhow = "1"
 pdf-extract = "0.7"
 quick-xml = "0.38"
+regex = "1.12.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

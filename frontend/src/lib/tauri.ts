@@ -162,6 +162,27 @@ export interface GitStatusResponse {
   entries: GitStatusEntry[];
 }
 
+export interface WorkspaceSearchOptions {
+  isRegex: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  maxResults: number;
+}
+
+export interface WorkspaceSearchMatch {
+  path: string;
+  line: number;
+  column: number;
+  length: number;
+  preview: string;
+}
+
+export interface WorkspaceSearchResponse {
+  matches: WorkspaceSearchMatch[];
+  truncated: boolean;
+  scannedFiles: number;
+}
+
 /**
  * v0.3.0 工作区运行时桥接。后续文件/Git 命令只能接受此处返回的 workspaceId。
  */
@@ -208,6 +229,20 @@ export const gitCommands = {
 
   async stage(workspaceId: string, relativePaths: string[]): Promise<void> {
     await invokeCommand<void>('git_stage', { workspaceId, relativePaths });
+  },
+};
+
+export const searchCommands = {
+  async workspace(
+    workspaceId: string,
+    query: string,
+    options: WorkspaceSearchOptions,
+  ): Promise<WorkspaceSearchResponse> {
+    return invokeCommand<WorkspaceSearchResponse>('search_workspace', {
+      workspaceId,
+      query,
+      options,
+    });
   },
 };
 

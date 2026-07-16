@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TauriError, gitCommands, workspaceCommands } from '@/lib/tauri';
+import { TauriError, gitCommands, searchCommands, workspaceCommands } from '@/lib/tauri';
 
 const invokeMock = vi.fn();
 
@@ -75,6 +75,22 @@ describe('workspaceCommands', () => {
     }, undefined);
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'git_stage', {
       workspaceId: 'runtime-id', relativePaths: ['notes.md'],
+    }, undefined);
+  });
+
+  it('将搜索选项和 workspaceId 一起提交给受限项目搜索命令', async () => {
+    invokeMock.mockResolvedValueOnce({ matches: [], truncated: false, scannedFiles: 2 });
+
+    await expect(searchCommands.workspace('runtime-id', 'release', {
+      isRegex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      maxResults: 50,
+    })).resolves.toMatchObject({ scannedFiles: 2 });
+    expect(invokeMock).toHaveBeenCalledWith('search_workspace', {
+      workspaceId: 'runtime-id',
+      query: 'release',
+      options: { isRegex: false, caseSensitive: false, wholeWord: false, maxResults: 50 },
     }, undefined);
   });
 });
