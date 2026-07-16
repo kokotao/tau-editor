@@ -62,4 +62,19 @@ describe('workspaceCommands', () => {
     await expect(gitCommands.status('runtime-id')).resolves.toEqual({ branch: 'main', entries: [] });
     expect(invokeMock).toHaveBeenCalledWith('git_status', { workspaceId: 'runtime-id' }, undefined);
   });
+
+  it('对选中的相对文件请求工作区内 Git diff 与暂存', async () => {
+    invokeMock.mockResolvedValueOnce('diff --git a/notes.md b/notes.md');
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await expect(gitCommands.diff('runtime-id', 'notes.md')).resolves.toContain('notes.md');
+    await expect(gitCommands.stage('runtime-id', ['notes.md'])).resolves.toBeUndefined();
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'git_diff', {
+      workspaceId: 'runtime-id', relativePath: 'notes.md', staged: false,
+    }, undefined);
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'git_stage', {
+      workspaceId: 'runtime-id', relativePaths: ['notes.md'],
+    }, undefined);
+  });
 });

@@ -201,6 +201,14 @@ export const gitCommands = {
   async status(workspaceId: string): Promise<GitStatusResponse> {
     return invokeCommand<GitStatusResponse>('git_status', { workspaceId });
   },
+
+  async diff(workspaceId: string, relativePath: string, staged = false): Promise<string> {
+    return invokeCommand<string>('git_diff', { workspaceId, relativePath, staged });
+  },
+
+  async stage(workspaceId: string, relativePaths: string[]): Promise<void> {
+    await invokeCommand<void>('git_stage', { workspaceId, relativePaths });
+  },
 };
 
 export const fileCommands = {
