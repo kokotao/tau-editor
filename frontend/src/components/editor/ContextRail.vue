@@ -79,6 +79,27 @@
       </button>
     </section>
 
+    <section v-if="gitEntries.length" class="context-rail-section" aria-labelledby="context-git-heading">
+      <div class="context-rail-section-header">
+        <h3 id="context-git-heading">{{ copy.changes }}</h3>
+        <span data-testid="context-git-branch">{{ gitBranch || 'HEAD' }}</span>
+      </div>
+      <div class="context-outline-list">
+        <button
+          v-for="entry in gitEntries"
+          :key="entry.path"
+          type="button"
+          class="context-work-item"
+          :data-testid="`context-git-entry-${entry.path.replace(/\//g, '-')}`"
+          @click="emit('select-git', entry.path)"
+        >
+          <span>{{ entry.indexStatus !== ' ' ? entry.indexStatus : entry.worktreeStatus }}</span>
+          <span>{{ entry.path }}</span>
+          <small>diff</small>
+        </button>
+      </div>
+    </section>
+
     <section class="context-rail-section context-rail-actions" aria-labelledby="context-actions-heading">
       <div class="context-rail-section-header">
         <h3 id="context-actions-heading">{{ copy.actions }}</h3>
@@ -93,11 +114,14 @@
 import { computed } from 'vue';
 import type { OutlineItem } from '@/services/documentOutlineService';
 import type { MarkdownLink, MarkdownTask } from '@/services/markdownService';
+import type { GitStatusEntry } from '@/lib/tauri';
 
 interface ContextRailProps {
   outline?: OutlineItem[];
   tasks?: MarkdownTask[];
   links?: MarkdownLink[];
+  gitBranch?: string | null;
+  gitEntries?: GitStatusEntry[];
   language?: string;
   locale?: 'zh-CN' | 'en-US';
 }
@@ -106,6 +130,8 @@ const props = withDefaults(defineProps<ContextRailProps>(), {
   outline: () => [],
   tasks: () => [],
   links: () => [],
+  gitBranch: null,
+  gitEntries: () => [],
   language: 'plaintext',
   locale: 'en-US',
 });
@@ -115,6 +141,7 @@ const emit = defineEmits<{
   find: [];
   'go-to-line': [];
   'toggle-collapse': [];
+  'select-git': [path: string];
 }>();
 
 const copy = computed(() => props.locale === 'zh-CN'
@@ -124,6 +151,7 @@ const copy = computed(() => props.locale === 'zh-CN'
       actions: '快捷操作',
       tasks: '任务',
       links: '链接',
+      changes: '变更',
       collapse: '收起上下文栏',
       empty: '当前文档没有可导航的结构。',
       find: '查找',
@@ -135,6 +163,7 @@ const copy = computed(() => props.locale === 'zh-CN'
       actions: 'Quick actions',
       tasks: 'Tasks',
       links: 'Links',
+      changes: 'Changes',
       collapse: 'Collapse context rail',
       empty: 'No navigation targets in this document.',
       find: 'Find',

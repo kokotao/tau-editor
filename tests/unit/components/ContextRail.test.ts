@@ -59,4 +59,16 @@ describe('ContextRail', () => {
 
     expect(wrapper.emitted('navigate')).toEqual([[7], [8]]);
   });
+
+  it('renders workspace Git changes in the contextual rail', () => {
+    const wrapper = mount(ContextRail, {
+      props: {
+        gitBranch: 'main',
+        gitEntries: [{ path: 'src/App.vue', indexStatus: 'M', worktreeStatus: ' ' }],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="context-git-branch"]').text()).toContain('main');
+    expect(wrapper.get('[data-testid="context-git-entry-src-App.vue"]').text()).toContain('src/App.vue');
+  });
 });

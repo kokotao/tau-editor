@@ -17,7 +17,14 @@ import { buildDocumentOutline } from '@/services/documentOutlineService';
 import { collectMarkdownContext } from '@/services/markdownService';
 import { rankQuickOpenFiles } from '@/services/quickOpenService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
-import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
+import {
+  appCommands,
+  fileCommands,
+  gitCommands,
+  isTauriApp,
+  type GitStatusResponse,
+  workspaceCommands,
+} from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
   getAppI18n,
@@ -118,6 +125,8 @@ const contextRailWidth = ref(300);
 const fileTreeDrawerOpen = ref(false);
 const contextRailDrawerOpen = ref(false);
 const paletteMode = ref<'commands' | 'quick-open'>('commands');
+const workspaceRuntimeId = ref<string | null>(null);
+const gitStatus = ref<GitStatusResponse | null>(null);
 const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
 const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
@@ -408,6 +417,36 @@ const handleToggleContextRail = () => {
 const handleContextNavigate = (line: number) => {
   editorCoreRef.value?.revealLine(line);
   markdownPreviewRef.value?.scrollToSourceLine(line);
+};
+
+const refreshWorkspaceContext = async (workspacePath: string | null) => {
+  workspaceRuntimeId.value = null;
+  gitStatus.value = null;
+  if (!workspacePath || !isTauriApp()) {
+    return;
+  }
+
+  try {
+    const runtime = await workspaceCommands.resolveWorkspace(workspacePath);
+    workspaceRuntimeId.value = runtime.workspaceId;
+    gitStatus.value = await gitCommands.status(runtime.workspaceId);
+  } catch (error) {
+    // 非 Git 工作区或暂时不可访问时保持空上下文，不打断编辑流程。
+    console.debug('[WorkspaceContext] unavailable', error);
+  }
+};
+
+const handleSelectGitEntry = async (relativePath: string) => {
+  if (!workspaceRuntimeId.value) {
+    return;
+  }
+  try {
+    const diff = await gitCommands.diff(workspaceRuntimeId.value, relativePath);
+    const summary = diff.split('\n').slice(0, 6).join('\n') || '没有可显示的工作区差异';
+    notificationStore.info(`Git Diff · ${relativePath}`, summary);
+  } catch (error: any) {
+    notificationStore.error('读取 Git Diff 失败', error?.message || '无法读取变更');
+  }
 };
 
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
@@ -1333,6 +1372,7 @@ watch(
 watch(
   () => workspaceStore.currentWorkspacePath,
   (workspacePath) => {
+    void refreshWorkspaceContext(workspacePath);
     if (workspacePath) {
       return;
     }
@@ -1393,6 +1433,7 @@ onMounted(async () => {
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
   restoreSession();
+  await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
   await windowService.attach();
   registerShortcuts();
   const launchTimestamp = Date.now();
@@ -1623,11 +1664,14 @@ onUnmounted(() => {
             :outline="documentOutline"
             :tasks="markdownContext.tasks"
             :links="markdownContext.links"
+            :git-branch="gitStatus?.branch"
+            :git-entries="gitStatus?.entries"
             :language="activeTab?.language"
             :locale="settingsStore.uiLanguage"
             @navigate="handleContextNavigate"
             @find="editorCoreRef?.triggerFindWidget()"
             @go-to-line="editorCoreRef?.triggerGoToLine()"
+            @select-git="handleSelectGitEntry"
             @toggle-collapse="showContextRail = false"
           />
         </div>
