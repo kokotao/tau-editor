@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TauriError, workspaceCommands } from '@/lib/tauri';
+import { TauriError, gitCommands, workspaceCommands } from '@/lib/tauri';
 
 const invokeMock = vi.fn();
 
@@ -54,5 +54,12 @@ describe('workspaceCommands', () => {
       code: 'FILE_CONFLICT',
       message: '文件已被外部修改',
     } satisfies Partial<TauriError>);
+  });
+
+  it('通过 workspaceId 查询 Git 变更，不向后端泄露任意根路径', async () => {
+    invokeMock.mockResolvedValueOnce({ branch: 'main', entries: [] });
+
+    await expect(gitCommands.status('runtime-id')).resolves.toEqual({ branch: 'main', entries: [] });
+    expect(invokeMock).toHaveBeenCalledWith('git_status', { workspaceId: 'runtime-id' }, undefined);
   });
 });

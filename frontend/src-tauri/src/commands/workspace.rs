@@ -255,19 +255,7 @@ fn resolve_workspace_path(
     relative_path: &str,
 ) -> Result<PathBuf, CommandError> {
     reject_empty_or_nul(relative_path)?;
-    let root = registry
-        .roots
-        .lock()
-        .map_err(|_| CommandError::io("工作区注册表不可用"))?
-        .get(workspace_id)
-        .cloned()
-        .ok_or_else(|| CommandError::new("WORKSPACE_NOT_FOUND", "工作区已失效，请重新打开"))?;
-    let current_root = fs::canonicalize(&root).map_err(|error| {
-        CommandError::new("WORKSPACE_NOT_FOUND", format!("工作区已不可用：{error}"))
-    })?;
-    if current_root != root || !current_root.is_dir() {
-        return Err(CommandError::new("SYMLINK_ESCAPE", "工作区根目录已发生变化"));
-    }
+    let root = workspace_root_for_registry(registry, workspace_id)?;
 
     let relative = Path::new(relative_path);
     if relative.is_absolute()
@@ -302,6 +290,26 @@ fn resolve_workspace_path(
     }
 
     Ok(candidate)
+}
+
+pub fn workspace_root_for_registry(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+) -> Result<PathBuf, CommandError> {
+    let root = registry
+        .roots
+        .lock()
+        .map_err(|_| CommandError::io("工作区注册表不可用"))?
+        .get(workspace_id)
+        .cloned()
+        .ok_or_else(|| CommandError::new("WORKSPACE_NOT_FOUND", "工作区已失效，请重新打开"))?;
+    let current_root = fs::canonicalize(&root).map_err(|error| {
+        CommandError::new("WORKSPACE_NOT_FOUND", format!("工作区已不可用：{error}"))
+    })?;
+    if current_root != root || !current_root.is_dir() {
+        return Err(CommandError::new("SYMLINK_ESCAPE", "工作区根目录已发生变化"));
+    }
+    Ok(root)
 }
 
 fn validate_existing_segment(root: &Path, candidate: &Path) -> Result<(), CommandError> {

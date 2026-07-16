@@ -151,6 +151,17 @@ export interface WriteFileResponse {
   revision: string;
 }
 
+export interface GitStatusEntry {
+  path: string;
+  indexStatus: string;
+  worktreeStatus: string;
+}
+
+export interface GitStatusResponse {
+  branch: string;
+  entries: GitStatusEntry[];
+}
+
 /**
  * v0.3.0 工作区运行时桥接。后续文件/Git 命令只能接受此处返回的 workspaceId。
  */
@@ -183,6 +194,12 @@ export const workspaceCommands = {
       content,
       expectedRevision,
     });
+  },
+};
+
+export const gitCommands = {
+  async status(workspaceId: string): Promise<GitStatusResponse> {
+    return invokeCommand<GitStatusResponse>('git_status', { workspaceId });
   },
 };
 

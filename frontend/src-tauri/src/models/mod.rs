@@ -2,10 +2,12 @@
 
 mod error;
 mod file;
+mod git;
 mod revision;
 mod settings;
 
 pub use error::*;
 pub use file::*;
+pub use git::*;
 pub use revision::*;
 pub use settings::*;
