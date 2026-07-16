@@ -217,6 +217,10 @@ vi.mock('@/services/sessionService', () => ({
     clear: vi.fn(),
     load: vi.fn(() => null),
     save: vi.fn(),
+    loadRecoveryDrafts: vi.fn(() => []),
+    saveRecoveryDrafts: vi.fn(),
+    clearRecoveryDrafts: vi.fn(),
+    discardRecoveryDraft: vi.fn(),
   },
 }))
 

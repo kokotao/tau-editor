@@ -1366,7 +1366,7 @@ function restoreSession() {
   }
 
   const snapshot = sessionService.load();
-  const recoveryDrafts = sessionService.loadRecoveryDrafts();
+  const recoveryDrafts = sessionService.loadRecoveryDrafts() ?? [];
   if (!snapshot && recoveryDrafts.length === 0) return;
 
   const shouldRestoreDrafts = recoveryDrafts.length > 0 && (
