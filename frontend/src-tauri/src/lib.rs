@@ -66,6 +66,7 @@ pub fn run() {
       commands::git_unstage,
       commands::git_discard,
       commands::search_workspace,
+      commands::apply_workspace_replace,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application");

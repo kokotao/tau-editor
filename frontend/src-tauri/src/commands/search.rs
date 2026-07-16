@@ -36,7 +36,7 @@ pub fn search_workspace_for_registry(
         return Err(CommandError::new("INVALID_PATTERN", "搜索内容不能为空"));
     }
     let root = workspace_root_for_registry(registry, workspace_id)?;
-    let expression = build_expression(query, &options)?;
+    let expression = build_search_expression(query, &options)?;
     let mut matches = Vec::new();
     let mut scanned_files = 0;
     visit_directory(&root, &root, &expression, &options, &mut matches, &mut scanned_files)?;
@@ -45,7 +45,7 @@ pub fn search_workspace_for_registry(
     Ok(SearchResponse { matches, truncated, scanned_files })
 }
 
-fn build_expression(query: &str, options: &SearchOptions) -> Result<Regex, CommandError> {
+pub(crate) fn build_search_expression(query: &str, options: &SearchOptions) -> Result<Regex, CommandError> {
     let source = if options.is_regex { query.to_string() } else { regex::escape(query) };
     let source = if options.whole_word { format!(r"\b(?:{source})\b") } else { source };
     RegexBuilder::new(&source)

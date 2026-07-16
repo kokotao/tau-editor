@@ -7,6 +7,7 @@ mod file_optimized;
 mod git;
 mod settings;
 mod search;
+mod replace;
 mod startup;
 mod workspace;
 
@@ -15,5 +16,6 @@ pub use file_optimized::*;
 pub use git::*;
 pub use settings::*;
 pub use search::*;
+pub use replace::*;
 pub use startup::*;
 pub use workspace::*;

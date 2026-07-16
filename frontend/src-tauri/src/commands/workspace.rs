@@ -312,6 +312,14 @@ pub fn workspace_root_for_registry(
     Ok(root)
 }
 
+pub fn workspace_file_path_for_registry(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    relative_path: &str,
+) -> Result<PathBuf, CommandError> {
+    resolve_workspace_path(registry, workspace_id, relative_path)
+}
+
 fn validate_existing_segment(root: &Path, candidate: &Path) -> Result<(), CommandError> {
     match fs::symlink_metadata(candidate) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
