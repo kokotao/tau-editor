@@ -100,6 +100,17 @@
       </div>
     </section>
 
+    <section v-if="externalConflictFileName" class="context-rail-section" data-testid="context-external-conflict">
+      <div class="context-rail-section-header">
+        <h3>{{ copy.externalChange }}</h3>
+      </div>
+      <p class="context-rail-empty">{{ externalConflictFileName }} {{ copy.externalChangeHint }}</p>
+      <div class="context-rail-actions">
+        <button type="button" data-testid="context-conflict-reload" @click="emit('reload-external')">{{ copy.reload }}</button>
+        <button type="button" data-testid="context-conflict-keep" @click="emit('keep-external')">{{ copy.keep }}</button>
+      </div>
+    </section>
+
     <section class="context-rail-section context-rail-actions" aria-labelledby="context-actions-heading">
       <div class="context-rail-section-header">
         <h3 id="context-actions-heading">{{ copy.actions }}</h3>
@@ -122,6 +133,7 @@ interface ContextRailProps {
   links?: MarkdownLink[];
   gitBranch?: string | null;
   gitEntries?: GitStatusEntry[];
+  externalConflictFileName?: string | null;
   language?: string;
   locale?: 'zh-CN' | 'en-US';
 }
@@ -132,6 +144,7 @@ const props = withDefaults(defineProps<ContextRailProps>(), {
   links: () => [],
   gitBranch: null,
   gitEntries: () => [],
+  externalConflictFileName: null,
   language: 'plaintext',
   locale: 'en-US',
 });
@@ -142,6 +155,8 @@ const emit = defineEmits<{
   'go-to-line': [];
   'toggle-collapse': [];
   'select-git': [path: string];
+  'reload-external': [];
+  'keep-external': [];
 }>();
 
 const copy = computed(() => props.locale === 'zh-CN'
@@ -152,6 +167,10 @@ const copy = computed(() => props.locale === 'zh-CN'
       tasks: '任务',
       links: '链接',
       changes: '变更',
+      externalChange: '外部修改',
+      externalChangeHint: '已在磁盘上更新。',
+      reload: '重新加载',
+      keep: '保留当前',
       collapse: '收起上下文栏',
       empty: '当前文档没有可导航的结构。',
       find: '查找',
@@ -164,6 +183,10 @@ const copy = computed(() => props.locale === 'zh-CN'
       tasks: 'Tasks',
       links: 'Links',
       changes: 'Changes',
+      externalChange: 'External change',
+      externalChangeHint: 'changed on disk.',
+      reload: 'Reload',
+      keep: 'Keep current',
       collapse: 'Collapse context rail',
       empty: 'No navigation targets in this document.',
       find: 'Find',

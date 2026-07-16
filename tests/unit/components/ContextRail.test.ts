@@ -71,4 +71,17 @@ describe('ContextRail', () => {
     expect(wrapper.get('[data-testid="context-git-branch"]').text()).toContain('main');
     expect(wrapper.get('[data-testid="context-git-entry-src-App.vue"]').text()).toContain('src/App.vue');
   });
+
+  it('offers explicit actions when the active file has an external change conflict', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { externalConflictFileName: 'notes.md' },
+    });
+
+    expect(wrapper.get('[data-testid="context-external-conflict"]').text()).toContain('notes.md');
+    await wrapper.get('[data-testid="context-conflict-reload"]').trigger('click');
+    await wrapper.get('[data-testid="context-conflict-keep"]').trigger('click');
+
+    expect(wrapper.emitted('reload-external')).toHaveLength(1);
+    expect(wrapper.emitted('keep-external')).toHaveLength(1);
+  });
 });

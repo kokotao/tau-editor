@@ -449,6 +449,31 @@ const handleSelectGitEntry = async (relativePath: string) => {
   }
 };
 
+const handleReloadExternalChange = async () => {
+  const tab = activeTab.value;
+  if (!tab?.filePath) {
+    return;
+  }
+  try {
+    await reloadTabContentFromDisk(tab.id, tab.filePath, tab.externalModifiedAt ?? tab.lastKnownModified ?? null);
+    notificationStore.info('文件已重新加载', tab.fileName);
+  } catch (error: any) {
+    notificationStore.error('重新加载失败', error?.message || '无法读取磁盘文件');
+  }
+};
+
+const handleKeepExternalChange = () => {
+  const tab = activeTab.value;
+  if (!tab) {
+    return;
+  }
+  tabsStore.updateTab(tab.id, {
+    lastKnownModified: tab.externalModifiedAt ?? tab.lastKnownModified ?? null,
+    externalModifiedAt: null,
+  });
+  notificationStore.info('已保留当前修改', '下次保存将使用当前编辑内容。');
+};
+
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
   void settingsStore.updateSettings({ markdownPreviewMode: mode });
 };
@@ -1687,12 +1712,15 @@ onUnmounted(() => {
             :links="markdownContext.links"
             :git-branch="gitStatus?.branch"
             :git-entries="gitStatus?.entries"
+            :external-conflict-file-name="activeTab?.externalModifiedAt ? activeTab.fileName : null"
             :language="activeTab?.language"
             :locale="settingsStore.uiLanguage"
             @navigate="handleContextNavigate"
             @find="editorCoreRef?.triggerFindWidget()"
             @go-to-line="editorCoreRef?.triggerGoToLine()"
             @select-git="handleSelectGitEntry"
+            @reload-external="handleReloadExternalChange"
+            @keep-external="handleKeepExternalChange"
             @toggle-collapse="showContextRail = false"
           />
         </div>
