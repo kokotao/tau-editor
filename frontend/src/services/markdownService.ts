@@ -276,6 +276,30 @@ export function renderMarkdown(raw: string): string {
   return DOMPurify.sanitize(parsed);
 }
 
+const escapeHtmlText = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+export function createStandaloneHtml(markdown: string, title: string): string {
+  const safeTitle = escapeHtmlText(title || 'Tau Editor Export');
+  const body = renderMarkdown(markdown);
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${safeTitle}</title>
+<style>body{max-width:860px;margin:48px auto;padding:0 24px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7;color:#1f2937}pre{overflow:auto;padding:16px;background:#f3f4f6;border-radius:8px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}img{max-width:100%;height:auto}</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}
+
 export async function renderMermaidDiagrams(
   container: HTMLElement,
   theme: 'dark' | 'light',

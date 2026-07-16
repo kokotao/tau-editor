@@ -14,7 +14,7 @@ import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
 import { buildDocumentOutline } from '@/services/documentOutlineService';
-import { collectMarkdownContext } from '@/services/markdownService';
+import { collectMarkdownContext, createStandaloneHtml } from '@/services/markdownService';
 import { rankQuickOpenFiles } from '@/services/quickOpenService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import {
@@ -472,6 +472,22 @@ const handleKeepExternalChange = () => {
     externalModifiedAt: null,
   });
   notificationStore.info('已保留当前修改', '下次保存将使用当前编辑内容。');
+};
+
+const handleExportMarkdownHtml = () => {
+  const tab = activeTab.value;
+  if (!tab || tab.language !== 'markdown' || typeof document === 'undefined') {
+    return;
+  }
+  const html = createStandaloneHtml(tab.content, tab.fileName.replace(/\.md$/i, ''));
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${tab.fileName.replace(/\.md$/i, '') || 'tau-document'}.html`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  notificationStore.success('HTML 导出完成', anchor.download);
 };
 
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
@@ -1721,6 +1737,7 @@ onUnmounted(() => {
             @select-git="handleSelectGitEntry"
             @reload-external="handleReloadExternalChange"
             @keep-external="handleKeepExternalChange"
+            @export-html="handleExportMarkdownHtml"
             @toggle-collapse="showContextRail = false"
           />
         </div>

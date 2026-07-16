@@ -117,6 +117,7 @@
       </div>
       <button type="button" data-testid="context-action-find" @click="emit('find')">{{ copy.find }}</button>
       <button type="button" data-testid="context-action-go-to-line" @click="emit('go-to-line')">{{ copy.goToLine }}</button>
+      <button v-if="language === 'markdown'" type="button" data-testid="context-action-export-html" @click="emit('export-html')">{{ copy.exportHtml }}</button>
     </section>
   </aside>
 </template>
@@ -157,6 +158,7 @@ const emit = defineEmits<{
   'select-git': [path: string];
   'reload-external': [];
   'keep-external': [];
+  'export-html': [];
 }>();
 
 const copy = computed(() => props.locale === 'zh-CN'
@@ -171,6 +173,7 @@ const copy = computed(() => props.locale === 'zh-CN'
       externalChangeHint: '已在磁盘上更新。',
       reload: '重新加载',
       keep: '保留当前',
+      exportHtml: '导出 HTML',
       collapse: '收起上下文栏',
       empty: '当前文档没有可导航的结构。',
       find: '查找',
@@ -187,6 +190,7 @@ const copy = computed(() => props.locale === 'zh-CN'
       externalChangeHint: 'changed on disk.',
       reload: 'Reload',
       keep: 'Keep current',
+      exportHtml: 'Export HTML',
       collapse: 'Collapse context rail',
       empty: 'No navigation targets in this document.',
       find: 'Find',

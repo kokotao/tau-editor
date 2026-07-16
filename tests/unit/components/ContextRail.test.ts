@@ -84,4 +84,11 @@ describe('ContextRail', () => {
     expect(wrapper.emitted('reload-external')).toHaveLength(1);
     expect(wrapper.emitted('keep-external')).toHaveLength(1);
   });
+
+  it('offers HTML export in Markdown context', async () => {
+    const wrapper = mount(ContextRail, { props: { language: 'markdown' } });
+
+    await wrapper.get('[data-testid="context-action-export-html"]').trigger('click');
+    expect(wrapper.emitted('export-html')).toHaveLength(1);
+  });
 });
