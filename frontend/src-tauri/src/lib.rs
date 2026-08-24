@@ -56,6 +56,8 @@ pub fn run() {
       commands::open_project_homepage,
       commands::open_external_link,
       commands::reveal_in_file_manager,
+      commands::get_file_associations,
+      commands::set_file_association,
       commands::consume_pending_open_paths,
       commands::resolve_workspace,
       commands::get_file_revision,

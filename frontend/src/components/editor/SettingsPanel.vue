@@ -284,6 +284,47 @@
           </div>
 
           <div
+            v-if="activeCategoryValue === 'fileAssociations'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-file-associations-section"
+          >
+            <h4 class="settings-section-title">{{ copy.fileAssociations }}</h4>
+            <p class="settings-item-hint">{{ copy.fileAssociationsApplyHint }}</p>
+
+            <div v-if="associationStatus.text" class="settings-item-hint" :class="{ error: associationStatus.error }">
+              {{ associationStatus.text }}
+            </div>
+
+            <div v-if="associationLoading" class="settings-item-hint">{{ copy.fileAssociationsLoading }}</div>
+
+            <template v-else>
+              <div v-for="group in associationGroups" :key="group.category" class="association-group">
+                <div class="association-group-title">{{ group.label }}</div>
+                <div class="association-list">
+                  <label
+                    v-for="item in group.items"
+                    :key="item.ext"
+                    class="settings-checkbox association-item"
+                    :data-testid="`file-association-${item.ext}`"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="item.registered"
+                      @change="toggleFileAssociation(item, $event)"
+                      :disabled="!isWindows"
+                    />
+                    <span class="checkbox-text">
+                      <code>.{{ item.ext }}</code>
+                      <span v-if="item.executable" class="association-script-badge">{{ copy.fileAssociationsScriptHint }}</span>
+                    </span>
+                    <span class="association-state">{{ item.registered ? copy.fileAssociationsOn : copy.fileAssociationsOff }}</span>
+                  </label>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div
             v-if="activeCategoryValue === 'updates'"
             class="settings-section settings-section-update animate__animated animate__fadeInUp animate__faster"
             data-testid="settings-update-section"
@@ -474,6 +515,7 @@ import {
   appCommands,
   settingsCommands,
   type AppVersionInfo,
+  type FileAssociationState,
   type GithubUpdateInfo,
   type ReleaseAssetInfo,
 } from '@/lib/tauri';
@@ -482,7 +524,7 @@ import { getAuthorInfoI18n, getSettingsPanelI18n, type MonacoThemeValue, type Ui
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 
-export type SettingsCategory = 'general' | 'editor' | 'updates' | 'about';
+export type SettingsCategory = 'general' | 'editor' | 'fileAssociations' | 'updates' | 'about';
 type SettingsMode = 'workspace' | 'drawer';
 type UpdateStatus = 'idle' | 'checking' | 'upToDate' | 'available' | 'installing' | 'installTriggered' | 'error';
 
@@ -516,12 +558,28 @@ const installMessage = ref('');
 const isCheckingUpdate = ref(false);
 const isInstallingUpdate = ref(false);
 
-const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() => [
-  { id: 'general', label: copy.value.settingsGeneral },
-  { id: 'editor', label: copy.value.settingsEditor },
-  { id: 'updates', label: copy.value.settingsUpdates },
-  { id: 'about', label: copy.value.settingsAbout },
-]);
+const fileAssociations = ref<FileAssociationState[]>([]);
+const associationLoading = ref(false);
+const associationStatus = ref<{ text: string; error: boolean }>({ text: '', error: false });
+const isWindows = computed(() => {
+  const os = appVersionInfo.value?.os || '';
+  return os === 'windows';
+});
+
+const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() => {
+  const list: Array<{ id: SettingsCategory; label: string }> = [
+    { id: 'general', label: copy.value.settingsGeneral },
+    { id: 'editor', label: copy.value.settingsEditor },
+  ];
+  if (isWindows.value) {
+    list.push({ id: 'fileAssociations', label: copy.value.fileAssociations });
+  }
+  list.push(
+    { id: 'updates', label: copy.value.settingsUpdates },
+    { id: 'about', label: copy.value.settingsAbout },
+  );
+  return list;
+});
 
 const panelTitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsTitle));
 const panelSubtitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsDesc));
@@ -529,6 +587,32 @@ const activeCategoryValue = computed<SettingsCategory>(() => props.activeCategor
 const selectedAsset = computed<ReleaseAssetInfo | null>(() => updateInfo.value?.selectedAsset ?? null);
 const customThemeImportText = ref('');
 const customThemeStatusText = ref('');
+
+const associationGroups = computed(() => {
+  const groups = new Map<string, FileAssociationState[]>();
+  for (const item of fileAssociations.value) {
+    const bucket = groups.get(item.category) ?? [];
+    bucket.push(item);
+    groups.set(item.category, bucket);
+  }
+  const labelFor = (category: string): string => {
+    switch (category) {
+      case 'text': return copy.value.fileAssociationsGroupText;
+      case 'markdown': return copy.value.fileAssociationsGroupMarkdown;
+      case 'json': return copy.value.fileAssociationsGroupJson;
+      case 'yaml': return copy.value.fileAssociationsGroupYaml;
+      case 'toml': return copy.value.fileAssociationsGroupToml;
+      case 'code': return copy.value.fileAssociationsGroupCode;
+      case 'script': return copy.value.fileAssociationsGroupScript;
+      default: return category;
+    }
+  };
+  return Array.from(groups.entries()).map(([category, items]) => ({
+    category,
+    label: labelFor(category),
+    items,
+  }));
+});
 
 const naiveThemeOverrides: GlobalThemeOverrides = {
   common: {
@@ -811,6 +895,43 @@ const loadVersionInfo = async () => {
   }
 };
 
+const loadFileAssociations = async () => {
+  associationLoading.value = true;
+  associationStatus.value = { text: '', error: false };
+  try {
+    const result = await settingsCommands.getFileAssociations();
+    fileAssociations.value = result.items;
+    if (!result.supported) {
+      associationStatus.value = { text: copy.value.fileAssociationsPlatformHint, error: false };
+    }
+  } catch (error) {
+    associationStatus.value = {
+      text: error instanceof Error ? error.message : String(error),
+      error: true,
+    };
+  } finally {
+    associationLoading.value = false;
+  }
+};
+
+const toggleFileAssociation = async (item: FileAssociationState, event: Event) => {
+  if (!isWindows.value) {
+    return;
+  }
+  const checked = (event.target as HTMLInputElement).checked;
+  try {
+    await settingsCommands.setFileAssociation(item.ext, checked);
+    item.registered = checked;
+    associationStatus.value = { text: '', error: false };
+  } catch (error) {
+    item.registered = !checked;
+    associationStatus.value = {
+      text: error instanceof Error ? error.message : String(error),
+      error: true,
+    };
+  }
+};
+
 const checkForUpdate = async (silent: boolean) => {
   if (isCheckingUpdate.value) {
     return;
@@ -887,6 +1008,7 @@ const resolveOsLabel = (os: string): string => {
 
 onMounted(async () => {
   await loadVersionInfo();
+  await loadFileAssociations();
   if (isWorkspaceMode.value) {
     await checkForUpdate(true);
   }
@@ -1492,5 +1614,64 @@ onMounted(async () => {
   .settings-author-qr-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.association-group {
+  margin-bottom: 14px;
+}
+
+.association-group-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.association-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.association-item {
+  cursor: pointer;
+}
+
+.association-item input[type='checkbox'] {
+  accent-color: var(--accent-brand, #38bdf8);
+  cursor: pointer;
+}
+
+.association-item .checkbox-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.association-item code {
+  font-size: 12px;
+}
+
+.association-script-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 8px;
+  background: rgba(250, 204, 21, 0.16);
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+.association-state {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.settings-item-hint.error {
+  color: #f87171;
 }
 </style>

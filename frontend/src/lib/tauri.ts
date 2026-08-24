@@ -47,6 +47,20 @@ export interface DeviceInfo {
   arch: string;
 }
 
+export interface FileAssociationState {
+  ext: string;
+  name: string;
+  category: string;
+  registered: boolean;
+  executable: boolean;
+}
+
+export interface FileAssociationsResponse {
+  supported: boolean;
+  platform: string;
+  items: FileAssociationState[];
+}
+
 export interface ReleaseAssetInfo {
   name: string;
   browserDownloadUrl: string;
@@ -427,6 +441,27 @@ export const settingsCommands = {
       fileName,
       file_name: fileName,
     });
+  },
+
+  async getFileAssociations(): Promise<FileAssociationsResponse> {
+    if (!isTauriAvailable()) {
+      const fallbackDevice = getBrowserDeviceInfo();
+      return {
+        supported: false,
+        platform: fallbackDevice.os,
+        items: [],
+      };
+    }
+
+    return invokeCommand<FileAssociationsResponse>('get_file_associations');
+  },
+
+  async setFileAssociation(ext: string, enabled: boolean): Promise<void> {
+    if (!isTauriAvailable()) {
+      throw new TauriError(WEB_UNSUPPORTED, 'set_file_association');
+    }
+
+    await invokeCommand<void>('set_file_association', { ext, enabled });
   },
 };
 
