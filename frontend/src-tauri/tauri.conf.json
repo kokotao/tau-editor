@@ -65,7 +65,7 @@
         "role": "Editor"
       },
       {
-        "ext": ["js", "jsx", "ts", "tsx", "py", "java", "go", "rs", "c", "cpp", "h", "hpp", "cs", "sh", "bash", "zsh", "bat", "cmd", "ps1", "sql", "html", "htm", "css", "scss", "less", "xml"],
+        "ext": ["js", "jsx", "ts", "tsx", "py", "java", "go", "rs", "c", "cpp", "h", "hpp", "cs", "sh", "bash", "zsh", "ps1", "sql", "html", "htm", "css", "scss", "less", "xml"],
         "name": "Source Code",
         "description": "Source Code",
         "mimeType": "text/plain",
