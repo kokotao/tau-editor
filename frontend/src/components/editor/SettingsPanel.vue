@@ -503,7 +503,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import {
   CUSTOM_THEME_COLOR_FALLBACKS,
@@ -561,6 +561,7 @@ const isInstallingUpdate = ref(false);
 const fileAssociations = ref<FileAssociationState[]>([]);
 const associationLoading = ref(false);
 const associationStatus = ref<{ text: string; error: boolean }>({ text: '', error: false });
+const associationsLoaded = ref(false);
 const isWindows = computed(() => {
   const os = appVersionInfo.value?.os || '';
   return os === 'windows';
@@ -901,6 +902,7 @@ const loadFileAssociations = async () => {
   try {
     const result = await settingsCommands.getFileAssociations();
     fileAssociations.value = result.items;
+    associationsLoaded.value = true;
     if (!result.supported) {
       associationStatus.value = { text: copy.value.fileAssociationsPlatformHint, error: false };
     }
@@ -1006,9 +1008,17 @@ const resolveOsLabel = (os: string): string => {
   return os;
 };
 
+watch(
+  [() => activeCategoryValue.value, isWindows],
+  ([category, win]) => {
+    if (category === 'fileAssociations' && win && !associationsLoaded.value && !associationLoading.value) {
+      loadFileAssociations();
+    }
+  },
+);
+
 onMounted(async () => {
   await loadVersionInfo();
-  await loadFileAssociations();
   if (isWorkspaceMode.value) {
     await checkForUpdate(true);
   }

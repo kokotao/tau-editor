@@ -103,7 +103,12 @@ fn ensure_supported_ext(ext: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
 use std::process::Command;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[cfg(target_os = "windows")]
 fn ext_classes_key(ext: &str) -> String {
@@ -125,6 +130,7 @@ fn current_exe_string() -> Result<String, String> {
 #[cfg(target_os = "windows")]
 fn run_reg(args: &[&str]) -> Result<String, String> {
     let output = Command::new("reg")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(args)
         .output()
         .map_err(|error| format!("执行 reg.exe 失败: {error}"))?;

@@ -12,12 +12,17 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 自动保存间隔 (秒)
 /// 使用原子变量保证线程安全
 static AUTO_SAVE_INTERVAL: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const PROJECT_HOMEPAGE_URL: &str = "https://github.com/kokotao/tau-editor";
 const GITHUB_API_BASE: &str = "https://api.github.com/repos";
@@ -736,6 +741,7 @@ fn launch_installer(_app: &tauri::AppHandle, path: &Path) -> Result<String, Stri
 
     if extension == "msi" {
         Command::new("msiexec")
+            .creation_flags(CREATE_NO_WINDOW)
             .arg("/i")
             .arg(path)
             .arg("/passive")
@@ -746,6 +752,7 @@ fn launch_installer(_app: &tauri::AppHandle, path: &Path) -> Result<String, Stri
     }
 
     Command::new("cmd")
+        .creation_flags(CREATE_NO_WINDOW)
         .args(["/C", "start", "", ""])
         .arg(path)
         .spawn()
@@ -957,6 +964,7 @@ fn open_external_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut cmd = Command::new("cmd");
+        cmd.creation_flags(CREATE_NO_WINDOW);
         cmd.args(["/C", "start", "", url]);
         cmd
     };
@@ -992,6 +1000,7 @@ fn open_in_file_manager(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let mut command = Command::new("explorer");
+        command.creation_flags(CREATE_NO_WINDOW);
         if path.is_file() {
             command.arg(format!("/select,{}", path.display()));
         } else {
