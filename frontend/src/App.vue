@@ -140,7 +140,7 @@ const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
 };
 type SettingsContainer = 'workspace' | 'drawer';
-type SettingsCategory = 'general' | 'editor' | 'updates' | 'about';
+type SettingsCategory = 'general' | 'editor' | 'fileAssociations' | 'updates' | 'about';
 const settingsContainer = ref<SettingsContainer | null>(null);
 const activeSettingsCategory = ref<SettingsCategory>('general');
 const fileTreeContextEntry = ref<FileTreeNode | null>(null);

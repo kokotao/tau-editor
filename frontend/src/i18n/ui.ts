@@ -98,6 +98,20 @@ interface SettingsPanelText {
   settingsEditor: string;
   settingsUpdates: string;
   settingsAbout: string;
+  fileAssociations: string;
+  fileAssociationsLoading: string;
+  fileAssociationsOn: string;
+  fileAssociationsOff: string;
+  fileAssociationsScriptHint: string;
+  fileAssociationsPlatformHint: string;
+  fileAssociationsGroupText: string;
+  fileAssociationsGroupMarkdown: string;
+  fileAssociationsGroupJson: string;
+  fileAssociationsGroupYaml: string;
+  fileAssociationsGroupToml: string;
+  fileAssociationsGroupCode: string;
+  fileAssociationsGroupScript: string;
+  fileAssociationsApplyHint: string;
   close: string;
   appearance: string;
   language: string;
@@ -469,6 +483,20 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     settingsEditor: '编辑器',
     settingsUpdates: '更新与版本',
     settingsAbout: '关于',
+    fileAssociations: '文件关联',
+    fileAssociationsLoading: '正在读取系统文件关联…',
+    fileAssociationsOn: '已关联',
+    fileAssociationsOff: '未关联',
+    fileAssociationsScriptHint: '脚本（双击会执行）',
+    fileAssociationsPlatformHint: '此设置仅在 Windows 系统上生效。',
+    fileAssociationsGroupText: '纯文本',
+    fileAssociationsGroupMarkdown: 'Markdown',
+    fileAssociationsGroupJson: 'JSON',
+    fileAssociationsGroupYaml: 'YAML',
+    fileAssociationsGroupToml: 'TOML',
+    fileAssociationsGroupCode: '源码',
+    fileAssociationsGroupScript: '脚本',
+    fileAssociationsApplyHint: '勾选后，双击该类型文件将使用 Tau Editor 打开；脚本类型默认不关联，避免阻止系统执行。',
     close: '关闭',
     appearance: '外观',
     language: '界面语言',
@@ -561,6 +589,20 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     settingsEditor: 'Editor',
     settingsUpdates: 'Updates & Version',
     settingsAbout: 'About',
+    fileAssociations: 'File Associations',
+    fileAssociationsLoading: 'Reading system file associations…',
+    fileAssociationsOn: 'Registered',
+    fileAssociationsOff: 'Not registered',
+    fileAssociationsScriptHint: 'script (double-click runs)',
+    fileAssociationsPlatformHint: 'This setting only applies on Windows.',
+    fileAssociationsGroupText: 'Plain Text',
+    fileAssociationsGroupMarkdown: 'Markdown',
+    fileAssociationsGroupJson: 'JSON',
+    fileAssociationsGroupYaml: 'YAML',
+    fileAssociationsGroupToml: 'TOML',
+    fileAssociationsGroupCode: 'Source Code',
+    fileAssociationsGroupScript: 'Scripts',
+    fileAssociationsApplyHint: 'Checked extensions open in Tau Editor on double-click. Script types stay unchecked by default so Windows can run them.',
     close: 'Close',
     appearance: 'Appearance',
     language: 'UI Language',
