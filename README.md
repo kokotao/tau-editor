@@ -1,6 +1,44 @@
 # Tau 编辑器（Tau Editor）
 
-> 基于 Tauri + Vue3 的现代化文本编辑器，支持 Windows、macOS、Linux
+> 基于 Tauri 2 + Vue 3 的现代跨平台文本编辑器，支持 Windows / macOS / Linux
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Release](https://img.shields.io/github/v/release/kokotao/tau-editor?display_name=tag&label=release)
+![Tauri](https://img.shields.io/badge/Tauri-2.10-blue.svg)
+![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+
+## ⬇️ 下载安装
+
+最新版本：**[v0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+
+| 平台 | 安装包 | 说明 |
+|---|---|---|
+| macOS (Apple Silicon) | `Tau.Editor_0.4.0_aarch64.dmg` | 首次打开如提示「已损坏」见下方说明 |
+| Windows (x64) | `Tau.Editor_0.4.0_x64-setup.exe` / `Tau.Editor_0.4.0_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.4.0_amd64.deb` / `Tau.Editor-0.4.0-1.x86_64.rpm` / `Tau.Editor_0.4.0_amd64.AppImage` | AppImage 需先 `chmod +x` |
+
+> **macOS 首次打开提示「已损坏，无法打开」**：当前安装包未做 Apple Developer ID 签名与公证，浏览器下载会带上隔离属性。
+> 把 App 拖到「应用程序」后执行一次即可：
+>
+> ```bash
+> xattr -cr "/Applications/Tau Editor.app"
+> codesign --force --sign - "/Applications/Tau Editor.app"
+> ```
+>
+> 升级版本或重新从 DMG 安装后需要重新执行；完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
+
+## ✨ v0.4.0 更新亮点
+
+- **主题包**：导入 / 导出 JSON 主题包，UI 与 Monaco 编辑器配色同步切换
+- **快捷键自定义**：录制改键、冲突检测与覆盖确认、单条 / 全部重置，命令面板展示生效绑定
+- **文件对比**：只读 Monaco Diff，支持并排 / 内联切换，命令面板、文件树、Git 变更三个入口
+- **多窗口迁移**：把标签在新窗口打开或迁移到新窗口，保留未保存内容
+- **Provider 扩展点**：主题 / 命令 / 文件动作注册表，异常隔离且设置面板可见
+- **启动性能**：入口 chunk 1,115 KB → 313 KB，Monaco 与 Markdown 渲染依赖按需加载
+
+完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 作者信息
 
@@ -20,19 +58,13 @@
 
 ![支付宝收款码](frontend/src/assets/donation/AliPay.jpg)
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Tauri](https://img.shields.io/badge/Tauri-2.0-blue.svg)
-![Vue](https://img.shields.io/badge/Vue-3.4-green.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
-
 ## 🚀 快速开始
 
 ### 环境要求
 
-- **Node.js** >= 18.x
-- **Rust** >= 1.70 (通过 [rustup](https://rustup.rs) 安装)
-- **pnpm** >= 8.x
+- **Node.js** >= 20.19（或 >= 22.12）
+- **Rust** >= 1.77（通过 [rustup](https://rustup.rs) 安装）
+- **pnpm** >= 9（CI 使用 pnpm 10）
 
 ### 安装依赖
 
@@ -146,12 +178,20 @@ pnpm build
 - ✅ 标签页切换
 - ✅ 未保存提示
 - ✅ 标签分组（计划中）
+- ✅ 在新窗口打开 / 迁移标签（保留未保存内容，v0.4.0）
 
 #### 🌙 主题系统
 - ✅ 浅色主题
 - ✅ 深色主题
 - ✅ 快速切换
-- 🔄 自定义主题（计划中）
+- ✅ 5 套内置皮肤 + 快速调色
+- ✅ 主题包导入 / 导出，UI 与 Monaco 同步（v0.4.0）
+
+#### 🔀 对比与扩展（v0.4.0）
+- ✅ 只读 Monaco Diff，支持并排 / 内联切换
+- ✅ 命令面板 / 文件树右键 / Git 变更三个对比入口
+- ✅ 快捷键自定义：录制改键、冲突检测、单条 / 全部重置
+- ✅ Provider 扩展点：主题 / 命令 / 文件动作注册表
 
 #### 💾 自动保存
 - ✅ 可配置保存间隔
@@ -181,13 +221,15 @@ pnpm build
 
 | 层级 | 技术 | 版本 |
 |------|------|------|
-| 后端框架 | Tauri | 2.x |
-| 前端框架 | Vue 3 | 3.4+ |
-| 语言 | TypeScript | 5.4+ |
-| 构建工具 | Vite | 5.x |
-| 状态管理 | Pinia | 2.x |
-| UI 组件 | Naive UI | 2.x |
-| 编辑器 | Monaco Editor | 0.47+ |
+| 桌面框架 | Tauri | 2.10 |
+| 后端语言 | Rust | 2021 edition |
+| 前端框架 | Vue 3 | 3.5 |
+| 语言 | TypeScript | 5.9 |
+| 构建工具 | Vite | 7.3 |
+| 状态管理 | Pinia | 3.0 |
+| UI 组件 | Naive UI | 2.44 |
+| 编辑器 | Monaco Editor | 0.55 |
+| 测试 | Vitest / Playwright | 1.6 / 1.4x |
 
 ## 📁 项目结构
 

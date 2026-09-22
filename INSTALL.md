@@ -1,6 +1,9 @@
 # 安装指南 (Installation Guide)
 
 > 跨平台文本编辑器安装说明
+>
+> **官方渠道只有 [GitHub Releases](https://github.com/kokotao/tau-editor/releases)**：Windows（exe / msi）、macOS（dmg）、Linux（deb / rpm / AppImage）。
+> Homebrew、Microsoft Store、Mac App Store、Scoop、Chocolatey、PPA、COPR、AUR、Flatpak、Snap 等渠道标记为「规划中」，命令尚未生效。
 
 ---
 
@@ -19,9 +22,11 @@
 
 #### 1. 下载安装程序
 
-从 [Releases](https://github.com/your-repo/text-editor/releases) 下载最新版本的安装包：
-- `text-editor_x.x.x_x64-setup.exe` (64 位)
-- `text-editor_x.x.x_x86-setup.exe` (32 位)
+从 [Releases](https://github.com/kokotao/tau-editor/releases) 下载最新版本的安装包：
+- `Tau.Editor_0.4.0_x64-setup.exe`（NSIS 安装程序，64 位）
+- `Tau.Editor_0.4.0_x64_zh-CN.msi`（MSI 安装包，64 位）
+
+> 当前仅提供 x64 安装包，未提供 32 位（x86）版本。
 
 #### 2. 运行安装程序
 
@@ -40,7 +45,7 @@
 - 或双击桌面快捷方式
 - 应用应正常启动
 
-### 方法二：Microsoft Store
+### 方法二：Microsoft Store（规划中，暂未提供）
 
 1. 打开 Microsoft Store
 2. 搜索「文本编辑器」或「Text Editor」
@@ -48,7 +53,7 @@
 4. 等待下载和安装完成
 5. 从开始菜单启动应用
 
-### 方法三：Scoop 包管理器
+### 方法三：Scoop 包管理器（规划中，暂未提供）
 
 ```powershell
 # 安装 Scoop（如果尚未安装）
@@ -60,7 +65,7 @@ scoop bucket add extras
 scoop install text-editor
 ```
 
-### 方法四：Chocolatey 包管理器
+### 方法四：Chocolatey 包管理器（规划中，暂未提供）
 
 ```powershell
 # 安装 Chocolatey（如果尚未安装）
@@ -95,24 +100,25 @@ choco install text-editor
 
 #### 1. 下载 DMG 文件
 
-从 [Releases](https://github.com/your-repo/text-editor/releases) 下载：
-- `text-editor_x.x.x_x64.dmg` (Intel)
-- `text-editor_x.x.x_aarch64.dmg` (Apple Silicon M1/M2)
+从 [Releases](https://github.com/kokotao/tau-editor/releases) 下载：
+- `Tau.Editor_0.4.0_aarch64.dmg`（Apple Silicon M 系列，当前唯一发布格式）
+
+> 当前未提供 Intel（x64）DMG；Intel Mac 需参考 [从源码编译指南](#从源码编译指南) 自行构建。
 
 #### 2. 安装应用
 
 1. 双击下载的 `.dmg` 文件
-2. 将「文本编辑器」图标拖拽到「Applications」文件夹
+2. 将「Tau Editor」图标拖拽到「Applications」文件夹
 3. 等待复制完成
 4. 弹出 DMG
 
 #### 3. 首次运行
 
 1. 打开「Applications」文件夹
-2. 找到「文本编辑器」
+2. 找到「Tau Editor」
 3. 双击打开
-4. 如果是首次运行，可能会提示「无法验证开发者」
-5. 点击「仍要打开」
+4. 如果提示「无法验证开发者」，在「系统设置 → 隐私与安全性」中点击「仍要打开」
+5. 如果提示「已损坏，无法打开」，按下方常见问题中的命令修复一次
 
 #### 4. 添加到 Dock（可选）
 
@@ -120,18 +126,18 @@ choco install text-editor
 2. 右键点击 Dock 中的图标
 3. 选择「选项」→「在 Dock 中保留」
 
-### 方法二：Homebrew（推荐开发者）
+### 方法二：Homebrew（规划中，暂未提供）
 
 ```bash
 # 安装 Homebrew（如果尚未安装）
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # 添加仓库并安装
-brew tap your-repo/text-editor
+brew tap kokotao/tau-editor
 brew install --cask text-editor
 ```
 
-### 方法三：Mac App Store
+### 方法三：Mac App Store（规划中，暂未提供）
 
 1. 打开 Mac App Store
 2. 搜索「文本编辑器」
@@ -157,7 +163,6 @@ brew install --cask text-editor
 2. 在「通用」标签页底部，点击「仍要打开」
 3. 或右键点击应用，选择「打开」
 
-#### Q: Apple Silicon 运行缓慢
 #### Q: 提示「“Tau Editor”已损坏，无法打开。你应该将它移到废纸篓」
 
 **原因：** 当前 Release 的 macOS 包未使用 Apple Developer ID 签名与公证（notarization）。
@@ -196,7 +201,7 @@ codesign --verify --deep --strict --verbose=2 "/Applications/Tau Editor.app"
 
 ```bash
 # 手动卸载
-rm -rf /Applications/text-editor.app
+rm -rf "/Applications/Tau Editor.app"
 
 # 或使用 Homebrew
 brew uninstall --cask text-editor
@@ -212,20 +217,20 @@ brew uninstall --cask text-editor
 
 ```bash
 # 1. 下载 DEB 包
-wget https://github.com/your-repo/text-editor/releases/download/vX.X.X/text-editor_X.X.X_amd64.deb
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor_0.4.0_amd64.deb
 
 # 2. 安装
-sudo apt install ./text-editor_X.X.X_amd64.deb
+sudo apt install ./Tau.Editor_0.4.0_amd64.deb
 
 # 3. 启动
 text-editor
 ```
 
-#### 方法二：PPA（持续更新）
+#### 方法二：PPA（规划中，暂未提供）
 
 ```bash
 # 添加 PPA
-sudo add-apt-repository ppa:your-repo/text-editor
+sudo add-apt-repository ppa:kokotao/tau-editor
 sudo apt update
 
 # 安装
@@ -241,20 +246,20 @@ sudo apt update && sudo apt upgrade text-editor
 
 ```bash
 # 下载 RPM 包
-wget https://github.com/your-repo/text-editor/releases/download/vX.X.X/text-editor-X.X.X.x86_64.rpm
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor-0.4.0-1.x86_64.rpm
 
 # 安装
-sudo dnf install ./text-editor-X.X.X.x86_64.rpm
+sudo dnf install ./Tau.Editor-0.4.0-1.x86_64.rpm
 
 # 启动
 text-editor
 ```
 
-#### 方法二：COPR 仓库
+#### 方法二：COPR 仓库（规划中，暂未提供）
 
 ```bash
 # 启用 COPR 仓库
-sudo dnf copr enable your-repo/text-editor
+sudo dnf copr enable kokotao/tau-editor
 
 # 安装
 sudo dnf install text-editor
@@ -262,7 +267,7 @@ sudo dnf install text-editor
 
 ### Arch Linux
 
-#### 方法一：AUR（推荐）
+#### 方法一：AUR（规划中，暂未提供）
 
 ```bash
 # 使用 yay
@@ -290,29 +295,29 @@ makepkg -si
 
 ```bash
 # 下载 RPM 包
-wget https://github.com/your-repo/text-editor/releases/download/vX.X.X/text-editor-X.X.X.x86_64.rpm
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor-0.4.0-1.x86_64.rpm
 
 # 安装
-sudo zypper install ./text-editor-X.X.X.x86_64.rpm
+sudo zypper install ./Tau.Editor-0.4.0-1.x86_64.rpm
 ```
 
 ### AppImage（通用）
 
 ```bash
 # 1. 下载 AppImage
-wget https://github.com/your-repo/text-editor/releases/download/vX.X.X/text-editor-X.X.X.AppImage
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor_0.4.0_amd64.AppImage
 
 # 2. 添加执行权限
-chmod +x text-editor-X.X.X.AppImage
+chmod +x Tau.Editor_0.4.0_amd64.AppImage
 
 # 3. 运行
-./text-editor-X.X.X.AppImage
+./Tau.Editor_0.4.0_amd64.AppImage
 
 # 4. （可选）集成到系统
-./text-editor-X.X.X.AppImage --appimage-install
+./Tau.Editor_0.4.0_amd64.AppImage --appimage-install
 ```
 
-### Flatpak（通用）
+### Flatpak（规划中，暂未提供）
 
 ```bash
 # 1. 安装 Flatpak（如果尚未安装）
@@ -329,7 +334,7 @@ flatpak install flathub com.example.text-editor
 flatpak run com.example.text-editor
 ```
 
-### Snap（通用）
+### Snap（规划中，暂未提供）
 
 ```bash
 # 安装 Snap（如果尚未安装）
@@ -414,7 +419,7 @@ sudo snap remove text-editor
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/your-repo/text-editor.git
+git clone https://github.com/kokotao/tau-editor.git
 cd text-editor
 ```
 
@@ -580,7 +585,7 @@ sudo dnf install webkit2gtk3-devel openssl-devel \
 ls -lh frontend/src-tauri/target/release/bundle/
 
 # 验证签名（macOS）
-codesign -verify /Applications/text-editor.app
+codesign --verify --deep --strict "/Applications/Tau Editor.app"
 
 # 测试运行
 ./frontend/src-tauri/target/release/text-editor
@@ -633,7 +638,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-repo/text-editor.git
+git clone https://github.com/kokotao/tau-editor.git
 cd text-editor
 
 # 2. 进入 frontend 目录
@@ -654,17 +659,19 @@ pnpm tauri build
 构建完成后，产物位于 `frontend/src-tauri/target/release/bundle/`：
 
 **Windows**
-- `msi/text-editor_1.0.0_x64_en-US.msi` - MSI 安装包
-- `nsis/text-editor_1.0.0_x64-setup.exe` - NSIS 安装程序
+- `msi/Tau Editor_0.4.0_x64_en-US.msi` - MSI 安装包
+- `nsis/Tau Editor_0.4.0_x64-setup.exe` - NSIS 安装程序
 
 **macOS**
-- `dmg/text-editor_1.0.0_x64.dmg` - Intel Mac
-- `dmg/text-editor_1.0.0_aarch64.dmg` - Apple Silicon
-- `macos/text-editor.app` - 应用包
+- `dmg/Tau Editor_0.4.0_aarch64.dmg` - Apple Silicon（当前发布格式）
+- `macos/Tau Editor.app` - 应用包
 
 **Linux**
-- `deb/text-editor_1.0.0_amd64.deb` - DEB 包
-- `appimage/text-editor_1.0.0_amd64.AppImage` - AppImage
+- `deb/Tau Editor_0.4.0_amd64.deb` - DEB 包
+- `rpm/Tau Editor-0.4.0-1.x86_64.rpm` - RPM 包
+- `appimage/Tau Editor_0.4.0_amd64.AppImage` - AppImage
+
+> CI 上传到 Release 时会将文件名规范化为 `Tau.Editor_0.4.0_*.dmg` 这类形式，与本地构建名字略有差异。
 
 ### 构建验证
 
@@ -851,7 +858,7 @@ Web 版本支持渐进式 Web 应用（PWA），可以安装到桌面：
 如果安装过程中遇到问题：
 
 1. **查看日志**: 检查安装日志和错误信息
-2. **GitHub Issues**: [提交问题](https://github.com/your-repo/text-editor/issues)
+2. **GitHub Issues**: [提交问题](https://github.com/kokotao/tau-editor/issues)
 3. **开发者文档**: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 4. **社区讨论**: GitHub Discussions
 5. **发布说明**: [docs/status/RELEASE_NOTES.md](docs/status/RELEASE_NOTES.md) - 查看已知问题
