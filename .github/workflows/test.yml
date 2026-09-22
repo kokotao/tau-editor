@@ -95,6 +95,25 @@ jobs:
         with:
           workspaces: frontend/src-tauri
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # tauri::generate_context! 会内嵌 frontendDist，缺少 frontend/dist 时编译期直接报错。
+      - name: Build frontend bundle
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
       - name: Install Linux system libraries
         run: |
           sudo apt-get update
