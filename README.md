@@ -9,6 +9,27 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
+## 📸 界面预览
+
+主界面：TypeScript 语法高亮、标签页、缩略图与状态栏。
+
+![Tau Editor 主界面](docs/assets/screenshots/editor.png)
+
+命令面板与主题切换演示：
+
+![Tau Editor 功能演示](docs/assets/screenshots/demo.gif)
+
+| Markdown 分栏预览与文档大纲 | 快捷键自定义与扩展点 |
+| --- | --- |
+| ![Markdown 分栏预览](docs/assets/screenshots/markdown-preview.png) | ![快捷键与扩展点设置](docs/assets/screenshots/settings.png) |
+
+命令面板（F1 或 `Ctrl+Shift+P`）：
+
+![命令面板](docs/assets/screenshots/command-palette.png)
+
+> 截图由 `scripts/capture-readme-shots.mjs` 基于前端 Web 版本自动生成，可用 `node scripts/capture-readme-shots.mjs` 重新录制。
+
+
 ## ⬇️ 下载安装
 
 最新版本：**[v0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
