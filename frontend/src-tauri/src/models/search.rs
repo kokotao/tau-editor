@@ -31,4 +31,12 @@ pub struct SearchResponse {
     pub matches: Vec<SearchMatch>,
     pub truncated: bool,
     pub scanned_files: usize,
+    /// 搜索被用户取消时为 true，此时 matches 只包含已扫描到的部分结果。
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchCancelResponse {
+    pub cancelled: bool,
 }

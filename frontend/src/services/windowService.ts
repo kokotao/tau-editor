@@ -13,6 +13,7 @@ export class WindowService {
   private detachTauriClose: (() => void) | null = null;
   private forceClosing = false;
   private closeRequestInFlight = false;
+  private beforeCloseHandler: (() => Promise<void> | void) | null = null;
 
   constructor(
     private readonly settingsStore: SettingsStore,
@@ -25,6 +26,13 @@ export class WindowService {
       this.attachBeforeUnload();
     }
     await this.attachTauriCloseHandler();
+  }
+
+  /**
+   * 注册窗口销毁前的最后一道落盘钩子，例如异步写入 app-data 恢复库。
+   */
+  onBeforeClose(handler: () => Promise<void> | void) {
+    this.beforeCloseHandler = handler;
   }
 
   detach() {
@@ -89,6 +97,7 @@ export class WindowService {
 
         this.forceClosing = true;
         try {
+          await this.flushBeforeClose();
           // Tauri desktop closes more reliably when we fully take over the
           // close request and destroy the window after detaching listeners.
           this.detach();
@@ -101,6 +110,15 @@ export class WindowService {
       });
     } catch (error) {
       console.error('Failed to attach Tauri close handler:', error);
+    }
+  }
+
+  private async flushBeforeClose() {
+    if (!this.beforeCloseHandler) return;
+    try {
+      await this.beforeCloseHandler();
+    } catch (error) {
+      console.error('关闭前保存恢复库失败:', error);
     }
   }
 }

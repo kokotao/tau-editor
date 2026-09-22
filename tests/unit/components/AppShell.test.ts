@@ -45,6 +45,11 @@ const componentStubs = vi.hoisted(() => ({
       </div>
     `,
   },
+  externalChangeDialog: {
+    props: ['visible', 'conflict', 'fileName', 'locale', 'busy'],
+    emits: ['close', 'reload', 'keep', 'save-as'],
+    template: '<div data-testid="external-change-dialog-stub"></div>',
+  },
 }))
 
 const storeMocks = vi.hoisted(() => ({
@@ -76,6 +81,7 @@ const storeMocks = vi.hoisted(() => ({
     closeOthers: vi.fn(),
     renameTab: vi.fn(),
     updateActiveTabContent: vi.fn(),
+    updateTabContent: vi.fn(),
     updateActiveTabLanguage: vi.fn(),
   },
   editor: {
@@ -125,10 +131,26 @@ const storeMocks = vi.hoisted(() => ({
   notification: {
     info: vi.fn(),
     error: vi.fn(),
+    warning: vi.fn(),
   },
   keyboard: {
     register: vi.fn(),
     removeGlobalHandler: vi.fn(),
+  },
+  fileConflicts: {
+    count: 0,
+    hasConflicts: false,
+    records: {},
+    find: vi.fn(() => null),
+    flag: vi.fn(() => true),
+    resolve: vi.fn(),
+    retainOnly: vi.fn(),
+    clear: vi.fn(),
+  },
+  workspaceWatcher: {
+    start: vi.fn().mockResolvedValue(true),
+    stop: vi.fn().mockResolvedValue(undefined),
+    onChange: vi.fn(() => vi.fn()),
   },
   command: {
     paletteOpen: false,
@@ -180,12 +202,22 @@ vi.mock('@/stores/commands', () => ({
   useCommandStore: () => storeMocks.command,
 }))
 
+vi.mock('@/stores/fileConflicts', () => ({
+  useFileConflictsStore: () => storeMocks.fileConflicts,
+}))
+
+vi.mock('@/services/workspaceWatcherService', () => ({
+  createWorkspaceWatcherService: () => storeMocks.workspaceWatcher,
+  normalizeWorkspacePath: (path: string) => path.replace(/\\/g, '/'),
+}))
+
 vi.mock('@/services/workspaceService', () => ({
   createWorkspaceService: () => ({
     createUntitledFile: vi.fn(),
     openFile: vi.fn(),
     openFileWithPicker: vi.fn(),
     openFolderWithPicker: vi.fn().mockResolvedValue(false),
+    reloadFileFromDisk: vi.fn().mockResolvedValue(false),
     refreshWorkspace: vi.fn(),
   }),
 }))
@@ -193,6 +225,7 @@ vi.mock('@/services/workspaceService', () => ({
 vi.mock('@/services/tabService', () => ({
   createTabService: () => ({
     syncTabToEditor: vi.fn(),
+    captureFileRevision: vi.fn().mockResolvedValue(null),
     saveActiveTab: vi.fn(),
     saveActiveTabAs: vi.fn(),
     activateTab: vi.fn(),
@@ -201,12 +234,14 @@ vi.mock('@/services/tabService', () => ({
     closeAll: vi.fn(),
     renameTab: vi.fn(),
     updateActiveTabContent: vi.fn(),
+    updateTabContent: vi.fn(),
     updateActiveTabLanguage: vi.fn(),
   }),
 }))
 
 vi.mock('@/services/windowService', () => ({
   createWindowService: () => ({
+    onBeforeClose: vi.fn(),
     attach: vi.fn().mockResolvedValue(undefined),
     detach: vi.fn(),
   }),
@@ -214,6 +249,7 @@ vi.mock('@/services/windowService', () => ({
 
 vi.mock('@/services/sessionService', () => ({
   sessionService: {
+    initialize: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn(),
     load: vi.fn(() => null),
     save: vi.fn(),
@@ -235,12 +271,14 @@ vi.mock('../../../frontend/src/components/editor/SettingsPanel.vue', () => ({ de
 vi.mock('../../../frontend/src/components/editor/MarkdownPreview.vue', () => ({ default: componentStubs.markdownPreview }))
 vi.mock('../../../frontend/src/components/editor/EditorCore.vue', () => ({ default: componentStubs.editorCore }))
 vi.mock('../../../frontend/src/components/editor/ContextRail.vue', () => ({ default: componentStubs.contextRail }))
+vi.mock('../../../frontend/src/components/editor/ExternalChangeDialog.vue', () => ({ default: componentStubs.externalChangeDialog }))
 
 const appShellStubs = {
   Toolbar: false,
   SettingsPanel: false,
   MarkdownPreview: false,
   EditorCore: false,
+  ExternalChangeDialog: false,
   ContextRail: false,
   Transition: false,
 }

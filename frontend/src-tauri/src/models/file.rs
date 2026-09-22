@@ -1,5 +1,4 @@
 /// 文件相关数据模型
-
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
@@ -50,13 +49,13 @@ impl FileContent {
             modified_at: None,
         }
     }
-    
+
     /// 标记为已修改
     pub fn mark_modified(&mut self) {
         self.is_saved = false;
         self.modified_at = Some(SystemTime::now());
     }
-    
+
     /// 标记为已保存
     pub fn mark_saved(&mut self) {
         self.is_saved = true;
@@ -85,7 +84,7 @@ impl FileOperationResult {
             path: path.to_string(),
         }
     }
-    
+
     pub fn error(operation: &str, path: &str, error: &str) -> Self {
         Self {
             success: false,

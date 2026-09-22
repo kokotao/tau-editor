@@ -4465,7 +4465,7 @@ dependencies = [
 
 [[package]]
 name = "text-editor"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "chardetng",
@@ -4480,6 +4480,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

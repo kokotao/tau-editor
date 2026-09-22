@@ -226,6 +226,24 @@ describe('EditorCore.vue', () => {
     expect(editorStore.content).toBe('new content');
   });
 
+  it('切换标签前先提交待处理内容，并按模型 id 回写', async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'tab-a' },
+    });
+
+    await flushPromises();
+
+    mockGetValue.mockReturnValue('draft content');
+    contentCallbacks[0]!();
+
+    // 去抖尚未触发就切换标签，待提交内容仍应记到原模型上。
+    await wrapper.setProps({ modelId: 'tab-b', value: '' });
+    await nextTick();
+
+    expect(wrapper.emitted('content-change')?.[0]).toEqual(['draft content', 'tab-a']);
+  });
+
   it('光标和选择变化应同步到 store', async () => {
     const wrapper = mount(EditorCore, {
       props: { modelId: 'test-3' },

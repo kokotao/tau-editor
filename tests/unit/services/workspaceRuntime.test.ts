@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TauriError, gitCommands, searchCommands, workspaceCommands } from '@/lib/tauri';
+import { replaceCommands } from '@/lib/tauri';
 
 const invokeMock = vi.fn();
 
@@ -93,10 +94,15 @@ describe('workspaceCommands', () => {
     }, undefined);
   });
 
-  it('将搜索选项和 workspaceId 一起提交给受限项目搜索命令', async () => {
-    invokeMock.mockResolvedValueOnce({ matches: [], truncated: false, scannedFiles: 2 });
+  it('将 searchId、搜索选项和 workspaceId 一起提交给受限项目搜索命令', async () => {
+    invokeMock.mockResolvedValueOnce({
+      matches: [],
+      truncated: false,
+      scannedFiles: 2,
+      cancelled: false,
+    });
 
-    await expect(searchCommands.workspace('runtime-id', 'release', {
+    await expect(searchCommands.workspace('runtime-id', 'search-1', 'release', {
       isRegex: false,
       caseSensitive: false,
       wholeWord: false,
@@ -104,8 +110,61 @@ describe('workspaceCommands', () => {
     })).resolves.toMatchObject({ scannedFiles: 2 });
     expect(invokeMock).toHaveBeenCalledWith('search_workspace', {
       workspaceId: 'runtime-id',
+      searchId: 'search-1',
       query: 'release',
       options: { isRegex: false, caseSensitive: false, wholeWord: false, maxResults: 50 },
+    }, undefined);
+  });
+
+  it('通过 cancel_search 取消指定搜索会话', async () => {
+    invokeMock.mockResolvedValueOnce({ cancelled: true });
+
+    await expect(searchCommands.cancel('search-1')).resolves.toEqual({ cancelled: true });
+    expect(invokeMock).toHaveBeenCalledWith('cancel_search', { searchId: 'search-1' }, undefined);
+  });
+
+  it('提交替换预览、按计划执行与撤销请求', async () => {
+    invokeMock.mockResolvedValueOnce({
+      previewId: 'preview-1',
+      files: [],
+      totalMatches: 0,
+      scannedFiles: 0,
+      truncated: false,
+    });
+    invokeMock.mockResolvedValueOnce({
+      previewId: 'preview-1',
+      undoId: 'undo-1',
+      results: [],
+      applied: 1,
+      skipped: 0,
+      conflicts: 0,
+      failed: 0,
+    });
+    invokeMock.mockResolvedValueOnce({ undoId: 'undo-1', restored: ['notes.md'], conflicts: [], failed: [] });
+
+    await replaceCommands.preview('runtime-id', 'release', 'RELEASE', {
+      isRegex: false,
+      caseSensitive: false,
+      wholeWord: false,
+      maxResults: 50,
+    });
+    await replaceCommands.apply('runtime-id', 'preview-1', ['notes.md#0']);
+    await replaceCommands.undo('runtime-id', 'undo-1');
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'preview_workspace_replace', {
+      workspaceId: 'runtime-id',
+      query: 'release',
+      replacement: 'RELEASE',
+      options: { isRegex: false, caseSensitive: false, wholeWord: false, maxResults: 50 },
+    }, undefined);
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'apply_workspace_replace_preview', {
+      workspaceId: 'runtime-id',
+      previewId: 'preview-1',
+      matchIds: ['notes.md#0'],
+    }, undefined);
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'undo_workspace_replace', {
+      workspaceId: 'runtime-id',
+      undoId: 'undo-1',
     }, undefined);
   });
 });

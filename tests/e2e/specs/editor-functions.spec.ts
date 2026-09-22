@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '../fixtures/app'
 
 test.describe('Editor Functions', () => {
   test.beforeEach(async ({ page }) => {
@@ -117,7 +117,7 @@ test.describe('Editor Functions', () => {
     
     // 验证状态栏元素
     await expect(page.locator('[data-testid="cursor-position"]')).toBeVisible()
-    await expect(page.locator('[data-testid="encoding-display"]')).toBeVisible()
+    await expect(page.locator('[data-testid="encoding-select"]')).toBeVisible()
   })
 
   test('E2E-EDIT-010: 编辑器输入', async ({ page }) => {

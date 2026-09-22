@@ -46,7 +46,27 @@
           <div v-else class="tab-name-row">
             <span class="tab-name" data-testid="tab-title">{{ tab.fileName }}</span>
             <span v-if="tab.isLoadingContent" class="tab-loading-pill">
-              {{ getLoadingProgressLabel(tab) }}
+              <span class="tab-loading-label">{{ getLoadingPillLabel(tab) }}</span>
+              <button
+                v-if="tab.largeFileLoadState === 'failed' || tab.largeFileLoadState === 'cancelled'"
+                type="button"
+                class="tab-loading-action"
+                data-testid="btn-retry-large-file-load"
+                :title="copy.retryLoad"
+                @click.stop="emit('retry-large-file-load', tab.id)"
+              >
+                {{ copy.retryLoad }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="tab-loading-action"
+                data-testid="btn-cancel-large-file-load"
+                :title="copy.cancelLoad"
+                @click.stop="emit('cancel-large-file-load', tab.id)"
+              >
+                {{ copy.cancelLoad }}
+              </button>
             </span>
           </div>
           <span class="tab-path">{{ tab.isUntitled ? copy.unsaved : tab.filePath }}</span>
@@ -113,6 +133,8 @@ const emit = defineEmits<{
   'tab-close-all': [];
   'rename-tab': [tabId: string, name: string];
   'tabs-reorder': [orderedTabIds: string[]];
+  'cancel-large-file-load': [tabId: string];
+  'retry-large-file-load': [tabId: string];
 }>();
 
 const contextMenu = ref({
@@ -151,6 +173,16 @@ const getLoadingProgressLabel = (tab: Tab) => {
     ? Math.max(0, Math.min(100, Math.round(tab.largeFileLoadProgress)))
     : 0;
   return copy.value.loadingProgress(progress);
+};
+
+const getLoadingPillLabel = (tab: Tab) => {
+  if (tab.largeFileLoadState === 'failed') {
+    return copy.value.loadingFailed;
+  }
+  if (tab.largeFileLoadState === 'cancelled') {
+    return copy.value.loadingCancelled;
+  }
+  return getLoadingProgressLabel(tab);
 };
 
 const handleTabClick = (tabId: string) => {
@@ -439,6 +471,9 @@ onUnmounted(() => {
 }
 
 .tab-loading-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
   border-radius: 999px;
   padding: 1px 6px;
@@ -447,6 +482,22 @@ onUnmounted(() => {
   color: var(--accent-blue-strong, #4dabff);
   border: 1px solid color-mix(in srgb, var(--accent-blue-strong, #4dabff) 50%, transparent);
   background: color-mix(in srgb, var(--accent-blue-strong, #4dabff) 16%, transparent);
+}
+
+.tab-loading-label {
+  white-space: nowrap;
+}
+
+.tab-loading-action {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 0 4px;
+  background: color-mix(in srgb, var(--accent-blue-strong, #4dabff) 28%, transparent);
+  color: inherit;
+  font-size: 9px;
+  line-height: 1.5;
+  cursor: pointer;
 }
 
 .tab-path {

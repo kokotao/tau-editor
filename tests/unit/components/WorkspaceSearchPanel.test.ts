@@ -19,4 +19,37 @@ describe('WorkspaceSearchPanel', () => {
     expect(wrapper.emitted('search')).toEqual([['release']]);
     expect(wrapper.emitted('navigate')).toEqual([['docs/release.md', 4]]);
   });
+
+  it('搜索进行中可取消，并可请求替换预览', async () => {
+    const wrapper = mount(WorkspaceSearchPanel, {
+      props: {
+        visible: true,
+        query: 'release',
+        replacement: 'RELEASE',
+        results: [],
+        loading: true,
+      },
+      global: { stubs: { teleport: true } },
+    });
+
+    await wrapper.get('[data-testid="workspace-search-cancel"]').trigger('click');
+    await wrapper.get('[data-testid="workspace-replace-preview"]').trigger('click');
+
+    expect(wrapper.emitted('cancel')).toHaveLength(1);
+    expect(wrapper.emitted('previewReplace')).toEqual([['RELEASE']]);
+  });
+
+  it('搜索被取消时提示显示部分结果', () => {
+    const wrapper = mount(WorkspaceSearchPanel, {
+      props: {
+        visible: true,
+        query: 'release',
+        results: [],
+        cancelled: true,
+      },
+      global: { stubs: { teleport: true } },
+    });
+
+    expect(wrapper.get('[data-testid="workspace-search-cancelled"]').text()).toContain('部分结果');
+  });
 });

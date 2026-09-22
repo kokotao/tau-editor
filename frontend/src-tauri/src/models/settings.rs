@@ -1,5 +1,4 @@
 /// 设置相关数据模型
-
 use serde::{Deserialize, Serialize};
 
 /// 应用设置
@@ -111,17 +110,20 @@ impl SettingsStore {
     pub fn add_recent_file(&mut self, path: String, encoding: String) {
         // 移除已存在的相同路径
         self.recent_files.retain(|f| f.path != path);
-        
+
         // 添加到开头
-        self.recent_files.insert(0, RecentFile {
-            path,
-            last_opened: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            encoding,
-        });
-        
+        self.recent_files.insert(
+            0,
+            RecentFile {
+                path,
+                last_opened: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                encoding,
+            },
+        );
+
         // 限制最近文件数量
         if self.recent_files.len() > 10 {
             self.recent_files.truncate(10);

@@ -81,7 +81,7 @@ const SUPPORTED_LANGUAGES = [
 ];
 
 const emit = defineEmits<{
-  'content-change': [content: string];
+  'content-change': [content: string, modelId: string];
   'cursor-change': [position: { line: number; column: number }];
   'scroll-change': [state: { top: number; height: number; scrollHeight: number }];
   'model-save': [];
@@ -100,6 +100,9 @@ const i18n = computed(() => getEditorCoreI18n(settingsStore.uiLanguage));
 const modelCache = new Map<string, monaco.editor.ITextModel>();
 const viewStateCache = new Map<string, monaco.editor.ICodeEditorViewState | null>();
 const activeModelId = ref(props.modelId);
+const modelIdsByModel = new WeakMap<monaco.editor.ITextModel, string>();
+let pendingContentModel: monaco.editor.ITextModel | null = null;
+let pendingContentModelId: string | null = null;
 let suppressContentEmit = false;
 
 let contentUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -216,6 +219,7 @@ const updateModelContent = (
 const getOrCreateModel = (modelId: string, content: string, language: string) => {
   const cachedModel = modelCache.get(modelId);
   if (cachedModel && !cachedModel.isDisposed()) {
+    modelIdsByModel.set(cachedModel, modelId);
     if (cachedModel.getLanguageId() !== language) {
       monaco.editor.setModelLanguage(cachedModel, language);
     }
@@ -230,6 +234,7 @@ const getOrCreateModel = (modelId: string, content: string, language: string) =>
   }
 
   modelCache.set(modelId, model);
+  modelIdsByModel.set(model, modelId);
   return model;
 };
 
@@ -250,10 +255,36 @@ const cleanupOrphanModels = (openedModelIds: string[]) => {
   }
 };
 
+const flushPendingContent = () => {
+  if (contentUpdateTimer) {
+    clearTimeout(contentUpdateTimer);
+    contentUpdateTimer = null;
+  }
+
+  const model = pendingContentModel;
+  const modelId = pendingContentModelId;
+  pendingContentModel = null;
+  pendingContentModelId = null;
+
+  if (!model || !modelId || model.isDisposed()) {
+    return;
+  }
+
+  const content = model.getValue();
+  emit('content-change', content, modelId);
+  if (editor.value?.getModel() === model) {
+    editorStore.setContent(content);
+  }
+  scheduleLineCountSync();
+};
+
 const activateModel = (nextModelId: string) => {
   if (!editor.value) {
     return;
   }
+
+  // 切换标签前先提交当前模型的待处理内容，避免快速切换丢失输入。
+  flushPendingContent();
 
   const currentModel = editor.value.getModel();
   if (currentModel && activeModelId.value) {
@@ -528,16 +559,18 @@ const initEditor = () => {
 
     const contentDisposable = editor.value.onDidChangeModelContent(() => {
       if (!editor.value || suppressContentEmit) return;
+      const model = editor.value.getModel();
+      if (!model) return;
+
+      pendingContentModel = model;
+      pendingContentModelId = modelIdsByModel.get(model) ?? activeModelId.value;
 
       if (contentUpdateTimer) {
         clearTimeout(contentUpdateTimer);
       }
-
       contentUpdateTimer = setTimeout(() => {
-        const content = editor.value!.getValue();
-        emit('content-change', content);
-        editorStore.setContent(content);
-        scheduleLineCountSync();
+        contentUpdateTimer = null;
+        flushPendingContent();
       }, CONTENT_UPDATE_DELAY);
     });
     disposables.value.push(contentDisposable);
@@ -623,6 +656,22 @@ defineExpose({
     }
   },
   focus: () => editor.value?.focus(),
+  insertText: (text: string) => {
+    const instance = editor.value;
+    if (!instance) {
+      return;
+    }
+
+    const selection = instance.getSelection();
+    if (!selection) {
+      return;
+    }
+
+    instance.executeEdits('tau-insert-text', [
+      { range: selection, text, forceMoveMarkers: true },
+    ]);
+    instance.focus();
+  },
   focusAtStart: () => {
     if (!editor.value) {
       return;
@@ -826,6 +875,8 @@ onBeforeUnmount(() => {
     clearTimeout(contentUpdateTimer);
     contentUpdateTimer = null;
   }
+  pendingContentModel = null;
+  pendingContentModelId = null;
   if (lineCountSyncTimer) {
     clearTimeout(lineCountSyncTimer);
     lineCountSyncTimer = null;

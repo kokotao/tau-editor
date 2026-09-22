@@ -152,15 +152,11 @@ fn rechecks_revision_immediately_before_commit_and_preserves_external_changes() 
     let workspace =
         resolve_workspace_for_registry(&registry, temp_dir.path().to_string_lossy().as_ref())
             .expect("workspace resolves");
-    let revision = get_file_revision_for_registry(
-        &registry,
-        &workspace.workspace_id,
-        "document.txt",
-        false,
-    )
-    .expect("revision available")
-    .revision
-    .expect("revision string");
+    let revision =
+        get_file_revision_for_registry(&registry, &workspace.workspace_id, "document.txt", false)
+            .expect("revision available")
+            .revision
+            .expect("revision string");
 
     let error = write_file_if_revision_with_before_commit_for_test(
         &registry,
@@ -189,15 +185,11 @@ fn rejects_oversized_direct_conditional_writes() {
     let workspace =
         resolve_workspace_for_registry(&registry, temp_dir.path().to_string_lossy().as_ref())
             .expect("workspace resolves");
-    let revision = get_file_revision_for_registry(
-        &registry,
-        &workspace.workspace_id,
-        "document.txt",
-        false,
-    )
-    .expect("revision available")
-    .revision
-    .expect("revision string");
+    let revision =
+        get_file_revision_for_registry(&registry, &workspace.workspace_id, "document.txt", false)
+            .expect("revision available")
+            .revision
+            .expect("revision string");
 
     let oversized = "x".repeat(4 * 1024 * 1024 + 1);
     let error = write_file_if_revision_for_registry(
@@ -210,7 +202,10 @@ fn rejects_oversized_direct_conditional_writes() {
     .expect_err("large writes must use the staged write path");
 
     assert_eq!(error.code, "TOO_LARGE");
-    assert_eq!(fs::read_to_string(document).expect("read document"), "before");
+    assert_eq!(
+        fs::read_to_string(document).expect("read document"),
+        "before"
+    );
 }
 
 #[test]
@@ -224,22 +219,14 @@ fn returns_an_explicit_error_when_content_hash_is_not_supported_yet() {
         resolve_workspace_for_registry(&registry, temp_dir.path().to_string_lossy().as_ref())
             .expect("workspace resolves");
 
-    let without_hash = get_file_revision_for_registry(
-        &registry,
-        &workspace.workspace_id,
-        "document.txt",
-        false,
-    )
-    .expect("revision without hash");
+    let without_hash =
+        get_file_revision_for_registry(&registry, &workspace.workspace_id, "document.txt", false)
+            .expect("revision without hash");
     assert_eq!(without_hash.content_hash, None);
 
-    let error = get_file_revision_for_registry(
-        &registry,
-        &workspace.workspace_id,
-        "document.txt",
-        true,
-    )
-    .expect_err("unsupported hash requests must not silently return null");
+    let error =
+        get_file_revision_for_registry(&registry, &workspace.workspace_id, "document.txt", true)
+            .expect_err("unsupported hash requests must not silently return null");
     assert_eq!(error.code, "HASH_UNSUPPORTED");
 }
 

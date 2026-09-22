@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '../fixtures/app'
 
 test.describe('Tab Management', () => {
   test.beforeEach(async ({ page }) => {
@@ -6,12 +6,7 @@ test.describe('Tab Management', () => {
     await page.goto('/')
     // ✅ 先等待工具栏加载（应用初始状态）
     await page.waitForSelector('[data-testid="toolbar"]')
-    // ✅ 点击新建文件创建初始标签页
-    await page.click('[data-testid="btn-new-file"]')
-    // ✅ 现在等待编辑器容器（此时 activeTab 已存在）
-    await page.waitForSelector('[data-testid="editor-container"]', {
-      timeout: 15000
-    })
+    // 标签由各用例自己创建，保证计数与断言一致。
   })
 
   test('E2E-TAB-001: 打开多个文件 (多标签)', async ({ page }) => {
@@ -35,16 +30,19 @@ test.describe('Tab Management', () => {
     // 创建第一个标签
     await page.click('[data-testid="btn-new-file"]')
     const editor = page.locator('[data-testid="editor-container"]')
-    await editor.fill('Content of Tab 1')
-    
+    // 新建标签后 Monaco 需要完成模型切换，等待后再输入避免击键丢失
+    await page.waitForTimeout(700)
+    await editor.click()
+    await page.keyboard.type('Content of Tab 1')
+    await expect(editor).toContainText('Content of Tab 1')
+
     // 创建第二个标签
     await page.click('[data-testid="btn-new-file"]')
-    await page.locator('[data-testid="editor-container"]').fill('Content of Tab 2')
-    
-    // 创建第三个标签
-    await page.click('[data-testid="btn-new-file"]')
-    await page.locator('[data-testid="editor-container"]').fill('Content of Tab 3')
-    
+    await page.waitForTimeout(700)
+    await editor.click()
+    await page.keyboard.type('Content of Tab 2')
+    await expect(editor).toContainText('Content of Tab 2')
+
     // 切换到第一个标签
     await page.click('[data-testid="tab"]:nth-child(1)')
     await expect(editor).toContainText('Content of Tab 1')

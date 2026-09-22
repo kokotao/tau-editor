@@ -124,10 +124,9 @@ pub fn get_file_revision_for_registry(
             "SYMLINK_ESCAPE",
             "不支持通过符号链接访问文件",
         )),
-        Ok(metadata) if !metadata.is_file() => Err(CommandError::new(
-            "NOT_A_FILE",
-            "目标路径不是普通文件",
-        )),
+        Ok(metadata) if !metadata.is_file() => {
+            Err(CommandError::new("NOT_A_FILE", "目标路径不是普通文件"))
+        }
         Ok(_) => {
             let metadata = fs::metadata(&path)
                 .map_err(|error| CommandError::io(format!("无法读取文件元数据：{error}")))?;
@@ -206,7 +205,10 @@ where
 
     let revalidated_path = resolve_workspace_path(registry, workspace_id, relative_path)?;
     if revalidated_path != path {
-        return Err(CommandError::new("FILE_CONFLICT", "文件路径在写入期间发生变化"));
+        return Err(CommandError::new(
+            "FILE_CONFLICT",
+            "文件路径在写入期间发生变化",
+        ));
     }
     ensure_expected_revision(&path, expected_revision)?;
 
@@ -307,7 +309,10 @@ pub fn workspace_root_for_registry(
         CommandError::new("WORKSPACE_NOT_FOUND", format!("工作区已不可用：{error}"))
     })?;
     if current_root != root || !current_root.is_dir() {
-        return Err(CommandError::new("SYMLINK_ESCAPE", "工作区根目录已发生变化"));
+        return Err(CommandError::new(
+            "SYMLINK_ESCAPE",
+            "工作区根目录已发生变化",
+        ));
     }
     Ok(root)
 }
@@ -392,12 +397,12 @@ where
 }
 
 #[cfg(not(windows))]
-fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<()> {
+pub(crate) fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<()> {
     fs::rename(temporary_path, path)
 }
 
 #[cfg(windows)]
-fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<()> {
+pub(crate) fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
@@ -436,12 +441,12 @@ fn replace_existing_file(temporary_path: &Path, path: &Path) -> std::io::Result<
 }
 
 #[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> std::io::Result<()> {
+pub(crate) fn sync_parent_directory(parent: &Path) -> std::io::Result<()> {
     File::open(parent).and_then(|directory| directory.sync_all())
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> std::io::Result<()> {
+pub(crate) fn sync_parent_directory(_parent: &Path) -> std::io::Result<()> {
     Ok(())
 }
 

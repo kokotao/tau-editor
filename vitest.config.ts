@@ -73,6 +73,9 @@ export default defineConfig({
       '@utils': path.resolve(__dirname, './frontend/src/utils'),
       '@types': path.resolve(__dirname, './frontend/src/types'),
       '@vue/test-utils': path.resolve(__dirname, './node_modules/@vue/test-utils/dist/vue-test-utils.esm-bundler.mjs'),
+      // 根目录与 frontend/node_modules 各有一份 dialog 插件，统一指向 frontend 副本，
+      // 否则测试里的 vi.mock 无法作用到 frontend/src 下的实际引用。
+      '@tauri-apps/plugin-dialog': path.resolve(__dirname, './frontend/node_modules/@tauri-apps/plugin-dialog'),
       vue: path.resolve(__dirname, './frontend/node_modules/vue/index.js'),
     },
   },

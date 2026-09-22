@@ -7,10 +7,16 @@
 use std::path::{Component, Path};
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use tauri::State;
 
 use crate::commands::{workspace_root_for_registry, WorkspaceRegistry};
 use crate::models::{CommandError, GitStatusEntry, GitStatusResponse};
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[tauri::command]
 pub fn git_status(
@@ -87,9 +93,7 @@ pub fn git_status_for_registry(
         .next()
         .unwrap_or("HEAD")
         .to_string();
-    let entries = lines
-        .filter_map(parse_status_line)
-        .collect::<Vec<_>>();
+    let entries = lines.filter_map(parse_status_line).collect::<Vec<_>>();
 
     Ok(GitStatusResponse { branch, entries })
 }
@@ -102,7 +106,11 @@ pub fn git_diff_for_registry(
 ) -> Result<String, CommandError> {
     validate_relative_path(relative_path)?;
     let root = workspace_root_for_registry(registry, workspace_id)?;
-    let mut args = vec!["-C".to_string(), root.to_string_lossy().into_owned(), "diff".to_string()];
+    let mut args = vec![
+        "-C".to_string(),
+        root.to_string_lossy().into_owned(),
+        "diff".to_string(),
+    ];
     if staged {
         args.push("--cached".to_string());
     }
@@ -124,7 +132,12 @@ pub fn git_stage_for_registry(
         validate_relative_path(path)?;
     }
     let root = workspace_root_for_registry(registry, workspace_id)?;
-    let mut args = vec!["-C".to_string(), root.to_string_lossy().into_owned(), "add".to_string(), "--".to_string()];
+    let mut args = vec![
+        "-C".to_string(),
+        root.to_string_lossy().into_owned(),
+        "add".to_string(),
+        "--".to_string(),
+    ];
     args.extend(relative_paths.iter().cloned());
     run_git(&args)?;
     Ok(())
@@ -135,7 +148,12 @@ pub fn git_unstage_for_registry(
     workspace_id: &str,
     relative_paths: &[String],
 ) -> Result<(), CommandError> {
-    run_git_for_paths(registry, workspace_id, &["reset", "HEAD", "--"], relative_paths)
+    run_git_for_paths(
+        registry,
+        workspace_id,
+        &["reset", "HEAD", "--"],
+        relative_paths,
+    )
 }
 
 pub fn git_discard_for_registry(
@@ -143,7 +161,12 @@ pub fn git_discard_for_registry(
     workspace_id: &str,
     relative_paths: &[String],
 ) -> Result<(), CommandError> {
-    run_git_for_paths(registry, workspace_id, &["restore", "--worktree", "--"], relative_paths)
+    run_git_for_paths(
+        registry,
+        workspace_id,
+        &["restore", "--worktree", "--"],
+        relative_paths,
+    )
 }
 
 fn run_git_for_paths(
@@ -167,8 +190,15 @@ fn run_git_for_paths(
 }
 
 fn run_git(args: &[String]) -> Result<std::process::Output, CommandError> {
-    let output = Command::new("git")
-        .args(args)
+    let mut command = Command::new("git");
+    command.args(args);
+    // Windows 下 GUI 进程调用 git 同样会弹出控制台窗口，沿用 v0.3.2 的抑制策略。
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = command
         .output()
         .map_err(|error| CommandError::new("GIT_UNAVAILABLE", format!("无法启动 Git：{error}")))?;
     if !output.status.success() {
@@ -185,8 +215,18 @@ fn validate_relative_path(path: &str) -> Result<(), CommandError> {
         return Err(CommandError::new("PATH_OUTSIDE_WORKSPACE", "Git 路径无效"));
     }
     let candidate = Path::new(path);
-    if candidate.is_absolute() || candidate.components().any(|part| matches!(part, Component::ParentDir | Component::RootDir | Component::Prefix(_))) {
-        return Err(CommandError::new("PATH_OUTSIDE_WORKSPACE", "Git 路径必须是工作区内相对路径"));
+    if candidate.is_absolute()
+        || candidate.components().any(|part| {
+            matches!(
+                part,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(CommandError::new(
+            "PATH_OUTSIDE_WORKSPACE",
+            "Git 路径必须是工作区内相对路径",
+        ));
     }
     Ok(())
 }
@@ -199,5 +239,9 @@ fn parse_status_line(line: &str) -> Option<GitStatusEntry> {
     let index_status = (bytes[0] as char).to_string();
     let worktree_status = (bytes[1] as char).to_string();
     let path = line[3..].split(" -> ").last()?.to_string();
-    Some(GitStatusEntry { path, index_status, worktree_status })
+    Some(GitStatusEntry {
+        path,
+        index_status,
+        worktree_status,
+    })
 }

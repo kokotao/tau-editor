@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '../fixtures/app'
 
 test.describe('Editing Features', () => {
   test.beforeEach(async ({ page }) => {
@@ -58,35 +58,36 @@ test.describe('Editing Features', () => {
     
     // 全选 (Ctrl+A)
     await page.keyboard.press('Control+A')
-    
-    // 验证全部选中
-    const selectedText = await page.evaluate(() => {
-      const sel = window.getSelection()
-      return sel ? sel.toString() : ''
-    })
-    
-    expect(selectedText).toBe('Select all text')
+
+    // 全选后直接输入，选中内容应被整体替换（Monaco 选区不在 window.getSelection 中）
+    await page.keyboard.type('replaced')
+
+    await expect(editor).toContainText('replaced')
+    await expect(editor).not.toContainText('Select all text')
   })
 
-  test('E2E-EDIT-005: 快捷键 - 复制粘贴', async ({ page }) => {
+  test('E2E-EDIT-005: 粘贴 - 右键菜单写入剪切板内容', async ({ page, context, browserName }) => {
+    // 无头浏览器无法脚本化系统剪切板触发的 Ctrl+V，这里覆盖应用自身的粘贴实现：
+    // 右键菜单 -> navigator.clipboard.readText() -> 写入当前选区。
+    test.skip(browserName !== 'chromium', '异步剪切板读取仅在 Chromium 授权可用')
+
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://localhost:5173' })
     const editor = page.locator('[data-testid="editor-container"]')
+    const wordCount = page.locator('[data-testid="word-count"]')
     await editor.click()
-    await page.keyboard.type('Copy this text')
-    
-    // 全选并复制
-    await page.keyboard.press('Control+A')
-    await page.keyboard.press('Control+C')
-    
-    // 移动光标到末尾
-    await page.keyboard.press('End')
-    
-    // 粘贴
-    await page.keyboard.press('Control+V')
-    
-    // 验证内容
-    await page.waitForTimeout(300)
-    const content = await editor.textContent()
-    expect(content).toContain('Copy this text')
+    await page.waitForTimeout(200)
+    await page.evaluate(() => navigator.clipboard.writeText('Copy this text'))
+
+    await editor.click({ button: 'right' })
+    const pasteItem = page.locator('.editor-context-item', { hasText: '粘贴' })
+    await expect(pasteItem).toBeVisible()
+    await pasteItem.click()
+
+    await expect(editor).toContainText('Copy this text')
+    // 粘贴内容需回写到标签内容（字数统计随之更新）。
+    await expect
+      .poll(async () => parseInt((await wordCount.textContent()) ?? '0', 10), { timeout: 5000 })
+      .toBeGreaterThan(0)
   })
 
   test('E2E-EDIT-006: 状态栏实时更新', async ({ page }) => {

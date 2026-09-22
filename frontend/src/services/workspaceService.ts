@@ -1,5 +1,10 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { fileCommands } from '@/lib/tauri';
+import {
+  createWorkspaceRuntimeService,
+  readFileRevision,
+  type WorkspaceRuntimeService,
+} from '@/services/workspaceRuntimeService';
 import { normalizeModifiedTimestamp } from '@/services/externalFileSync';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
@@ -79,7 +84,49 @@ export class WorkspaceService {
     private readonly editorStore: EditorStore,
     private readonly settingsStore: SettingsStore,
     private readonly notificationStore: NotificationStore,
+    private readonly workspaceRuntime: WorkspaceRuntimeService = createWorkspaceRuntimeService(),
   ) {}
+
+  /**
+   * 捕获文件当前磁盘 revision，作为后续保存事务的基线。
+   * 读取失败返回 null；大文件缺少基线时保存会被拒绝，避免覆盖外部修改。
+   */
+  async captureFileRevision(filePath: string): Promise<string | null> {
+    return readFileRevision(
+      this.workspaceRuntime,
+      filePath,
+      this.workspaceStore.currentWorkspacePath,
+    );
+  }
+
+  /**
+   * 从磁盘重新加载标签内容。
+   * 大文件不走整块读取，而是关闭标签后按分段流程重新打开，同时重新捕获 revision 基线；
+   * 普通文件整块读取并刷新基线。返回 true 表示原标签内容已被替换，调用方需同步编辑器。
+   */
+  async reloadFileFromDisk(
+    tabId: string,
+    filePath: string,
+    modifiedAt: number | null,
+  ): Promise<boolean> {
+    const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
+    if (tab?.isLargeFile) {
+      this.tabsStore.closeTab(tabId);
+      await this.openFile(filePath);
+      return false;
+    }
+
+    const content = await this.fileSystemStore.readFileContent(filePath);
+    const fileRevision = await this.captureFileRevision(filePath);
+    this.tabsStore.updateTab(tabId, {
+      content,
+      isDirty: false,
+      lastKnownModified: modifiedAt,
+      fileRevision,
+      externalModifiedAt: null,
+    });
+    return true;
+  }
 
   private ensureTabCapacity(label: string, additionalContent = '', additionalBytes?: number): boolean {
     const maxOpenTabs = Math.max(1, Math.floor(this.settingsStore.maxOpenTabs));
@@ -180,6 +227,7 @@ export class WorkspaceService {
       this.tabsStore.updateTab(tabId, {
         content: fullContent,
         isLoadingContent: false,
+        largeFileLoadState: 'complete',
         largeFileLoadedBytes: fileSize,
         largeFileLoadProgress: 100,
         largeFileLoadSessionId: undefined,
@@ -197,14 +245,82 @@ export class WorkspaceService {
       this.largeFileLoadSessions.delete(tabId);
       this.tabsStore.updateTab(tabId, {
         isLoadingContent: true,
+        largeFileLoadState: 'failed',
         largeFileLoadSessionId: undefined,
       });
       const title = this.settingsStore.uiLanguage === 'en-US' ? 'Large file loading failed' : '大文件加载失败';
       const message = this.settingsStore.uiLanguage === 'en-US'
-        ? `${error?.message || 'Unknown error'}. Reopen the file to retry.`
-        : `${error?.message || '未知错误'}。请重新打开该文件重试。`;
+        ? `${error?.message || 'Unknown error'}. Use Retry on the tab to continue loading.`
+        : `${error?.message || '未知错误'}。可点击标签上的“重试”继续加载。`;
       this.notificationStore.error(title, message);
     }
+  }
+
+  /**
+   * 取消大文件分段加载：已加载的部分保持只读，避免用残缺内容覆盖磁盘文件。
+   */
+  cancelLargeFileLoad(tabId: string) {
+    const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
+    if (!tab?.isLargeFile || tab.largeFileLoadState !== 'loading') {
+      return;
+    }
+
+    this.largeFileLoadSessions.delete(tabId);
+    this.tabsStore.updateTab(tabId, {
+      isLoadingContent: true,
+      largeFileLoadState: 'cancelled',
+      largeFileLoadSessionId: undefined,
+    });
+
+    const title = this.settingsStore.uiLanguage === 'en-US' ? 'Large file load cancelled' : '已取消大文件加载';
+    const message = this.settingsStore.uiLanguage === 'en-US'
+      ? `${tab.fileName} stays read-only until the remaining part is loaded.`
+      : `${tab.fileName} 目前只加载了部分内容，完成加载前保持只读。`;
+    this.notificationStore.info(title, message);
+  }
+
+  /**
+   * 继续加载未完成的大文件：从上次中断的字节位置续传。
+   */
+  async retryLargeFileLoad(tabId: string) {
+    const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
+    if (!tab?.filePath || !tab.isLargeFile) {
+      return;
+    }
+    if (tab.largeFileLoadState !== 'failed' && tab.largeFileLoadState !== 'cancelled') {
+      return;
+    }
+
+    const fileSize = tab.largeFileSize ?? 0;
+    const chunkSize = tab.largeFileChunkSize ?? LARGE_FILE_DEFAULT_CHUNK_BYTES;
+    const startOffset = Math.max(0, Math.min(tab.largeFileLoadedBytes ?? 0, fileSize));
+
+    if (fileSize > 0 && startOffset >= fileSize) {
+      this.tabsStore.updateTab(tabId, {
+        isLoadingContent: false,
+        largeFileLoadState: 'complete',
+        largeFileLoadProgress: 100,
+      });
+      return;
+    }
+
+    const sessionId = this.beginLargeFileLoadSession(tabId);
+    this.tabsStore.updateTab(tabId, {
+      isLoadingContent: true,
+      largeFileLoadState: 'loading',
+      largeFileLoadSessionId: sessionId,
+    });
+
+    await this.loadRemainingLargeFileChunks(
+      tabId,
+      tab.filePath,
+      fileSize,
+      chunkSize,
+      startOffset,
+      tab.fileName,
+      sessionId,
+      tab.content,
+    );
   }
 
   createUntitledFile() {
@@ -268,6 +384,8 @@ export class WorkspaceService {
         }
 
         if (fileSize >= chunkLoadThresholdBytes) {
+          // 先记录基线再读首块：若读取期间文件被外部替换，保存事务会因 revision 不匹配而拒绝覆盖。
+          const fileRevision = await this.captureFileRevision(filePath);
           const firstChunk = await fileCommands.readFileChunked(
             filePath,
             0,
@@ -290,12 +408,14 @@ export class WorkspaceService {
             content,
             isLargeFile: true,
             isLoadingContent: !isFullyLoaded,
+            largeFileLoadState: isFullyLoaded ? 'complete' : 'loading',
             largeFileSize: fileSize,
             largeFileChunkSize: chunkBytes,
             largeFileLoadedBytes: initialLoadedBytes,
             largeFileLoadProgress: initialProgress,
             largeFileLoadSessionId: undefined,
             lastKnownModified,
+            fileRevision,
             externalModifiedAt: null,
           });
 
@@ -324,6 +444,7 @@ export class WorkspaceService {
           } else {
             this.tabsStore.updateTab(tabId, {
               isLoadingContent: false,
+              largeFileLoadState: 'complete',
               largeFileLoadedBytes: fileSize,
               largeFileLoadProgress: 100,
             });
