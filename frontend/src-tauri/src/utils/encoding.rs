@@ -1,8 +1,7 @@
 /// 编码检测工具模块
-/// 
+///
 /// 使用 chardetng 和 encoding_rs 进行文件编码检测和转换
-
-use encoding_rs::{Encoding, UTF_8, GBK, GB18030, BIG5, SHIFT_JIS, EUC_KR, WINDOWS_1252};
+use encoding_rs::{Encoding, BIG5, EUC_KR, GB18030, GBK, SHIFT_JIS, UTF_8, WINDOWS_1252};
 use std::path::Path;
 use tokio::fs;
 
@@ -18,10 +17,10 @@ pub struct EncodingResult {
 }
 
 /// 检测文件编码并读取内容
-/// 
+///
 /// # 参数
 /// * `path` - 文件路径
-/// 
+///
 /// # 返回
 /// * `Ok(EncodingResult)` - 编码检测结果
 /// * `Err(String)` - 错误信息
@@ -30,13 +29,13 @@ pub async fn detect_and_read(path: &Path) -> Result<EncodingResult, String> {
     let bytes = fs::read(path)
         .await
         .map_err(|e| format!("读取文件失败：{}", e))?;
-    
+
     // 检测编码
     let (encoding, confidence) = detect_encoding(&bytes);
-    
+
     // 解码内容
     let (content, _, has_errors) = encoding.decode(&bytes);
-    
+
     if has_errors {
         // 如果有解码错误，尝试回退到 UTF-8
         log::warn!("文件 {} 解码时出现错误，尝试使用 UTF-8", path.display());
@@ -47,7 +46,7 @@ pub async fn detect_and_read(path: &Path) -> Result<EncodingResult, String> {
             content: utf8_content.to_string(),
         });
     }
-    
+
     Ok(EncodingResult {
         encoding_name: encoding.name().to_string(),
         confidence,
@@ -56,20 +55,20 @@ pub async fn detect_and_read(path: &Path) -> Result<EncodingResult, String> {
 }
 
 /// 检测字节流的编码
-/// 
+///
 /// # 参数
 /// * `bytes` - 原始字节
-/// 
+///
 /// # 返回
 /// * `(Encoding, f32)` - 编码和置信度
 pub fn detect_encoding(bytes: &[u8]) -> (&'static Encoding, f32) {
     // 使用 chardetng 检测编码
     let mut detector = chardetng::EncodingDetector::new();
     detector.feed(bytes, true);
-    
+
     // 获取检测到的编码
     let detected = detector.guess(None, true);
-    
+
     // 映射到 encoding_rs 的编码
     let encoding = match detected.name() {
         "UTF-8" => UTF_8,
@@ -81,25 +80,25 @@ pub fn detect_encoding(bytes: &[u8]) -> (&'static Encoding, f32) {
         "Windows-1252" | "ISO-8859-1" => WINDOWS_1252,
         _ => UTF_8, // 默认回退到 UTF-8
     };
-    
+
     // 计算置信度
     let confidence = calculate_confidence(bytes, encoding);
-    
+
     (encoding, confidence)
 }
 
 /// 计算编码置信度
-/// 
+///
 /// # 参数
 /// * `bytes` - 原始字节
 /// * `encoding` - 编码
-/// 
+///
 /// # 返回
 /// * `f32` - 置信度 (0.0 - 1.0)
 fn calculate_confidence(bytes: &[u8], encoding: &'static Encoding) -> f32 {
     // 简单的置信度计算：检查解码是否成功且无错误
     let (_, _, has_errors) = encoding.decode(bytes);
-    
+
     if has_errors {
         0.3
     } else {
@@ -123,12 +122,12 @@ fn calculate_confidence(bytes: &[u8], encoding: &'static Encoding) -> f32 {
 }
 
 /// 使用指定编码写入文件
-/// 
+///
 /// # 参数
 /// * `path` - 文件路径
 /// * `content` - 内容
 /// * `encoding_name` - 编码名称 (如 "UTF-8", "GBK")
-/// 
+///
 /// # 返回
 /// * `Ok(())` - 写入成功
 /// * `Err(String)` - 错误信息
@@ -139,7 +138,7 @@ pub async fn write_with_encoding(
 ) -> Result<(), String> {
     let encoding = get_encoding_by_name(encoding_name)
         .ok_or_else(|| format!("不支持的编码：{}", encoding_name))?;
-    
+
     let (bytes, _, _) = encoding.encode(content);
     let bytes: &[u8] = bytes.as_ref();
 
@@ -149,10 +148,10 @@ pub async fn write_with_encoding(
 }
 
 /// 根据名称获取编码
-/// 
+///
 /// # 参数
 /// * `name` - 编码名称
-/// 
+///
 /// # 返回
 /// * `Option<&'static Encoding>` - 编码
 pub fn get_encoding_by_name(name: &str) -> Option<&'static Encoding> {
@@ -169,7 +168,7 @@ pub fn get_encoding_by_name(name: &str) -> Option<&'static Encoding> {
 }
 
 /// 获取支持的编码列表
-/// 
+///
 /// # 返回
 /// * `Vec<&'static str>` - 编码名称列表
 pub fn get_supported_encodings() -> Vec<&'static str> {
@@ -187,7 +186,7 @@ pub fn get_supported_encodings() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_detect_encoding_utf8() {
         let bytes = b"Hello, World!";
@@ -195,14 +194,14 @@ mod tests {
         assert_eq!(encoding.name(), "UTF-8");
         assert!(confidence > 0.5);
     }
-    
+
     #[test]
     fn test_get_encoding_by_name() {
         assert_eq!(get_encoding_by_name("UTF-8").unwrap().name(), "UTF-8");
         assert_eq!(get_encoding_by_name("GBK").unwrap().name(), "GBK");
         assert!(get_encoding_by_name("INVALID").is_none());
     }
-    
+
     #[test]
     fn test_get_supported_encodings() {
         let encodings = get_supported_encodings();

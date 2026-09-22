@@ -10,7 +10,10 @@ pub struct PendingOpenPaths(pub Mutex<Vec<String>>);
 
 #[tauri::command]
 pub fn consume_pending_open_paths(state: State<'_, PendingOpenPaths>) -> Vec<String> {
-    let mut pending = state.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut pending = state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     std::mem::take(&mut *pending)
 }
 
@@ -39,12 +42,14 @@ pub fn queue_pending_open_paths(app_handle: &AppHandle, incoming_paths: Vec<Stri
         return;
     }
 
-    let unique_paths = incoming_paths.into_iter().fold(Vec::new(), |mut acc, path| {
-        if !acc.contains(&path) {
-            acc.push(path);
-        }
-        acc
-    });
+    let unique_paths = incoming_paths
+        .into_iter()
+        .fold(Vec::new(), |mut acc, path| {
+            if !acc.contains(&path) {
+                acc.push(path);
+            }
+            acc
+        });
 
     {
         let pending_state = app_handle.state::<PendingOpenPaths>();

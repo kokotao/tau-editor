@@ -16,7 +16,9 @@ export interface Tab {
   largeFileLoadedBytes?: number; // 已加载字节数（用于进度显示）
   largeFileLoadProgress?: number; // 0-100 百分比
   largeFileLoadSessionId?: number; // 分段加载会话 id（防串写）
+  largeFileLoadState?: 'initial' | 'loading' | 'complete' | 'failed' | 'cancelled'; // 分段加载生命周期状态
   lastKnownModified?: number | null; // 最近一次已加载或已保存的磁盘修改时间
+  fileRevision?: string | null; // 最近一次与磁盘一致的 revision（mtimeNs:size）
   externalModifiedAt?: number | null; // 外部检测到但尚未合并的修改时间
 }
 

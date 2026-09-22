@@ -1,5 +1,11 @@
 import { save } from '@tauri-apps/plugin-dialog';
-import { fileCommands } from '@/lib/tauri';
+import { fileCommands, isTauriApp, workspaceCommands } from '@/lib/tauri';
+import { commitLargeFileWithRevision } from '@/services/largeFileSession';
+import {
+  createWorkspaceRuntimeService,
+  readFileRevision,
+  type WorkspaceRuntimeService,
+} from '@/services/workspaceRuntimeService';
 import { normalizeModifiedTimestamp } from '@/services/externalFileSync';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
@@ -79,6 +85,7 @@ export class TabService {
     private readonly editorStore: EditorStore,
     private readonly workspaceStore: WorkspaceStore,
     private readonly notificationStore: NotificationStore,
+    private readonly workspaceRuntime: WorkspaceRuntimeService = createWorkspaceRuntimeService(),
   ) {}
 
   activateTab(tabId: string) {
@@ -116,6 +123,78 @@ export class TabService {
     }
   }
 
+  /**
+   * 大文件保存走 revision 分段事务：先写临时文件，提交前复核磁盘 revision。
+   * expectedRevision 必须来自打开/加载时捕获的基线，禁止在保存前重新读取当前 revision，
+   * 否则监听漏报的外部修改会被当作合法基线而被静默覆盖。
+   */
+  private async commitLargeFileRevision(tab: Tab, filePath: string) {
+    const expectedRevision = tab.fileRevision ?? null;
+    if (!expectedRevision) {
+      const error = new Error('缺少文件 revision 基线，请重新打开该文件后再保存') as Error & { code?: string };
+      error.code = 'REVISION_BASELINE_MISSING';
+      throw error;
+    }
+
+    const location = await this.workspaceRuntime.resolveForFile(
+      filePath,
+      this.workspaceStore.currentWorkspacePath,
+    );
+
+    return commitLargeFileWithRevision({
+      workspaceId: location.workspaceId,
+      relativePath: location.relativePath,
+      content: tab.content,
+      expectedRevision,
+      chunkBytes: tab.largeFileChunkSize,
+    });
+  }
+
+  /**
+   * 读取文件当前磁盘 revision；读取失败返回 null，不会抛错。
+   */
+  async captureFileRevision(filePath: string): Promise<string | null> {
+    return readFileRevision(
+      this.workspaceRuntime,
+      filePath,
+      this.workspaceStore.currentWorkspacePath,
+    );
+  }
+
+  /**
+   * 判断标签内容在写入期间是否仍与快照一致，避免把保存期间的新输入误标为已保存。
+   */
+  private isTabContentUnchanged(tabId: string, contentSnapshot: string): boolean {
+    const current = this.tabsStore.tabs.find((item) => item.id === tabId);
+    return current ? current.content === contentSnapshot : true;
+  }
+
+  /**
+   * 另存为：目标文件已存在时以其当前 revision 作为基线走事务写入，避免写入过程中被并发修改；
+   * 目标不存在时返回 null，由调用方直接分段创建新文件。
+   */
+  private async commitLargeFileSaveAs(targetPath: string, tab: Tab) {
+    const location = await this.workspaceRuntime.resolveForFile(
+      targetPath,
+      this.workspaceStore.currentWorkspacePath,
+    );
+    const revision = await workspaceCommands.getFileRevision(
+      location.workspaceId,
+      location.relativePath,
+    );
+    if (!revision.exists || !revision.revision) {
+      return null;
+    }
+
+    return commitLargeFileWithRevision({
+      workspaceId: location.workspaceId,
+      relativePath: location.relativePath,
+      content: tab.content,
+      expectedRevision: revision.revision,
+      chunkBytes: tab.largeFileChunkSize,
+    });
+  }
+
   async saveActiveTab() {
     const tab = this.tabsStore.activeTab;
     if (!tab) {
@@ -143,8 +222,25 @@ export class TabService {
       return;
     }
 
+    if (tab.externalModifiedAt !== null && tab.externalModifiedAt !== undefined) {
+      this.notificationStore.warning(
+        '检测到外部修改',
+        '磁盘上的内容已变化，请先处理冲突（重新加载 / 保留当前内容 / 另存为）再保存。',
+      );
+      return;
+    }
+
     try {
-      if (tab.isLargeFile) {
+      let lastKnownModified: number | null = null;
+      let fileRevision: string | null = null;
+      // 保存期间用户可能继续输入；只有内容没再变化才能清除脏标记。
+      const contentSnapshot = tab.content;
+
+      if (tab.isLargeFile && isTauriApp()) {
+        const commit = await this.commitLargeFileRevision(tab, tab.filePath);
+        fileRevision = commit.revision;
+        lastKnownModified = commit.modifiedMs || null;
+      } else if (tab.isLargeFile) {
         await this.writeLargeFileInChunks(
           tab.filePath,
           tab.content,
@@ -153,20 +249,25 @@ export class TabService {
       } else {
         await this.fileSystemStore.writeFileContent(tab.filePath, tab.content);
       }
-      let lastKnownModified: number | null = null;
-      try {
-        const fileInfo = await fileCommands.getFileInfo(tab.filePath);
-        lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
-      } catch {
-        lastKnownModified = null;
+
+      if (lastKnownModified === null) {
+        try {
+          const fileInfo = await fileCommands.getFileInfo(tab.filePath);
+          lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
+        } catch {
+          lastKnownModified = null;
+        }
       }
       this.tabsStore.updateTab(tab.id, {
-        isDirty: false,
+        isDirty: !this.isTabContentUnchanged(tab.id, contentSnapshot),
         isUntitled: false,
         lastKnownModified,
+        fileRevision,
         externalModifiedAt: null,
       });
-      this.editorStore.markAsSaved();
+      if (this.isTabContentUnchanged(tab.id, contentSnapshot)) {
+        this.editorStore.markAsSaved();
+      }
       this.workspaceStore.openSingleFile(tab.filePath);
       this.notificationStore.success('保存成功', tab.fileName);
 
@@ -174,6 +275,20 @@ export class TabService {
         await this.fileSystemStore.refreshFileTree();
       }
     } catch (error: any) {
+      if (error?.code === 'FILE_CONFLICT') {
+        this.notificationStore.warning(
+          '保存被阻止',
+          '文件已在磁盘上被修改，当前内容未写入。请先重新加载或另存为。',
+        );
+        return;
+      }
+      if (error?.code === 'REVISION_BASELINE_MISSING') {
+        this.notificationStore.warning(
+          '保存被阻止',
+          '当前标签缺少磁盘版本基线，为避免覆盖外部修改，请重新打开该文件后再保存。',
+        );
+        return;
+      }
       this.notificationStore.error('保存失败', error.message || '无法写入当前文件');
     }
   }
@@ -205,21 +320,37 @@ export class TabService {
 
       if (!targetPath) return;
 
+      let lastKnownModified: number | null = null;
+      let fileRevision: string | null = null;
+
       if (tab.isLargeFile) {
-        await this.writeLargeFileInChunks(
-          targetPath,
-          tab.content,
-          tab.largeFileChunkSize ?? LARGE_FILE_SAVE_CHUNK_BYTES,
-        );
+        const commit = isTauriApp()
+          ? await this.commitLargeFileSaveAs(targetPath, tab)
+          : null;
+        if (commit) {
+          lastKnownModified = commit.modifiedMs || null;
+          fileRevision = commit.revision;
+        } else {
+          await this.writeLargeFileInChunks(
+            targetPath,
+            tab.content,
+            tab.largeFileChunkSize ?? LARGE_FILE_SAVE_CHUNK_BYTES,
+          );
+        }
       } else {
         await this.fileSystemStore.writeFileContent(targetPath, tab.content);
       }
-      let lastKnownModified: number | null = null;
-      try {
-        const fileInfo = await fileCommands.getFileInfo(targetPath);
-        lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
-      } catch {
-        lastKnownModified = null;
+
+      if (lastKnownModified === null) {
+        try {
+          const fileInfo = await fileCommands.getFileInfo(targetPath);
+          lastKnownModified = normalizeModifiedTimestamp(fileInfo.modified);
+        } catch {
+          lastKnownModified = null;
+        }
+      }
+      if (!fileRevision && tab.isLargeFile) {
+        fileRevision = await this.captureFileRevision(targetPath);
       }
       this.tabsStore.updateTab(tab.id, {
         filePath: targetPath,
@@ -232,6 +363,7 @@ export class TabService {
         largeFileSize: tab.largeFileSize,
         largeFileChunkSize: tab.largeFileChunkSize,
         lastKnownModified,
+        fileRevision,
         externalModifiedAt: null,
       });
       this.editorStore.setLanguage(detectLanguage(targetPath));
@@ -244,6 +376,13 @@ export class TabService {
 
       this.notificationStore.success('另存为成功', getBaseName(targetPath));
     } catch (error: any) {
+      if (error?.code === 'FILE_CONFLICT') {
+        this.notificationStore.warning(
+          '另存为被阻止',
+          '目标文件在写入过程中被外部修改，请重新选择保存位置。',
+        );
+        return;
+      }
       this.notificationStore.error('另存为失败', error.message || '无法创建新文件');
     }
   }
@@ -291,17 +430,32 @@ export class TabService {
     const tab = this.tabsStore.activeTab;
     if (!tab) return;
 
+    this.updateTabContent(tab.id, content, options);
+  }
+
+  // 按标签 id 回写内容：编辑器可能在切换标签后才提交上一次输入。
+  updateTabContent(tabId: string, content: string, options?: { markDirty?: boolean }) {
+    const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+
     const markDirty = options?.markDirty ?? true;
     const nextDirty = markDirty ? true : tab.isDirty;
+    const isActiveTab = this.tabsStore.activeTabId === tabId;
+    const editorStoreSynced = !isActiveTab || this.editorStore.content === content;
 
-    if (tab.content === content && this.editorStore.content === content && tab.isDirty === nextDirty) {
+    if (tab.content === content && tab.isDirty === nextDirty && editorStoreSynced) {
       return;
     }
 
-    this.tabsStore.updateTab(tab.id, {
+    this.tabsStore.updateTab(tabId, {
       content,
       isDirty: nextDirty,
     });
+
+    if (!isActiveTab) {
+      return;
+    }
+
     if (content.length <= EDITOR_STORE_CONTENT_SYNC_MAX_CHARS) {
       this.editorStore.setContent(content, markDirty);
     } else {

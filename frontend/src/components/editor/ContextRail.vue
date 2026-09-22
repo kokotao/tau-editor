@@ -75,8 +75,61 @@
       >
         <span>{{ link.external ? '↗' : '↳' }}</span>
         <span>{{ link.label }}</span>
+        <em
+          v-if="!link.external"
+          class="context-link-state"
+          :class="`context-link-state--${linkStatus(link)}`"
+        >
+          {{ linkStatus(link) }}
+        </em>
         <small>{{ link.line }}</small>
       </button>
+    </section>
+
+    <section
+      v-if="language === 'markdown'"
+      class="context-rail-section"
+      aria-labelledby="context-workspace-tasks-heading"
+    >
+      <div class="context-rail-section-header">
+        <h3 id="context-workspace-tasks-heading">{{ copy.workspaceTasks }}</h3>
+        <span data-testid="context-workspace-task-count">{{ workspaceTaskTotal }}</span>
+        <button
+          type="button"
+          class="context-rail-refresh"
+          data-testid="context-refresh-tasks"
+          :title="copy.refreshTasks"
+          @click="emit('refresh-tasks')"
+        >
+          ↻
+        </button>
+      </div>
+      <p v-if="workspaceTasksLoading" class="context-rail-empty">{{ copy.workspaceTasksLoading }}</p>
+      <template v-else>
+        <button
+          v-for="task in workspaceTasks"
+          :key="task.id"
+          type="button"
+          class="context-work-item"
+          :class="{ completed: task.completed }"
+          :data-testid="`context-workspace-task-${task.id}`"
+          @click="emit('navigate-file', task.relativePath, task.line)"
+        >
+          <span>{{ task.completed ? '✓' : '○' }}</span>
+          <span>{{ task.label }}</span>
+          <small>{{ task.relativePath }}:{{ task.line }}</small>
+        </button>
+        <p
+          v-if="workspaceTasks.length === 0"
+          class="context-rail-empty"
+          data-testid="context-workspace-tasks-empty"
+        >
+          {{ copy.workspaceTasksEmpty }}
+        </p>
+        <p v-if="workspaceTasksTruncated" class="context-rail-empty">
+          {{ copy.workspaceTasksTruncated }}
+        </p>
+      </template>
     </section>
 
     <section v-if="gitEntries.length" class="context-rail-section" aria-labelledby="context-git-heading">
@@ -108,6 +161,7 @@
       <div class="context-rail-actions">
         <button type="button" data-testid="context-conflict-reload" @click="emit('reload-external')">{{ copy.reload }}</button>
         <button type="button" data-testid="context-conflict-keep" @click="emit('keep-external')">{{ copy.keep }}</button>
+        <button type="button" data-testid="context-conflict-details" @click="emit('show-external-details')">{{ copy.details }}</button>
       </div>
     </section>
 
@@ -116,6 +170,7 @@
         <h3 id="context-actions-heading">{{ copy.actions }}</h3>
       </div>
       <button type="button" data-testid="context-action-find" @click="emit('find')">{{ copy.find }}</button>
+      <button v-if="language === 'markdown'" type="button" data-testid="context-action-insert-image" @click="emit('insert-image')">{{ copy.insertImage }}</button>
       <button type="button" data-testid="context-action-go-to-line" @click="emit('go-to-line')">{{ copy.goToLine }}</button>
       <button v-if="language === 'markdown'" type="button" data-testid="context-action-export-html" @click="emit('export-html')">{{ copy.exportHtml }}</button>
     </section>
@@ -126,12 +181,18 @@
 import { computed } from 'vue';
 import type { OutlineItem } from '@/services/documentOutlineService';
 import type { MarkdownLink, MarkdownTask } from '@/services/markdownService';
-import type { GitStatusEntry } from '@/lib/tauri';
+import type { GitStatusEntry, MarkdownLinkStatus } from '@/lib/tauri';
+import type { WorkspaceTaskEntry } from '@/services/markdownContextService';
 
 interface ContextRailProps {
   outline?: OutlineItem[];
   tasks?: MarkdownTask[];
   links?: MarkdownLink[];
+  linkStatuses?: Record<string, MarkdownLinkStatus | undefined>;
+  workspaceTasks?: WorkspaceTaskEntry[];
+  workspaceTaskTotal?: number;
+  workspaceTasksLoading?: boolean;
+  workspaceTasksTruncated?: boolean;
   gitBranch?: string | null;
   gitEntries?: GitStatusEntry[];
   externalConflictFileName?: string | null;
@@ -143,6 +204,11 @@ const props = withDefaults(defineProps<ContextRailProps>(), {
   outline: () => [],
   tasks: () => [],
   links: () => [],
+  linkStatuses: () => ({}),
+  workspaceTasks: () => [],
+  workspaceTaskTotal: 0,
+  workspaceTasksLoading: false,
+  workspaceTasksTruncated: false,
   gitBranch: null,
   gitEntries: () => [],
   externalConflictFileName: null,
@@ -158,7 +224,11 @@ const emit = defineEmits<{
   'select-git': [path: string];
   'reload-external': [];
   'keep-external': [];
+  'show-external-details': [];
   'export-html': [];
+  'insert-image': [];
+  'refresh-tasks': [];
+  'navigate-file': [relativePath: string, line: number];
 }>();
 
 const copy = computed(() => props.locale === 'zh-CN'
@@ -171,12 +241,19 @@ const copy = computed(() => props.locale === 'zh-CN'
       changes: '变更',
       externalChange: '外部修改',
       externalChangeHint: '已在磁盘上更新。',
+      details: '查看详情',
       reload: '重新加载',
       keep: '保留当前',
       exportHtml: '导出 HTML',
       collapse: '收起上下文栏',
       empty: '当前文档没有可导航的结构。',
       find: '查找',
+      workspaceTasks: '工作区任务',
+      workspaceTasksEmpty: '工作区暂时没有 Markdown 任务。',
+      workspaceTasksLoading: '正在扫描工作区任务…',
+      workspaceTasksTruncated: '任务过多，仅展示前 500 项。',
+      refreshTasks: '刷新任务列表',
+      insertImage: '插入图片',
       goToLine: '跳转到行',
     }
   : {
@@ -188,12 +265,19 @@ const copy = computed(() => props.locale === 'zh-CN'
       changes: 'Changes',
       externalChange: 'External change',
       externalChangeHint: 'changed on disk.',
+      details: 'Details',
       reload: 'Reload',
       keep: 'Keep current',
       exportHtml: 'Export HTML',
       collapse: 'Collapse context rail',
       empty: 'No navigation targets in this document.',
       find: 'Find',
+      workspaceTasks: 'Workspace tasks',
+      workspaceTasksEmpty: 'No Markdown tasks in this workspace.',
+      workspaceTasksLoading: 'Scanning workspace tasks…',
+      workspaceTasksTruncated: 'Too many tasks, showing the first 500.',
+      refreshTasks: 'Refresh tasks',
+      insertImage: 'Insert image',
       goToLine: 'Go to line',
     });
 
@@ -207,6 +291,9 @@ const outlineKindLabel = (kind: OutlineItem['kind']) => {
   };
   return labels[kind];
 };
+
+const linkStatus = (link: MarkdownLink) =>
+  props.linkStatuses[link.target.trim()]?.status ?? 'unknown';
 </script>
 
 <style scoped>
@@ -372,5 +459,25 @@ const outlineKindLabel = (kind: OutlineItem['kind']) => {
   padding: 8px;
   border-radius: 5px;
   font-size: 12px;
+}
+
+.context-rail-refresh {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.context-link-state {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.context-link-state--missing,
+.context-link-state--outside,
+.context-link-state--unsupported,
+.context-link-state--invalid {
+  color: #f5a524;
 }
 </style>

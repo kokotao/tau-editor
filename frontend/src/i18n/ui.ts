@@ -250,6 +250,10 @@ interface EditorTabsText {
   closeAll: string;
   renameTab: string;
   loadingProgress: (progress: number) => string;
+  loadingFailed: string;
+  loadingCancelled: string;
+  cancelLoad: string;
+  retryLoad: string;
 }
 
 interface FileTreeText {
@@ -854,6 +858,10 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     closeAll: '关闭所有标签',
     renameTab: '重命名标签',
     loadingProgress: (progress) => `加载中 ${progress}%`,
+    loadingFailed: '加载失败',
+    loadingCancelled: '已取消加载',
+    cancelLoad: '取消',
+    retryLoad: '重试',
   },
   'en-US': {
     unsaved: 'Unsaved',
@@ -862,6 +870,10 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     closeAll: 'Close All',
     renameTab: 'Rename Tab',
     loadingProgress: (progress) => `Loading ${progress}%`,
+    loadingFailed: 'Load failed',
+    loadingCancelled: 'Load cancelled',
+    cancelLoad: 'Cancel',
+    retryLoad: 'Retry',
   },
 };
 

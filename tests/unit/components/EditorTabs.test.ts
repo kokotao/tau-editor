@@ -114,6 +114,56 @@ describe('EditorTabs.vue', () => {
     expect(wrapper.emitted('tabs-reorder')).toEqual([[['second', 'third', 'first']]]);
   });
 
+  it('loading 状态提供取消按钮并回传 tabId', async () => {
+    const wrapper = mount(EditorTabs, {
+      props: {
+        tabs: [
+          makeTab('large', {
+            isLargeFile: true,
+            isLoadingContent: true,
+            largeFileLoadState: 'loading',
+            largeFileLoadProgress: 30,
+          }),
+        ],
+        activeTabId: 'large',
+      },
+    });
+
+    expect(wrapper.find('[data-testid="btn-retry-large-file-load"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="btn-cancel-large-file-load"]').trigger('click');
+
+    expect(wrapper.emitted('cancel-large-file-load')).toEqual([['large']]);
+    expect(wrapper.emitted('tab-click')).toBeUndefined();
+  });
+
+  it('failed 与 cancelled 状态展示重试按钮', async () => {
+    const wrapper = mount(EditorTabs, {
+      props: {
+        tabs: [
+          makeTab('broken', {
+            isLargeFile: true,
+            isLoadingContent: true,
+            largeFileLoadState: 'failed',
+          }),
+          makeTab('stopped', {
+            isLargeFile: true,
+            isLoadingContent: true,
+            largeFileLoadState: 'cancelled',
+          }),
+        ],
+        activeTabId: 'broken',
+      },
+    });
+
+    const pills = wrapper.findAll('.tab-loading-pill');
+    expect(pills[0].text()).toContain('加载失败');
+    expect(pills[1].text()).toContain('已取消加载');
+    expect(wrapper.findAll('[data-testid="btn-cancel-large-file-load"]')).toHaveLength(0);
+
+    await wrapper.findAll('[data-testid="btn-retry-large-file-load"]')[1].trigger('click');
+    expect(wrapper.emitted('retry-large-file-load')).toEqual([['stopped']]);
+  });
+
   it('closes the context menu when the document receives a click', async () => {
     const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' }, attachTo: document.body });
 

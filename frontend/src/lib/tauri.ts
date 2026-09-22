@@ -195,8 +195,193 @@ export interface WorkspaceSearchResponse {
   matches: WorkspaceSearchMatch[];
   truncated: boolean;
   scannedFiles: number;
+  /** 搜索被用户取消时为 true，此时 matches 只包含已扫描到的部分结果。 */
+  cancelled: boolean;
 }
 
+export interface WorkspaceSearchCancelResponse {
+  cancelled: boolean;
+}
+
+export interface WorkspaceReplacePreviewMatch {
+  matchId: string;
+  line: number;
+  column: number;
+  length: number;
+  before: string;
+  after: string;
+}
+
+export interface WorkspaceReplacePreviewFile {
+  relativePath: string;
+  revision: string;
+  matches: WorkspaceReplacePreviewMatch[];
+  truncated: boolean;
+}
+
+export interface WorkspaceReplacePreviewResponse {
+  previewId: string;
+  files: WorkspaceReplacePreviewFile[];
+  totalMatches: number;
+  scannedFiles: number;
+  truncated: boolean;
+}
+
+export type WorkspaceReplaceStatus = 'applied' | 'skipped' | 'conflict' | 'failed';
+
+export interface WorkspaceReplaceFileResult {
+  relativePath: string;
+  status: WorkspaceReplaceStatus;
+  appliedMatchIds: string[];
+  undoable: boolean;
+  message?: string | null;
+}
+
+export interface WorkspaceReplaceApplyResponse {
+  previewId: string;
+  undoId?: string | null;
+  results: WorkspaceReplaceFileResult[];
+  applied: number;
+  skipped: number;
+  conflicts: number;
+  failed: number;
+}
+
+export interface WorkspaceReplaceUndoResponse {
+  undoId: string;
+  restored: string[];
+  conflicts: string[];
+  failed: WorkspaceReplaceFileResult[];
+}
+
+export interface MarkdownAssetImportResponse {
+  relativePath: string;
+  markdownSnippet: string;
+  bytes: number;
+  reusedExisting: boolean;
+}
+
+export type MarkdownLinkState =
+  | 'ok'
+  | 'missing'
+  | 'outside'
+  | 'external'
+  | 'anchor'
+  | 'unsupported'
+  | 'invalid';
+
+export interface MarkdownLinkStatus {
+  target: string;
+  status: MarkdownLinkState;
+  resolvedRelativePath?: string | null;
+  message?: string | null;
+}
+
+export interface WorkspaceTaskItem {
+  line: number;
+  label: string;
+  completed: boolean;
+}
+
+export interface WorkspaceTaskFile {
+  relativePath: string;
+  tasks: WorkspaceTaskItem[];
+}
+
+export interface WorkspaceTaskResponse {
+  files: WorkspaceTaskFile[];
+  totalTasks: number;
+  scannedFiles: number;
+  truncated: boolean;
+}
+
+export interface RecoveryOpenTab {
+  path: string | null;
+  viewState?: unknown;
+  pinned: boolean;
+}
+
+export interface RecoverySessionDocument {
+  version: 2;
+  savedAt: number;
+  workspacePath: string | null;
+  activeTabPath: string | null;
+  openTabs: RecoveryOpenTab[];
+  layout: unknown;
+  recentWorkspaces: string[];
+  tabs: unknown[];
+}
+
+export interface RecoveryBaseFingerprint {
+  mtimeMs: number | null;
+  size: number | null;
+}
+
+export interface RecoveryCursor {
+  line: number;
+  column: number;
+}
+
+export interface RecoveryDraftRecord {
+  version: 2;
+  id: string;
+  path: string | null;
+  baseFingerprint: RecoveryBaseFingerprint | null;
+  content: string;
+  updatedAt: number;
+  cursor: RecoveryCursor | null;
+  scrollTop: number | null;
+  tab?: unknown;
+}
+
+export interface RecoveryLimits {
+  maxDrafts: number;
+  maxTotalBytes: number;
+  maxAgeDays: number;
+}
+
+export interface RecoveryRecordsResponse {
+  session: RecoverySessionDocument | null;
+  drafts: RecoveryDraftRecord[];
+  limits: RecoveryLimits;
+}
+
+export interface RecoveryWriteResponse {
+  writtenDrafts: number;
+  deletedDrafts: number;
+}
+
+export interface RecoveryDeleteResponse {
+  deleted: number;
+}
+
+export type WorkspaceChangeKind = 'created' | 'modified' | 'removed' | 'renamed';
+
+export interface WorkspaceFileChange {
+  path: string;
+  oldPath: string | null;
+  kind: WorkspaceChangeKind;
+  modifiedMs: number | null;
+  size: number | null;
+}
+
+export interface WorkspaceWatchStatus {
+  watching: boolean;
+  rootPath: string | null;
+  debounceMs: number;
+}
+
+export const WORKSPACE_FILE_CHANGED_EVENT = 'workspace:file-changed';
+
+/**
+ * 订阅后端工作区文件变更事件，返回解绑函数。延迟加载 Tauri 事件模块，Web 环境不会引入。
+ */
+export async function listenWorkspaceFileChanges(
+  handler: (payload: unknown) => void,
+): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<unknown>(WORKSPACE_FILE_CHANGED_EVENT, (event) => handler(event.payload));
+}
 /**
  * v0.3.0 工作区运行时桥接。后续文件/Git 命令只能接受此处返回的 workspaceId。
  */
@@ -254,17 +439,188 @@ export const gitCommands = {
   },
 };
 
+export const recoveryCommands = {
+  async list(): Promise<RecoveryRecordsResponse> {
+    return invokeCommand<RecoveryRecordsResponse>('list_recovery_records');
+  },
+
+  async write(
+    session: RecoverySessionDocument | null,
+    drafts: RecoveryDraftRecord[] | null,
+  ): Promise<RecoveryWriteResponse> {
+    return invokeCommand<RecoveryWriteResponse>('write_recovery_record', {
+      session,
+      drafts,
+    });
+  },
+
+  async remove(options: {
+    id?: string;
+    path?: string;
+    all?: boolean;
+    session?: boolean;
+  }): Promise<RecoveryDeleteResponse> {
+    return invokeCommand<RecoveryDeleteResponse>('delete_recovery_record', options);
+  },
+};
+
+export const watcherCommands = {
+  async start(path: string, debounceMs?: number): Promise<WorkspaceWatchStatus> {
+    return invokeCommand<WorkspaceWatchStatus>('start_workspace_watch', {
+      path,
+      debounceMs,
+    });
+  },
+
+  async stop(): Promise<WorkspaceWatchStatus> {
+    return invokeCommand<WorkspaceWatchStatus>('stop_workspace_watch');
+  },
+
+  async status(): Promise<WorkspaceWatchStatus> {
+    return invokeCommand<WorkspaceWatchStatus>('workspace_watch_status');
+  },
+};
+
+export interface FileWriteTransactionHandle {
+  transactionId: string;
+  expectedRevision: string;
+  maxChunkBytes: number;
+  maxTotalBytes: number;
+}
+
+export interface FileWriteTransactionProgress {
+  transactionId: string;
+  bytesWritten: number;
+}
+
+export interface FileWriteTransactionCommit {
+  revision: string;
+  size: number;
+  modifiedMs: number;
+}
+
+export interface FileWriteTransactionAbort {
+  aborted: boolean;
+}
+
+/**
+ * 大文件分段写入事务：先写临时文件，提交前再校验 revision，避免覆盖外部修改。
+ */
+export const fileTransactionCommands = {
+  async begin(
+    workspaceId: string,
+    relativePath: string,
+    expectedRevision: string,
+  ): Promise<FileWriteTransactionHandle> {
+    return invokeCommand<FileWriteTransactionHandle>('begin_file_write_transaction', {
+      workspaceId,
+      relativePath,
+      expectedRevision,
+    });
+  },
+
+  async append(transactionId: string, content: string): Promise<FileWriteTransactionProgress> {
+    return invokeCommand<FileWriteTransactionProgress>('append_file_write_transaction_chunk', {
+      transactionId,
+      content,
+    });
+  },
+
+  async commit(transactionId: string): Promise<FileWriteTransactionCommit> {
+    return invokeCommand<FileWriteTransactionCommit>('commit_file_write_transaction', {
+      transactionId,
+    });
+  },
+
+  async abort(transactionId: string): Promise<FileWriteTransactionAbort> {
+    return invokeCommand<FileWriteTransactionAbort>('abort_file_write_transaction', {
+      transactionId,
+    });
+  },
+};
+
 export const searchCommands = {
   async workspace(
     workspaceId: string,
+    searchId: string,
     query: string,
     options: WorkspaceSearchOptions,
   ): Promise<WorkspaceSearchResponse> {
     return invokeCommand<WorkspaceSearchResponse>('search_workspace', {
       workspaceId,
+      searchId,
       query,
       options,
     });
+  },
+
+  async cancel(searchId: string): Promise<WorkspaceSearchCancelResponse> {
+    return invokeCommand<WorkspaceSearchCancelResponse>('cancel_search', { searchId });
+  },
+};
+
+export const replaceCommands = {
+  async preview(
+    workspaceId: string,
+    query: string,
+    replacement: string,
+    options: WorkspaceSearchOptions,
+  ): Promise<WorkspaceReplacePreviewResponse> {
+    return invokeCommand<WorkspaceReplacePreviewResponse>('preview_workspace_replace', {
+      workspaceId,
+      query,
+      replacement,
+      options,
+    });
+  },
+
+  async apply(
+    workspaceId: string,
+    previewId: string,
+    matchIds: string[],
+  ): Promise<WorkspaceReplaceApplyResponse> {
+    return invokeCommand<WorkspaceReplaceApplyResponse>('apply_workspace_replace_preview', {
+      workspaceId,
+      previewId,
+      matchIds,
+    });
+  },
+
+  async undo(workspaceId: string, undoId: string): Promise<WorkspaceReplaceUndoResponse> {
+    return invokeCommand<WorkspaceReplaceUndoResponse>('undo_workspace_replace', {
+      workspaceId,
+      undoId,
+    });
+  },
+};
+
+export const markdownCommands = {
+  async importAsset(
+    workspaceId: string,
+    documentRelativePath: string,
+    sourcePath: string,
+  ): Promise<MarkdownAssetImportResponse> {
+    return invokeCommand<MarkdownAssetImportResponse>('import_markdown_asset', {
+      workspaceId,
+      documentRelativePath,
+      sourcePath,
+    });
+  },
+
+  async checkLinks(
+    workspaceId: string,
+    documentRelativePath: string,
+    targets: string[],
+  ): Promise<MarkdownLinkStatus[]> {
+    return invokeCommand<MarkdownLinkStatus[]>('check_markdown_links', {
+      workspaceId,
+      documentRelativePath,
+      targets,
+    });
+  },
+
+  async workspaceTasks(workspaceId: string): Promise<WorkspaceTaskResponse> {
+    return invokeCommand<WorkspaceTaskResponse>('collect_workspace_tasks', { workspaceId });
   },
 };
 

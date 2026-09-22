@@ -1,7 +1,6 @@
 /// 设置相关命令模块
 ///
 /// 实现自动保存配置、应用版本信息以及 GitHub Release 更新检查/下载安装能力。
-
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -10,10 +9,10 @@ use std::fs;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -172,12 +171,14 @@ pub async fn check_github_update(repo_url: Option<String>) -> Result<GithubUpdat
         Ok(release) => release,
         Err(api_error) => {
             if is_rate_limited_error(&api_error) {
-                fetch_latest_release_from_web(&owner, &repo).await.map_err(|fallback_error| {
-                    format!(
-                        "GitHub API 已达到限流，网页回退也失败：{}（原始错误：{}）",
-                        fallback_error, api_error
-                    )
-                })?
+                fetch_latest_release_from_web(&owner, &repo)
+                    .await
+                    .map_err(|fallback_error| {
+                        format!(
+                            "GitHub API 已达到限流，网页回退也失败：{}（原始错误：{}）",
+                            fallback_error, api_error
+                        )
+                    })?
             } else {
                 return Err(api_error);
             }
@@ -320,10 +321,7 @@ fn compare_versions(left: &str, right: &str) -> Ordering {
 
 fn parse_version_parts(raw: &str) -> Vec<u64> {
     let normalized = normalize_version(raw);
-    let version_core = normalized
-        .split(['-', '+'])
-        .next()
-        .unwrap_or("0");
+    let version_core = normalized.split(['-', '+']).next().unwrap_or("0");
 
     let mut parts = Vec::new();
     for part in version_core.split('.') {
@@ -369,8 +367,7 @@ async fn fetch_latest_release(owner: &str, repo: &str) -> Result<GithubReleaseRe
         let summary = message.chars().take(240).collect::<String>();
         return Err(format!(
             "GitHub Release 接口返回异常（{}）：{}",
-            status,
-            summary
+            status, summary
         ));
     }
 
@@ -380,7 +377,10 @@ async fn fetch_latest_release(owner: &str, repo: &str) -> Result<GithubReleaseRe
         .map_err(|error| format!("解析 GitHub Release 数据失败：{error}"))
 }
 
-async fn fetch_latest_release_from_web(owner: &str, repo: &str) -> Result<GithubReleaseResponse, String> {
+async fn fetch_latest_release_from_web(
+    owner: &str,
+    repo: &str,
+) -> Result<GithubReleaseResponse, String> {
     let client = Client::builder()
         .user_agent(HTTP_USER_AGENT)
         .build()
@@ -469,7 +469,8 @@ fn extract_tag_from_release_html(html: &str, owner: &str, repo: &str) -> Option<
 
         let mut end = begin;
         for (offset, ch) in html[begin..].char_indices() {
-            if ch == '"' || ch == '\'' || ch == '<' || ch.is_whitespace() || ch == '?' || ch == '#' {
+            if ch == '"' || ch == '\'' || ch == '<' || ch.is_whitespace() || ch == '?' || ch == '#'
+            {
                 end = begin + offset;
                 break;
             }
@@ -487,7 +488,11 @@ fn extract_tag_from_release_html(html: &str, owner: &str, repo: &str) -> Option<
     })
 }
 
-fn extract_release_assets_from_html(html: &str, owner: &str, repo: &str) -> Vec<GithubAssetResponse> {
+fn extract_release_assets_from_html(
+    html: &str,
+    owner: &str,
+    repo: &str,
+) -> Vec<GithubAssetResponse> {
     let marker = format!("/{owner}/{repo}/releases/download/");
     let mut cursor = 0usize;
     let mut seen = HashSet::new();
@@ -537,7 +542,9 @@ fn choose_release_asset(
 ) -> Option<GithubAssetResponse> {
     assets
         .iter()
-        .filter_map(|asset| score_asset_name(&asset.name, os, arch).map(|score| (score, asset.clone())))
+        .filter_map(|asset| {
+            score_asset_name(&asset.name, os, arch).map(|score| (score, asset.clone()))
+        })
         .max_by(|(score_a, asset_a), (score_b, asset_b)| {
             score_a
                 .cmp(score_b)
@@ -549,7 +556,16 @@ fn choose_release_asset(
 fn score_asset_name(name: &str, os: &str, arch: &str) -> Option<i32> {
     let lower = name.to_lowercase();
 
-    let disallowed_tokens = ["source code", ".sig", "sha256", "sha512", ".txt", ".json", ".yml", ".yaml"];
+    let disallowed_tokens = [
+        "source code",
+        ".sig",
+        "sha256",
+        "sha512",
+        ".txt",
+        ".json",
+        ".yml",
+        ".yaml",
+    ];
     if disallowed_tokens.iter().any(|token| lower.contains(token)) {
         return None;
     }
@@ -630,9 +646,7 @@ fn contains_os_hint(name: &str, os: &str) -> bool {
 }
 
 fn is_arch_match(name: &str, arch: &str) -> bool {
-    arch_tokens(arch)
-        .iter()
-        .any(|token| name.contains(token))
+    arch_tokens(arch).iter().any(|token| name.contains(token))
 }
 
 fn has_other_arch_token(name: &str, arch: &str) -> bool {
@@ -651,7 +665,9 @@ fn arch_tokens(arch: &str) -> &'static [&'static str] {
 }
 
 fn all_arch_tokens() -> &'static [&'static str] {
-    &["x86_64", "amd64", "x64", "aarch64", "arm64", "x86", "i386", "i686"]
+    &[
+        "x86_64", "amd64", "x64", "aarch64", "arm64", "x86", "i386", "i686",
+    ]
 }
 
 fn validate_download_url(url: &str) -> Result<(), String> {
@@ -718,7 +734,10 @@ async fn download_file(url: &str, path: &Path) -> Result<(), String> {
         .map_err(|error| format!("下载更新包失败：{error}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("下载更新包失败，HTTP 状态码：{}", response.status()));
+        return Err(format!(
+            "下载更新包失败，HTTP 状态码：{}",
+            response.status()
+        ));
     }
 
     let bytes = response
@@ -772,8 +791,8 @@ fn launch_installer(app: &tauri::AppHandle, path: &Path) -> Result<String, Strin
     if extension == "dmg" {
         let mount_point = mount_dmg(path)?;
         let source_app = find_first_app_in_directory(&mount_point)?;
-        let current_executable = std::env::current_exe()
-            .map_err(|error| format!("获取当前应用路径失败：{error}"))?;
+        let current_executable =
+            std::env::current_exe().map_err(|error| format!("获取当前应用路径失败：{error}"))?;
         let target_app = find_app_bundle_from_executable_path(&current_executable)?;
         let script_path = write_macos_update_script_file()?;
 
@@ -922,16 +941,19 @@ hdiutil detach "$MOUNT_POINT" -quiet >/dev/null 2>&1 || true
 rm -f "$DMG_PATH"
 rm -f "$0"
 "#
-        .to_string()
+    .to_string()
 }
 
 #[cfg(target_os = "macos")]
 fn write_macos_update_script_file() -> Result<PathBuf, String> {
     let mut script_path = std::env::temp_dir();
-    script_path.push(format!("tau-editor-update-{}.sh", current_unix_timestamp()?));
+    script_path.push(format!(
+        "tau-editor-update-{}.sh",
+        current_unix_timestamp()?
+    ));
 
-    let mut file = fs::File::create(&script_path)
-        .map_err(|error| format!("创建更新脚本失败：{error}"))?;
+    let mut file =
+        fs::File::create(&script_path).map_err(|error| format!("创建更新脚本失败：{error}"))?;
     file.write_all(build_macos_update_script().as_bytes())
         .map_err(|error| format!("写入更新脚本失败：{error}"))?;
 
@@ -1017,7 +1039,9 @@ fn open_in_file_manager(path: &Path) -> Result<(), String> {
         let open_target = if path.is_dir() {
             path.to_path_buf()
         } else {
-            path.parent().map(Path::to_path_buf).unwrap_or_else(|| path.to_path_buf())
+            path.parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| path.to_path_buf())
         };
         Command::new("xdg-open")
             .arg(open_target)
@@ -1066,7 +1090,10 @@ mod tests {
     #[test]
     fn test_parse_github_repo_success() {
         let result = parse_github_repo("https://github.com/kokotao/tau-editor/");
-        assert_eq!(result.unwrap(), ("kokotao".to_string(), "tau-editor".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            ("kokotao".to_string(), "tau-editor".to_string())
+        );
     }
 
     #[test]
@@ -1106,15 +1133,18 @@ mod tests {
             },
         ];
 
-        let selected = choose_release_asset(&assets, "linux", "x86_64")
-            .expect("expected a matched asset");
+        let selected =
+            choose_release_asset(&assets, "linux", "x86_64").expect("expected a matched asset");
 
         assert_eq!(selected.name, "tau-editor_0.2.1_amd64.deb");
     }
 
     #[test]
     fn test_sanitize_file_name() {
-        assert_eq!(sanitize_file_name("tau editor 0.2.0.dmg"), "tau_editor_0.2.0.dmg");
+        assert_eq!(
+            sanitize_file_name("tau editor 0.2.0.dmg"),
+            "tau_editor_0.2.0.dmg"
+        );
         assert_eq!(sanitize_file_name(""), "update-package.bin");
     }
 
@@ -1141,14 +1171,17 @@ mod tests {
 
     #[test]
     fn test_is_rate_limited_error() {
-        assert!(is_rate_limited_error("GitHub Release 接口返回异常（403）：API rate limit exceeded"));
+        assert!(is_rate_limited_error(
+            "GitHub Release 接口返回异常（403）：API rate limit exceeded"
+        ));
         assert!(!is_rate_limited_error("network timeout"));
     }
 
     #[test]
     fn test_find_app_bundle_from_executable_path() {
         let exe_path = PathBuf::from("/Applications/Tau Editor.app/Contents/MacOS/text-editor");
-        let bundle_path = find_app_bundle_from_executable_path(&exe_path).expect("bundle path should resolve");
+        let bundle_path =
+            find_app_bundle_from_executable_path(&exe_path).expect("bundle path should resolve");
         assert_eq!(bundle_path, PathBuf::from("/Applications/Tau Editor.app"));
     }
 

@@ -1,17 +1,24 @@
 /// 数据模型模块
-
 mod error;
 mod file;
 mod git;
-mod revision;
-mod settings;
-mod search;
+mod markdown;
+mod recovery;
 mod replace;
+mod revision;
+mod search;
+mod settings;
+mod transaction;
+mod watch;
 
 pub use error::*;
 pub use file::*;
 pub use git::*;
-pub use revision::*;
-pub use settings::*;
-pub use search::*;
+pub use markdown::*;
+pub use recovery::*;
 pub use replace::*;
+pub use revision::*;
+pub use search::*;
+pub use settings::*;
+pub use transaction::*;
+pub use watch::*;

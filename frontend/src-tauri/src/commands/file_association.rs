@@ -4,7 +4,6 @@
 /// 文件类型的默认打开程序，或取消关联，从而让用户可在设置中管理
 /// “双击打开”行为。脚本类扩展名 (bat/cmd 等) 默认不关联，避免占用
 /// 系统执行能力。
-
 use serde::Serialize;
 
 #[allow(dead_code)]
@@ -182,8 +181,22 @@ fn register_ext(ext: &str) -> Result<(), String> {
     let open_command = format!("\"{exe}\" \"%1\"");
 
     run_reg(&["add", pid_key.as_str(), "/ve", "/d", display.as_str(), "/f"])?;
-    run_reg(&["add", default_icon_key.as_str(), "/ve", "/d", default_icon.as_str(), "/f"])?;
-    run_reg(&["add", open_command_key.as_str(), "/ve", "/d", open_command.as_str(), "/f"])?;
+    run_reg(&[
+        "add",
+        default_icon_key.as_str(),
+        "/ve",
+        "/d",
+        default_icon.as_str(),
+        "/f",
+    ])?;
+    run_reg(&[
+        "add",
+        open_command_key.as_str(),
+        "/ve",
+        "/d",
+        open_command.as_str(),
+        "/f",
+    ])?;
     run_reg(&["add", ext_key.as_str(), "/ve", "/d", pid.as_str(), "/f"])?;
     Ok(())
 }

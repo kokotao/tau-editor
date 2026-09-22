@@ -91,4 +91,63 @@ describe('ContextRail', () => {
     await wrapper.get('[data-testid="context-action-export-html"]').trigger('click');
     expect(wrapper.emitted('export-html')).toHaveLength(1);
   });
+
+  it('renders workspace tasks with count and emits refresh and navigation events', async () => {
+    const wrapper = mount(ContextRail, {
+      props: {
+        language: 'markdown',
+        locale: 'zh-CN',
+        workspaceTasks: [
+          { id: 'README.md:3', relativePath: 'README.md', line: 3, label: 'Ship v0.3.3', completed: false },
+        ],
+        workspaceTaskTotal: 1,
+      },
+    });
+
+    expect(wrapper.get('[data-testid="context-workspace-task-count"]').text()).toBe('1');
+    expect(wrapper.get('[data-testid="context-workspace-task-README.md:3"]').text()).toContain('Ship v0.3.3');
+
+    await wrapper.get('[data-testid="context-refresh-tasks"]').trigger('click');
+    await wrapper.get('[data-testid="context-workspace-task-README.md:3"]').trigger('click');
+
+    expect(wrapper.emitted('refresh-tasks')).toHaveLength(1);
+    expect(wrapper.emitted('navigate-file')).toEqual([['README.md', 3]]);
+  });
+
+  it('surfaces workspace task loading, empty and truncation states', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { language: 'markdown', workspaceTasksLoading: true },
+    });
+
+    expect(wrapper.text()).toContain('Scanning workspace tasks');
+
+    await wrapper.setProps({ workspaceTasksLoading: false });
+    expect(wrapper.get('[data-testid="context-workspace-tasks-empty"]')).toBeTruthy();
+
+    await wrapper.setProps({ workspaceTasksTruncated: true });
+    expect(wrapper.text()).toContain('showing the first 500');
+  });
+
+  it('renders link status badges for workspace-checked links', () => {
+    const wrapper = mount(ContextRail, {
+      props: {
+        language: 'markdown',
+        links: [{ id: 'link-8-1', label: 'Guide', target: 'docs/guide.md', external: false, line: 8 }],
+        linkStatuses: { 'docs/guide.md': { target: 'docs/guide.md', status: 'missing' } },
+      },
+    });
+
+    const badge = wrapper.get('.context-link-state');
+    expect(badge.text()).toBe('missing');
+    expect(badge.classes()).toContain('context-link-state--missing');
+  });
+
+  it('offers image insertion for Markdown documents only', async () => {
+    const markdownRail = mount(ContextRail, { props: { language: 'markdown' } });
+    await markdownRail.get('[data-testid="context-action-insert-image"]').trigger('click');
+    expect(markdownRail.emitted('insert-image')).toHaveLength(1);
+
+    const plainRail = mount(ContextRail, { props: { language: 'plaintext' } });
+    expect(plainRail.find('[data-testid="context-action-insert-image"]').exists()).toBe(false);
+  });
 });

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { useFileSystemStore, type FileTreeNode } from '@/stores/fileSystem';
 import { useWorkspaceStore } from '@/stores/workspace';
 import { useTabsStore } from '@/stores/tabs';
@@ -8,13 +9,24 @@ import { useSettingsStore } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notification';
 import { useKeyboardStore } from '@/stores/keyboard';
 import { useCommandStore } from '@/stores/commands';
+import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { createCommandExecutor, createCommandRegistry } from '@/services/commandRegistry';
+import {
+  createWorkspaceWatcherService,
+  normalizeWorkspacePath,
+} from '@/services/workspaceWatcherService';
 import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
 import { buildDocumentOutline } from '@/services/documentOutlineService';
 import { collectMarkdownContext, createStandaloneHtml } from '@/services/markdownService';
+import {
+  flattenWorkspaceTasks,
+  importMarkdownAsset,
+  loadMarkdownLinkStatuses,
+  loadWorkspaceTasks,
+} from '@/services/markdownContextService';
 import { rankQuickOpenFiles } from '@/services/quickOpenService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import {
@@ -23,10 +35,15 @@ import {
   gitCommands,
   isTauriApp,
   type GitStatusResponse,
+  type WorkspaceFileChange,
   searchCommands,
+  replaceCommands,
   type WorkspaceSearchMatch,
+  type WorkspaceReplaceFileResult,
+  type WorkspaceReplacePreviewResponse,
   workspaceCommands,
 } from '@/lib/tauri';
+import type { MarkdownLinkStatus, WorkspaceTaskResponse } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
   getAppI18n,
@@ -37,12 +54,14 @@ import {
 } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
 import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
+import ReplacePreviewDialog from './components/editor/ReplacePreviewDialog.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
 import EditorCore from './components/editor/EditorCore.vue';
 import MarkdownPreview from './components/editor/MarkdownPreview.vue';
 import ContextRail from './components/editor/ContextRail.vue';
+import ExternalChangeDialog from './components/editor/ExternalChangeDialog.vue';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
@@ -55,6 +74,7 @@ const settingsStore = useSettingsStore();
 const notificationStore = useNotificationStore();
 const keyboardStore = useKeyboardStore();
 const commandStore = useCommandStore();
+const fileConflictsStore = useFileConflictsStore();
 const workspaceService = createWorkspaceService(
   fileSystemStore,
   tabsStore,
@@ -71,6 +91,7 @@ const tabService = createTabService(
   notificationStore,
 );
 const windowService = createWindowService(settingsStore, tabsStore);
+const workspaceWatcherService = createWorkspaceWatcherService();
 const LANGUAGE_MODE_ORDER: EditorLanguageMode[] = [
   'plaintext',
   'javascript',
@@ -135,6 +156,24 @@ const workspaceSearchQuery = ref('');
 const workspaceSearchResults = ref<WorkspaceSearchMatch[]>([]);
 const workspaceSearchLoading = ref(false);
 const workspaceSearchError = ref<string | null>(null);
+const workspaceSearchCancelled = ref(false);
+const workspaceReplaceReplacement = ref('');
+const replacePreviewVisible = ref(false);
+const replacePreview = ref<WorkspaceReplacePreviewResponse | null>(null);
+const replacePreviewLoading = ref(false);
+const replacePreviewError = ref<string | null>(null);
+const replaceApplying = ref(false);
+const replaceResults = ref<WorkspaceReplaceFileResult[]>([]);
+const replaceUndoId = ref<string | null>(null);
+const replaceUndoBusy = ref(false);
+const replaceUndone = ref(false);
+// 一次预览只能提交一次：后端在 apply 时会消费 previewId。
+const replacePreviewConsumed = ref(false);
+const markdownLinkStatuses = ref<Record<string, MarkdownLinkStatus>>({});
+const workspaceTasks = ref<WorkspaceTaskResponse | null>(null);
+const workspaceTasksWorkspaceId = ref<string | null>(null);
+const workspaceTasksLoading = ref(false);
+const markdownAssetImporting = ref(false);
 const viewportWidth = ref(typeof window === 'undefined' ? 1280 : window.innerWidth);
 const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
@@ -148,6 +187,7 @@ const editorScrollState = ref<{ top: number; height: number; scrollHeight: numbe
 type EditorCoreExpose = {
   getContent: () => string;
   focusAtStart: () => void;
+  insertText: (text: string) => void;
   layout: () => void;
   triggerFindWidget: () => void;
   triggerGoToLine: () => void;
@@ -164,6 +204,9 @@ const GUIDE_REOPEN_INTERVAL_MS = GUIDE_REOPEN_DAYS * 24 * 60 * 60 * 1000;
 const SESSION_SAVE_DEBOUNCE_MS = 600;
 const LARGE_FILE_WORD_COUNT_THRESHOLD_CHARS = 500_000;
 const EXTERNAL_FILE_SYNC_INTERVAL_MS = 1500;
+const MARKDOWN_ASSET_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'];
+const externalConflictDialogOpen = ref(false);
+const externalConflictBusy = ref(false);
 let unlistenExternalOpen: (() => void) | null = null;
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let externalFileSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -174,6 +217,8 @@ const clampSidebarWidth = (value: number) =>
 const clampContextRailWidth = (value: number) =>
   Math.min(MAX_CONTEXT_RAIL_WIDTH, Math.max(MIN_CONTEXT_RAIL_WIDTH, value));
 const normalizeFsPath = (path: string) => path.replace(/\\/g, '/');
+const getBaseNameFromFsPath = (path: string) =>
+  normalizeFsPath(path).split('/').filter(Boolean).pop() ?? path;
 const getParentFsPath = (path: string) => {
   const normalized = normalizeFsPath(path);
   const index = normalized.lastIndexOf('/');
@@ -309,6 +354,9 @@ const markdownContext = computed(() => {
   }
   return collectMarkdownContext(tab.content);
 });
+const workspaceTaskEntries = computed(() => flattenWorkspaceTasks(workspaceTasks.value));
+const workspaceTaskTotal = computed(() => workspaceTasks.value?.totalTasks ?? 0);
+const workspaceTasksTruncated = computed(() => workspaceTasks.value?.truncated ?? false);
 const workbenchSidebarVisibility = computed(() => resolveWorkbenchSidebarVisibility({
   viewportWidth: viewportWidth.value,
   sidebarCollapsed: settingsStore.sidebarCollapsed,
@@ -399,6 +447,10 @@ const handleOpenFolder = async () => {
 const handleSave = async () => {
   syncActiveEditorContent();
   await tabService.saveActiveTab();
+  // 保存后任务勾选状态可能变化，静默重扫一次工作区任务。
+  if (workspaceRuntimeId.value && activeTab.value?.language === 'markdown') {
+    void refreshWorkspaceTasks();
+  }
 };
 
 const handleSaveAs = async () => {
@@ -464,38 +516,301 @@ const handleReloadExternalChange = async () => {
   }
   try {
     await reloadTabContentFromDisk(tab.id, tab.filePath, tab.externalModifiedAt ?? tab.lastKnownModified ?? null);
+    fileConflictsStore.resolve(tab.filePath);
+    externalConflictDialogOpen.value = false;
     notificationStore.info('文件已重新加载', tab.fileName);
   } catch (error: any) {
     notificationStore.error('重新加载失败', error?.message || '无法读取磁盘文件');
   }
 };
 
-const handleKeepExternalChange = () => {
+const handleSaveAsExternalChange = async () => {
   const tab = activeTab.value;
   if (!tab) {
     return;
   }
+
+  const conflictedPath = tab.filePath;
+  externalConflictBusy.value = true;
+  try {
+    await tabService.saveActiveTabAs();
+    fileConflictsStore.resolve(conflictedPath);
+    externalConflictDialogOpen.value = false;
+  } finally {
+    externalConflictBusy.value = false;
+  }
+};
+
+const handleKeepExternalChange = async () => {
+  const tab = activeTab.value;
+  if (!tab) {
+    return;
+  }
+  // 用户明确选择用当前内容覆盖磁盘，重新采样 revision 作为下次保存的基线。
+  const fileRevision = tab.filePath
+    ? await tabService.captureFileRevision(tab.filePath)
+    : null;
   tabsStore.updateTab(tab.id, {
     lastKnownModified: tab.externalModifiedAt ?? tab.lastKnownModified ?? null,
+    fileRevision,
     externalModifiedAt: null,
   });
+  fileConflictsStore.resolve(tab.filePath);
+  externalConflictDialogOpen.value = false;
   notificationStore.info('已保留当前修改', '下次保存将使用当前编辑内容。');
 };
 
-const handleExportMarkdownHtml = () => {
+let markdownLinkStatusTimer: ReturnType<typeof setTimeout> | null = null;
+let markdownLinkStatusRequestId = 0;
+let workspaceTasksRequestId = 0;
+
+const cancelScheduledMarkdownLinkStatusRefresh = () => {
+  if (markdownLinkStatusTimer) {
+    clearTimeout(markdownLinkStatusTimer);
+    markdownLinkStatusTimer = null;
+  }
+};
+
+/** 当前标签相对工作区根目录的路径；未打开工作区或文件在工作区外时返回 null。 */
+const resolveWorkspaceRelativePath = (filePath: string | null | undefined): string | null => {
+  const root = workspaceStore.currentWorkspacePath;
+  if (!filePath || !root) {
+    return null;
+  }
+
+  const normalizedRoot = normalizeFsPath(root).replace(/\/+$/, '');
+  const normalizedFile = normalizeFsPath(filePath);
+  if (!normalizedRoot) {
+    return null;
+  }
+
+  const prefix = `${normalizedRoot}/`;
+  if (!normalizedFile.startsWith(prefix)) {
+    return null;
+  }
+
+  const relativePath = normalizedFile.slice(prefix.length);
+  return relativePath && !relativePath.startsWith('../') ? relativePath : null;
+};
+
+const refreshMarkdownLinkStatuses = async () => {
   const tab = activeTab.value;
-  if (!tab || tab.language !== 'markdown' || typeof document === 'undefined') {
+  const workspaceId = workspaceRuntimeId.value;
+  markdownLinkStatusRequestId += 1;
+  const requestId = markdownLinkStatusRequestId;
+
+  const documentRelativePath = resolveWorkspaceRelativePath(tab?.filePath);
+  if (
+    !tab
+    || tab.language !== 'markdown'
+    || tab.isLargeFile
+    || !workspaceId
+    || !documentRelativePath
+    || !isTauriApp()
+  ) {
+    markdownLinkStatuses.value = {};
     return;
   }
-  const html = createStandaloneHtml(tab.content, tab.fileName.replace(/\.md$/i, ''));
+
+  const links = collectMarkdownContext(tab.content).links;
+  try {
+    const statuses = await loadMarkdownLinkStatuses(workspaceId, documentRelativePath, links);
+    if (requestId !== markdownLinkStatusRequestId) {
+      return;
+    }
+    markdownLinkStatuses.value = statuses;
+  } catch (error) {
+    if (requestId !== markdownLinkStatusRequestId) {
+      return;
+    }
+    // 链接校验是辅助信息，失败时保持静默，不影响编辑。
+    markdownLinkStatuses.value = {};
+    console.debug('[MarkdownContext] link check unavailable', error);
+  }
+};
+
+const scheduleMarkdownLinkStatusRefresh = (delay = 600) => {
+  cancelScheduledMarkdownLinkStatusRefresh();
+  markdownLinkStatusTimer = setTimeout(() => {
+    markdownLinkStatusTimer = null;
+    void refreshMarkdownLinkStatuses();
+  }, delay);
+};
+
+const refreshWorkspaceTasks = async () => {
+  const workspaceId = workspaceRuntimeId.value;
+  workspaceTasksRequestId += 1;
+  const requestId = workspaceTasksRequestId;
+
+  if (!workspaceId || !isTauriApp()) {
+    workspaceTasks.value = null;
+    workspaceTasksWorkspaceId.value = null;
+    workspaceTasksLoading.value = false;
+    return;
+  }
+
+  workspaceTasksLoading.value = true;
+  try {
+    const response = await loadWorkspaceTasks(workspaceId);
+    if (requestId !== workspaceTasksRequestId) {
+      return;
+    }
+    workspaceTasks.value = response;
+    workspaceTasksWorkspaceId.value = workspaceId;
+  } catch (error) {
+    if (requestId !== workspaceTasksRequestId) {
+      return;
+    }
+    workspaceTasks.value = null;
+    notificationStore.warning(
+      '工作区任务加载失败',
+      error instanceof Error ? error.message : '无法扫描工作区任务',
+    );
+  } finally {
+    if (requestId === workspaceTasksRequestId) {
+      workspaceTasksLoading.value = false;
+    }
+  }
+};
+
+/** 打开工作区后惰性扫描一次任务；同一工作区不重复扫描，手动刷新走 refreshWorkspaceTasks。 */
+const syncWorkspaceTasksForWorkspace = () => {
+  const workspaceId = workspaceRuntimeId.value;
+  if (!workspaceId) {
+    workspaceTasksRequestId += 1;
+    workspaceTasks.value = null;
+    workspaceTasksWorkspaceId.value = null;
+    workspaceTasksLoading.value = false;
+    return;
+  }
+
+  if (workspaceTasksWorkspaceId.value === workspaceId) {
+    return;
+  }
+
+  void refreshWorkspaceTasks();
+};
+
+const handleWorkspaceTaskRefresh = () => {
+  void refreshWorkspaceTasks();
+};
+
+/** 打开工作区内文件并定位到指定行，供搜索结果与工作区任务共用。 */
+const openWorkspaceFileAtLine = async (relativePath: string, line: number) => {
+  const root = workspaceStore.currentWorkspacePath;
+  if (!root || !relativePath) {
+    return;
+  }
+
+  await openFileInEditor(joinFsPath(root, relativePath));
+  await nextTick();
+  editorCoreRef.value?.revealLine(line);
+};
+
+const handleWorkspaceTaskNavigate = async (relativePath: string, line: number) => {
+  await openWorkspaceFileAtLine(relativePath, line);
+};
+
+const handleInsertMarkdownImage = async () => {
+  const tab = activeTab.value;
+  if (!tab || tab.language !== 'markdown' || markdownAssetImporting.value) {
+    return;
+  }
+  if (tab.isLargeFile) {
+    notificationStore.warning('大文件暂不支持插入图片', '请等待文件完整加载后再试。');
+    return;
+  }
+
+  const workspaceId = workspaceRuntimeId.value;
+  const documentRelativePath = resolveWorkspaceRelativePath(tab.filePath);
+  if (!workspaceId || !documentRelativePath) {
+    notificationStore.warning('需要先保存文档并打开工作区', '图片会导入到文档同级的 assets 目录。');
+    return;
+  }
+
+  try {
+    const selected = await openFileDialog({
+      title: '选择图片',
+      multiple: false,
+      directory: false,
+      filters: [{ name: 'Images', extensions: [...MARKDOWN_ASSET_EXTENSIONS] }],
+    });
+    const sourcePath = Array.isArray(selected) ? selected[0] : selected;
+    if (typeof sourcePath !== 'string' || !sourcePath) {
+      return;
+    }
+
+    syncActiveEditorContent();
+    markdownAssetImporting.value = true;
+    const result = await importMarkdownAsset(workspaceId, documentRelativePath, sourcePath);
+    editorCoreRef.value?.insertText(result.markdownSnippet);
+    notificationStore.success(
+      result.reusedExisting ? '已复用资产目录中的图片' : '图片已导入',
+      result.relativePath,
+    );
+  } catch (error: any) {
+    notificationStore.error('插入图片失败', error?.message || '无法导入图片资产');
+  } finally {
+    markdownAssetImporting.value = false;
+  }
+};
+
+/** 导出以编辑器实时内容为准，避免预览模式或未失焦时拿到旧快照。 */
+const resolveExportMarkdownContent = (fallback: string): string => {
+  const editorContent = editorCoreRef.value?.getContent();
+  return typeof editorContent === 'string' && editorContent.length > 0 ? editorContent : fallback;
+};
+
+const exportMarkdownHtmlInBrowser = (html: string, fileName: string) => {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `${tab.fileName.replace(/\.md$/i, '') || 'tau-document'}.html`;
+  anchor.download = fileName;
   anchor.click();
   URL.revokeObjectURL(url);
-  notificationStore.success('HTML 导出完成', anchor.download);
+  return true;
+};
+
+const handleExportMarkdownHtml = async () => {
+  const tab = activeTab.value;
+  if (!tab || tab.language !== 'markdown') {
+    return;
+  }
+
+  const baseName = tab.fileName.replace(/\.md$/i, '') || 'tau-document';
+  const fileName = `${baseName}.html`;
+  const html = createStandaloneHtml(resolveExportMarkdownContent(tab.content), baseName);
+
+  if (!isTauriApp()) {
+    if (exportMarkdownHtmlInBrowser(html, fileName)) {
+      notificationStore.success('HTML 导出完成', fileName);
+    }
+    return;
+  }
+
+  try {
+    const defaultPath = tab.filePath
+      ? joinFsPath(getParentFsPath(tab.filePath), fileName)
+      : fileName;
+    const targetPath = await saveFileDialog({
+      title: '导出 HTML',
+      defaultPath,
+      filters: [{ name: 'HTML', extensions: ['html'] }],
+    });
+    if (typeof targetPath !== 'string' || !targetPath) {
+      return;
+    }
+
+    await fileCommands.writeFile(targetPath, html);
+    notificationStore.success('HTML 导出完成', targetPath);
+  } catch (error: any) {
+    notificationStore.error('HTML 导出失败', error?.message || '无法写入目标文件');
+  }
 };
 
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
@@ -724,8 +1039,17 @@ const handleTabsReorder = (orderedTabIds: string[]) => {
   tabsStore.reorderTabs(orderedTabIds);
 };
 
-const handleContentChange = (content: string) => {
-  tabService.updateActiveTabContent(content);
+const handleCancelLargeFileLoad = (tabId: string) => {
+  workspaceService.cancelLargeFileLoad(tabId);
+};
+
+const handleRetryLargeFileLoad = (tabId: string) => {
+  void workspaceService.retryLargeFileLoad(tabId);
+};
+
+const handleContentChange = (content: string, modelId: string) => {
+  // 编辑器可能在上一次输入去抖后才提交，这里按模型对应的标签回写，避免串写。
+  tabService.updateTabContent(modelId, content);
   scheduleSessionSave();
 };
 
@@ -811,36 +1135,232 @@ const handleOpenWorkspaceSearch = () => {
     notificationStore.warning('工作区搜索不可用', '请先打开本地工作区。');
     return;
   }
+  workspaceSearchCancelled.value = false;
   workspaceSearchOpen.value = true;
 };
+
+let workspaceSearchSequence = 0;
+const activeWorkspaceSearchId = ref<string | null>(null);
+
+const createWorkspaceSearchId = () => {
+  workspaceSearchSequence += 1;
+  return `search-${Date.now()}-${workspaceSearchSequence}`;
+};
+
+const isSearchExpiredError = (error: unknown) =>
+  typeof error === 'object' && error !== null && (error as { code?: string }).code === 'SEARCH_EXPIRED';
 
 const handleWorkspaceSearch = async (query: string) => {
   if (!workspaceRuntimeId.value || !query.trim()) {
     return;
   }
+
+  if (activeWorkspaceSearchId.value) {
+    try {
+      await searchCommands.cancel(activeWorkspaceSearchId.value);
+    } catch (error) {
+      if (!isSearchExpiredError(error)) {
+        console.warn('[App] 取消上一轮搜索失败:', error);
+      }
+    }
+  }
+
+  const searchId = createWorkspaceSearchId();
+  activeWorkspaceSearchId.value = searchId;
   workspaceSearchLoading.value = true;
   workspaceSearchError.value = null;
+  workspaceSearchCancelled.value = false;
+
   try {
-    const response = await searchCommands.workspace(workspaceRuntimeId.value, query, {
+    const response = await searchCommands.workspace(workspaceRuntimeId.value, searchId, query, {
       isRegex: false,
       caseSensitive: false,
       wholeWord: false,
       maxResults: 200,
     });
+    if (activeWorkspaceSearchId.value !== searchId) {
+      return;
+    }
     workspaceSearchResults.value = response.matches;
+    workspaceSearchCancelled.value = response.cancelled;
   } catch (error: any) {
-    workspaceSearchError.value = error?.message || '项目搜索失败';
+    if (activeWorkspaceSearchId.value !== searchId) {
+      return;
+    }
+    if (isSearchExpiredError(error)) {
+      workspaceSearchCancelled.value = true;
+    } else {
+      workspaceSearchError.value = error?.message || '项目搜索失败';
+    }
   } finally {
-    workspaceSearchLoading.value = false;
+    if (activeWorkspaceSearchId.value === searchId) {
+      activeWorkspaceSearchId.value = null;
+      workspaceSearchLoading.value = false;
+    }
+  }
+};
+
+const handleCancelWorkspaceSearch = async () => {
+  const searchId = activeWorkspaceSearchId.value;
+  if (!searchId) {
+    return;
+  }
+
+  try {
+    await searchCommands.cancel(searchId);
+  } catch (error: any) {
+    if (!isSearchExpiredError(error)) {
+      workspaceSearchError.value = error?.message || '无法取消搜索';
+    }
+  }
+};
+
+const replaceSearchOptions = {
+  isRegex: false,
+  caseSensitive: false,
+  wholeWord: false,
+  maxResults: 200,
+} as const;
+
+const handlePreviewWorkspaceReplace = async (replacement: string) => {
+  if (!workspaceRuntimeId.value || !workspaceSearchQuery.value.trim()) {
+    notificationStore.warning('替换预览不可用', '请先输入搜索内容。');
+    return;
+  }
+
+  replacePreviewVisible.value = true;
+  replacePreviewLoading.value = true;
+  replacePreviewError.value = null;
+  replacePreview.value = null;
+  replaceResults.value = [];
+  replaceUndoId.value = null;
+  replaceUndone.value = false;
+  replacePreviewConsumed.value = false;
+
+  try {
+    const preview = await replaceCommands.preview(
+      workspaceRuntimeId.value,
+      workspaceSearchQuery.value,
+      replacement,
+      { ...replaceSearchOptions },
+    );
+    replacePreview.value = preview;
+    if (preview.totalMatches === 0) {
+      notificationStore.info('没有可替换的命中', '请调整搜索条件后重试。');
+    }
+  } catch (error: any) {
+    replacePreviewError.value = error?.message || '替换预览失败';
+  } finally {
+    replacePreviewLoading.value = false;
+  }
+};
+
+const refreshTabsAfterWorkspaceReplace = async (relativePaths: string[]) => {
+  const root = workspaceStore.currentWorkspacePath;
+  if (!root || relativePaths.length === 0) {
+    return;
+  }
+
+  for (const relativePath of relativePaths) {
+    const absolutePath = joinFsPath(root, relativePath);
+    for (const tab of tabsStore.tabs) {
+      // 统一分隔符后再比对，避免 Windows 路径导致标签刷新被跳过。
+      if (!tab.filePath || normalizeFsPath(tab.filePath) !== normalizeFsPath(absolutePath)) {
+        continue;
+      }
+      if (tab.isDirty) {
+        const observed = Date.now();
+        tabsStore.updateTab(tab.id, { externalModifiedAt: observed });
+        fileConflictsStore.flag({
+          path: tab.filePath,
+          kind: 'modified',
+          diskModifiedMs: observed,
+          diskSize: null,
+          baselineModifiedMs: tab.lastKnownModified ?? null,
+        });
+        notifyExternalConflict(tab.fileName);
+        continue;
+      }
+      await reloadTabContentFromDisk(
+        tab.id,
+        tab.filePath,
+        tab.externalModifiedAt ?? tab.lastKnownModified ?? null,
+      );
+    }
+  }
+};
+
+const handleApplyWorkspaceReplace = async (matchIds: string[]) => {
+  if (!workspaceRuntimeId.value || !replacePreview.value || matchIds.length === 0) {
+    return;
+  }
+
+  if (replacePreviewConsumed.value) {
+    notificationStore.warning('预览已使用', '同一次预览只能提交一次，请重新生成预览。');
+    return;
+  }
+
+  replaceApplying.value = true;
+  replacePreviewError.value = null;
+
+  try {
+    const response = await replaceCommands.apply(
+      workspaceRuntimeId.value,
+      replacePreview.value.previewId,
+      matchIds,
+    );
+    replaceResults.value = response.results;
+    replaceUndoId.value = response.undoId ?? null;
+    replaceUndone.value = false;
+    replacePreviewConsumed.value = true;
+
+    const appliedPaths = response.results
+      .filter((result) => result.status === 'applied')
+      .map((result) => result.relativePath);
+
+    if (response.applied > 0) {
+      notificationStore.success(
+        '替换完成',
+        `已替换 ${response.applied} 个文件，跳过 ${response.skipped + response.conflicts} 个，失败 ${response.failed} 个。`,
+      );
+      await refreshTabsAfterWorkspaceReplace(appliedPaths);
+      await fileSystemStore.refreshFileTree();
+    } else {
+      notificationStore.warning('替换未执行', '没有文件被修改，请查看逐项结果。');
+    }
+  } catch (error: any) {
+    replacePreviewError.value = error?.message || '替换失败';
+  } finally {
+    replaceApplying.value = false;
+  }
+};
+
+const handleUndoWorkspaceReplace = async () => {
+  if (!workspaceRuntimeId.value || !replaceUndoId.value) {
+    return;
+  }
+
+  replaceUndoBusy.value = true;
+  replacePreviewError.value = null;
+
+  try {
+    const response = await replaceCommands.undo(workspaceRuntimeId.value, replaceUndoId.value);
+    replaceUndone.value = true;
+    notificationStore.info(
+      '已撤销替换',
+      `恢复 ${response.restored.length} 个文件，冲突 ${response.conflicts.length} 个。`,
+    );
+    await refreshTabsAfterWorkspaceReplace(response.restored);
+    await fileSystemStore.refreshFileTree();
+  } catch (error: any) {
+    replacePreviewError.value = error?.message || '撤销失败';
+  } finally {
+    replaceUndoBusy.value = false;
   }
 };
 
 const handleWorkspaceSearchNavigate = async (relativePath: string, line: number) => {
-  const root = workspaceStore.currentWorkspacePath;
-  if (!root) return;
-  await openFileInEditor(joinFsPath(root, relativePath));
-  await nextTick();
-  editorCoreRef.value?.revealLine(line);
+  await openWorkspaceFileAtLine(relativePath, line);
 };
 
 const handleFindText = () => {
@@ -1193,17 +1713,105 @@ const setupExternalFileOpenBridge = async (): Promise<boolean> => {
 };
 
 const reloadTabContentFromDisk = async (tabId: string, filePath: string, modifiedAt: number | null) => {
-  const content = await fileSystemStore.readFileContent(filePath);
-  tabsStore.updateTab(tabId, {
-    content,
-    isDirty: false,
-    lastKnownModified: modifiedAt,
-    externalModifiedAt: null,
-  });
+  // 大文件由服务层关闭后重新分段打开；普通文件整块重读并刷新 revision 基线。
+  const replaced = await workspaceService.reloadFileFromDisk(tabId, filePath, modifiedAt);
 
-  if (tabsStore.activeTabId === tabId) {
+  if (replaced && tabsStore.activeTabId === tabId) {
     tabService.syncTabToEditor(tabsStore.activeTab);
     editorStore.markAsSaved();
+  }
+};
+
+const findTabByPath = (path: string | null | undefined) => {
+  if (!path) return null;
+  const key = normalizeWorkspacePath(path);
+  return tabsStore.tabs.find((tab) => tab.filePath && normalizeWorkspacePath(tab.filePath) === key) ?? null;
+};
+
+const activeExternalConflict = computed(() => fileConflictsStore.find(activeTab.value?.filePath));
+
+const notifyExternalConflict = (fileName: string) => {
+  notificationStore.warning(
+    settingsStore.uiLanguage === 'en-US' ? 'External change detected' : '检测到外部文件更新',
+    settingsStore.uiLanguage === 'en-US'
+      ? `${fileName} changed on disk. Resolve the conflict before saving.`
+      : `${fileName} 已在磁盘上更新，请先处理冲突再保存。`,
+  );
+};
+
+/**
+ * 处理工作区监听推送的批量变更：脏标签只标记冲突，干净标签自动重新加载。
+ */
+const handleWorkspaceFileChanges = async (changes: WorkspaceFileChange[]) => {
+  let shouldRefreshTree = false;
+
+  for (const change of changes) {
+    if (
+      workspaceStore.currentWorkspacePath
+      && isPathUnderFolder(change.path, workspaceStore.currentWorkspacePath)
+    ) {
+      shouldRefreshTree = true;
+    }
+
+    const tab = findTabByPath(change.path);
+
+    // 用户重命名了已打开的文件：跟随新路径，内容不需要重读。
+    if (!tab && change.kind === 'renamed' && change.oldPath) {
+      const renamedTab = findTabByPath(change.oldPath);
+      if (renamedTab) {
+        tabsStore.updateTab(renamedTab.id, {
+          filePath: change.path,
+          fileName: getBaseNameFromFsPath(change.path),
+          lastKnownModified: change.modifiedMs ?? renamedTab.lastKnownModified ?? null,
+          externalModifiedAt: null,
+        });
+        fileConflictsStore.resolve(change.oldPath);
+        continue;
+      }
+    }
+
+    const filePath = tab?.filePath;
+    if (!tab || !filePath || tab.isLoadingContent) {
+      continue;
+    }
+
+    if (change.kind === 'removed') {
+      const isNew = fileConflictsStore.flag({
+        path: filePath,
+        kind: change.kind,
+        diskModifiedMs: null,
+        diskSize: null,
+        baselineModifiedMs: tab.lastKnownModified ?? null,
+      });
+      if (isNew) notifyExternalConflict(tab.fileName);
+      continue;
+    }
+
+    if (tab.isDirty) {
+      const isNew = fileConflictsStore.flag({
+        path: filePath,
+        kind: change.kind,
+        diskModifiedMs: change.modifiedMs,
+        diskSize: change.size,
+        baselineModifiedMs: tab.lastKnownModified ?? null,
+      });
+      tabsStore.updateTab(tab.id, {
+        externalModifiedAt: change.modifiedMs ?? Date.now(),
+      });
+      if (isNew) notifyExternalConflict(tab.fileName);
+      continue;
+    }
+
+    try {
+      await reloadTabContentFromDisk(tab.id, filePath, change.modifiedMs ?? null);
+      fileConflictsStore.resolve(filePath);
+    } catch (error) {
+      console.warn('[App] 外部变更重新加载失败:', error);
+    }
+  }
+
+  if (shouldRefreshTree) {
+    await fileSystemStore.refreshFileTree();
   }
 };
 
@@ -1233,21 +1841,24 @@ const syncActiveTabExternalChanges = async () => {
     });
 
     if (action === 'flag') {
+      const isNew = fileConflictsStore.flag({
+        path: tab.filePath,
+        kind: 'modified',
+        diskModifiedMs: observedModified,
+        diskSize: typeof fileInfo.size === 'number' ? fileInfo.size : null,
+        baselineModifiedMs: tab.lastKnownModified ?? null,
+      });
       tabsStore.updateTab(tab.id, {
         externalModifiedAt: observedModified,
       });
-      notificationStore.warning(
-        settingsStore.uiLanguage === 'en-US' ? 'External change detected' : '检测到外部文件更新',
-        settingsStore.uiLanguage === 'en-US'
-          ? 'The file changed on disk. Save or discard your local edits before reloading.'
-          : '该文件已被其他编辑器修改。请先保存或处理当前未保存内容，再重新加载。',
-      );
+      if (isNew) notifyExternalConflict(tab.fileName);
     } else if (action === 'reload') {
       await reloadTabContentFromDisk(
         tab.id,
         tab.filePath,
         observedModified ?? tab.externalModifiedAt ?? tab.lastKnownModified ?? null,
       );
+      fileConflictsStore.resolve(tab.filePath);
       if (workspaceStore.currentWorkspacePath && isPathUnderFolder(tab.filePath, workspaceStore.currentWorkspacePath)) {
         await fileSystemStore.refreshFileTree();
       }
@@ -1284,6 +1895,34 @@ const stopExternalFileSync = () => {
 
   clearInterval(externalFileSyncTimer);
   externalFileSyncTimer = null;
+};
+
+/**
+ * 优先使用原生工作区监听；监听失败时退回轮询，保证外部修改仍能被发现。
+ */
+const startExternalFileWatch = async () => {
+  if (!isTauriApp()) {
+    return;
+  }
+
+  const root = workspaceStore.currentWorkspacePath
+    || getParentFsPath(activeTab.value?.filePath ?? '');
+  if (!root) {
+    return;
+  }
+
+  const watching = await workspaceWatcherService.start(root);
+  if (watching) {
+    stopExternalFileSync();
+    return;
+  }
+
+  startExternalFileSync();
+};
+
+const stopExternalFileWatch = async () => {
+  stopExternalFileSync();
+  await workspaceWatcherService.stop();
 };
 
 const startSidebarResize = (event: MouseEvent) => {
@@ -1356,10 +1995,10 @@ const handleShellKeydown = (event: KeyboardEvent) => {
   toggleSettingsContainer('workspace');
 };
 
-function restoreSession() {
+async function restoreSession() {
   if (!settingsStore.restoreLastSession) {
-    sessionService.clear();
-    sessionService.clearRecoveryDrafts();
+    await sessionService.clear();
+    await sessionService.clearRecoveryDrafts();
     workspaceStore.setEmptyMode();
     tabsStore.closeAll();
     return;
@@ -1374,7 +2013,7 @@ function restoreSession() {
     || window.confirm(`检测到 ${recoveryDrafts.length} 个未保存草稿，是否恢复？`)
   );
   if (recoveryDrafts.length > 0 && !shouldRestoreDrafts) {
-    sessionService.clearRecoveryDrafts();
+    await sessionService.clearRecoveryDrafts();
   }
 
   const restoredTabs = shouldRestoreDrafts
@@ -1397,25 +2036,26 @@ function restoreSession() {
   }
 }
 
-function saveSession() {
+async function saveSession() {
   if (!settingsStore.restoreLastSession) {
-    sessionService.clear();
-    sessionService.clearRecoveryDrafts();
+    await sessionService.clear();
+    await sessionService.clearRecoveryDrafts();
     return;
   }
 
-  if (tabsStore.tabs.some((tab) => tab.isLoadingContent)) {
+  // 只阻断正在加载中的快照；已取消/失败的半加载标签需要落盘，重启后才能继续续传。
+  if (tabsStore.tabs.some((tab) => tab.largeFileLoadState === 'loading')) {
     return;
   }
 
-  sessionService.save({
+  await sessionService.save({
     mode: workspaceStore.mode,
     workspacePath: workspaceStore.currentWorkspacePath,
     workspaceName: workspaceStore.currentWorkspaceName,
     activeTabId: tabsStore.activeTabId,
     tabs: tabsStore.tabs,
   });
-  sessionService.saveRecoveryDrafts(tabsStore.tabs);
+  await sessionService.saveRecoveryDrafts(tabsStore.tabs);
 }
 
 function cancelScheduledSessionSave() {
@@ -1427,14 +2067,14 @@ function cancelScheduledSessionSave() {
 
 function scheduleSessionSave() {
   if (!settingsStore.restoreLastSession) {
-    sessionService.clear();
+    void sessionService.clear();
     return;
   }
 
   cancelScheduledSessionSave();
   sessionSaveTimer = setTimeout(() => {
     sessionSaveTimer = null;
-    saveSession();
+    void saveSession();
   }, SESSION_SAVE_DEBOUNCE_MS);
 }
 
@@ -1479,8 +2119,8 @@ watch(
     }
 
     cancelScheduledSessionSave();
-    sessionService.clear();
-    sessionService.clearRecoveryDrafts();
+    void sessionService.clear();
+    void sessionService.clearRecoveryDrafts();
   },
 );
 
@@ -1488,6 +2128,7 @@ watch(
   () => workspaceStore.currentWorkspacePath,
   (workspacePath) => {
     void refreshWorkspaceContext(workspacePath);
+    void startExternalFileWatch();
     if (workspacePath) {
       return;
     }
@@ -1538,6 +2179,56 @@ watch(
   () => activeTab.value?.id,
   () => {
     void syncActiveTabExternalChanges();
+    void startExternalFileWatch();
+  },
+);
+
+// Markdown 链接状态：依赖解析后的链接与文档身份，内容变化时去抖后才校验工作区。
+watch(
+  () => {
+    const tab = activeTab.value;
+    const linkSignature = markdownContext.value.links
+      .map((link) => `${link.line}:${link.target}`)
+      .join('|');
+    return [workspaceRuntimeId.value ?? '', tab?.id ?? '', tab?.filePath ?? '', linkSignature].join('|');
+  },
+  () => {
+    scheduleMarkdownLinkStatusRefresh();
+  },
+);
+
+// 工作区任务：切换工作区或进入 Markdown 文档时惰性扫描一次，之后由手动刷新与保存后重扫接管。
+watch(
+  () => {
+    const workspaceId = workspaceRuntimeId.value ?? '';
+    const isMarkdown = activeTab.value?.language === 'markdown';
+    return `${workspaceId}|${isMarkdown ? 'markdown' : 'other'}`;
+  },
+  () => {
+    if (!workspaceRuntimeId.value) {
+      // 工作区关闭时立即清空任务，避免残留上一个工作区的结果。
+      syncWorkspaceTasksForWorkspace();
+      return;
+    }
+
+    if (activeTab.value?.language === 'markdown') {
+      syncWorkspaceTasksForWorkspace();
+    }
+  },
+);
+
+// 标签关闭后不再需要对应的冲突提示。
+watch(
+  () => tabsStore.tabs.map((tab) => tab.filePath ?? '').join('|'),
+  () => {
+    fileConflictsStore.retainOnly(
+      tabsStore.tabs
+        .map((tab) => tab.filePath)
+        .filter((path): path is string => Boolean(path)),
+    );
+    if (!activeExternalConflict.value) {
+      externalConflictDialogOpen.value = false;
+    }
   },
 );
 
@@ -1547,13 +2238,18 @@ onMounted(async () => {
   await settingsStore.init();
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
-  restoreSession();
+  await sessionService.initialize();
+  await restoreSession();
   await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
   await windowService.attach();
+  windowService.onBeforeClose(() => saveSession());
   registerShortcuts();
   const launchTimestamp = Date.now();
   await setupExternalFileOpenBridge();
-  startExternalFileSync();
+  workspaceWatcherService.onChange((changes) => {
+    void handleWorkspaceFileChanges(changes);
+  });
+  await startExternalFileWatch();
   showOperationGuideOnLaunchIfNeeded(launchTimestamp);
   markAppOpened(launchTimestamp);
   window.addEventListener('keydown', handleShellKeydown);
@@ -1561,14 +2257,15 @@ onMounted(async () => {
 
 onUnmounted(() => {
   cancelScheduledSessionSave();
-  saveSession();
+  void saveSession();
+  cancelScheduledMarkdownLinkStatusRefresh();
   windowService.detach();
   keyboardStore.removeGlobalHandler();
   if (unlistenExternalOpen) {
     unlistenExternalOpen();
     unlistenExternalOpen = null;
   }
-  stopExternalFileSync();
+  void stopExternalFileWatch();
   window.removeEventListener('keydown', handleShellKeydown);
   window.removeEventListener('resize', syncViewportWidth);
 });
@@ -1577,6 +2274,17 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <Notification />
+    <ExternalChangeDialog
+      :visible="externalConflictDialogOpen && Boolean(activeExternalConflict)"
+      :conflict="activeExternalConflict"
+      :file-name="activeTab?.fileName ?? null"
+      :locale="settingsStore.uiLanguage"
+      :busy="externalConflictBusy"
+      @close="externalConflictDialogOpen = false"
+      @reload="handleReloadExternalChange"
+      @keep="handleKeepExternalChange"
+      @save-as="handleSaveAsExternalChange"
+    />
     <CommandPalette
       :visible="commandStore.paletteOpen"
       :query="commandStore.query"
@@ -1595,10 +2303,29 @@ onUnmounted(() => {
       :results="workspaceSearchResults"
       :loading="workspaceSearchLoading"
       :error="workspaceSearchError"
+      :cancelled="workspaceSearchCancelled"
+      :replacement="workspaceReplaceReplacement"
       @close="workspaceSearchOpen = false"
       @update:query="workspaceSearchQuery = $event"
+      @update:replacement="workspaceReplaceReplacement = $event"
       @search="handleWorkspaceSearch"
+      @cancel="handleCancelWorkspaceSearch"
+      @preview-replace="handlePreviewWorkspaceReplace"
       @navigate="handleWorkspaceSearchNavigate"
+    />
+    <ReplacePreviewDialog
+      :visible="replacePreviewVisible"
+      :preview="replacePreview"
+      :loading="replacePreviewLoading"
+      :error="replacePreviewError"
+      :applying="replaceApplying"
+      :results="replaceResults"
+      :undo-id="replaceUndoId"
+      :undo-busy="replaceUndoBusy"
+      :undone="replaceUndone"
+      @close="replacePreviewVisible = false"
+      @apply="handleApplyWorkspaceReplace"
+      @undo="handleUndoWorkspaceReplace"
     />
 
     <Toolbar
@@ -1720,6 +2447,8 @@ onUnmounted(() => {
           @tab-close-all="handleCloseAll"
           @rename-tab="handleRenameTab"
           @tabs-reorder="handleTabsReorder"
+          @cancel-large-file-load="handleCancelLargeFileLoad"
+          @retry-large-file-load="handleRetryLargeFileLoad"
         />
 
         <div
@@ -1790,9 +2519,14 @@ onUnmounted(() => {
             :outline="documentOutline"
             :tasks="markdownContext.tasks"
             :links="markdownContext.links"
+            :link-statuses="markdownLinkStatuses"
+            :workspace-tasks="workspaceTaskEntries"
+            :workspace-task-total="workspaceTaskTotal"
+            :workspace-tasks-loading="workspaceTasksLoading"
+            :workspace-tasks-truncated="workspaceTasksTruncated"
             :git-branch="gitStatus?.branch"
             :git-entries="gitStatus?.entries"
-            :external-conflict-file-name="activeTab?.externalModifiedAt ? activeTab.fileName : null"
+            :external-conflict-file-name="activeExternalConflict ? activeTab?.fileName ?? null : null"
             :language="activeTab?.language"
             :locale="settingsStore.uiLanguage"
             @navigate="handleContextNavigate"
@@ -1801,6 +2535,10 @@ onUnmounted(() => {
             @select-git="handleSelectGitEntry"
             @reload-external="handleReloadExternalChange"
             @keep-external="handleKeepExternalChange"
+            @show-external-details="externalConflictDialogOpen = true"
+            @insert-image="handleInsertMarkdownImage"
+            @refresh-tasks="handleWorkspaceTaskRefresh"
+            @navigate-file="handleWorkspaceTaskNavigate"
             @export-html="handleExportMarkdownHtml"
             @toggle-collapse="showContextRail = false"
           />
