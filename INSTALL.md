@@ -158,6 +158,36 @@ brew install --cask text-editor
 3. 或右键点击应用，选择「打开」
 
 #### Q: Apple Silicon 运行缓慢
+#### Q: 提示「“Tau Editor”已损坏，无法打开。你应该将它移到废纸篓」
+
+**原因：** 当前 Release 的 macOS 包未使用 Apple Developer ID 签名与公证（notarization）。
+通过浏览器下载时系统会写入 `com.apple.quarantine` 隔离属性，Gatekeeper 校验到签名不完整时
+会直接报「已损坏」，而不是「无法验证开发者」。
+
+**解决方案（把 App 拖到「应用程序」后执行一次）：**
+
+```bash
+# 1. 清除下载隔离属性
+xattr -cr "/Applications/Tau Editor.app"
+
+# 2. 补上完整的 ad-hoc 签名（生成 Contents/_CodeSignature）
+codesign --force --sign - "/Applications/Tau Editor.app"
+```
+
+执行后可正常双击打开。注意：从 DMG 重新拖拽安装，或升级到新版本后，需要重新执行一次。
+
+**验证是否修复：**
+
+```bash
+codesign --verify --deep --strict --verbose=2 "/Applications/Tau Editor.app"
+# 输出 valid on disk / satisfies its Designated Requirement 即正常
+```
+
+**根治方案：** 使用 Apple Developer ID 证书在 CI 中完成签名与公证（`APPLE_CERTIFICATE` /
+`APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_ID` / `APPLE_PASSWORD` /
+`APPLE_TEAM_ID`），之后用户双击即可打开，无需任何手动命令。
+
+#### Q: Apple Silicon 运行缓慢
 
 **解决方案：**
 确保下载了 ARM64 (aarch64) 版本，而非 Intel 版本。
