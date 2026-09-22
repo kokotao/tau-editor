@@ -8,17 +8,30 @@ import {
   type ThemeSkinId,
 } from '@/utils/themeResolver';
 import { normalizeUiLanguage, type UiLanguage } from '@/i18n/ui';
+import {
+  normalizeKeybindingOverrides,
+  normalizeKeybinding,
+  type KeybindingOverrides,
+} from '@/services/keybindingService';
+import {
+  createThemePackageFromColors,
+  missingRequiredThemeColors,
+  normalizeHexColor as normalizeThemeHexColor,
+  normalizeThemeColors,
+  normalizeThemePackageRecord,
+  parseThemePackage,
+  resolveMonacoThemeId,
+  serializeThemePackage,
+  themePackageToCssColors,
+  THEME_COLOR_KEYS,
+  USER_THEME_ID_PREFIX,
+  type MonacoBaseTheme,
+  type ThemeColorKey,
+  type ThemePackage,
+  type ThemePackageError,
+} from '@/utils/themePackage';
 
-export const CUSTOM_THEME_COLOR_KEYS = [
-  'bgApp',
-  'panelBase',
-  'textPrimary',
-  'textSecondary',
-  'accentBrand',
-  'accentBrandStrong',
-  'stateSuccess',
-  'stateDanger',
-] as const;
+export const CUSTOM_THEME_COLOR_KEYS = THEME_COLOR_KEYS;
 
 export const MARKDOWN_PREVIEW_THEMES = [
   'docs-clean',
@@ -27,8 +40,17 @@ export const MARKDOWN_PREVIEW_THEMES = [
   'graphite-night',
 ] as const;
 
-export type CustomThemeColorKey = (typeof CUSTOM_THEME_COLOR_KEYS)[number];
+export type CustomThemeColorKey = ThemeColorKey;
 export type CustomThemeColors = Partial<Record<CustomThemeColorKey, string>>;
+
+/** Monaco 自定义主题定义，与 monaco.editor.IStandaloneThemeData 结构对齐。 */
+export interface MonacoThemeDefinition {
+  base: MonacoBaseTheme;
+  inherit: boolean;
+  rules: Array<{ token: string; foreground?: string; fontStyle?: string }>;
+  colors: Record<string, string>;
+}
+export type { ThemePackage };
 export type MarkdownPreviewTheme = (typeof MARKDOWN_PREVIEW_THEMES)[number];
 
 export const CUSTOM_THEME_COLOR_VAR_MAP: Record<CustomThemeColorKey, string> = {
@@ -59,6 +81,11 @@ export interface EditorSettings {
   themeSkin: ThemeSkinId;
   monacoTheme: 'vs' | 'vs-dark' | 'hc-black';
   customThemeColors: CustomThemeColors;
+  // v0.4.0：导入的主题包与当前生效主题包（null 表示使用内置皮肤）
+  themePackages: ThemePackage[];
+  activeThemePackageId: string | null;
+  // v0.4.0：命令快捷键覆盖（命令 id -> 归一化绑定，空串表示解绑）
+  keybindingOverrides: KeybindingOverrides;
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
@@ -106,23 +133,7 @@ const DEFAULT_CONTEXT_RAIL_WIDTH = 300;
 let systemThemeMediaQuery: MediaQueryList | null = null;
 let systemThemeListenerAttached = false;
 
-function normalizeHexColor(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
-
-  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
-    const [, r, g, b] = trimmed;
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-
-  return null;
-}
+const normalizeHexColor = (value: unknown): string | null => normalizeThemeHexColor(value);
 
 function normalizeCustomThemeColors(value: unknown): CustomThemeColors {
   if (!value || typeof value !== 'object') {
@@ -175,6 +186,34 @@ function normalizeMarkdownPreviewTheme(value: unknown): MarkdownPreviewTheme {
   return 'docs-clean';
 }
 
+/**
+ * 归一化本地存储/导入的主题包：只保留合法项，并统一加用户前缀避免与内置皮肤冲突。
+ */
+function normalizeStoredThemePackages(value: unknown): ThemePackage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const packages: ThemePackage[] = [];
+  const seen = new Set<string>();
+  value.slice(0, 64).forEach((entry) => {
+    const result = normalizeThemePackageRecord(entry);
+    if (!result.ok) {
+      return;
+    }
+    const id = result.theme.id.startsWith(USER_THEME_ID_PREFIX)
+      ? result.theme.id
+      : `${USER_THEME_ID_PREFIX}${result.theme.id}`;
+    if (seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    packages.push({ ...result.theme, id });
+  });
+
+  return packages;
+}
+
 function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
   const style = root.style;
   if (!style || typeof style.setProperty !== 'function' || typeof style.removeProperty !== 'function') {
@@ -216,6 +255,9 @@ export const useSettingsStore = defineStore('settings', {
     themeSkin: 'deep-ocean',
     monacoTheme: 'vs-dark',
     customThemeColors: {},
+    themePackages: [],
+    activeThemePackageId: null,
+    keybindingOverrides: {},
     fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace",
     fontSize: 15,
     lineHeight: 1.6,
@@ -258,6 +300,26 @@ export const useSettingsStore = defineStore('settings', {
     recommendedMonacoTheme: (state) => getThemeResolution(state).recommendedMonacoTheme,
     monacoThemeOptions: (state) => getThemeResolution(state).monacoThemeOptions,
     themeSkinOptions: (state) => getThemeResolution(state).skinOptions,
+    activeThemePackage: (state): ThemePackage | null =>
+      state.themePackages.find((theme) => theme.id === state.activeThemePackageId) ?? null,
+    themePackageOptions: (state) =>
+      state.themePackages.map((theme) => ({ value: theme.id, label: theme.name })),
+    activeMonacoThemeId(): string {
+      const active = this.activeThemePackage;
+      return active ? resolveMonacoThemeId(active) : this.monacoTheme;
+    },
+    activeMonacoThemeDefinition(): MonacoThemeDefinition | null {
+      const active = this.activeThemePackage;
+      if (!active) {
+        return null;
+      }
+      return {
+        base: active.monaco.base,
+        inherit: true,
+        rules: active.monaco.rules,
+        colors: active.monaco.colors,
+      };
+    },
   },
 
   actions: {
@@ -299,6 +361,11 @@ export const useSettingsStore = defineStore('settings', {
           this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
           this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
           this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
+          this.themePackages = normalizeStoredThemePackages(this.themePackages);
+          if (!this.themePackages.some((theme) => theme.id === this.activeThemePackageId)) {
+            this.activeThemePackageId = null;
+          }
+          this.keybindingOverrides = normalizeKeybindingOverrides(this.keybindingOverrides);
           // Older builds defaulted Markdown to split view, which caused
           // opened files to look half-width on launch. Migrate that startup
           // state back to full-width editing.
@@ -321,6 +388,9 @@ export const useSettingsStore = defineStore('settings', {
           themeSkin: this.themeSkin,
           monacoTheme: this.monacoTheme,
           customThemeColors: this.customThemeColors,
+          themePackages: this.themePackages,
+          activeThemePackageId: this.activeThemePackageId,
+          keybindingOverrides: this.keybindingOverrides,
           fontFamily: this.fontFamily,
           fontSize: this.fontSize,
           lineHeight: this.lineHeight,
@@ -360,6 +430,11 @@ export const useSettingsStore = defineStore('settings', {
       this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
       this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
       this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
+      this.themePackages = normalizeStoredThemePackages(this.themePackages);
+      if (!this.themePackages.some((theme) => theme.id === this.activeThemePackageId)) {
+        this.activeThemePackageId = null;
+      }
+      this.keybindingOverrides = normalizeKeybindingOverrides(this.keybindingOverrides);
       
       // 保存到 localStorage
       this.saveToStorage();
@@ -378,7 +453,9 @@ export const useSettingsStore = defineStore('settings', {
         partial.theme !== undefined ||
         partial.themeSkin !== undefined ||
         partial.monacoTheme !== undefined ||
-        partial.customThemeColors !== undefined
+        partial.customThemeColors !== undefined ||
+        partial.themePackages !== undefined ||
+        partial.activeThemePackageId !== undefined
       ) {
         this.applyTheme();
       }
@@ -392,7 +469,10 @@ export const useSettingsStore = defineStore('settings', {
 
     // 重置为默认值
     async resetToDefaults() {
+      // 导入的主题包属于用户资产，恢复默认设置时保留。
+      const themePackages = this.themePackages.map((theme) => ({ ...theme }));
       this.$reset();
+      this.themePackages = themePackages;
       this.saveToStorage();
       await this.syncAutoSaveToTauri();
       this.applyTheme();
@@ -407,7 +487,12 @@ export const useSettingsStore = defineStore('settings', {
 
       root.classList.remove('light', 'dark', 'theme-light', 'theme-dark', ...themeSkinClasses);
       root.classList.add(themeState.resolvedTheme, `theme-${themeState.resolvedTheme}`, `skin-${themeState.skin}`);
-      applyCustomThemeColors(root, this.customThemeColors);
+      // 生效中的主题包优先于快速调色，保证 UI 与 Monaco 配色同源。
+      const activePackage = this.activeThemePackage;
+      applyCustomThemeColors(
+        root,
+        activePackage ? themePackageToCssColors(activePackage) : this.customThemeColors,
+      );
     },
 
     setCustomThemeColor(key: CustomThemeColorKey, color: string) {
@@ -450,6 +535,163 @@ export const useSettingsStore = defineStore('settings', {
           message: error instanceof Error ? error.message : String(error),
         };
       }
+    },
+
+    // ========== v0.4.0 主题包 ==========
+
+    /**
+     * 激活主题包；传入 null 回到内置皮肤 + 快速调色。包不存在时不改变当前主题。
+     */
+    applyThemePackage(packageId: string | null): ThemePackage | null {
+      const target = packageId
+        ? this.themePackages.find((theme) => theme.id === packageId) ?? null
+        : null;
+      if (packageId && !target) {
+        return null;
+      }
+
+      this.activeThemePackageId = target ? target.id : null;
+      if (target) {
+        // 主题包自带明暗模式与 Monaco 基底，激活时一并同步。
+        this.theme = target.mode;
+        this.monacoTheme = target.monaco.base;
+      }
+      this.saveToStorage();
+      this.applyTheme();
+      return target;
+    },
+
+    /**
+     * 导入主题包 JSON；失败时返回结构化错误且不改变当前主题。
+     */
+    importThemePackage(
+      raw: string,
+      options?: { activate?: boolean },
+    ): { success: boolean; theme?: ThemePackage; error?: ThemePackageError } {
+      const result = parseThemePackage(raw);
+      if (!result.ok) {
+        return { success: false, error: result.error };
+      }
+
+      const theme: ThemePackage = {
+        ...result.theme,
+        id: result.theme.id.startsWith(USER_THEME_ID_PREFIX)
+          ? result.theme.id
+          : `${USER_THEME_ID_PREFIX}${result.theme.id}`,
+      };
+
+      const existingIndex = this.themePackages.findIndex((item) => item.id === theme.id);
+      if (existingIndex >= 0) {
+        this.themePackages.splice(existingIndex, 1, theme);
+      } else {
+        this.themePackages.push(theme);
+      }
+
+      if (options?.activate === false) {
+        this.saveToStorage();
+      } else {
+        this.applyThemePackage(theme.id);
+      }
+
+      return { success: true, theme };
+    },
+
+    /**
+     * 删除主题包；删除当前生效的包时回退到内置皮肤。
+     */
+    removeThemePackage(packageId: string): boolean {
+      const index = this.themePackages.findIndex((theme) => theme.id === packageId);
+      if (index < 0) {
+        return false;
+      }
+
+      this.themePackages.splice(index, 1);
+      if (this.activeThemePackageId === packageId) {
+        this.applyThemePackage(null);
+      } else {
+        this.saveToStorage();
+      }
+      return true;
+    },
+
+    /**
+     * 导出主题包：优先导出指定/生效中的包；没有生效包时把当前皮肤 + 快速调色合成一个可再导入的包。
+     */
+    exportThemePackage(packageId?: string): string | null {
+      const target = packageId
+        ? this.themePackages.find((theme) => theme.id === packageId) ?? null
+        : this.activeThemePackage;
+
+      if (!target) {
+        const colors: CustomThemeColors = {
+          ...CUSTOM_THEME_COLOR_FALLBACKS,
+          ...normalizeCustomThemeColors(this.customThemeColors),
+        };
+        const synthesized = createThemePackageFromColors({
+          id: `skin-${this.themeSkin}`.replace(/[^a-z0-9-]/g, '-'),
+          name: `${this.themeSkin} palette`,
+          mode: this.resolvedTheme,
+          colors,
+          base: this.monacoTheme,
+        });
+        return synthesized.ok ? serializeThemePackage(synthesized.theme) : null;
+      }
+
+      const missing = missingRequiredThemeColors(target.colors);
+      if (missing.length > 0) {
+        return null;
+      }
+
+      return serializeThemePackage({
+        ...target,
+        // 导出的主题包去掉 user: 前缀，方便在其它实例直接导入。
+        id: target.id.startsWith(USER_THEME_ID_PREFIX)
+          ? target.id.slice(USER_THEME_ID_PREFIX.length)
+          : target.id,
+      });
+    },
+
+    // ========== v0.4.0 快捷键覆盖 ==========
+
+    /**
+     * 设置命令的快捷键覆盖；keys 传空串表示解绑，非法绑定返回 false。
+     */
+    setKeybindingOverride(commandId: string, keys: string): boolean {
+      if (!commandId) {
+        return false;
+      }
+
+      if (keys === '') {
+        this.keybindingOverrides = { ...this.keybindingOverrides, [commandId]: '' };
+        this.saveToStorage();
+        return true;
+      }
+
+      const normalized = normalizeKeybinding(keys);
+      if (!normalized) {
+        return false;
+      }
+
+      this.keybindingOverrides = { ...this.keybindingOverrides, [commandId]: normalized };
+      this.saveToStorage();
+      return true;
+    },
+
+    /** 重置单条命令回默认绑定 */
+    resetKeybinding(commandId: string) {
+      if (!Object.prototype.hasOwnProperty.call(this.keybindingOverrides, commandId)) {
+        return;
+      }
+      const next = { ...this.keybindingOverrides };
+      delete next[commandId];
+      this.keybindingOverrides = next;
+      this.saveToStorage();
+    },
+
+    /** 重置全部快捷键覆盖 */
+    resetAllKeybindings() {
+      this.keybindingOverrides = {};
+      this.saveToStorage();
     },
 
     applyLanguage() {

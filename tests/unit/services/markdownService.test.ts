@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createStandaloneHtml, renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
+import { createStandaloneHtml, renderMarkdown, renderMermaidDiagrams } from '@/services/markdownRenderService';
 
 describe('markdownService', () => {
   it('应渲染 markdown 标题', () => {

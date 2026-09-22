@@ -3,14 +3,30 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { useFileSystemStore, type FileTreeNode } from '@/stores/fileSystem';
 import { useWorkspaceStore } from '@/stores/workspace';
-import { useTabsStore } from '@/stores/tabs';
+import { useTabsStore, type Tab } from '@/stores/tabs';
 import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notification';
 import { useKeyboardStore } from '@/stores/keyboard';
 import { useCommandStore } from '@/stores/commands';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
+import { useDiffStore } from '@/stores/diff';
+import {
+  loadGitDiffSession,
+  loadWorkspaceFileDiffSession,
+  type DiffSessionResult,
+} from '@/services/diffService';
+import {
+  consumePendingWindowTransfer,
+  openTabsInNewWindow,
+  payloadToTabs,
+} from '@/services/windowTransferService';
+import type { WindowTransferPayload } from '@/lib/tauri';
+import { providerRegistry } from '@/services/providerRegistry';
+import { registerBuiltinProviders } from '@/services/providers/builtinProviders';
+import { useProvidersStore } from '@/stores/providers';
 import { createCommandExecutor, createCommandRegistry } from '@/services/commandRegistry';
+import type { AppCommand } from '@/services/commandRegistry';
 import {
   createWorkspaceWatcherService,
   normalizeWorkspacePath,
@@ -20,7 +36,7 @@ import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
 import { buildDocumentOutline } from '@/services/documentOutlineService';
-import { collectMarkdownContext, createStandaloneHtml } from '@/services/markdownService';
+import { collectMarkdownContext } from '@/services/markdownService';
 import {
   flattenWorkspaceTasks,
   importMarkdownAsset,
@@ -29,6 +45,13 @@ import {
 } from '@/services/markdownContextService';
 import { rankQuickOpenFiles } from '@/services/quickOpenService';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
+import {
+  DEFAULT_KEYBINDINGS,
+  formatKeybinding,
+  keybindingToShortcut,
+  resolveKeybinding,
+  resolveKeybindings,
+} from '@/services/keybindingService';
 import {
   appCommands,
   fileCommands,
@@ -58,9 +81,10 @@ import ReplacePreviewDialog from './components/editor/ReplacePreviewDialog.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
-import EditorCore from './components/editor/EditorCore.vue';
+import { LazyEditorCore } from './components/editor/LazyEditorCore';
 import MarkdownPreview from './components/editor/MarkdownPreview.vue';
 import ContextRail from './components/editor/ContextRail.vue';
+import DiffView from './components/editor/DiffView.vue';
 import ExternalChangeDialog from './components/editor/ExternalChangeDialog.vue';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
@@ -75,6 +99,8 @@ const notificationStore = useNotificationStore();
 const keyboardStore = useKeyboardStore();
 const commandStore = useCommandStore();
 const fileConflictsStore = useFileConflictsStore();
+const diffStore = useDiffStore();
+const providersStore = useProvidersStore();
 const workspaceService = createWorkspaceService(
   fileSystemStore,
   tabsStore,
@@ -496,16 +522,180 @@ const refreshWorkspaceContext = async (workspacePath: string | null) => {
   }
 };
 
-const handleSelectGitEntry = async (relativePath: string) => {
-  if (!workspaceRuntimeId.value) {
+// ========== v0.4.0 文件对比 ==========
+
+const diffLoaders = {
+  readFile: (filePath: string) => fileCommands.readFile(filePath),
+  gitShowFile: (workspaceId: string, relativePath: string, revision = 'HEAD') =>
+    gitCommands.showFile(workspaceId, relativePath, revision),
+};
+
+const openDiffResult = (result: DiffSessionResult, failureTitle: string) => {
+  if (result.ok) {
+    diffStore.openSession(result.session);
     return;
   }
+  diffStore.setError(result.error);
+  notificationStore.error(failureTitle, result.error.message);
+};
+
+const requireActiveTab = (): Tab | null => {
+  const tab = tabsStore.activeTab;
+  if (!tab) {
+    notificationStore.error('无法对比', '请先打开要对比的文件');
+    return null;
+  }
+  return tab;
+};
+
+/** 命令面板入口：选择任意文件与当前标签对比。 */
+const handleCompareWithFile = async () => {
+  const tab = requireActiveTab();
+  if (!tab) {
+    return;
+  }
+  if (!isTauriApp()) {
+    notificationStore.error('无法对比', '仅桌面端支持选择本地文件进行对比');
+    return;
+  }
+
+  const selected = await openFileDialog({ multiple: false, directory: false });
+  const compareFilePath = typeof selected === 'string' ? selected : null;
+  if (!compareFilePath) {
+    return;
+  }
+
+  const result = await loadWorkspaceFileDiffSession(diffLoaders, {
+    compareFilePath,
+    compareLabel: compareFilePath.split(/[\\/]/).pop() ?? compareFilePath,
+    currentLabel: tab.fileName,
+    currentFilePath: tab.filePath,
+    currentContent: tab.content,
+    currentIsDirty: tab.isDirty,
+  });
+  openDiffResult(result, '打开对比失败');
+};
+
+/** 文件树右键入口：与当前标签对比。 */
+const handleCompareWithCurrentFile = async (entry: FileTreeNode) => {
+  if (entry.type !== 'file') {
+    return;
+  }
+  const tab = requireActiveTab();
+  if (!tab) {
+    return;
+  }
+
+  const result = await loadWorkspaceFileDiffSession(diffLoaders, {
+    compareFilePath: entry.path,
+    compareLabel: entry.name,
+    currentLabel: tab.fileName,
+    currentFilePath: tab.filePath,
+    currentContent: tab.content,
+    currentIsDirty: tab.isDirty,
+  });
+  openDiffResult(result, '打开对比失败');
+};
+
+/** Git 变更入口：HEAD 版本 vs 工作区内容。 */
+const handleSelectGitEntry = async (relativePath: string) => {
+  const rootPath = workspaceStore.currentWorkspacePath;
+  if (!workspaceRuntimeId.value || !rootPath) {
+    return;
+  }
+
+  // 已打开的标签优先用内存内容，未保存修改也能真实对比。
+  const openTab = tabsStore.tabs.find((tab) => {
+    if (!tab.filePath || tab.isLargeFile || tab.isLoadingContent) {
+      return false;
+    }
+    const normalized = normalizeFsPath(tab.filePath);
+    return normalized === normalizeFsPath(`${rootPath}/${relativePath}`) || normalized.endsWith(`/${relativePath}`);
+  });
+
+  const result = await loadGitDiffSession(diffLoaders, {
+    workspaceId: workspaceRuntimeId.value,
+    rootPath,
+    relativePath,
+    currentContent: openTab?.content,
+  });
+  openDiffResult(result, '打开 Git 差异失败');
+};
+
+// ========== v0.4.0 多窗口标签迁移 ==========
+
+const applyWindowTransferPayload = (payload: WindowTransferPayload) => {
+  const tabIds = payloadToTabs(payload).map((tab) => tabsStore.addTab(tab));
+  const activeId = tabIds[payload.activeIndex] ?? tabIds[0];
+  if (activeId) {
+    tabsStore.activateTab(activeId);
+  }
+  notificationStore.info('已在新窗口打开标签', `${payload.tabs.length} 个标签`);
+};
+
+/** 在新窗口打开当前标签，源窗口保留。 */
+const handleOpenTabInNewWindow = async () => {
+  const tab = requireActiveTab();
+  if (!tab) {
+    return;
+  }
+
+  const result = await openTabsInNewWindow([tab], tab.id, workspaceStore.currentWorkspacePath);
+  if (!result.ok) {
+    notificationStore.error('打开新窗口失败', result.error.message);
+    return;
+  }
+  notificationStore.info('已在新窗口打开', tab.fileName);
+};
+
+/** 把当前标签移动到新窗口，迁移成功后从源窗口移除。 */
+const handleMoveTabToNewWindow = async () => {
+  const tab = requireActiveTab();
+  if (!tab) {
+    return;
+  }
+
+  const result = await openTabsInNewWindow([tab], tab.id, workspaceStore.currentWorkspacePath);
+  if (!result.ok) {
+    notificationStore.error('迁移标签失败', result.error.message);
+    return;
+  }
+  tabsStore.closeTab(tab.id);
+  notificationStore.info('标签已迁移到新窗口', tab.fileName);
+};
+
+// ========== v0.4.0 Provider 扩展点 ==========
+
+/** 装配内置 provider；单个 provider 抛错会被注册表隔离，不影响启动。 */
+const bootstrapProviders = async () => {
+  // 测试或降级环境下 store 可能缺少新 API，任何装配失败都不能阻断启动。
   try {
-    const diff = await gitCommands.diff(workspaceRuntimeId.value, relativePath);
-    const summary = diff.split('\n').slice(0, 6).join('\n') || '没有可显示的工作区差异';
-    notificationStore.info(`Git Diff · ${relativePath}`, summary);
-  } catch (error: any) {
-    notificationStore.error('读取 Git Diff 失败', error?.message || '无法读取变更');
+    registerBuiltinProviders(providerRegistry);
+    const providerThemes = await providerRegistry.loadThemes();
+    providerThemes.forEach((theme) => {
+      settingsStore.importThemePackage?.(JSON.stringify(theme), { activate: false });
+    });
+    providersStore.setCommands(providerRegistry.loadCommands());
+    providersStore.setFileActions(providerRegistry.loadFileActions());
+    providersStore.refresh(providerRegistry.snapshot());
+
+    if (providersStore.commands.length > 0 || providerThemes.length > 0) {
+      refreshLocalizedCommands();
+    }
+  } catch (error) {
+    console.warn('[Providers] 装配失败', error);
+  }
+};
+
+const handleProviderFileAction = async (actionId: string, entry: FileTreeNode) => {
+  try {
+    await providersStore.runFileAction(actionId, {
+      filePath: entry.path,
+      workspacePath: workspaceStore.currentWorkspacePath,
+      isTauri: isTauriApp(),
+    });
+  } catch (error) {
+    notificationStore.error('文件动作执行失败', error instanceof Error ? error.message : String(error));
   }
 };
 
@@ -784,6 +974,8 @@ const handleExportMarkdownHtml = async () => {
 
   const baseName = tab.fileName.replace(/\.md$/i, '') || 'tau-document';
   const fileName = `${baseName}.html`;
+  // 导出时才加载 marked / DOMPurify，避免渲染依赖进入首屏。
+  const { createStandaloneHtml } = await import('@/services/markdownRenderService');
   const html = createStandaloneHtml(resolveExportMarkdownContent(tab.content), baseName);
 
   if (!isTauriApp()) {
@@ -1374,7 +1566,8 @@ const handleGoToLine = () => {
 const getLocalizedCommandTitle = (id: CommandId) =>
   getCommandText(settingsStore.uiLanguage, id).title;
 
-const createLocalizedCommands = () => createCommandRegistry({
+const createLocalizedCommands = () => {
+  const builtInCommands = createCommandRegistry({
   newFile: handleNewFile,
   openFile: handleOpenFile,
   openFolder: handleOpenFolder,
@@ -1385,10 +1578,38 @@ const createLocalizedCommands = () => createCommandRegistry({
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
   openCommandPalette: handleOpenCommandPalette,
-}, settingsStore.uiLanguage);
+  compareWithFile: handleCompareWithFile,
+  openInNewWindow: handleOpenTabInNewWindow,
+  moveToNewWindow: handleMoveTabToNewWindow,
+  }, settingsStore.uiLanguage);
 
+  // Provider 命令与内置命令合并，同 id 时内置优先。
+  const knownIds = new Set(builtInCommands.map((command) => command.id));
+  return [
+    ...builtInCommands,
+    ...providersStore.commands.filter((command) => !knownIds.has(command.id)),
+  ];
+};
+
+/** 命令面板展示的快捷键以用户覆盖为准。 */
+const resolveCommandShortcutLabel = (commandId: string, fallback?: string) => {
+  const resolved = resolveKeybinding(DEFAULT_KEYBINDINGS, settingsStore.keybindingOverrides, commandId);
+  if (!resolved) {
+    return fallback;
+  }
+  if (resolved.isUnbound) {
+    return undefined;
+  }
+  return formatKeybinding(resolved.keys) || fallback;
+};
+
+const applyCommandShortcuts = (commands: AppCommand[]): AppCommand[] =>
+  commands.map((command) => ({
+    ...command,
+    shortcut: resolveCommandShortcutLabel(command.id, command.shortcut),
+  }));
 const refreshLocalizedCommands = () => {
-  const commands = createLocalizedCommands();
+  const commands = applyCommandShortcuts(createLocalizedCommands());
   commandStore.registerCommands(commands.map(({ id, title, category, shortcut, keywords }) => ({
     id,
     title,
@@ -1428,116 +1649,79 @@ const handlePaletteSelectHighlighted = async () => {
   await handlePaletteSelect(highlightedCommand.value.id);
 };
 
+/**
+ * 快捷键命令 id -> 处理函数。
+ * 设置面板展示的绑定与这里注册的处理函数使用同一套命令 id。
+ */
+const keybindingCommandHandlers: Record<string, () => void> = {
+  'commandPalette.open': () => void executeCommand('commandPalette.open'),
+  'file.new': () => void executeCommand('file.new'),
+  'file.open': () => void executeCommand('file.open'),
+  'file.openFolder': () => void executeCommand('file.openFolder'),
+  'file.save': () => void executeCommand('file.save'),
+  'file.saveAs': () => void executeCommand('file.saveAs'),
+  'search.findText': () => void executeCommand('search.findText'),
+  'search.goToLine': () => void executeCommand('search.goToLine'),
+  'workspace.search': handleOpenWorkspaceSearch,
+  'workspace.quickOpen': handleOpenQuickOpen,
+  'view.toggleSidebar': handleToggleFileTree,
+  'view.toggleSettings': () => void executeCommand('view.toggleSettings'),
+  'editor.zoomIn': () => settingsStore.adjustFontSize(1),
+  'editor.zoomOut': () => settingsStore.adjustFontSize(-1),
+  'editor.zoomReset': () => settingsStore.resetFontSize(),
+  'diff.compareWithFile': () => void handleCompareWithFile(),
+  'window.openInNewWindow': () => void handleOpenTabInNewWindow(),
+  'window.moveToNewWindow': () => void handleMoveTabToNewWindow(),
+};
+
+const describeKeybindingCommand = (commandId: string): string => {
+  const extraTitles: Record<string, string> = {
+    'workspace.search': 'Search Workspace',
+    'workspace.quickOpen': 'Quick Open',
+    'editor.zoomIn': 'Zoom In',
+    'editor.zoomOut': 'Zoom Out',
+    'editor.zoomReset': 'Zoom Reset',
+  };
+  if (extraTitles[commandId]) {
+    return extraTitles[commandId];
+  }
+  const text = getCommandText(settingsStore.uiLanguage, commandId as CommandId) as unknown as
+    | { title?: string }
+    | undefined;
+  return text?.title ?? commandId;
+};
+
 const registerShortcuts = () => {
-  keyboardStore.register({
-    id: 'new-file',
-    key: 'n',
-    modifiers: ['ctrl'],
-    handler: () => void executeCommand('file.new'),
-    description: getLocalizedCommandTitle('file.new'),
-  });
+  // 重新注册前先清掉旧命令的绑定，避免改键后旧按键仍然生效。
+  for (const definition of DEFAULT_KEYBINDINGS) {
+    keyboardStore.unregister(definition.commandId);
+  }
+  keyboardStore.unregister('commandPalette.open.f1');
 
-  keyboardStore.register({
-    id: 'workspace-search',
-    key: 'f',
-    modifiers: ['ctrl', 'shift'],
-    handler: handleOpenWorkspaceSearch,
-    description: 'Search Workspace',
-  });
+  for (const resolved of resolveKeybindings(DEFAULT_KEYBINDINGS, settingsStore.keybindingOverrides)) {
+    const handler = keybindingCommandHandlers[resolved.commandId];
+    if (!handler || !resolved.keys) {
+      continue;
+    }
+    const shortcut = keybindingToShortcut(resolved.keys);
+    if (!shortcut) {
+      continue;
+    }
+    keyboardStore.register({
+      id: resolved.commandId,
+      key: shortcut.key,
+      modifiers: shortcut.modifiers,
+      handler,
+      description: describeKeybindingCommand(resolved.commandId),
+    });
+  }
 
+  // F1 固定作为命令面板的第二绑定，不参与自定义，避免误改后无法唤起设置。
   keyboardStore.register({
-    id: 'quick-open',
-    key: 'p',
-    modifiers: ['ctrl'],
-    handler: handleOpenQuickOpen,
-    description: 'Quick Open',
-  });
-
-  keyboardStore.register({
-    id: 'open-file',
-    key: 'o',
-    modifiers: ['ctrl'],
-    handler: () => void executeCommand('file.open'),
-    description: getLocalizedCommandTitle('file.open'),
-  });
-
-  keyboardStore.register({
-    id: 'save',
-    key: 's',
-    modifiers: ['ctrl'],
-    handler: () => void executeCommand('file.save'),
-    description: getLocalizedCommandTitle('file.save'),
-  });
-
-  keyboardStore.register({
-    id: 'command-palette',
-    key: 'p',
-    modifiers: ['ctrl', 'shift'],
-    handler: () => void executeCommand('commandPalette.open'),
-    description: getLocalizedCommandTitle('commandPalette.open'),
-  });
-
-  keyboardStore.register({
-    id: 'command-palette-f1',
+    id: 'commandPalette.open.f1',
     key: 'F1',
     handler: () => void executeCommand('commandPalette.open'),
-    description: getLocalizedCommandTitle('commandPalette.open'),
-  });
-
-  keyboardStore.register({
-    id: 'search-find-text',
-    key: 'f',
-    modifiers: ['ctrl'],
-    handler: () => void executeCommand('search.findText'),
-    description: getLocalizedCommandTitle('search.findText'),
-  });
-
-  keyboardStore.register({
-    id: 'search-go-to-line',
-    key: 'g',
-    modifiers: ['ctrl'],
-    handler: () => void executeCommand('search.goToLine'),
-    description: getLocalizedCommandTitle('search.goToLine'),
-  });
-
-  keyboardStore.register({
-    id: 'toggle-sidebar',
-    key: 'b',
-    modifiers: ['ctrl'],
-    handler: handleToggleFileTree,
-    description: getLocalizedCommandTitle('view.toggleSidebar'),
-  });
-
-  keyboardStore.register({
-    id: 'zoom-in',
-    key: '=',
-    modifiers: ['ctrl'],
-    handler: () => settingsStore.adjustFontSize(1),
-    description: 'Zoom In',
-  });
-
-  keyboardStore.register({
-    id: 'zoom-in-shift',
-    key: '+',
-    modifiers: ['ctrl', 'shift'],
-    handler: () => settingsStore.adjustFontSize(1),
-    description: 'Zoom In',
-  });
-
-  keyboardStore.register({
-    id: 'zoom-out',
-    key: '-',
-    modifiers: ['ctrl'],
-    handler: () => settingsStore.adjustFontSize(-1),
-    description: 'Zoom Out',
-  });
-
-  keyboardStore.register({
-    id: 'zoom-reset',
-    key: '0',
-    modifiers: ['ctrl'],
-    handler: () => settingsStore.resetFontSize(),
-    description: 'Zoom Reset',
+    description: describeKeybindingCommand('commandPalette.open'),
   });
 };
 
@@ -2159,6 +2343,16 @@ watch(
   },
 );
 
+// 快捷键覆盖变化后立即重建注册表，并刷新命令面板展示的绑定。
+watch(
+  () => settingsStore.keybindingOverrides,
+  () => {
+    registerShortcuts();
+    refreshLocalizedCommands();
+  },
+  { deep: true },
+);
+
 watch(
   () => ({ tabCount: tabsStore.tabs.length, workspacePath: workspaceStore.currentWorkspacePath }),
   ({ tabCount, workspacePath }) => {
@@ -2236,10 +2430,17 @@ onMounted(async () => {
   window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
   await settingsStore.init();
+  await bootstrapProviders();
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
   await sessionService.initialize();
-  await restoreSession();
+  // 新窗口优先消费一次性迁移 payload，避免再走一遍会话恢复覆盖标签。
+  const pendingWindowTransfer = await consumePendingWindowTransfer();
+  if (pendingWindowTransfer) {
+    applyWindowTransferPayload(pendingWindowTransfer);
+  } else {
+    await restoreSession();
+  }
   await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
   await windowService.attach();
   windowService.onBeforeClose(() => saveSession());
@@ -2379,6 +2580,7 @@ onUnmounted(() => {
               :loading="loading"
               :selected-path="selectedPath"
               :workspace-label="workspaceLabel"
+              :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
               @file-open="handleFileOpen"
               @folder-toggle="handleFolderToggle"
               @context-menu="handleFileTreeContextMenu"
@@ -2387,6 +2589,8 @@ onUnmounted(() => {
               @new-folder="handleFileTreeCreateFolder"
               @rename="handleFileTreeRename"
               @delete="handleFileTreeDelete"
+              @compare-with-current="handleCompareWithCurrentFile"
+              @run-provider-action="handleProviderFileAction"
             />
             <div v-else class="sidebar-empty">
               <p class="sidebar-empty-title">{{ appText.sidebarEmptyTitle }}</p>
@@ -2448,11 +2652,18 @@ onUnmounted(() => {
           @rename-tab="handleRenameTab"
           @tabs-reorder="handleTabsReorder"
           @cancel-large-file-load="handleCancelLargeFileLoad"
-          @retry-large-file-load="handleRetryLargeFileLoad"
+            @retry-large-file-load="handleRetryLargeFileLoad"
+        />
+
+        <DiffView
+          v-if="diffStore.isOpen && diffStore.session"
+          :session="diffStore.session"
+          @close="diffStore.close()"
+          @update:layout="diffStore.setLayout($event)"
         />
 
         <div
-          v-if="activeTab"
+          v-else-if="activeTab"
           class="editor-stage"
           :class="{
             'markdown-stage': isMarkdownTab && settingsStore.markdownPreviewEnabled,
@@ -2460,7 +2671,7 @@ onUnmounted(() => {
           }"
         >
           <div class="editor-pane">
-            <EditorCore
+            <LazyEditorCore
               ref="editorCoreRef"
               :model-id="activeTab.id"
               :file-path="activeTab.filePath"

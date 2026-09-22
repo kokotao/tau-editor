@@ -20,6 +20,9 @@ export interface CommandActions {
   toggleSidebar: () => Promise<void> | void;
   toggleSettings: () => Promise<void> | void;
   openCommandPalette: () => Promise<void> | void;
+  compareWithFile: () => Promise<void> | void;
+  openInNewWindow: () => Promise<void> | void;
+  moveToNewWindow: () => Promise<void> | void;
 }
 
 function resolveCommandText(language: UiLanguage, commandId: CommandId) {
@@ -37,6 +40,9 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
   const goToLine = resolveCommandText(uiLanguage, 'search.goToLine');
   const toggleSidebar = resolveCommandText(uiLanguage, 'view.toggleSidebar');
   const toggleSettings = resolveCommandText(uiLanguage, 'view.toggleSettings');
+  const compareWithFile = resolveCommandText(uiLanguage, 'diff.compareWithFile');
+  const openInNewWindow = resolveCommandText(uiLanguage, 'window.openInNewWindow');
+  const moveToNewWindow = resolveCommandText(uiLanguage, 'window.moveToNewWindow');
 
   return [
     {
@@ -84,6 +90,27 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       category: 'file',
       keywords: saveAs.keywords,
       run: actions.saveAs,
+    },
+    {
+      id: 'diff.compareWithFile',
+      title: compareWithFile.title,
+      category: 'file',
+      keywords: compareWithFile.keywords,
+      run: actions.compareWithFile,
+    },
+    {
+      id: 'window.openInNewWindow',
+      title: openInNewWindow.title,
+      category: 'view',
+      keywords: openInNewWindow.keywords,
+      run: actions.openInNewWindow,
+    },
+    {
+      id: 'window.moveToNewWindow',
+      title: moveToNewWindow.title,
+      category: 'view',
+      keywords: moveToNewWindow.keywords,
+      run: actions.moveToNewWindow,
     },
     {
       id: 'search.findText',

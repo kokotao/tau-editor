@@ -13,6 +13,7 @@ mod search;
 pub mod settings;
 mod startup;
 mod watcher;
+pub mod window;
 mod workspace;
 
 pub use file::*;
@@ -27,4 +28,5 @@ pub use search::*;
 pub use settings::*;
 pub use startup::*;
 pub use watcher::*;
+pub use window::*;
 pub use workspace::*;

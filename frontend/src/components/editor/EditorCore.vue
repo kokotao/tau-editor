@@ -515,12 +515,32 @@ const handleContextMenuEntryClick = (entry: ContextMenuEntry) => {
   void entry.action();
 };
 
+/**
+ * 注册当前生效的主题包到 Monaco，并返回应使用的主题 id。
+ * 注册失败时回退到内置主题，避免自定义主题导致编辑器无法渲染。
+ */
+const registerActiveMonacoTheme = (): string => {
+  const definition = settingsStore.activeMonacoThemeDefinition;
+  const fallback = settingsStore.monacoTheme || props.theme || 'vs-dark';
+  if (!definition) {
+    return fallback;
+  }
+
+  try {
+    monaco.editor.defineTheme(settingsStore.activeMonacoThemeId, definition);
+    return settingsStore.activeMonacoThemeId;
+  } catch (error) {
+    console.warn('[EditorCore] 自定义 Monaco 主题注册失败，已回退内置主题。', error);
+    return fallback;
+  }
+};
+
 const initEditor = () => {
   if (!editorContainer.value) return;
 
   try {
     ensureMonacoSetup();
-    const monacoTheme = settingsStore.monacoTheme || props.theme;
+    const monacoTheme = registerActiveMonacoTheme() || props.theme;
     const initialModel = getOrCreateModel(props.modelId, props.value, props.language);
 
     const largeFileOptimizations = {
@@ -782,6 +802,17 @@ watch(
       monaco.editor.setTheme(newTheme);
     }
   },
+);
+
+watch(
+  () => [settingsStore.activeMonacoThemeId, settingsStore.activeMonacoThemeDefinition] as const,
+  () => {
+    const themeId = registerActiveMonacoTheme();
+    if (editor.value && themeId) {
+      monaco.editor.setTheme(themeId);
+    }
+  },
+  { deep: true },
 );
 
 watch(

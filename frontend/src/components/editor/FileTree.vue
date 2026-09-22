@@ -118,9 +118,12 @@
             :level="level + 1"
             :nested="true"
             :selected-path="selectedPath"
+            :provider-actions="providerActions"
             @file-open="(path) => emit('file-open', path)"
             @folder-toggle="(path) => emit('folder-toggle', path)"
             @context-menu="(entry, event) => emit('contextMenu', entry, event)"
+            @compare-with-current="(entry) => emit('compare-with-current', entry)"
+            @run-provider-action="(actionId, entry) => emit('run-provider-action', actionId, entry)"
             @new-file="emit('new-file')"
             @new-folder="emit('new-folder')"
             @rename="(entry) => emit('rename', entry)"
@@ -157,6 +160,25 @@
       <div class="context-menu-item" @click="handleRename">
         {{ copy.rename }}
       </div>
+      <div
+        v-if="contextMenu.entry?.type === 'file'"
+        class="context-menu-item"
+        data-testid="file-tree-compare-current"
+        @click="handleCompareWithCurrent"
+      >
+        {{ copy.compareWithCurrent }}
+      </div>
+      <template v-if="contextMenu.entry?.type === 'file'">
+        <div
+          v-for="action in providerActions"
+          :key="action.id"
+          class="context-menu-item"
+          :data-testid="`file-tree-provider-${action.id}`"
+          @click="handleRunProviderAction(action.id)"
+        >
+          {{ action.title }}
+        </div>
+      </template>
       <div class="context-menu-divider"></div>
       <div class="context-menu-item danger" @click="handleDelete">
         {{ copy.delete }}
@@ -180,6 +202,7 @@ interface FileTreeProps {
   loading?: boolean;
   nested?: boolean;
   workspaceLabel?: string;
+  providerActions?: Array<{ id: string; title: string }>;
 }
 
 const props = withDefaults(defineProps<FileTreeProps>(), {
@@ -187,6 +210,7 @@ const props = withDefaults(defineProps<FileTreeProps>(), {
   selectedPath: null,
   loading: false,
   nested: false,
+  providerActions: () => [],
   workspaceLabel: '我的工作区',
 });
 const settingsStore = useSettingsStore();
@@ -203,6 +227,8 @@ const emit = defineEmits<{
   'new-file': [];
   'new-folder': [];
   'rename': [entry: FileTreeNode];
+  'compare-with-current': [entry: FileTreeNode];
+  'run-provider-action': [actionId: string, entry: FileTreeNode];
   'delete': [entry: FileTreeNode];
 }>();
 
@@ -385,6 +411,22 @@ const handleNewFolder = () => {
 const handleRename = () => {
   if (contextMenu.value.entry) {
     emit('rename', contextMenu.value.entry);
+  }
+  contextMenu.value.visible = false;
+};
+
+const handleCompareWithCurrent = () => {
+  const entry = contextMenu.value.entry;
+  if (entry?.type === 'file') {
+    emit('compare-with-current', entry);
+  }
+  contextMenu.value.visible = false;
+};
+
+const handleRunProviderAction = (actionId: string) => {
+  const entry = contextMenu.value.entry;
+  if (entry?.type === 'file') {
+    emit('run-provider-action', actionId, entry);
   }
   contextMenu.value.visible = false;
 };

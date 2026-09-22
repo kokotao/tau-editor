@@ -135,6 +135,7 @@ const storeMocks = vi.hoisted(() => ({
   },
   keyboard: {
     register: vi.fn(),
+    unregister: vi.fn(),
     removeGlobalHandler: vi.fn(),
   },
   fileConflicts: {
@@ -270,6 +271,7 @@ vi.mock('../../../frontend/src/components/editor/Toolbar.vue', () => ({ default:
 vi.mock('../../../frontend/src/components/editor/SettingsPanel.vue', () => ({ default: componentStubs.settingsPanel }))
 vi.mock('../../../frontend/src/components/editor/MarkdownPreview.vue', () => ({ default: componentStubs.markdownPreview }))
 vi.mock('../../../frontend/src/components/editor/EditorCore.vue', () => ({ default: componentStubs.editorCore }))
+vi.mock('../../../frontend/src/components/editor/LazyEditorCore', () => ({ LazyEditorCore: componentStubs.editorCore }))
 vi.mock('../../../frontend/src/components/editor/ContextRail.vue', () => ({ default: componentStubs.contextRail }))
 vi.mock('../../../frontend/src/components/editor/ExternalChangeDialog.vue', () => ({ default: componentStubs.externalChangeDialog }))
 

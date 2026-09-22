@@ -63,6 +63,27 @@ pub fn git_discard(
     git_discard_for_registry(registry.inner(), &workspace_id, &relative_paths)
 }
 
+/**
+ * @description 读取指定 revision 下的文件内容，用于 Diff 视图左侧基准版本
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-09-22 18:05
+ */
+#[tauri::command]
+pub fn git_show_file(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_id: String,
+    relative_path: String,
+    revision: Option<String>,
+) -> Result<String, CommandError> {
+    git_show_file_for_registry(
+        registry.inner(),
+        &workspace_id,
+        &relative_path,
+        revision.as_deref().unwrap_or("HEAD"),
+    )
+}
+
 pub fn git_status_for_registry(
     registry: &WorkspaceRegistry,
     workspace_id: &str,
@@ -117,6 +138,44 @@ pub fn git_diff_for_registry(
     args.push("--".to_string());
     args.push(relative_path.to_string());
     let output = run_git(&args)?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// 读取 revision:path 内容；revision 仅允许安全字符，避免参数注入。
+pub fn git_show_file_for_registry(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    relative_path: &str,
+    revision: &str,
+) -> Result<String, CommandError> {
+    validate_relative_path(relative_path)?;
+    if revision.is_empty()
+        || !revision
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '_' | '-' | '.' | '~' | '^' | '@' | '{' | '}'))
+    {
+        return Err(CommandError::new("GIT_REVISION_INVALID", "Git revision 无效"));
+    }
+
+    let root = workspace_root_for_registry(registry, workspace_id)?;
+    let spec = format!("{revision}:{relative_path}");
+    let output = run_git(&[
+        "-C".to_string(),
+        root.to_string_lossy().into_owned(),
+        "show".to_string(),
+        spec,
+    ])
+    .map_err(|error| {
+        if error.code == "GIT_OPERATION_FAILED" {
+            CommandError::new(
+                "GIT_FILE_NOT_IN_REVISION",
+                format!("{relative_path} 在 {revision} 中不存在"),
+            )
+        } else {
+            error
+        }
+    })?;
+
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 

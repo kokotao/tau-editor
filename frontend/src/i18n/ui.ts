@@ -59,6 +59,9 @@ export type CommandId =
   | 'file.openFolder'
   | 'file.save'
   | 'file.saveAs'
+  | 'diff.compareWithFile'
+  | 'window.openInNewWindow'
+  | 'window.moveToNewWindow'
   | 'search.findText'
   | 'search.goToLine'
   | 'view.toggleSidebar'
@@ -131,6 +134,34 @@ interface SettingsPanelText {
   customThemeExported: string;
   customThemeImported: (count: number) => string;
   customThemeImportFailed: string;
+  themePackages: string;
+  themePackagesDesc: string;
+  themePackageImport: string;
+  themePackageExport: string;
+  themePackageExportCurrent: string;
+  themePackageApply: string;
+  themePackageActive: string;
+  themePackageDelete: string;
+  themePackageEmpty: string;
+  themePackageImportPlaceholder: string;
+  themePackagePasteImport: string;
+  themePackageImported: (name: string) => string;
+  themePackageImportFailed: (reason: string) => string;
+  themePackageExported: string;
+  themePackageDeleted: string;
+  themePackageReverted: string;
+  keybindings: string;
+  keybindingsDesc: string;
+  keybindingRecording: string;
+  keybindingUnbound: string;
+  keybindingsResetAll: string;
+  keybindingConflict: string;
+  keybindingCancelled: string;
+  providers: string;
+  providersDesc: string;
+  providerThemes: string;
+  providerCommands: string;
+  providerFileActions: string;
   customColorBgApp: string;
   customColorPanelBase: string;
   customColorTextPrimary: string;
@@ -271,6 +302,7 @@ interface FileTreeText {
   newFolder: string;
   rename: string;
   delete: string;
+  compareWithCurrent: string;
 }
 
 interface StatusBarText {
@@ -364,6 +396,18 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '另存为',
       keywords: ['另存为', '导出', '保存副本', 'save as', 'export'],
     },
+    'diff.compareWithFile': {
+      title: '比较当前文件与…',
+      keywords: ['对比', '比较', 'diff', 'compare', '差异'],
+    },
+    'window.openInNewWindow': {
+      title: '在新窗口打开当前标签',
+      keywords: ['新窗口', '多窗口', 'window', 'new window'],
+    },
+    'window.moveToNewWindow': {
+      title: '把当前标签移动到新窗口',
+      keywords: ['移动标签', '新窗口', 'move tab', 'window'],
+    },
     'search.findText': {
       title: '搜索文本',
       keywords: ['搜索', '查找', '文本', 'find', 'search', 'text'],
@@ -405,6 +449,18 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'file.saveAs': {
       title: 'Save As',
       keywords: ['save as', 'export', '另存为', '导出'],
+    },
+    'diff.compareWithFile': {
+      title: 'Compare Current File With…',
+      keywords: ['diff', 'compare', 'difference', '对比', '比较'],
+    },
+    'window.openInNewWindow': {
+      title: 'Open Current Tab in New Window',
+      keywords: ['new window', 'window', '新窗口'],
+    },
+    'window.moveToNewWindow': {
+      title: 'Move Current Tab to New Window',
+      keywords: ['move tab', 'new window', '移动标签'],
     },
     'search.findText': {
       title: 'Find Text',
@@ -520,6 +576,34 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     customThemeExported: '已复制当前自定义配色 JSON。',
     customThemeImported: (count) => `已导入 ${count} 个自定义颜色。`,
     customThemeImportFailed: '导入失败，请检查 JSON 格式。',
+    themePackages: '主题包',
+    themePackagesDesc: '导入 JSON 主题包后 UI 与 Monaco 编辑器同步切换，也可以导出当前主题分享。',
+    themePackageImport: '从文件导入',
+    themePackageExport: '导出',
+    themePackageExportCurrent: '导出当前主题',
+    themePackageApply: '应用',
+    themePackageActive: '使用中',
+    themePackageDelete: '删除',
+    themePackageEmpty: '还没有导入主题包。',
+    themePackageImportPlaceholder: '粘贴主题包 JSON（需包含 id、name、colors.bgApp、colors.textPrimary）',
+    themePackagePasteImport: '粘贴导入',
+    themePackageImported: (name) => `已导入并应用主题包：${name}`,
+    themePackageImportFailed: (reason) => `主题包导入失败：${reason}`,
+    themePackageExported: '主题包已导出。',
+    themePackageDeleted: '主题包已删除。',
+    themePackageReverted: '已回到内置主题。',
+    keybindings: '快捷键',
+    keybindingsDesc: '点击按键后直接按下新的组合键，ESC 取消；冲突时会询问是否覆盖。',
+    keybindingRecording: '请按下新的组合…',
+    keybindingUnbound: '未绑定',
+    keybindingsResetAll: '全部恢复默认',
+    keybindingConflict: '该组合已被占用',
+    keybindingCancelled: '已取消改键。',
+    providers: '扩展点',
+    providersDesc: '主题 / 命令 / 文件动作 Provider 的装配状态，单个 Provider 报错不会影响启动。',
+    providerThemes: '主题',
+    providerCommands: '命令',
+    providerFileActions: '文件动作',
     customColorBgApp: '应用背景',
     customColorPanelBase: '面板背景',
     customColorTextPrimary: '主文本',
@@ -626,6 +710,34 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     customThemeExported: 'Custom palette JSON copied to clipboard.',
     customThemeImported: (count) => `Imported ${count} custom colors.`,
     customThemeImportFailed: 'Import failed. Please check JSON format.',
+    themePackages: 'Theme Packages',
+    themePackagesDesc: 'Import a JSON theme package to switch the UI and Monaco editor together, or export the active theme to share it.',
+    themePackageImport: 'Import File',
+    themePackageExport: 'Export',
+    themePackageExportCurrent: 'Export Current Theme',
+    themePackageApply: 'Apply',
+    themePackageActive: 'Active',
+    themePackageDelete: 'Delete',
+    themePackageEmpty: 'No theme packages imported yet.',
+    themePackageImportPlaceholder: 'Paste theme package JSON (requires id, name, colors.bgApp, colors.textPrimary)',
+    themePackagePasteImport: 'Import Pasted JSON',
+    themePackageImported: (name) => `Theme package imported and applied: ${name}`,
+    themePackageImportFailed: (reason) => `Theme package import failed: ${reason}`,
+    themePackageExported: 'Theme package exported.',
+    themePackageDeleted: 'Theme package deleted.',
+    themePackageReverted: 'Reverted to the built-in theme.',
+    keybindings: 'Keybindings',
+    keybindingsDesc: 'Click a key, then press the new combination. Press ESC to cancel; conflicts ask before overriding.',
+    keybindingRecording: 'Press new keys…',
+    keybindingUnbound: 'Unbound',
+    keybindingsResetAll: 'Reset All',
+    keybindingConflict: 'This combination is already used',
+    keybindingCancelled: 'Key change cancelled.',
+    providers: 'Extension Points',
+    providersDesc: 'Provider status for themes, commands and file actions. A failing provider never blocks startup.',
+    providerThemes: 'Themes',
+    providerCommands: 'Commands',
+    providerFileActions: 'File Actions',
     customColorBgApp: 'App Background',
     customColorPanelBase: 'Panel Background',
     customColorTextPrimary: 'Primary Text',
@@ -893,6 +1005,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     newFolder: '新建文件夹',
     rename: '重命名',
     delete: '删除',
+    compareWithCurrent: '与当前文件对比',
   },
   'en-US': {
     workspace: 'Workspace',
@@ -909,6 +1022,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     newFolder: 'New Folder',
     rename: 'Rename',
     delete: 'Delete',
+    compareWithCurrent: 'Compare with Current File',
   },
 };
 
