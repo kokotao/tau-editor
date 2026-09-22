@@ -94,6 +94,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
+    // 非 macOS/iOS 平台不消费闭包参数，统一 allow 以免 -D warnings 下报 unused。
+    #[allow(unused_variables)]
     app.run(|app_handle, event| {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = event {

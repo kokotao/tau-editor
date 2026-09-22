@@ -717,6 +717,7 @@ fn sanitize_file_name(file_name: &str) -> String {
     sanitized
 }
 
+#[cfg(target_os = "macos")]
 fn current_unix_timestamp() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -911,6 +912,7 @@ fn find_first_app_in_directory(dir: &Path) -> Result<PathBuf, String> {
     Err("DMG 中未找到可安装的 .app 应用".to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn find_app_bundle_from_executable_path(executable_path: &Path) -> Result<PathBuf, String> {
     for ancestor in executable_path.ancestors() {
         if ancestor.extension().and_then(|value| value.to_str()) == Some("app") {
@@ -921,6 +923,7 @@ fn find_app_bundle_from_executable_path(executable_path: &Path) -> Result<PathBu
     Err("当前进程不在 .app 包内，无法执行 macOS 自动替换更新".to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn build_macos_update_script() -> String {
     r#"#!/bin/bash
 set -euo pipefail
@@ -1180,6 +1183,7 @@ mod tests {
         assert!(!is_rate_limited_error("network timeout"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_find_app_bundle_from_executable_path() {
         let exe_path = PathBuf::from("/Applications/Tau Editor.app/Contents/MacOS/text-editor");
@@ -1188,6 +1192,7 @@ mod tests {
         assert_eq!(bundle_path, PathBuf::from("/Applications/Tau Editor.app"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_build_macos_update_script_contains_replace_flow() {
         let script = build_macos_update_script();
