@@ -8,9 +8,9 @@
 import { defineAsyncComponent, h, defineComponent, ref, onMounted } from 'vue';
 
 // 懒加载 EditorCore 组件
-export const LazyEditorCore = defineAsyncComponent({
+const AsyncEditorCore = defineAsyncComponent({
   // 工厂函数
-  loader: () => import('./components/editor/EditorCore.vue'),
+  loader: () => import('./EditorCore.vue'),
   
   // 加载时要显示的组件
   loadingComponent: defineComponent({
@@ -40,6 +40,8 @@ export const LazyEditorCore = defineAsyncComponent({
     }
   },
 });
+
+export const LazyEditorCore = AsyncEditorCore;
 
 // 预加载函数 - 在空闲时预加载 Monaco Editor
 export function preloadMonaco() {

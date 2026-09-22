@@ -13,6 +13,9 @@ function createActions() {
     toggleSidebar: vi.fn(),
     toggleSettings: vi.fn(),
     openCommandPalette: vi.fn(),
+    compareWithFile: vi.fn(),
+    openInNewWindow: vi.fn(),
+    moveToNewWindow: vi.fn(),
   };
 }
 

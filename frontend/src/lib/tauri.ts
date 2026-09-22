@@ -165,6 +165,27 @@ export interface WriteFileResponse {
   revision: string;
 }
 
+export interface WindowTransferCursor {
+  line: number;
+  column: number;
+}
+
+export interface WindowTransferTab {
+  filePath: string | null;
+  fileName: string;
+  content: string;
+  isDirty: boolean;
+  isUntitled: boolean;
+  language: string | null;
+  cursor?: WindowTransferCursor;
+}
+
+export interface WindowTransferPayload {
+  tabs: WindowTransferTab[];
+  activeIndex: number;
+  sourceWorkspacePath: string | null;
+}
+
 export interface GitStatusEntry {
   path: string;
   indexStatus: string;
@@ -417,6 +438,16 @@ export const workspaceCommands = {
   },
 };
 
+export const windowCommands = {
+  async openEditorWindow(payload: WindowTransferPayload): Promise<string> {
+    return invokeCommand<string>('open_editor_window', { payload });
+  },
+
+  async consumeWindowTransfer(): Promise<WindowTransferPayload | null> {
+    return invokeCommand<WindowTransferPayload | null>('consume_window_transfer');
+  },
+};
+
 export const gitCommands = {
   async status(workspaceId: string): Promise<GitStatusResponse> {
     return invokeCommand<GitStatusResponse>('git_status', { workspaceId });
@@ -424,6 +455,10 @@ export const gitCommands = {
 
   async diff(workspaceId: string, relativePath: string, staged = false): Promise<string> {
     return invokeCommand<string>('git_diff', { workspaceId, relativePath, staged });
+  },
+
+  async showFile(workspaceId: string, relativePath: string, revision = 'HEAD'): Promise<string> {
+    return invokeCommand<string>('git_show_file', { workspaceId, relativePath, revision });
   },
 
   async stage(workspaceId: string, relativePaths: string[]): Promise<void> {

@@ -22,6 +22,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .manage(commands::PendingOpenPaths::default())
+        .manage(commands::WindowTransferRegistry::default())
         .manage(commands::WorkspaceRegistry::default())
         .manage(services::WorkspaceWatcherState::default())
         .manage(services::FileTransactionRegistry::default())
@@ -78,6 +79,7 @@ pub fn run() {
             commands::abort_file_write_transaction,
             commands::git_status,
             commands::git_diff,
+            commands::git_show_file,
             commands::git_stage,
             commands::git_unstage,
             commands::git_discard,
@@ -90,6 +92,8 @@ pub fn run() {
             commands::import_markdown_asset,
             commands::check_markdown_links,
             commands::collect_workspace_tasks,
+            commands::open_editor_window,
+            commands::consume_window_transfer,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

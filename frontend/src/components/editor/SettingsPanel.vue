@@ -156,6 +156,76 @@
               />
               <p v-if="customThemeStatusText" class="custom-theme-status">{{ customThemeStatusText }}</p>
             </div>
+
+            <div class="settings-item theme-package-settings" data-testid="theme-package-settings">
+              <label class="settings-label">{{ copy.themePackages }}</label>
+              <p class="custom-theme-desc">{{ copy.themePackagesDesc }}</p>
+
+              <div class="theme-package-list">
+                <div
+                  v-for="theme in settingsStore.themePackages"
+                  :key="theme.id"
+                  class="theme-package-item"
+                  :class="{ active: settingsStore.activeThemePackageId === theme.id }"
+                  :data-testid="`theme-package-${theme.id}`"
+                >
+                  <div class="theme-package-main">
+                    <span class="theme-package-name">{{ theme.name }}</span>
+                    <span class="theme-package-meta">{{ theme.id }} · v{{ theme.version }} · {{ theme.mode }}</span>
+                  </div>
+                  <div class="theme-package-actions">
+                    <button
+                      class="settings-action-btn"
+                      :disabled="settingsStore.activeThemePackageId === theme.id"
+                      @click="handleApplyThemePackage(theme.id)"
+                    >
+                      {{ settingsStore.activeThemePackageId === theme.id ? copy.themePackageActive : copy.themePackageApply }}
+                    </button>
+                    <button class="settings-action-btn" @click="handleExportThemePackage(theme.id)">
+                      {{ copy.themePackageExport }}
+                    </button>
+                    <button class="settings-action-btn danger" @click="handleDeleteThemePackage(theme.id)">
+                      {{ copy.themePackageDelete }}
+                    </button>
+                  </div>
+                </div>
+                <p v-if="settingsStore.themePackages.length === 0" class="theme-package-empty">
+                  {{ copy.themePackageEmpty }}
+                </p>
+              </div>
+
+              <div class="custom-theme-actions">
+                <button class="settings-action-btn" data-testid="import-theme-package-btn" @click="handleImportThemePackage">
+                  {{ copy.themePackageImport }}
+                </button>
+                <button class="settings-action-btn" data-testid="export-active-theme-package-btn" @click="handleExportThemePackage()">
+                  {{ copy.themePackageExportCurrent }}
+                </button>
+                <button
+                  v-if="settingsStore.activeThemePackageId"
+                  class="settings-action-btn"
+                  data-testid="revert-theme-package-btn"
+                  @click="handleApplyThemePackage(null)"
+                >
+                  {{ copy.reset }}
+                </button>
+              </div>
+
+              <textarea
+                v-model="themePackageImportText"
+                class="custom-theme-import"
+                data-testid="theme-package-textarea"
+                :placeholder="copy.themePackageImportPlaceholder"
+              />
+              <div class="custom-theme-actions">
+                <button class="settings-action-btn" data-testid="paste-theme-package-btn" @click="handlePasteImportThemePackage">
+                  {{ copy.themePackagePasteImport }}
+                </button>
+              </div>
+              <p v-if="themePackageStatusText" class="custom-theme-status" data-testid="theme-package-status">
+                {{ themePackageStatusText }}
+              </p>
+            </div>
           </div>
 
           <div
@@ -280,6 +350,63 @@
                 <input data-testid="toggle-word-wrap" type="checkbox" :checked="settingsStore.wordWrap" @change="setWordWrap($event)" />
                 <span class="checkbox-text">{{ copy.wordWrapEnabled }}</span>
               </label>
+            </div>
+
+            <div class="settings-item keybinding-settings" data-testid="keybinding-settings">
+              <label class="settings-label">{{ copy.keybindings }}</label>
+              <p class="custom-theme-desc">{{ copy.keybindingsDesc }}</p>
+
+              <div class="keybinding-list">
+                <div
+                  v-for="item in keybindingRows"
+                  :key="item.commandId"
+                  class="keybinding-row"
+                  :data-testid="`keybinding-row-${item.commandId}`"
+                >
+                  <div class="keybinding-main">
+                    <span class="keybinding-title">{{ item.title }}</span>
+                    <span class="keybinding-meta">{{ item.commandId }}</span>
+                  </div>
+                  <button
+                    class="keybinding-recorder"
+                    :class="{ recording: recordingCommandId === item.commandId, unbound: !item.label }"
+                    :data-testid="`keybinding-record-${item.commandId}`"
+                    @click="toggleKeybindingRecording(item.commandId)"
+                  >
+                    {{ recordingCommandId === item.commandId ? copy.keybindingRecording : (item.label || copy.keybindingUnbound) }}
+                  </button>
+                  <button
+                    class="settings-action-btn"
+                    :disabled="!item.isCustom"
+                    :data-testid="`keybinding-reset-${item.commandId}`"
+                    @click="handleResetKeybinding(item.commandId)"
+                  >
+                    {{ copy.reset }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="custom-theme-actions">
+                <button class="settings-action-btn" data-testid="reset-all-keybindings-btn" @click="handleResetAllKeybindings">
+                  {{ copy.keybindingsResetAll }}
+                </button>
+              </div>
+              <p v-if="keybindingStatusText" class="custom-theme-status" data-testid="keybinding-status">
+                {{ keybindingStatusText }}
+              </p>
+            </div>
+
+            <div class="settings-item provider-settings" data-testid="provider-settings">
+              <label class="settings-label">{{ copy.providers }}</label>
+              <p class="custom-theme-desc">{{ copy.providersDesc }}</p>
+              <div class="provider-stats">
+                <span data-testid="provider-theme-count">{{ copy.providerThemes }}: {{ providersStore.themeProviderCount }}</span>
+                <span data-testid="provider-command-count">{{ copy.providerCommands }}: {{ providersStore.commandProviderCount }}</span>
+                <span data-testid="provider-file-action-count">{{ copy.providerFileActions }}: {{ providersStore.fileActionProviderCount }}</span>
+              </div>
+              <p v-if="providersStore.errorCount > 0" class="custom-theme-status provider-error" data-testid="provider-errors">
+                {{ providersStore.errors.map((error) => `${error.providerId}: ${error.message}`).join('；') }}
+              </p>
             </div>
           </div>
 
@@ -503,7 +630,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import {
   CUSTOM_THEME_COLOR_FALLBACKS,
@@ -511,6 +638,7 @@ import {
   type CustomThemeColorKey,
   useSettingsStore,
 } from '@/stores/settings';
+import { useProvidersStore } from '@/stores/providers';
 import {
   appCommands,
   settingsCommands,
@@ -519,8 +647,25 @@ import {
   type GithubUpdateInfo,
   type ReleaseAssetInfo,
 } from '@/lib/tauri';
+import { isTauriApp } from '@/lib/tauri';
+import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
+import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import type { ThemeSkinId } from '@/utils/themeResolver';
-import { getAuthorInfoI18n, getSettingsPanelI18n, type MonacoThemeValue, type UiLanguage } from '@/i18n/ui';
+import {
+  getAuthorInfoI18n,
+  getCommandText,
+  getSettingsPanelI18n,
+  type CommandId,
+  type MonacoThemeValue,
+  type UiLanguage,
+} from '@/i18n/ui';
+import {
+  DEFAULT_KEYBINDINGS,
+  findConflictsForKey,
+  formatKeybinding,
+  keybindingFromEvent,
+  resolveKeybindings,
+} from '@/services/keybindingService';
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 
@@ -543,6 +688,7 @@ const emit = defineEmits<{
 }>();
 
 const settingsStore = useSettingsStore();
+const providersStore = useProvidersStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
 const projectHomepageUrl = 'https://github.com/kokotao/tau-editor';
@@ -588,6 +734,11 @@ const activeCategoryValue = computed<SettingsCategory>(() => props.activeCategor
 const selectedAsset = computed<ReleaseAssetInfo | null>(() => updateInfo.value?.selectedAsset ?? null);
 const customThemeImportText = ref('');
 const customThemeStatusText = ref('');
+const themePackageImportText = ref('');
+const themePackageStatusText = ref('');
+const isImportingThemePackage = ref(false);
+const recordingCommandId = ref<string | null>(null);
+const keybindingStatusText = ref('');
 
 const associationGroups = computed(() => {
   const groups = new Map<string, FileAssociationState[]>();
@@ -823,6 +974,266 @@ const handleImportCustomTheme = () => {
     ? copy.value.customThemeImported(result.applied)
     : `${copy.value.customThemeImportFailed} (${result.message})`;
 };
+
+const pickThemePackageFileInBrowser = () =>
+  new Promise<string | null>((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    const cleanup = () => input.remove();
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) {
+        cleanup();
+        resolve(null);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        cleanup();
+        resolve(typeof reader.result === 'string' ? reader.result : null);
+      };
+      reader.onerror = () => {
+        cleanup();
+        resolve(null);
+      };
+      reader.readAsText(file);
+    });
+    input.click();
+  });
+
+const importThemePackageFromText = (raw: string) => {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    themePackageStatusText.value = copy.value.themePackageImportFailed('empty json');
+    return false;
+  }
+
+  const result = settingsStore.importThemePackage(trimmed);
+  if (result.success && result.theme) {
+    themePackageImportText.value = '';
+    themePackageStatusText.value = copy.value.themePackageImported(result.theme.name);
+    return true;
+  }
+
+  themePackageStatusText.value = copy.value.themePackageImportFailed(result.error?.message ?? '');
+  return false;
+};
+
+const handlePasteImportThemePackage = () => {
+  importThemePackageFromText(themePackageImportText.value);
+};
+
+const handleImportThemePackage = async () => {
+  if (isImportingThemePackage.value) {
+    return;
+  }
+
+  isImportingThemePackage.value = true;
+  try {
+    let raw: string | null = null;
+    if (isTauriApp()) {
+      const selected = await openFileDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Tau Theme', extensions: ['json'] }],
+      });
+      const path = typeof selected === 'string' ? selected : null;
+      if (!path) {
+        return;
+      }
+      raw = await readTextFile(path);
+    } else {
+      raw = await pickThemePackageFileInBrowser();
+    }
+
+    if (raw === null) {
+      return;
+    }
+    importThemePackageFromText(raw);
+  } catch (error) {
+    themePackageStatusText.value = copy.value.themePackageImportFailed(
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    isImportingThemePackage.value = false;
+  }
+};
+
+const downloadThemePackage = (payload: string, fileName: string) => {
+  const blob = new Blob([payload], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+const handleExportThemePackage = async (packageId?: string) => {
+  const payload = settingsStore.exportThemePackage(packageId);
+  if (!payload) {
+    themePackageStatusText.value = copy.value.themePackageImportFailed('no theme payload');
+    return;
+  }
+
+  const id = packageId || settingsStore.activeThemePackageId || `skin-${settingsStore.themeSkin}`;
+  const fileName = `${id.replace(/[^a-zA-Z0-9._-]/g, '-')}.tau-theme.json`;
+  try {
+    if (isTauriApp()) {
+      const target = await saveFileDialog({
+        defaultPath: fileName,
+        filters: [{ name: 'Tau Theme', extensions: ['json'] }],
+      });
+      if (!target) {
+        return;
+      }
+      await writeTextFile(target, payload);
+    } else {
+      downloadThemePackage(payload, fileName);
+    }
+    themePackageStatusText.value = copy.value.themePackageExported;
+  } catch (error) {
+    themePackageStatusText.value = copy.value.themePackageImportFailed(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
+const handleApplyThemePackage = (packageId: string | null) => {
+  const applied = settingsStore.applyThemePackage(packageId);
+  if (packageId && !applied) {
+    themePackageStatusText.value = copy.value.themePackageImportFailed(packageId);
+    return;
+  }
+  themePackageStatusText.value = applied
+    ? copy.value.themePackageImported(applied.name)
+    : copy.value.themePackageReverted;
+};
+
+const handleDeleteThemePackage = (packageId: string) => {
+  const theme = settingsStore.themePackages.find((item) => item.id === packageId);
+  if (!theme) {
+    return;
+  }
+  const confirmed = typeof window === 'undefined'
+    ? true
+    : window.confirm(`${copy.value.themePackageDelete}: ${theme.name}`);
+  if (!confirmed) {
+    return;
+  }
+  if (settingsStore.removeThemePackage(packageId)) {
+    themePackageStatusText.value = copy.value.themePackageDeleted;
+  }
+};
+
+/** 设置面板展示命令标题；非内置命令回退到命令 id。 */
+const keybindingCommandTitle = (commandId: string): string => {
+  const isEnglish = settingsStore.uiLanguage === 'en-US';
+  const extraTitles: Record<string, string> = {
+    'workspace.search': isEnglish ? 'Search Workspace' : '工作区搜索',
+    'workspace.quickOpen': isEnglish ? 'Quick Open' : '快速打开',
+    'editor.zoomIn': isEnglish ? 'Zoom In' : '放大字号',
+    'editor.zoomOut': isEnglish ? 'Zoom Out' : '缩小字号',
+    'editor.zoomReset': isEnglish ? 'Reset Zoom' : '重置字号',
+  };
+  if (extraTitles[commandId]) {
+    return extraTitles[commandId];
+  }
+  const text = getCommandText(settingsStore.uiLanguage, commandId as CommandId) as unknown as
+    | { title?: string }
+    | undefined;
+  return text?.title ?? commandId;
+};
+
+const keybindingRows = computed(() =>
+  resolveKeybindings(DEFAULT_KEYBINDINGS, settingsStore.keybindingOverrides).map((item) => ({
+    ...item,
+    title: keybindingCommandTitle(item.commandId),
+    label: formatKeybinding(item.keys),
+  })),
+);
+
+const handleKeybindingRecorderKeydown = (event: KeyboardEvent) => {
+  if (!recordingCommandId.value) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+
+  const commandId = recordingCommandId.value;
+  if (event.key === 'Escape') {
+    recordingCommandId.value = null;
+    keybindingStatusText.value = copy.value.keybindingCancelled;
+    return;
+  }
+
+  const keys = keybindingFromEvent(event);
+  if (!keys) {
+    return;
+  }
+
+  const conflicts = findConflictsForKey(
+    DEFAULT_KEYBINDINGS,
+    settingsStore.keybindingOverrides,
+    commandId,
+    keys,
+  );
+  if (conflicts.length > 0) {
+    const labels = conflicts.map((id) => keybindingCommandTitle(id)).join('、');
+    const confirmed = typeof window === 'undefined'
+      ? true
+      : window.confirm(`${copy.value.keybindingConflict}: ${labels}`);
+    if (!confirmed) {
+      recordingCommandId.value = null;
+      keybindingStatusText.value = copy.value.keybindingCancelled;
+      return;
+    }
+    conflicts.forEach((id) => settingsStore.setKeybindingOverride(id, ''));
+  }
+
+  settingsStore.setKeybindingOverride(commandId, keys);
+  keybindingStatusText.value = `${keybindingCommandTitle(commandId)}: ${formatKeybinding(keys)}`;
+  recordingCommandId.value = null;
+};
+
+const toggleKeybindingRecording = (commandId: string) => {
+  recordingCommandId.value = recordingCommandId.value === commandId ? null : commandId;
+  keybindingStatusText.value = '';
+};
+
+const handleResetKeybinding = (commandId: string) => {
+  settingsStore.resetKeybinding(commandId);
+  keybindingStatusText.value = '';
+};
+
+const handleResetAllKeybindings = () => {
+  settingsStore.resetAllKeybindings();
+  keybindingStatusText.value = '';
+};
+
+watch(recordingCommandId, (commandId) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (commandId) {
+    window.addEventListener('keydown', handleKeybindingRecorderKeydown, true);
+  } else {
+    window.removeEventListener('keydown', handleKeybindingRecorderKeydown, true);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleKeybindingRecorderKeydown, true);
+  }
+});
 
 const setUiLanguage = (value: string | number | null) => {
   if (typeof value !== 'string') return;
@@ -1356,6 +1767,158 @@ onMounted(async () => {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--text-secondary, #cbd5e1);
+}
+
+.theme-package-settings {
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-soft, rgba(148, 163, 184, 0.18));
+  padding-top: 12px;
+}
+
+.theme-package-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-package-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: 10px;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.theme-package-item.active {
+  border-color: var(--accent-brand, #38bdf8);
+  box-shadow: inset 0 0 0 1px var(--accent-brand, #38bdf8);
+}
+
+.theme-package-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.theme-package-name {
+  font-size: 13px;
+  color: var(--text-primary, #f8fafc);
+}
+
+.theme-package-meta {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  overflow-wrap: anywhere;
+}
+
+.theme-package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.provider-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.provider-error {
+  color: #fca5a5;
+}
+
+.theme-package-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.settings-action-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.settings-action-btn.danger {
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fca5a5;
+}
+
+.keybinding-settings {
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-soft, rgba(148, 163, 184, 0.18));
+  padding-top: 12px;
+}
+
+.keybinding-list {
+  display: flex;
+  max-height: 320px;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.keybinding-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: 10px;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.keybinding-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.keybinding-title {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-primary, #f8fafc);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keybinding-meta {
+  overflow: hidden;
+  font-size: 10px;
+  color: var(--text-muted, #94a3b8);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keybinding-recorder {
+  min-width: 96px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.4);
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.keybinding-recorder.unbound {
+  color: var(--text-muted, #94a3b8);
+}
+
+.keybinding-recorder.recording {
+  border-color: var(--accent-brand, #38bdf8);
+  color: var(--accent-brand, #38bdf8);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
 }
 
 .theme-btn {

@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { useSettingsStore } from '@/stores/settings';
 import MarkdownPreview from '@/components/editor/MarkdownPreview.vue';
-import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
+import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownRenderService';
 
-vi.mock('@/services/markdownService', () => ({
+vi.mock('@/services/markdownRenderService', () => ({
   renderMarkdown: vi.fn((raw: string) => `<p>${raw}</p>`),
   renderMermaidDiagrams: vi.fn(async () => undefined),
 }));

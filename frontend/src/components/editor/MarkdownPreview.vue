@@ -37,7 +37,17 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownService';
+/**
+ * 渲染重依赖（marked / DOMPurify / mermaid）按需加载：
+ * 只有真正打开 Markdown 预览时才会拉取这个 chunk。
+ */
+let markdownRenderModule: typeof import('@/services/markdownRenderService') | null = null;
+const loadMarkdownRenderer = async () => {
+  if (!markdownRenderModule) {
+    markdownRenderModule = await import('@/services/markdownRenderService');
+  }
+  return markdownRenderModule;
+};
 import { useSettingsStore } from '@/stores/settings';
 import { getMarkdownPreviewI18n } from '@/i18n/ui';
 
@@ -501,10 +511,11 @@ const scheduleRender = () => {
     activeRenderTasks += 1;
     isRenderingMermaid = true;
     try {
-      html.value = renderMarkdown(props.content || '');
+      const renderer = await loadMarkdownRenderer();
+      html.value = renderer.renderMarkdown(props.content || '');
       await nextTick();
       if (previewRef.value) {
-        await renderMermaidDiagrams(previewRef.value, props.theme);
+        await renderer.renderMermaidDiagrams(previewRef.value, props.theme);
       }
       if (currentRenderVersion === renderVersion && latestEditorScrollState.value) {
         syncPreviewScroll(latestEditorScrollState.value);

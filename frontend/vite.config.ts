@@ -32,6 +32,11 @@ export default defineConfig({
         manualChunks: {
           // Monaco Editor 单独打包 (大文件)
           'monaco': ['monaco-editor'],
+          // Markdown 渲染依赖仅在预览/导出时按需加载
+          'markdown-renderer': ['marked', 'dompurify'],
+          'mermaid': ['mermaid'],
+          // UI 组件库与 Vue 运行时分离，便于缓存
+          'ui-vendor': ['naive-ui'],
           // Vue 核心库
           'vue-vendor': ['vue', 'pinia'],
           // Tauri API
