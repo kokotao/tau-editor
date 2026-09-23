@@ -1,401 +1,684 @@
 # 变更日志 (Changelog)
 
-> 跨平台文本编辑器版本历史记录
+> 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
+> 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
+> 最后更新：2026-09-23
+> 当前稳定版本：`v0.4.0`
+
+---
+
+## 发布索引
+
+| 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
+| ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
+| [0.3.3](https://github.com/kokotao/tau-editor/releases/tag/v0.3.3) | 2026-09-22 | 公开 Release     | `cdbca32` | 恢复库 v2、文件监听、三方冲突、大文件事务、搜索替换安全收口   |
+| [0.3.2](https://github.com/kokotao/tau-editor/releases/tag/v0.3.2) | 2026-08-24 | 公开 Release     | `6a96a83` | 修复 Windows 控制台闪窗，文件关联按需加载                     |
+| [0.3.1](https://github.com/kokotao/tau-editor/releases/tag/v0.3.1) | 2026-08-24 | 公开 Release     | `dd1ed2e` | Windows 文件关联修复与运行时配置，修复 Cargo.lock             |
+| [0.3.0](https://github.com/kokotao/tau-editor/releases/tag/v0.3.0) | 2026-07-16 | 公开 Release     | `65ae7f4` | 工作区 Runtime、快速打开、项目搜索、Git 上下文、Markdown 导出 |
+| [0.2.6](https://github.com/kokotao/tau-editor/releases/tag/v0.2.6) | 2026-07-16 | 公开 Release     | `7f02544` | 三栏工作台、Context Rail、文档大纲、响应式侧栏                |
+| [0.2.5](https://github.com/kokotao/tau-editor/releases/tag/v0.2.5) | 2026-04-12 | 公开 Release     | `d5f15da` | 编辑器补全、外部文件同步、macOS 更新安装                      |
+| [0.2.4](https://github.com/kokotao/tau-editor/releases/tag/v0.2.4) | 2026-04-12 | 公开 Release     | `ff87948` | 四套 Markdown 预览主题与右键菜单主题切换                      |
+| [0.2.3](https://github.com/kokotao/tau-editor/releases/tag/v0.2.3) | 2026-03-28 | 公开 Release     | `24eb239` | 大文件分段加载与分段保存、标签切换性能                        |
+| [0.2.2](https://github.com/kokotao/tau-editor/releases/tag/v0.2.2) | 2026-03-25 | 公开 Release     | `1b1794e` | 桌面包版本号收口                                              |
+| [0.2.1](https://github.com/kokotao/tau-editor/releases/tag/v0.2.1) | 2026-03-23 | 公开 Release     | `79cdc15` | 设置工作区重构、自动更新、文件关联、标签内存护栏              |
+| [0.2.0](https://github.com/kokotao/tau-editor/releases/tag/v0.2.0) | 2026-03-23 | 公开 Release     | `3e3d692` | 作者与捐赠信息内置、新应用图标、三平台打包                    |
+| [0.1.9](https://github.com/kokotao/tau-editor/tree/v0.1.9)         | 2026-03-23 | 内部验证 tag     | `3ee5d26` | Markdown 预览、Mermaid、侧栏交互、主题与国际化基础            |
+| [0.1.8](https://github.com/kokotao/tau-editor/tree/v0.1.8)         | 2026-03-13 | 内部验证 tag     | `5b0a49e` | 修复文件/文件夹选择器与窗口关闭                               |
+| [0.1.4](https://github.com/kokotao/tau-editor/tree/v0.1.4)         | 2026-03-13 | 内部验证 tag     | `57334f6` | 修复标签区域重复嵌套布局                                      |
+| [0.1.3](https://github.com/kokotao/tau-editor/tree/v0.1.3)         | 2026-03-13 | 内部验证 tag     | `b49534f` | 修复 macOS 选择器权限与关闭按钮                               |
+| [0.1.2](https://github.com/kokotao/tau-editor/tree/v0.1.2)         | 2026-03-13 | 内部验证 tag     | `89c1d2b` | 首个可构建基线，命令面板与工作区根目录统一                    |
+| [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
+
+---
+
+## 历史口径说明
+
+- 发布日期优先采用 GitHub Release 发布时间；没有公开 Release 的内部 tag 采用 tag 时间。
+- `v0.1.2` 至 `v0.1.9` 有 Git tag，但没有对应 GitHub Release，本文标记为“内部验证 tag”。
+- `v0.1.0` 是首个公开 Release，但 tag 指向 `5deca07` 时，代码树已经包含 `v0.1.9` 的能力，且发布资产名仍为 `0.1.9`。
+- 仓库没有 `v1.0.0` tag 或 Release。旧版 `CHANGELOG.md` 中的 `1.0.0` 内容属于规划稿，已在“未发布与无标签归档”中更正。
+- 仓库没有 `v0.1.1`、`v0.1.5`、`v0.1.6`、`v0.1.7` tag，不对缺失号段补写不存在的发布记录。
+- 当前官方安装渠道只有 [GitHub Releases](https://github.com/kokotao/tau-editor/releases)。Homebrew、Scoop、Chocolatey、AUR、Flatpak、Snap 等渠道未在本仓库发布记录中声明。
 
 ---
 
 ## [0.4.0] - 2026-09-22
 
-### ✨ 体验增强版：可定制 + 可比对 + 可扩展
+### 发布定位
 
-在 v0.3.3 数据安全闭环基础上，补齐体验层能力，并完成启动性能分包。
+在 `v0.3.3` 的数据安全闭环之上，补齐“可定制、可比对、可扩展”的体验能力，并完成首屏性能分包。
 
-#### 主题包（导入 / 导出）
-- 新增主题包 JSON 模型与校验（`id` / `name` / `colors` / `monaco`，256 KB 上限）
-- 设置面板支持从文件导入、粘贴导入、导出当前主题、删除与切换主题包
-- 主题包同时驱动 UI CSS 变量与 Monaco 配色，注册失败自动回退内置主题
-- 内置 Provider 附带 Tau Midnight 主题包，可直接导出二次修改
+### 新增
 
-#### 快捷键自定义
-- 新增 `keybindingService`：归一化、冲突检测（ctrl / meta 同语义）、格式化
-- 设置面板支持录制改键、冲突覆盖确认、单条重置与全部重置，配置持久化
-- 命令面板展示当前生效绑定；F1 固定保留为命令面板入口
+- 新增主题包 JSON 模型与校验，支持 `id`、`name`、`colors`、`monaco` 字段和 256 KB 上限。
+- 设置面板支持导入文件、粘贴导入、导出当前主题、删除和切换主题包。
+- 主题包同时驱动 UI CSS 变量与 Monaco 配色；注册失败时自动回退内置主题。
+- 内置 Provider 附带 Tau Midnight 主题包，可直接导出后二次修改。
+- 新增 `keybindingService`，提供快捷键归一化、冲突检测、显示格式化和持久化。
+- 设置面板支持录制改键、冲突覆盖确认、单条重置和全部重置。
+- 命令面板展示当前生效快捷键；F1 固定保留为命令面板入口。
+- 新增只读 Monaco Diff 视图，支持并排和内联切换。
+- Diff 入口覆盖命令面板“比较当前文件与...”、文件树右键和 Git 变更项。
+- Git 变更对比以 HEAD 版本为基准，并保留未保存内容参与对比。
+- 新增多窗口标签迁移，支持“在新窗口打开当前标签”和“移动到新窗口”。
+- 新增主题、命令、文件动作三类 Provider 注册表，重复注册会覆盖并告警。
+- 新增内置文件动作：复制路径、在文件管理器中显示。
 
-#### 文件对比（Diff）
-- 新增只读 Monaco Diff 视图，支持并排 / 内联切换
-- 入口：命令面板「比较当前文件与…」、文件树右键「与当前文件对比」、Git 变更项
-- Git 变更对比以 HEAD 版本为基准，含未保存内容；单侧 2 MB 上限与二进制守卫
+### 改进
 
-#### 多窗口标签迁移
-- 新增 Rust 窗口迁移命令：payload 与窗口 label 绑定、取出即删、10 分钟过期
-- 支持「在新窗口打开当前标签」与「移动到新窗口」，保留未保存内容
-- 上限：单次 8 个标签 / 8 MB；非桌面端提示仅桌面端支持
+- Monaco 编辑器改为异步组件加载，不再进入首屏依赖。
+- marked、DOMPurify、mermaid 拆分为独立 Markdown 渲染 chunk，仅在预览和导出时加载。
+- 构建分包细化为 monaco、mermaid、markdown-renderer、ui-vendor、vue-vendor、tauri。
+- 入口 chunk 从 1,115 KB 降至 313 KB，gzip 从 313 KB 降至 95 KB。
 
-#### Provider 扩展点
-- 新增主题 / 命令 / 文件动作三类 Provider 注册表，重复注册覆盖并告警
-- Provider 抛错被隔离并在设置面板可见，不影响启动
-- 内置文件动作：复制路径、在文件管理器中显示
+### 安全与边界
 
-#### 性能与构建
-- Monaco 编辑器改为异步组件加载，不再进入首屏依赖
-- marked / DOMPurify / mermaid 拆分为 Markdown 渲染 chunk，仅预览与导出时加载
-- 构建分包细化：monaco / mermaid / markdown-renderer / ui-vendor / vue-vendor / tauri
-- 入口 chunk 由 1,115 KB（gzip 313 KB）降至 313 KB（gzip 95 KB）
+- Diff 单侧文件上限为 2 MB，并增加二进制文件守卫。
+- 多窗口迁移单次上限为 8 个标签、8 MB，迁移 payload 与窗口 label 绑定，取出即删，10 分钟过期。
+- Provider 抛错会被隔离并在设置面板可见，不影响应用启动。
+- 主题包和快捷键覆盖均为增量设置字段，回滚到 `v0.3.3` 时多余字段会被忽略。
 
-#### 工程与质量
-- 新增 61 个单元测试用例（主题包 / 快捷键 / Diff / 窗口迁移 / Provider）
-- Rust 侧新增窗口迁移单测，`cargo test` 共 61 项通过
-- 全量门禁：typecheck / unit / build / cargo check / cargo test / Playwright E2E
+### 验证
 
----
+- 新增 61 个单元测试用例，覆盖主题包、快捷键、Diff、窗口迁移和 Provider。
+- 前端单元测试：51 个文件、777 项通过。
+- `pnpm type-check`、`pnpm build` 通过。
+- `RUSTFLAGS="-D warnings" cargo check --all-targets --locked` 通过。
+- `cargo test --all-targets --locked`：61 项通过。
+- Playwright Chromium E2E：51 条通过。
+- GitHub CI run `35714658258` 四道门禁全部通过。
+- Desktop Build run `35715143481` 三平台构建和资产上传成功。
 
-## [1.0.0] - 2026-03-11
+### 发布产物
 
-### 🎉 首个正式版本发布
+- macOS：`Tau.Editor_0.4.0_aarch64.dmg`
+- Windows：`Tau.Editor_0.4.0_x64-setup.exe`、`Tau.Editor_0.4.0_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.4.0_amd64.deb`、`Tau.Editor-0.4.0-1.x86_64.rpm`、`Tau.Editor_0.4.0_amd64.AppImage`
 
-这是跨平台文本编辑器的首个正式版本，经过 10 个开发阶段（Phase 1-10）的迭代和完善。
+### 已知限制
 
-### ✨ 新增功能
-
-#### 核心编辑功能
-- **文件操作**
-  - 新建、打开、保存、另存为文件
-  - 最近文件列表（自动记录最近打开的 10 个文件）
-  - 文件编码自动检测（UTF-8、GBK、GB2312 等）
-  - 支持多种文件格式
-
-- **文本编辑**
-  - 基础编辑操作（剪切、复制、粘贴、全选）
-  - 无限层级撤销/重做
-  - 多光标编辑支持
-  - 代码折叠功能
-  - 智能自动缩进
-  - 行号显示
-
-- **搜索替换**
-  - 快速查找（Ctrl+F）
-  - 正则表达式支持
-  - 区分大小写选项
-  - 全量替换和逐个替换
-  - 匹配项自动高亮
-
-- **多标签页**
-  - 同时打开多个文件
-  - 标签页快速切换
-  - 标签页拖拽排序
-  - 未保存文件关闭提醒
-  - 标签页右键菜单
-
-- **语法高亮**
-  - 支持 50+ 编程语言
-  - 自动语言检测（基于文件扩展名）
-  - 主题适配高亮颜色
-  - 支持的语言包括：JavaScript、TypeScript、Python、Java、C/C++、Go、Rust、HTML、CSS、JSON、XML、YAML、Markdown 等
-
-- **主题系统**
-  - 浅色主题（Light）
-  - 深色主题（Dark）
-  - 快速切换（Ctrl+Shift+L）
-  - 系统主题跟随（可选）
-  - 编辑器主题同步切换
-
-- **自动保存**
-  - 可配置保存间隔（默认 30 秒）
-  - 崩溃后自动恢复
-  - 会话状态恢复
-  - 临时文件备份
-
-#### 跨平台支持
-- **Windows 10+**
-  - MSI 安装包
-  - NSIS 安装程序
-  - Scoop/Chocolatey 包管理器支持
-
-- **macOS 11+**
-  - DMG 安装包
-  - Intel 和 Apple Silicon (M1/M2) 双架构支持
-  - Homebrew Cask 支持
-
-- **Linux**
-  - DEB 包（Ubuntu/Debian）
-  - RPM 包（Fedora/RHEL）
-  - AppImage 通用包
-  - AUR（Arch Linux）
-  - Flatpak/Snap 支持（计划中）
-
-### 🔧 技术实现
-
-#### 前端 (Vue 3 + TypeScript)
-- Vue 3 Composition API
-- Monaco Editor 深度集成
-- Pinia 状态管理
-- Vue Router 路由管理
-- Naive UI 组件库
-- TypeScript 5.4 类型安全
-
-#### 后端 (Rust + Tauri)
-- Tauri 2.0 框架
-- Rust 文件系统操作
-- Tauri IPC 通信机制
-- 文件监听服务
-- 自动保存服务
-- 原生对话框集成
-
-#### 测试
-- Vitest 单元测试框架
-- Playwright E2E 测试
-- Rust 集成测试
-- 测试覆盖率报告
-
-### 📝 文档
-
-完整文档体系：
-- ✅ README.md - 项目介绍和快速开始
-- ✅ USER_GUIDE.md - 用户手册
-- ✅ DEVELOPER_GUIDE.md - 开发者文档
-- ✅ INSTALL.md - 安装指南
-- ✅ CHANGELOG.md - 变更日志
-- ✅ CONTRIBUTING.md - 贡献指南
-- ✅ architecture.md - 技术架构
-- ✅ requirements.md - 产品需求
-- ✅ SHORTCUTS.md - 快捷键速查
-- ✅ RELEASE_NOTES.md - 发布说明
-
-### 📊 已知问题
-
-#### 中等问题
-- [#101] 大文件（>50MB）打开时可能卡顿
-  - **临时方案**: 使用系统默认编辑器打开超大文件
-  - **计划修复**: v0.2.0
-
-- [#102] 某些中文字体在 Linux 下显示异常
-  - **影响范围**: 部分 Linux 发行版（最小化安装）
-  - **临时方案**: 安装完整字体包
-  - **计划修复**: v0.2.0
-
-#### 轻微问题
-- [#201] 主题切换后需要重启应用才能完全生效
-  - **临时方案**: 切换主题后手动刷新
-  - **计划修复**: v1.0.1
-
-- [#202] 首次启动时最近文件列表为空
-  - **影响**: 仅首次启动，属预期行为
-  - **计划修复**: 无需修复
-
-### 📋 后续计划
-
-#### v0.2.0 (计划中)
-- [ ] Markdown 实时预览
-- [ ] JSON 格式化
-- [ ] XML 格式化
-- [ ] CSV 表格视图
-- [ ] 文件树侧边栏
-- [ ] 大文件性能优化
-
-#### v0.3.0 (规划中)
-- [ ] 插件系统
-- [ ] 自定义主题
-- [ ] 快捷键自定义
-- [ ] 多窗口支持
-- [ ] 文件对比功能
-
-#### v1.0.0 已完成
-- [x] 完整的国际化支持（中文/英文）
-- [x] 设置面板完善
-- [x] 文档完善
-- [x] 测试覆盖
-- [x] 正式发布
+- macOS 产物未使用 Apple Developer ID 签名和公证，首次下载打开可能触发 Gatekeeper 提示。
+- 当前只提供 Apple Silicon 的 macOS DMG，未提供 Intel 或 universal 包。
+- 回滚到 `v0.3.3` 不会破坏设置文件；阻断问题以 `v0.4.1` 修复，不覆盖既有 tag。
 
 ---
 
-## [0.1.0] - 2026-03-11
+## [0.3.3] - 2026-09-22
 
-### ✨ 新增功能
+### 发布定位
 
-#### 核心功能
-- **文件操作**
-  - 新建、打开、保存文件
-  - 另存为功能
-  - 最近文件列表
-  - 文件编码自动检测（UTF-8、GBK 等）
+安全收口版，补齐恢复、外部变更、大文件、搜索替换、Markdown 资产五条数据安全链路，并为主要路径增加自动化门禁。
 
-- **编辑器功能**
-  - Monaco Editor 集成
-  - 基础文本编辑（剪切、复制、粘贴）
-  - 撤销/重做（无限层级）
-  - 多光标编辑支持
-  - 代码折叠功能
+### 新增
 
-- **语法高亮**
-  - 支持 50+ 编程语言
-  - 自动语言检测
-  - 主题适配高亮
+- 新增应用数据目录下的 `recovery-v2` 恢复库，会话索引和草稿分文件存放。
+- 启动时异步恢复工作区、标签、活动文件、光标、滚动位置和未保存草稿。
+- 支持 v1 会话和草稿迁移；损坏或超大记录不会阻塞启动。
+- 工作区监听改为 `notify` 递归监听，通过 `workspace:file-changed` 推送外部变更。
+- dirty 文件被外部修改时标记三方冲突，提供重新加载、保留当前内容和另存为。
+- clean 文件被外部修改时自动重载，外部重命名会跟随已打开标签。
+- 大文件打开、分段加载、取消、重试、完成、保存进入明确状态机。
+- 大文件保存采用“写临时文件、复核 revision、原子替换”，超过 4 MiB 也能安全提交。
+- 搜索升级为带 `searchId` 的可取消会话，失效请求不会回写旧结果。
+- 替换增加不可重叠预览，再按文件独立提交，并逐项展示成功、跳过、失败和撤销结果。
+- Markdown 图片可通过原生选择器导入到同级 `assets/`，同名同内容自动复用。
+- Markdown 相对链接增加 600 ms 去抖校验，任务可聚合、可跳转。
+- Markdown HTML 导出可直接选择目标目录。
+- CI 新增 `frontend-e2e` job，覆盖 Chromium 51 个用例并上传失败报告。
 
-- **多标签页**
-  - 同时打开多个文件
-  - 标签页切换
-  - 标签页关闭
-  - 未保存提示
+### 修复
 
-- **搜索替换**
-  - 快速查找（Ctrl+F）
-  - 正则表达式支持
-  - 替换功能
-  - 高亮匹配项
+- 修复标签切换竞态导致的内容串写：输入去抖未落盘时先按标签 id 回写，再切换模型。
+- 修复 Windows 下 Git 子进程弹出控制台黑框，统一补充 `CREATE_NO_WINDOW`。
+- 修复安装包 Source Code 文件关联包含 `sh`、`bash`、`zsh`、`ps1` 的问题。
 
-- **主题系统**
-  - 浅色主题
-  - 深色主题
-  - 快速切换（Ctrl+Shift+L）
+### 验证
 
-- **自动保存**
-  - 可配置保存间隔
-  - 崩溃恢复
-  - 会话恢复
+- `pnpm typecheck`、`pnpm build` 通过。
+- 前端单元测试：44 个文件、727 项通过。
+- `cargo check --all-targets --locked` 在 `RUSTFLAGS=-D warnings` 下通过，0 warning。
+- `cargo test --all-targets --locked`：132 项通过。
+- Playwright Chromium E2E：51 passed、0 failed。
+- `pnpm tauri build` 产出 macOS `.app` 和 `Tau.Editor_0.3.3_aarch64.dmg`。
+- GitHub Desktop Build run `35672348704` 三平台构建全部成功。
 
-#### 技术特性
-- **跨平台支持**
-  - Windows 10+
-  - macOS 11+
-  - Linux (Ubuntu/Fedora/Arch)
+### 发布产物
 
-- **技术栈**
-  - Tauri 2.0 后端（Rust）
-  - Vue 3.4 前端
-  - TypeScript 5.4
-  - Vite 5 构建工具
-  - Pinia 状态管理
+- macOS：`Tau.Editor_0.3.3_aarch64.dmg`
+- Windows：`Tau.Editor_0.3.3_x64-setup.exe`、`Tau.Editor_0.3.3_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.3.3_amd64.deb`、`Tau.Editor-0.3.3-1.x86_64.rpm`、`Tau.Editor_0.3.3_amd64.AppImage`
 
-### 🔧 技术实现
+### 已知限制
 
-#### 前端
-- Vue 3 Composition API
-- Monaco Editor 集成
-- Pinia 状态管理
-- Vue Router 路由
-- Naive UI 组件库
-
-#### 后端
-- Rust 文件系统操作
-- Tauri IPC 通信
-- 文件监听服务
-- 自动保存服务
-
-#### 测试
-- Vitest 单元测试框架
-- Playwright E2E 测试
-- Rust 集成测试
-
-### 📝 文档
-
-- ✅ README.md - 项目介绍
-- ✅ USER_GUIDE.md - 用户手册
-- ✅ DEVELOPER_GUIDE.md - 开发者文档
-- ✅ INSTALL.md - 安装指南
-- ✅ CHANGELOG.md - 变更日志
-- ✅ CONTRIBUTING.md - 贡献指南
-- ✅ architecture.md - 技术架构
-- ✅ requirements.md - 产品需求
-
-### 🐛 已知问题
-
-#### 严重问题
-- 无
-
-#### 中等问题
-- [#101] 大文件（>50MB）打开时可能卡顿
-  - **临时方案**: 使用系统默认编辑器打开超大文件
-  - **计划修复**: v0.2.0
-
-- [#102] 某些中文字体在 Linux 下显示异常
-  - **影响范围**: 部分 Linux 发行版
-  - **计划修复**: v0.2.0
-
-#### 轻微问题
-- [#201] 主题切换后需要重启应用才能完全生效
-  - **临时方案**: 切换主题后手动刷新
-  - **计划修复**: v0.1.1
-
-- [#202] 首次启动时最近文件列表为空
-  - **影响**: 仅首次启动，属预期行为
-  - **计划修复**: 无需修复
-
-### 📋 待办事项
-
-#### v0.2.0 计划
-- [ ] Markdown 实时预览
-- [ ] JSON 格式化
-- [ ] XML 格式化
-- [ ] CSV 表格视图
-- [ ] 文件树侧边栏
-- [ ] 性能优化（大文件处理）
-
-#### v0.3.0 计划
-- [ ] 插件系统
-- [ ] 自定义主题
-- [ ] 快捷键自定义
-- [ ] 多窗口支持
-- [ ] 协作编辑（实验性）
-
-#### v1.0.0 计划
-- [ ] 完整的国际化支持
-- [ ] 设置面板完善
-- [ ] 文档完善
-- [ ] 测试覆盖率达到 80%
-- [ ] 正式发布
+- macOS 产物只提供 aarch64，Intel Mac 需要 x64 或 universal 构建。
+- 替换按文件独立提交，不提供跨文件原子事务。
+- 不包含远程同步、协作编辑、完整 LSP、插件市场和云存储。
+- 所有桌面产物均为未签名构建。
+- 数据层回滚时可继续读取保留的 v1 记录；阻断问题以 `v0.3.4` 修复，不覆盖已有 tag。
 
 ---
 
-## [0.0.1] - 2026-03-01
+## [0.3.2] - 2026-08-24
 
-### 🎉 项目初始化
+### 修复
 
-- 项目脚手架搭建
-- Tauri + Vue3 环境配置
-- 基础目录结构创建
-- 开发工作流配置
+- 为 `reg`、`cmd`、`msiexec`、`explorer` 子进程增加 `CREATE_NO_WINDOW`，消除 Windows GUI 启动、保存、打开文件时的控制台闪窗。
+- “文件关联”设置改为进入对应分类时才读取系统状态，避免启动阶段批量执行 `reg` 查询。
+- 版本号统一升级到 `0.3.2`。
 
-### 🔧 技术选型
+### 验证
 
-- 确定技术栈：Tauri 2.0 + Vue 3 + TypeScript
-- 选择编辑器：Monaco Editor
-- 选择 UI 组件库：Naive UI
-- 配置构建工具：Vite 5
+- macOS、Linux、Windows 三平台桌面构建成功。
+- 该版本随后作为 `v0.3.3` 的开发基线，由 `v0.3.3` 全量 CI 门禁覆盖。
+
+### 发布产物
+
+- macOS：`Tau.Editor_0.3.2_aarch64.dmg`
+- Windows：`Tau.Editor_0.3.2_x64-setup.exe`、`Tau.Editor_0.3.2_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.3.2_amd64.deb`、`Tau.Editor-0.3.2-1.x86_64.rpm`、`Tau.Editor_0.3.2_amd64.AppImage`
 
 ---
 
-## 版本说明
+## [0.3.1] - 2026-08-24
 
-### 版本号规则
+### 新增
+
+- 设置面板新增“文件关联”（仅 Windows），可在运行时勾选或取消 Tau Editor 作为扩展名默认打开程序。
+- 脚本类扩展名 `bat`、`cmd`、`ps1`、`sh`、`bash`、`zsh` 默认不参与关联，避免占用系统执行能力。
+
+### 修复
+
+- 安装器不再把 `.bat`、`.cmd` 注册为 Tau Editor 打开，双击脚本恢复系统默认执行行为。
+- 修复 `Cargo.lock` 指向不可用 crate 版本导致构建失败的问题。
+- 统一 root package、frontend package、Cargo 和 Tauri 版本号到 `0.3.1`。
+
+### 验证
+
+- `cargo check` 与新增单测通过。
+- `vue-tsc` 类型检查通过。
+- `vite build` 通过。
+- macOS、Linux、Windows 桌面构建全部成功。
+
+### 发布产物
+
+- macOS：`Tau.Editor_0.3.1_aarch64.dmg`
+- Windows：`Tau.Editor_0.3.1_x64-setup.exe`、`Tau.Editor_0.3.1_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.3.1_amd64.deb`、`Tau.Editor-0.3.1-1.x86_64.rpm`、`Tau.Editor_0.3.1_amd64.AppImage`
+
+---
+
+## [0.3.0] - 2026-07-16
+
+### 发布定位
+
+将编辑器升级为本地优先的写作与代码一体工作台。
+
+### 新增
+
+- 工作区安全 Runtime：受限 `workspaceId`、文件 revision 和条件原子写入。
+- 会话和未保存草稿恢复，启动时可恢复或丢弃草稿。
+- 外部文件修改处理，右侧上下文提供重新加载或保留当前内容。
+- 大文件继续沿用分块加载、加载期只读和安全保存限制。
+- 快速打开：`Cmd/Ctrl + P` 检索当前工作区已索引文件。
+- 项目搜索：`Cmd/Ctrl + Shift + F` 支持工作区文本和正则搜索、源行定位。
+- 后端增加 revision 校验替换接口。
+- Git 上下文：状态、Diff、暂存、取消暂存和恢复工作区文件。
+- Markdown 任务与链接导航、独立 HTML 导出。
+- 代码符号和 Markdown 标题统一显示在右侧 Context Rail，可跳转到编辑器对应行。
+
+### 验证
+
+- 前端单元测试：625 项通过。
+- Rust 测试：92 项通过。
+- 前端类型检查、生产构建、Rust 检查和 macOS ARM64 DMG 打包通过。
+- `Tau.Editor_0.3.0_aarch64.dmg` SHA-256：`e4af011f5b73730680ad2678d712421b9bf31fc1346d60fe1f0c6245d90a234d`。
+
+### 发布产物
+
+- macOS：`Tau.Editor_0.3.0_aarch64.dmg`
+- Windows：`Tau.Editor_0.3.0_x64-setup.exe`、`Tau.Editor_0.3.0_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.3.0_amd64.deb`、`Tau.Editor-0.3.0-1.x86_64.rpm`、`Tau.Editor_0.3.0_amd64.AppImage`
+
+### 已知限制
+
+- `v0.3.0` 的恢复、监听、三方冲突、大文件最终保存和替换预览尚未完全形成安全闭环，后续由 `v0.3.3` 收口。
+- 回滚时可继续使用 `v0.2.6` Release，不覆盖已有 tag 或安装包。
+
+---
+
+## [0.2.6] - 2026-07-16
+
+### 新增
+
+- 新增扁平三栏工作台，使用细线分隔区域，移除工作区卡片阴影和大圆角。
+- 新增右侧 Context Rail，可展示 Markdown 标题、代码符号、JSON/YAML 关键结构。
+- Context Rail 支持点击后跳转到编辑器对应行。
+- 新增 Context Rail 快捷操作：查找、跳转行、保存、Markdown 预览模式。
+- Markdown 预览支持按源行同步定位，并处理围栏代码、HTML 块和 Mermaid 异步渲染。
+- 右栏宽度和折叠偏好可持久化。
+
+### 改进
+
+- 窄屏下左右栏改为按需覆盖式抽屉，移动端宽度默认收起。
+- 对异常本地设置值进行安全归一化。
+- 修复并恢复全量单元测试门禁。
+- 发布工作流支持原生 macOS bundle 和多平台构建。
+- 提高 release 构建的 Node heap，避免打包阶段内存不足。
+
+### 验证
+
+- 单元测试：30 个文件、610 项通过。
+- 前端类型检查和生产构建通过。
+- Rust `cargo check` 通过。
+
+### 发布产物
+
+- macOS：`Tau.Editor_0.2.6_aarch64.dmg`
+- Windows：`Tau.Editor_0.2.6_x64-setup.exe`、`Tau.Editor_0.2.6_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.6_amd64.deb`、`Tau.Editor-0.2.6-1.x86_64.rpm`、`Tau.Editor_0.2.6_amd64.AppImage`
+
+### 已知提示
+
+- Vite 仍会提示 Monaco 相关 chunk 较大，不影响构建和安装包生成。
+
+---
+
+## [0.2.5] - 2026-04-12
+
+### 新增
+
+- 新增编辑器补全服务，提供 JavaScript、TypeScript、Python、Markdown、HTML、Vue、JSON 片段补全。
+- 新增当前文档单词补全，输入至少 2 个字符后匹配文档内标识符。
+- 新增 Monaco 补全注册，支持触发字符、片段插入和建议项类型映射。
+- 新增外部文件同步服务，对活动标签进行 1.5 秒轮询检查。
+- dirty 文件被外部修改时提示用户处理，clean 文件自动重载，并刷新工作区文件树。
+- 新增 macOS 更新安装流程：下载 DMG、挂载、替换当前 `.app`、重新打开并清理挂载。
+- 设置面板增加 GitHub Release 更新检查、推荐资产匹配和下载安装入口。
+
+### 修复
+
+- 修复 macOS 更新调用链中安装包启动方式不足的问题。
+- 更新桌面版本号到 `0.2.5`，保持 Cargo 和 Tauri 配置一致。
+
+### 验证
+
+- 新增 `editorCompletionService` 和 `externalFileSync` 单元测试。
+- 前端类型检查、构建和桌面打包流程沿用发布工作流执行。
+
+### 发布产物
+
+- macOS：`Tau.Editor_0.2.5_aarch64.dmg`
+- Windows：`Tau.Editor_0.2.5_x64-setup.exe`、`Tau.Editor_0.2.5_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.5_amd64.deb`、`Tau.Editor-0.2.5-1.x86_64.rpm`、`Tau.Editor_0.2.5_amd64.AppImage`
+
+---
+
+## [0.2.4] - 2026-04-12
+
+### 新增
+
+- 新增 4 套 Markdown 预览阅读主题：`docs-clean`、`paper-soft`、`editorial-warm`、`graphite-night`。
+- 设置面板新增 Markdown 预览主题切换入口。
+- Markdown 预览区右键菜单新增主题切换入口。
+- 新增主题切换的单元测试和 E2E 回归测试。
+- 新增右键菜单定位的单元测试和 E2E 回归测试。
+
+### 修复
+
+- 修复 Markdown 预览右键菜单位置偏移，菜单会贴近实际触发位置显示。
+- 修正与当前设置工作区行为一致的测试断言。
+
+### 验证
+
+- 定向 Vitest：SettingsStore、SettingsPanel、MarkdownPreview、AppShell。
+- `pnpm --dir frontend type-check` 通过。
+- `pnpm --dir frontend build` 通过。
+- Chromium E2E `sidebar-markdown.spec.ts` 通过。
+- `pnpm --dir frontend tauri build --target universal-apple-darwin --bundles app` 通过。
+
+### 发布产物
+
+- macOS：`TauEditor_0.2.4_universal-macos.dmg`、`TauEditor_0.2.4_universal-macos.zip`、`Tau.Editor.app.tar.gz`
+- Windows：`Tau.Editor_0.2.4_x64-setup.exe`、`Tau.Editor_0.2.4_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.4_amd64.deb`、`Tau.Editor-0.2.4-1.x86_64.rpm`、`Tau.Editor_0.2.4_amd64.AppImage`
+
+---
+
+## [0.2.3] - 2026-03-28
+
+### 发布定位
+
+大文件编辑和标签性能改造版本。
+
+### 新增
+
+- 大文件支持分段加载，默认 12 MB 以上进入分块流程，默认分片 2 MB。
+- 大文件支持分段保存，默认按 1 MB 分片写入。
+- 分段读取会裁剪未完整 UTF-8 字符，避免中文等多字节字符在分片边界损坏。
+- 新增大文件加载进度、已加载字节数、总大小、分片大小和加载会话 ID。
+- 加载未完成时标签只读，加载完成后自动切换到可编辑状态。
+- 新增标签模型缓存和视图状态缓存，标签切换时复用 Monaco model。
+- 新增增量行数同步，避免标签切换时全量拆分内容。
+- 新增编辑器右键菜单，包括撤销、重做、剪切、复制、粘贴、全选、复制路径和打开文件位置。
+- 新增大文件性能选项：关闭 minimap、折叠、codeLens 和部分高亮。
+- 新增大文件配置命令和二进制预览扩展名守卫。
+
+### 修复
+
+- 修复 UTF-8 多字节字符在分片边界被截断的问题。
+- 修复大文件标签切换后模型内容串写和重复创建模型的问题。
+- 修复超过 50 万字符时状态栏逐次统计字数的性能问题。
+- 修复右键菜单定位和中文国际化缺失。
+
+### 已知限制
+
+- 大文件预览未完整加载前不能保存或另存为。
+- `pdf`、`doc`、`docx`、`db`、`sqlite`、`sqlite3` 等二进制扩展名只做预览保护，不提供完整编辑能力。
+- 该版本源码提交未新增自动化测试文件，回归主要依赖后续版本测试门禁覆盖。
+
+### 发布产物
+
+- macOS：`TauEditor_0.2.3_universal-macos.dmg`、`TauEditor_0.2.3_universal-macos.zip`、`Tau.Editor.app.tar.gz`
+- Windows：`Tau.Editor_0.2.3_x64-setup.exe`、`Tau.Editor_0.2.3_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.3_amd64.deb`、`Tau.Editor-0.2.3-1.x86_64.rpm`、`Tau.Editor_0.2.3_amd64.AppImage`
+
+---
+
+## [0.2.2] - 2026-03-25
+
+### 修复
+
+- 将 Cargo、Tauri 和桌面包版本统一为 `0.2.2`。
+- 该 tag 本身的代码差异只有版本号，未新增功能代码。
+
+### 发布说明
+
+- GitHub Release 延续了 `v0.2.1` 的 UI、动画、标签性能和资源管理器交互改造结果。
+
+### 发布产物
+
+- macOS：`TauEditor_0.2.2_universal-macos.dmg`、`TauEditor_0.2.2_universal-macos.zip`、`Tau.Editor.app.tar.gz`
+- Windows：`Tau.Editor_0.2.2_x64-setup.exe`、`Tau.Editor_0.2.2_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.2_amd64.deb`、`Tau.Editor-0.2.2-1.x86_64.rpm`、`Tau.Editor_0.2.2_amd64.AppImage`
+
+---
+
+## [0.2.1] - 2026-03-23
+
+### 新增
+
+- 重构设置工作区，按通用、编辑器、更新、关于等分类展示。
+- 新增版本信息、设备信息、GitHub Release 更新检查和推荐资产匹配。
+- 新增下载更新包和触发安装能力，macOS 支持挂载 DMG、替换 `.app` 并重新打开。
+- 新增单实例插件，重复启动时转发文件打开请求。
+- 新增外部文件打开事件和启动参数队列。
+- 新增首次安装操作说明标签页，并支持 14 天后再次提示。
+- 新增字体缩放快捷键：放大、缩小、重置。
+- 新增语言模式循环切换。
+- 配置平台文件关联，覆盖文本、Markdown、JSON、YAML、TOML 和源码类型。
+- 新增最大打开标签数和标签内存上限设置。
+
+### 改进
+
+- 重构设置面板、工具栏、状态栏、文件树、编辑器标签和 Markdown 预览样式。
+- 引入 Manrope、JetBrains Mono 字体和动画能力。
+- 优化标签切换、文件树批量刷新和内存估算。
+- 新增标签容量护栏，超过限制时提示用户关闭标签或调整设置。
+- CI 支持手动指定源码 ref 和 release tag，并集中发布三平台资产。
+- 修复 macOS 包版本号在手动 dispatch 场景下不一致的问题。
+
+### 发布产物
+
+- macOS：`TauEditor_0.2.1_universal-macos.dmg`、`TauEditor_0.2.1_universal-macos.zip`、`Tau.Editor_0.2.1_aarch64.dmg`、`Tau.Editor.app.tar.gz`
+- Windows：`Tau.Editor_0.2.1_x64-setup.exe`、`Tau.Editor_0.2.1_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.1_amd64.deb`、`Tau.Editor-0.2.1-1.x86_64.rpm`、`Tau.Editor_0.2.1_amd64.AppImage`
+
+---
+
+## [0.2.0] - 2026-03-23
+
+### 新增
+
+- 设置页作者信息改为直接展示，不再使用弹窗。
+- 设置页加入公益捐赠文案和微信、支付宝收款二维码。
+- 打包图标切换为由新 Logo 生成的全平台图标。
+- 打包脚本和工作流产品名统一为 `TauEditor`。
+
+### 改进
+
+- README 作者信息、捐赠信息和快速开始内容更新。
+- 命令面板和工具栏命令注册同步调整。
+- Markdown 预览、状态栏、文件树和设置面板跟随新品牌更新。
+- Release 工作流补齐 macOS、Windows、Linux 资产上传。
+
+### 发布产物
+
+- macOS：`TauEditor_0.2.0_universal-macos.dmg`、`TauEditor_0.2.0_universal-macos.zip`、`Tau.Editor.app.tar.gz`
+- Windows：`Tau.Editor_0.2.0_x64-setup.exe`、`Tau.Editor_0.2.0_x64_zh-CN.msi`
+- Linux：`Tau.Editor_0.2.0_amd64.deb`、`Tau.Editor-0.2.0-1.x86_64.rpm`、`Tau.Editor_0.2.0_amd64.AppImage`
+
+---
+
+## [0.1.9] - 2026-03-23
+
+> 内部验证 tag，无独立 GitHub Release。
+
+### 新增
+
+- 新增 Markdown 实时预览组件，支持仅编辑、分栏、仅预览三种模式。
+- 新增 Mermaid 流程图渲染。
+- 新增 Markdown 预览区右键菜单，增强复制、显示和交互能力。
+- 新增工作台主题 CSS、UI 国际化和主题解析工具。
+- 新增命令面板、快捷键状态、设置状态和工具栏命令的测试覆盖。
+- 新增文件树键盘导航：Enter、Space、方向键。
+- 新增侧栏折叠、展开、宽度拖拽和状态记忆。
+- 新增 `Cmd/Ctrl + B` 切换侧栏。
+
+### 改进
+
+- 精简启动和成功场景提示，仅保留失败或需要用户处理的提示。
+- 修复窗口关闭链路重入和关闭按钮无效问题。
+- 修复编辑器与标签区域的重复嵌套布局。
+- 文件树目录展开、折叠图标和刷新后的展开状态更稳定。
+- 更新 Cargo.lock 和 Tauri capability schema。
+- 版本号升级到 `0.1.9`。
+
+### 验证
+
+- 前端类型检查和生产构建通过。
+- 定向单元测试：38/38 通过。
+- Chromium E2E：`sidebar-markdown.spec.ts`、`file-operations.spec.ts` 通过。
+
+---
+
+## [0.1.8] - 2026-03-13
+
+> 内部验证 tag，无独立 GitHub Release。
+
+### 修复
+
+- 恢复文件选择器和文件夹选择器流程。
+- 修复窗口关闭在该版本基线上的不可靠行为。
+- 调整窗口服务和 workspace 服务的调用顺序，减少选择器返回后状态不同步。
+
+### 版本说明
+
+- `package.json`、Cargo 和 Tauri 元数据仍保持 `0.1.4`，该 tag 仅用于隔离验证窗口与选择器修复。
+
+---
+
+## [0.1.4] - 2026-03-13
+
+> 内部验证 tag，无独立 GitHub Release。
+
+### 修复
+
+- 修复 `EditorTabs` 和 `EditorCore` 重复嵌套编辑区布局的问题。
+- 调整标签内容区域高度和滚动容器，避免标签切换后编辑器尺寸异常。
+
+### 版本说明
+
+- root package、Cargo 和 Tauri 版本号统一升级到 `0.1.4`。
+
+---
+
+## [0.1.3] - 2026-03-13
+
+> 内部验证 tag，无独立 GitHub Release。
+
+### 修复
+
+- 修复 macOS 文件选择器因 capability 权限不足而报错的问题。
+- 修复窗口关闭按钮无响应的问题。
+- 调整 workspace 选择流程，避免关闭或取消选择器后的残留状态。
+- 版本号升级到 `0.1.3`。
+
+### 验证
+
+- 针对 macOS 选择器和关闭链路进行回归验证。
+
+---
+
+## [0.1.2] - 2026-03-13
+
+> 内部验证 tag，是仓库首个可构建 tag，无独立 GitHub Release。
+
+### 新增
+
+- 建立 Tauri 2、Vue 3、TypeScript、Vite、Monaco、Pinia 桌面编辑器基线。
+- 新增命令面板，支持新建、打开、打开文件夹、保存、另存为、切换侧栏、打开设置。
+- 统一工作区根目录来源，减少文件树、标签和保存路径不一致。
+- 新增文件系统、标签、窗口、工作区和命令状态服务分层。
+- 新增 macOS DMG 打包脚本。
+- 新增桌面构建 artifact 上传流程。
+
+### 修复
+
+- 修复 Rust Tauri 后端编译错误。
+- 修复 Windows Tauri 构建兼容问题。
+- 修复 macOS DMG 打包配置。
+- 补充 tab、editor、Tauri 类型更新，确保 CI 构建通过。
+
+### 版本说明
+
+- tag 名为 `v0.1.2`，但 root `package.json` 当时仍为 `0.1.0`，frontend package 为 `0.0.0`，属于早期版本元数据未对齐状态。
+
+---
+
+## [0.1.0] - 2026-03-23
+
+> 首个 GitHub 公开 Release。
+> 重要说明：tag 指向 `5deca07` 时，代码树已经包含 `v0.1.9` 的能力，发布资产名也仍为 `0.1.9`。
+
+### 新增
+
+- 作者信息入口新增公益捐赠文案与二维码展示。
+- 编辑器命名统一为 Tau Editor / Tau 编辑器。
+- README 可直接显示微信和支付宝收款码。
+- `.gitignore` 忽略 `.idea` 和 `.tmp-release-assets-*` 临时目录。
+
+### 发布产物
+
+- Linux：`Tau.Editor_0.1.9_amd64.deb`、`Tau.Editor-0.1.9-1.x86_64.rpm`、`Tau.Editor_0.1.9_amd64.AppImage`
+- 该公开 Release 未上传 macOS 和 Windows 资产；完整三平台 Release 从 `v0.2.0` 开始。
+
+### 发布状态
+
+- 这是 GitHub 上第一个公开 Release。
+- 后续 `v0.1.2` 至 `v0.1.9` 的 tag 虽然有代码记录，但没有独立 GitHub Release。
+- 回滚或复现时，应同时核对 tag commit 和 Release 资产版本号，不能只按 Release 名判断代码版本。
+
+---
+
+## 未发布与无标签归档
+
+### [1.0.0] - 未发布
+
+- 仓库不存在 `v1.0.0` tag，也没有对应 GitHub Release 或包版本。
+- 旧版日志将 `1.0.0` 写为“首个正式版本”与仓库事实不一致，实际首个公开 Release 是 `v0.1.0`。
+- 旧文档中的 Markdown 预览、文件树、自定义主题、快捷键、多窗口、Diff 等能力，已分别在 `v0.1.9` 至 `v0.4.0` 分阶段交付。
+- 国际化、插件系统、设置完整性、发布流程等属于当时规划，未在本日志中声明为已交付。
+
+### [0.0.1] - 未打 tag
+
+- 仓库首个提交为 `9662472`，提交信息为 `Initial import from openClaw workspace`。
+- 完成 Tauri 2、Vue 3、TypeScript、Vite、Monaco Editor、Naive UI 和基础工程结构导入。
+- 早期文档曾记录日期为 2026-03-01，但 Git 提交历史显示为 2026-03-12，本文以 Git 记录为准。
+
+### 缺失号段
+
+- `v0.1.1`、`v0.1.5`、`v0.1.6`、`v0.1.7` 没有 Git tag，也没有发布记录。
+- 缺失号段不补写为正式版本，避免形成无法追溯的变更历史。
+
+---
+
+## 版本规则
 
 遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)：
 
-- **主版本号 (MAJOR)**: 不兼容的 API 变更
-- **次版本号 (MINOR)**: 向后兼容的功能性新增
-- **修订号 (PATCH)**: 向后兼容的问题修正
+- **MAJOR**：不兼容的 API、数据格式或用户工作流变更。
+- **MINOR**：向后兼容的功能新增。
+- **PATCH**：向后兼容的缺陷修复、安全修复和发布收口。
 
-### 发布周期
+补充约定：
 
-- **PATCH 版本**: 按需发布（Bug 修复）
-- **MINOR 版本**: 每 2-4 周发布（新功能）
-- **MAJOR 版本**: 每季度发布（重大更新）
+- 发布前必须统一 root package、frontend package、Cargo、Cargo.lock 和 Tauri 配置版本。
+- 每个公开版本必须包含 Git tag、GitHub Release、平台产物和回滚说明。
+- 内部验证 tag 可以早于公开 Release，但不得冒充正式 GitHub Release。
+- 阻断问题通过新补丁版本修复，不覆盖已有 tag 或已上传资产。
+- 回滚优先回退到上一公开 Release；涉及恢复库或设置格式时，需要同时核对数据兼容性。
 
-### 发布渠道
+## 版本条目模板
 
-- **Stable**: 稳定版本，推荐普通用户使用
-- **Beta**: 测试版本，包含新功能，可能存在 Bug
-- **Nightly**: 每日构建，最新代码，不稳定
+每个新增版本沿用统一条目结构；确实无内容的章节可以省略，其余章节保持顺序一致。
+
+```markdown
+## [x.y.z] - yyyy-mm-dd
+
+### 发布定位
+
+### 新增
+
+### 改进
+
+### 修复
+
+### 验证
+
+### 发布产物
+
+### 已知限制
+
+### 回滚
+```
+
+维护要求：
+
+- 新版本必须先写入 `CHANGELOG.md`，再创建 tag。
+- 版本日期以 GitHub Release 发布时间为准，准发布阶段可暂标计划日期。
+- 验证章节必须记录真实命令、测试数量或明确写“未执行及原因”。
+- 涉及数据格式、恢复库、设置或回滚时，必须写明兼容性和影响的版本。
+- 不存在的 tag、Release、安装包或包管理器渠道不得写入发布结果。
 
 ---
 
-## 📞 反馈与建议
+## 发布渠道
 
-如果您发现问题或有功能建议：
-
-1. **提交 Issue**: [GitHub Issues](https://github.com/your-repo/text-editor/issues)
-2. **功能请求**: [GitHub Discussions](https://github.com/your-repo/text-editor/discussions)
-3. **邮件联系**: support@example.com
+- **Stable**：GitHub Releases，正式安装包和发布说明的唯一官方渠道。
+- **Beta / Nightly**：当前未发布独立渠道。
+- **包管理器**：当前未发布 Scoop、Chocolatey、Homebrew、AUR、Flatpak 或 Snap 官方包。
+- **签名状态**：当前桌面产物为未签名构建；macOS 可能需要手动解除 quarantine，Windows 可能触发 SmartScreen 提示。
 
 ---
 
-*最后更新：2026-03-11*
+## 反馈与建议
+
+- 问题反馈：[GitHub Issues](https://github.com/kokotao/tau-editor/issues)
+- 版本下载：[GitHub Releases](https://github.com/kokotao/tau-editor/releases)
+- 安装说明：[INSTALL.md](INSTALL.md)
+- 使用手册：[USER_GUIDE.md](USER_GUIDE.md)
+
+---
+
+_最后更新：2026-09-23_
