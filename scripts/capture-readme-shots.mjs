@@ -50,22 +50,22 @@ export const useEditorSession = defineStore('editor-session', () => {
 });
 `;
 
-const MARKDOWN_DOC = `# Tau Editor v0.4.0
+const MARKDOWN_DOC = `# Tau Editor v0.4.1
 
 跨平台文本编辑器，支持主题包、快捷键自定义与 Monaco Diff 对比。
 
 ## 本次更新
 
-- 主题包导入 / 导出，UI 与 Monaco 配色同步
-- 快捷键录制改键与冲突检测
-- 只读 Diff 视图（并排 / 内联）
-- 多窗口标签迁移
+- 工作台与浮层统一平角设计
+- 字体层级与标签悬浮详情优化
+- 右上角未保存状态单行显示
+- 新增可重复视觉基线采集
 
 | 能力 | 状态 |
 | --- | --- |
-| 主题包 | 已支持 |
-| 快捷键自定义 | 已支持 |
-| 文件对比 | 已支持 |
+| 平角工作台 | 已完成 |
+| 标签交互 | 已完成 |
+| 视觉基线 | 已支持 |
 
 > 提示：按 F1 打开命令面板。
 

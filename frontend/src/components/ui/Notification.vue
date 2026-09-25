@@ -88,8 +88,8 @@ const handleAction = (notification: any) => {
   padding: 12px 16px;
   background: var(--n-color, #252526);
   border: 1px solid var(--n-border-color, #333);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 0;
+  box-shadow: 0 14px 32px rgba(2, 6, 23, 0.32);
   pointer-events: auto;
   position: relative;
   overflow: hidden;
@@ -141,14 +141,14 @@ const handleAction = (notification: any) => {
 }
 
 .notification-title {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 700;
+  font-size: var(--font-size-ui-md, 13px);
   color: var(--n-text-color, #fff);
   margin-bottom: 4px;
 }
 
 .notification-message {
-  font-size: 13px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--n-text-color, #ccc);
   line-height: 1.4;
 }
@@ -161,9 +161,9 @@ const handleAction = (notification: any) => {
   padding: 4px 12px;
   background: var(--n-active-color, #37373d);
   border: none;
-  border-radius: 4px;
+  border-radius: 0;
   color: var(--n-text-color, #fff);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -182,7 +182,7 @@ const handleAction = (notification: any) => {
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 0;
   cursor: pointer;
   color: var(--n-text-color, #999);
   opacity: 0.7;

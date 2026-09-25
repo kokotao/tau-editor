@@ -1,6 +1,6 @@
 {
   "name": "text-editor",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Tau 编辑器 - Tau Editor",
   "author": "罗小纯",
   "private": true,
@@ -28,6 +28,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report",
+    "test:visual:baseline": "node scripts/capture-editor-style-baseline.mjs",
     "test:rust": "cd frontend/src-tauri && cargo test",
     "test:rust:watch": "cd frontend/src-tauri && cargo watch -x test",
     "test:all": "pnpm test:unit && pnpm test:rust && pnpm test:e2e",

@@ -1,6 +1,13 @@
 <template>
   <div ref="tabsRootRef" class="editor-tabs" data-testid="editor-tabs">
-    <div ref="tabsContainerRef" class="tabs-container" data-testid="tab-bar" @wheel="handleTabsWheel">
+    <div
+      ref="tabsContainerRef"
+      class="tabs-container"
+      data-testid="tab-bar"
+      role="tablist"
+      :aria-label="copy.tabsLabel"
+      @wheel="handleTabsWheel"
+    >
       <div
         v-for="tab in props.tabs"
         :key="tab.id"
@@ -12,9 +19,18 @@
           dragging: tab.id === draggingTabId,
           'drop-target': tab.id === dragOverTabId,
         }"
+        role="tab"
+        :aria-label="getTabTooltip(tab)"
+        :aria-selected="tab.id === props.activeTabId"
+        :tabindex="tab.id === props.activeTabId ? 0 : -1"
         draggable="true"
         @click="handleTabClick(tab.id)"
         @dblclick="startRename(tab)"
+        @mouseenter="showTabTooltip($event, tab)"
+        @mouseleave="hideTabTooltip"
+        @focusin="showTabTooltip($event, tab, true)"
+        @focusout="hideTabTooltip"
+        @keydown="handleTabKeydown($event, tab.id)"
         @contextmenu.prevent="handleContextMenu($event, tab.id)"
         @dragstart="handleTabDragStart($event, tab.id)"
         @dragover.prevent="handleTabDragOver($event, tab.id)"
@@ -107,6 +123,28 @@
         {{ copy.renameTab }}
       </div>
     </div>
+
+    <Teleport to="body">
+      <Transition name="tab-tooltip">
+        <div
+          v-if="tooltip.visible && tooltip.tab"
+          class="tab-tooltip"
+          data-testid="tab-tooltip"
+          role="tooltip"
+          :style="{ top: `${tooltip.y}px`, left: `${tooltip.x}px` }"
+        >
+          <strong>{{ tooltip.tab.fileName }}</strong>
+          <span>{{ tooltip.tab.isUntitled ? copy.unsaved : tooltip.tab.filePath }}</span>
+          <div class="tab-tooltip-footer">
+            <em :class="{ dirty: tooltip.tab.isDirty }">
+              {{ tooltip.tab.isDirty ? copy.unsaved : copy.saved }}
+            </em>
+            <span>{{ copy.renameHint }}</span>
+            <span>{{ copy.moreActionsHint }}</span>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -154,6 +192,13 @@ const renameState = ref({
   tabId: null as string | null,
   value: '',
 });
+const tooltip = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  tab: null as Tab | null,
+});
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
 const draggingTabId = ref<string | null>(null);
 const dragOverTabId = ref<string | null>(null);
 const CONTEXT_MENU_MARGIN = 8;
@@ -189,11 +234,80 @@ const handleTabClick = (tabId: string) => {
   emit('tab-click', tabId);
 };
 
+const handleTabKeydown = (event: KeyboardEvent, tabId: string) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    handleTabClick(tabId);
+    return;
+  }
+
+  const currentIndex = props.tabs.findIndex((tab) => tab.id === tabId);
+  if (currentIndex < 0 || props.tabs.length === 0) return;
+
+  let targetIndex = currentIndex;
+  if (event.key === 'ArrowRight') targetIndex = (currentIndex + 1) % props.tabs.length;
+  else if (event.key === 'ArrowLeft') targetIndex = (currentIndex - 1 + props.tabs.length) % props.tabs.length;
+  else if (event.key === 'Home') targetIndex = 0;
+  else if (event.key === 'End') targetIndex = props.tabs.length - 1;
+  else return;
+
+  event.preventDefault();
+  const targetTab = props.tabs[targetIndex];
+  if (!targetTab) return;
+  handleTabClick(targetTab.id);
+  void nextTick(() => {
+    const tabNodes = tabsContainerRef.value?.querySelectorAll<HTMLElement>('[data-testid="tab"]');
+    tabNodes?.[targetIndex]?.focus();
+  });
+};
+
 const handleTabClose = (tabId: string) => {
+  hideTabTooltip();
   emit('tab-close', tabId);
 };
 
+const getTabTooltip = (tab: Tab) => {
+  const location = tab.isUntitled ? copy.value.unsaved : tab.filePath || copy.value.unsaved;
+  const state = tab.isDirty ? copy.value.unsaved : copy.value.saved;
+  return `${tab.fileName}\n${location}\n${state} · ${copy.value.renameHint} · ${copy.value.moreActionsHint}`;
+};
+
+const hideTabTooltip = () => {
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+  }
+  tooltip.value.visible = false;
+};
+
+const showTabTooltip = (event: MouseEvent | FocusEvent, tab: Tab, immediate = false) => {
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  const width = Math.min(360, window.innerWidth - 16);
+  const height = 104;
+  const x = Math.min(Math.max(rect.left, 8), Math.max(8, window.innerWidth - width - 8));
+  let y = rect.bottom + 8;
+  if (y + height > window.innerHeight - 8) {
+    y = Math.max(8, rect.top - height - 8);
+  }
+
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+  }
+  tooltip.value = { visible: false, x, y, tab };
+  tooltipTimer = setTimeout(() => {
+    if (tooltip.value.tab?.id === tab.id) {
+      tooltip.value.visible = true;
+    }
+    tooltipTimer = null;
+  }, immediate ? 0 : 320);
+};
+
 const openContextMenu = async (event: MouseEvent, tabId: string) => {
+  hideTabTooltip();
   const root = tabsRootRef.value;
   const rootRect = root?.getBoundingClientRect();
   const localX = rootRect ? event.clientX - rootRect.left : event.clientX;
@@ -326,6 +440,7 @@ const emitTabsReorder = (sourceTabId: string, targetTabId: string) => {
 };
 
 const handleTabDragStart = (event: DragEvent, tabId: string) => {
+  hideTabTooltip();
   draggingTabId.value = tabId;
   dragOverTabId.value = null;
 
@@ -368,6 +483,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  hideTabTooltip();
   document.removeEventListener('click', closeContextMenu);
 });
 </script>
@@ -375,18 +491,16 @@ onUnmounted(() => {
 <style scoped>
 .editor-tabs {
   position: relative;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    var(--panel, #131b2c);
+  background: var(--panel, #131b2c);
   border-bottom: 1px solid var(--border-strong, #334155);
 }
 
 .tabs-container {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 46px;
-  padding: 0 10px;
+  gap: 3px;
+  height: var(--tabs-height, 44px);
+  padding: 0 8px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -403,26 +517,31 @@ onUnmounted(() => {
   gap: 8px;
   min-width: 160px;
   max-width: 240px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 12px;
+  height: 36px;
+  padding: 0 9px;
+  border-radius: 0;
   border: 1px solid transparent;
-  background: var(--surface-muted, rgba(255, 255, 255, 0.03));
+  background: transparent;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .tab:hover {
   background: var(--surface-hover, rgba(255, 255, 255, 0.06));
   border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
+  color: var(--text-primary, #f8fafc);
 }
 
 .tab.active {
   background: var(--surface-raised, #1c2638);
   border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+  box-shadow: inset 0 2px 0 var(--accent-blue, #7cc7ff);
   color: var(--text-primary, #f8fafc);
-  transform: translateY(1px);
+}
+
+.tab.active .tab-name {
+  font-weight: 700;
 }
 
 .tab.dragging {
@@ -431,6 +550,11 @@ onUnmounted(() => {
 
 .tab.drop-target {
   border-color: rgba(77, 171, 255, 0.7);
+}
+
+.tab:focus-visible {
+  outline: 1px solid var(--accent-blue-strong, #4dabff);
+  outline-offset: -2px;
 }
 
 .tab-icon {
@@ -459,8 +583,8 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-ui-md, 13px);
+  font-weight: 650;
 }
 
 .tab-name-row {
@@ -475,9 +599,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 1px 6px;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.2;
   color: var(--accent-blue-strong, #4dabff);
   border: 1px solid color-mix(in srgb, var(--accent-blue-strong, #4dabff) 50%, transparent);
@@ -491,11 +615,11 @@ onUnmounted(() => {
 .tab-loading-action {
   flex-shrink: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: 0;
   padding: 0 4px;
   background: color-mix(in srgb, var(--accent-blue-strong, #4dabff) 28%, transparent);
   color: inherit;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.5;
   cursor: pointer;
 }
@@ -505,13 +629,13 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted, #94a3b8);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .tab-rename-input {
   width: 100%;
   padding: 3px 7px;
-  border-radius: 7px;
+  border-radius: 0;
   border: 1px solid var(--accent-blue-strong, #4dabff);
   background: rgba(0, 0, 0, 0.16);
   color: var(--text-primary, #fff);
@@ -527,11 +651,12 @@ onUnmounted(() => {
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: 7px;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.42;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .tab:hover .tab-close {
@@ -539,7 +664,14 @@ onUnmounted(() => {
 }
 
 .tab-close:hover {
-  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  background: color-mix(in srgb, var(--state-danger, #f87171) 18%, transparent);
+  color: var(--state-danger, #f87171);
+}
+
+.tab-close:focus-visible {
+  opacity: 1;
+  outline: 1px solid var(--accent-blue-strong, #4dabff);
+  outline-offset: 0;
 }
 
 .context-menu {
@@ -547,20 +679,86 @@ onUnmounted(() => {
   z-index: 40;
   min-width: 160px;
   padding: 6px;
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--surface-raised, #20242f);
   border: 1px solid var(--border-soft, #3d4354);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
 }
 
 .context-menu-item {
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
 }
 
 .context-menu-item:hover {
   background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.tab-tooltip {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  width: min(360px, calc(100vw - 16px));
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
+  border-radius: 0;
+  background: color-mix(in srgb, var(--panel-elevated, #151d2d) 96%, transparent);
+  color: var(--text-secondary, #b6c2d9);
+  box-shadow: 0 16px 38px rgba(2, 6, 23, 0.38);
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.tab-tooltip strong,
+.tab-tooltip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-tooltip strong {
+  color: var(--text-primary, #ecf2ff);
+  font-size: var(--font-size-ui-md, 13px);
+}
+
+.tab-tooltip > span {
+  font-family: var(--font-code);
+  font-size: var(--font-size-ui-xs, 11px);
+  color: var(--text-muted, #75829e);
+}
+
+.tab-tooltip-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  font-size: var(--font-size-ui-xs, 11px);
+}
+
+.tab-tooltip-footer em {
+  color: var(--state-success, #4ade80);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.tab-tooltip-footer em.dirty {
+  color: var(--accent-amber, #ffd166);
+}
+
+.tab-tooltip-enter-active,
+.tab-tooltip-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.tab-tooltip-enter-from,
+.tab-tooltip-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
 }
 </style>

@@ -26,11 +26,18 @@
   --state-warning: #fbbf24;
   --state-danger: #f87171;
 
-  --radius-xs: 8px;
-  --radius-sm: 12px;
-  --radius-md: 16px;
-  --radius-lg: 22px;
-  --radius-pill: 999px;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-pill: 0;
+
+  --font-size-ui-xs: 11px;
+  --font-size-ui-sm: 12px;
+  --font-size-ui-md: 13px;
+  --font-size-ui-lg: 15px;
+  --toolbar-height: 52px;
+  --tabs-height: 44px;
 
   --shadow-soft: 0 18px 46px rgba(15, 23, 42, 0.24);
   --shadow-overlay: 0 28px 80px rgba(2, 6, 23, 0.42);

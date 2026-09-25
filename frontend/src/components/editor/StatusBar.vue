@@ -282,20 +282,18 @@ const formatLastSaveTime = (date: Date) => {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  min-height: 40px;
-  padding: 0 14px;
-  background:
-    linear-gradient(90deg, rgba(76, 146, 255, 0.24), rgba(46, 204, 113, 0.12)),
-    var(--panel-elevated, #111827);
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--panel-elevated, #111827);
   color: var(--text-primary, #f8fafc);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   border-top: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
 }
 
 .status-section {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .status-left {
@@ -306,7 +304,7 @@ const formatLastSaveTime = (date: Date) => {
   flex: 1 1 auto;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .status-right {
@@ -317,7 +315,7 @@ const formatLastSaveTime = (date: Date) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
+  min-height: 26px;
 }
 
 .status-label {
@@ -337,10 +335,10 @@ const formatLastSaveTime = (date: Date) => {
 .author-trigger {
   height: 28px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
   font-size: 11px;
-  background: rgba(16, 23, 38, 0.85);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   color: var(--text-secondary, #cbd5e1);
   display: inline-flex;
   align-items: center;
@@ -379,7 +377,7 @@ const formatLastSaveTime = (date: Date) => {
 
 .author-modal {
   width: min(560px, 92vw);
-  border-radius: 16px;
+  border-radius: 0;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
   background: var(--panel, #101726);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
@@ -402,7 +400,7 @@ const formatLastSaveTime = (date: Date) => {
 .author-modal-close {
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
@@ -453,7 +451,7 @@ const formatLastSaveTime = (date: Date) => {
 .author-qr-card {
   margin: 0;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(255, 255, 255, 0.03);
 }
@@ -462,7 +460,7 @@ const formatLastSaveTime = (date: Date) => {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .author-qr-card figcaption {
@@ -491,22 +489,22 @@ const formatLastSaveTime = (date: Date) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 0;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .status-pill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 0;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .pill-prefix {

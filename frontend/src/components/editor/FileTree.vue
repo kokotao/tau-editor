@@ -509,7 +509,7 @@ onUnmounted(() => {
   gap: 6px;
   flex: 1;
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 0;
   border: 1px solid var(--n-border-color, #333);
   background: var(--n-background-strong, #1e1e1e);
   color: var(--n-text-color, #ccc);
@@ -537,7 +537,7 @@ onUnmounted(() => {
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 0;
   cursor: pointer;
   color: inherit;
   opacity: 0;
@@ -576,7 +576,7 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--n-text-color, #ccc);
   font-size: 13px;
-  transition: background 0.15s;
+  transition: background 0.15s, box-shadow 0.15s;
   outline: none;
 }
 
@@ -586,6 +586,7 @@ onUnmounted(() => {
 
 .file-tree-item.selected {
   background: var(--n-active-color, #37373d);
+  box-shadow: inset 2px 0 0 var(--accent-blue);
 }
 
 .file-tree-item:focus-visible {
@@ -672,7 +673,7 @@ onUnmounted(() => {
   position: absolute;
   background: var(--n-color, #252526);
   border: 1px solid var(--n-border-color, #333);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 4px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 1000;

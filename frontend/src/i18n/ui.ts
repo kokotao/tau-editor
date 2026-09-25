@@ -263,6 +263,7 @@ interface ToolbarText {
   expandContext: string;
   markdownViewPrefix: string;
   dirtyTip: string;
+  dirtyShort: string;
   settings: string;
   systemMenu: string;
   systemMenuTitle: string;
@@ -275,11 +276,15 @@ interface ToolbarText {
 }
 
 interface EditorTabsText {
+  tabsLabel: string;
   unsaved: string;
+  saved: string;
   close: string;
   closeOthers: string;
   closeAll: string;
   renameTab: string;
+  renameHint: string;
+  moreActionsHint: string;
   loadingProgress: (progress: number) => string;
   loadingFailed: string;
   loadingCancelled: string;
@@ -864,6 +869,7 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     expandContext: '展开上下文栏',
     markdownViewPrefix: 'Markdown 视图',
     dirtyTip: '当前标签未保存',
+    dirtyShort: '未保存',
     settings: '设置',
     systemMenu: '系统',
     systemMenuTitle: '系统菜单',
@@ -919,6 +925,7 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     expandContext: 'Expand Context Rail',
     markdownViewPrefix: 'Markdown View',
     dirtyTip: 'Current tab has unsaved changes',
+    dirtyShort: 'Unsaved',
     settings: 'Settings',
     systemMenu: 'System',
     systemMenuTitle: 'System Menu',
@@ -964,11 +971,15 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
 
 const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
   'zh-CN': {
+    tabsLabel: '编辑器标签',
     unsaved: '未保存',
+    saved: '已保存',
     close: '关闭',
     closeOthers: '关闭其他标签',
     closeAll: '关闭所有标签',
     renameTab: '重命名标签',
+    renameHint: '双击重命名',
+    moreActionsHint: '右键查看更多操作',
     loadingProgress: (progress) => `加载中 ${progress}%`,
     loadingFailed: '加载失败',
     loadingCancelled: '已取消加载',
@@ -976,11 +987,15 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     retryLoad: '重试',
   },
   'en-US': {
+    tabsLabel: 'Editor tabs',
     unsaved: 'Unsaved',
+    saved: 'Saved',
     close: 'Close',
     closeOthers: 'Close Others',
     closeAll: 'Close All',
     renameTab: 'Rename Tab',
+    renameHint: 'Double-click to rename',
+    moreActionsHint: 'Right-click for more actions',
     loadingProgress: (progress) => `Loading ${progress}%`,
     loadingFailed: 'Load failed',
     loadingCancelled: 'Load cancelled',

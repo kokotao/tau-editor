@@ -106,5 +106,91 @@ const emitPreviewReplace = () => {
 </script>
 
 <style scoped>
-.workspace-search-overlay{position:fixed;inset:0;z-index:45;background:rgba(3,7,18,.48);display:flex;justify-content:center;padding-top:10vh}.workspace-search-panel{width:min(760px,calc(100vw - 32px));max-height:70vh;overflow:auto;background:var(--panel);border:1px solid var(--border-strong);border-radius:14px;padding:14px;color:var(--text-primary)}header{display:flex;gap:8px}.workspace-search-replace{display:flex;gap:8px;margin-top:8px}input{flex:1;min-width:0;padding:10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-muted);color:inherit}.workspace-search-panel button{border:0;border-radius:7px;padding:8px 10px;background:var(--surface-hover);color:inherit;cursor:pointer}.workspace-search-panel button:disabled{opacity:.5;cursor:not-allowed}.workspace-search-results{display:grid;gap:5px;margin-top:12px}.workspace-search-results button{display:grid;text-align:left;gap:3px}.workspace-search-results span{color:var(--text-muted);font-family:var(--font-code);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.workspace-search-cancelled{margin:0;color:var(--text-muted);font-size:12px}
+.workspace-search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  justify-content: center;
+  padding-top: 10vh;
+  background: rgba(3, 7, 18, 0.48);
+}
+
+.workspace-search-panel {
+  width: min(760px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text-primary);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
+}
+
+header {
+  display: flex;
+  gap: 8px;
+}
+
+.workspace-search-replace {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: var(--surface-muted);
+  color: inherit;
+}
+
+.workspace-search-panel button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-hover);
+  color: inherit;
+  cursor: pointer;
+}
+
+.workspace-search-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.workspace-search-results {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.workspace-search-results button {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.workspace-search-results button:hover {
+  box-shadow: inset 2px 0 0 var(--accent-blue);
+}
+
+.workspace-search-results span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-ui-sm, 12px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-search-cancelled {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-ui-sm, 12px);
+}
 </style>

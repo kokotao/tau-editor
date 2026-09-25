@@ -23,8 +23,8 @@
 #### 1. 下载安装程序
 
 从 [Releases](https://github.com/kokotao/tau-editor/releases) 下载最新版本的安装包：
-- `Tau.Editor_0.4.0_x64-setup.exe`（NSIS 安装程序，64 位）
-- `Tau.Editor_0.4.0_x64_zh-CN.msi`（MSI 安装包，64 位）
+- `Tau.Editor_0.4.1_x64-setup.exe`（NSIS 安装程序，64 位）
+- `Tau.Editor_0.4.1_x64_zh-CN.msi`（MSI 安装包，64 位）
 
 > 当前仅提供 x64 安装包，未提供 32 位（x86）版本。
 
@@ -101,7 +101,7 @@ choco install text-editor
 #### 1. 下载 DMG 文件
 
 从 [Releases](https://github.com/kokotao/tau-editor/releases) 下载：
-- `Tau.Editor_0.4.0_aarch64.dmg`（Apple Silicon M 系列，当前唯一发布格式）
+- `Tau.Editor_0.4.1_aarch64.dmg`（Apple Silicon M 系列，当前唯一发布格式）
 
 > 当前未提供 Intel（x64）DMG；Intel Mac 需参考 [从源码编译指南](#从源码编译指南) 自行构建。
 
@@ -217,10 +217,10 @@ brew uninstall --cask text-editor
 
 ```bash
 # 1. 下载 DEB 包
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor_0.4.0_amd64.deb
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor_0.4.1_amd64.deb
 
 # 2. 安装
-sudo apt install ./Tau.Editor_0.4.0_amd64.deb
+sudo apt install ./Tau.Editor_0.4.1_amd64.deb
 
 # 3. 启动
 text-editor
@@ -246,10 +246,10 @@ sudo apt update && sudo apt upgrade text-editor
 
 ```bash
 # 下载 RPM 包
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor-0.4.0-1.x86_64.rpm
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor-0.4.1-1.x86_64.rpm
 
 # 安装
-sudo dnf install ./Tau.Editor-0.4.0-1.x86_64.rpm
+sudo dnf install ./Tau.Editor-0.4.1-1.x86_64.rpm
 
 # 启动
 text-editor
@@ -295,26 +295,26 @@ makepkg -si
 
 ```bash
 # 下载 RPM 包
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor-0.4.0-1.x86_64.rpm
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor-0.4.1-1.x86_64.rpm
 
 # 安装
-sudo zypper install ./Tau.Editor-0.4.0-1.x86_64.rpm
+sudo zypper install ./Tau.Editor-0.4.1-1.x86_64.rpm
 ```
 
 ### AppImage（通用）
 
 ```bash
 # 1. 下载 AppImage
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.0/Tau.Editor_0.4.0_amd64.AppImage
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor_0.4.1_amd64.AppImage
 
 # 2. 添加执行权限
-chmod +x Tau.Editor_0.4.0_amd64.AppImage
+chmod +x Tau.Editor_0.4.1_amd64.AppImage
 
 # 3. 运行
-./Tau.Editor_0.4.0_amd64.AppImage
+./Tau.Editor_0.4.1_amd64.AppImage
 
 # 4. （可选）集成到系统
-./Tau.Editor_0.4.0_amd64.AppImage --appimage-install
+./Tau.Editor_0.4.1_amd64.AppImage --appimage-install
 ```
 
 ### Flatpak（规划中，暂未提供）
@@ -659,19 +659,19 @@ pnpm tauri build
 构建完成后，产物位于 `frontend/src-tauri/target/release/bundle/`：
 
 **Windows**
-- `msi/Tau Editor_0.4.0_x64_en-US.msi` - MSI 安装包
-- `nsis/Tau Editor_0.4.0_x64-setup.exe` - NSIS 安装程序
+- `msi/Tau Editor_0.4.1_x64_en-US.msi` - MSI 安装包
+- `nsis/Tau Editor_0.4.1_x64-setup.exe` - NSIS 安装程序
 
 **macOS**
-- `dmg/Tau Editor_0.4.0_aarch64.dmg` - Apple Silicon（当前发布格式）
+- `dmg/Tau Editor_0.4.1_aarch64.dmg` - Apple Silicon（当前发布格式）
 - `macos/Tau Editor.app` - 应用包
 
 **Linux**
-- `deb/Tau Editor_0.4.0_amd64.deb` - DEB 包
-- `rpm/Tau Editor-0.4.0-1.x86_64.rpm` - RPM 包
-- `appimage/Tau Editor_0.4.0_amd64.AppImage` - AppImage
+- `deb/Tau Editor_0.4.1_amd64.deb` - DEB 包
+- `rpm/Tau Editor-0.4.1-1.x86_64.rpm` - RPM 包
+- `appimage/Tau Editor_0.4.1_amd64.AppImage` - AppImage
 
-> CI 上传到 Release 时会将文件名规范化为 `Tau.Editor_0.4.0_*.dmg` 这类形式，与本地构建名字略有差异。
+> CI 上传到 Release 时会将文件名规范化为 `Tau.Editor_0.4.1_*.dmg` 这类形式，与本地构建名字略有差异。
 
 ### 构建验证
 

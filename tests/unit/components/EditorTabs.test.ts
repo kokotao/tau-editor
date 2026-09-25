@@ -47,6 +47,20 @@ describe('EditorTabs.vue', () => {
     expect(wrapper.get('.tab-loading-pill').text()).toContain('42');
   });
 
+  it('exposes tab semantics and supports arrow-key activation', async () => {
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+    const tablist = wrapper.get('[data-testid="tab-bar"]');
+    const firstTab = wrapper.findAll('[data-testid="tab"]')[0];
+
+    expect(tablist.attributes('role')).toBe('tablist');
+    expect(firstTab.attributes('aria-selected')).toBe('true');
+    expect(firstTab.attributes('tabindex')).toBe('0');
+    expect(firstTab.attributes('aria-label')).toContain('双击重命名');
+
+    await firstTab.trigger('keydown', { key: 'ArrowRight' });
+    expect(wrapper.emitted('tab-click')).toEqual([['second']]);
+  });
+
   it('emits tab-click without mutating controlled props', async () => {
     const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
 

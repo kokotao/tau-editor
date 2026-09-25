@@ -105,41 +105,39 @@ watch(
 .command-palette {
   width: min(720px, calc(100vw - 32px));
   overflow: hidden;
-  border-radius: 26px;
+  border-radius: 0;
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
-  background:
-    radial-gradient(circle at top right, rgba(124, 199, 255, 0.12), transparent 28%),
-    var(--panel, #101726);
-  box-shadow: 0 40px 100px rgba(15, 23, 42, 0.42);
+  background: var(--panel, #101726);
+  box-shadow: 0 30px 72px rgba(2, 6, 23, 0.46);
 }
 
 .palette-search-row {
-  padding: 18px;
+  padding: 14px;
   border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
 .palette-search-input {
   width: 100%;
-  height: 54px;
-  padding: 0 18px;
+  height: 48px;
+  padding: 0 14px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  border-radius: 18px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary, #ecf2ff);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-size-ui-lg, 15px);
   outline: none;
 }
 
 .palette-search-input:focus {
   border-color: rgba(124, 199, 255, 0.55);
-  box-shadow: 0 0 0 4px rgba(124, 199, 255, 0.12);
+  box-shadow: inset 0 -2px 0 var(--accent-blue, #7cc7ff);
 }
 
 .palette-results {
   max-height: min(420px, 58vh);
   overflow-y: auto;
-  padding: 10px;
+  padding: 8px;
 }
 
 .palette-item {
@@ -148,18 +146,21 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: none;
-  border-radius: 18px;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: inset 0 0 0 transparent;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .palette-item:hover,
 .palette-item.active {
   background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  box-shadow: inset 2px 0 0 var(--accent-blue, #7cc7ff);
 }
 
 .palette-item-main {
@@ -170,22 +171,22 @@ watch(
 }
 
 .palette-item-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-ui-md, 13px);
+  font-weight: 650;
   color: var(--text-primary, #ecf2ff);
 }
 
 .palette-item-meta {
-  font-size: 12px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-muted, #75829e);
 }
 
 .palette-shortcut {
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary, #b6c2d9);
-  font-size: 12px;
+  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .palette-empty {

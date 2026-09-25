@@ -32,13 +32,13 @@
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon) | `Tau.Editor_0.4.0_aarch64.dmg` | 首次打开如提示「已损坏」见下方说明 |
-| Windows (x64) | `Tau.Editor_0.4.0_x64-setup.exe` / `Tau.Editor_0.4.0_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.4.0_amd64.deb` / `Tau.Editor-0.4.0-1.x86_64.rpm` / `Tau.Editor_0.4.0_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS (Apple Silicon) | `Tau.Editor_0.4.1_aarch64.dmg` | 首次打开如提示「已损坏」见下方说明 |
+| Windows (x64) | `Tau.Editor_0.4.1_x64-setup.exe` / `Tau.Editor_0.4.1_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.4.1_amd64.deb` / `Tau.Editor-0.4.1-1.x86_64.rpm` / `Tau.Editor_0.4.1_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
 > **macOS 首次打开提示「已损坏，无法打开」**：当前安装包未做 Apple Developer ID 签名与公证，浏览器下载会带上隔离属性。
 > 把 App 拖到「应用程序」后执行一次即可：
@@ -50,14 +50,13 @@
 >
 > 升级版本或重新从 DMG 安装后需要重新执行；完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
 
-## ✨ v0.4.0 更新亮点
+## ✨ v0.4.1 更新亮点
 
-- **主题包**：导入 / 导出 JSON 主题包，UI 与 Monaco 编辑器配色同步切换
-- **快捷键自定义**：录制改键、冲突检测与覆盖确认、单条 / 全部重置，命令面板展示生效绑定
-- **文件对比**：只读 Monaco Diff，支持并排 / 内联切换，命令面板、文件树、Git 变更三个入口
-- **多窗口迁移**：把标签在新窗口打开或迁移到新窗口，保留未保存内容
-- **Provider 扩展点**：主题 / 命令 / 文件动作注册表，异常隔离且设置面板可见
-- **启动性能**：入口 chunk 1,115 KB → 313 KB，Monaco 与 Markdown 渲染依赖按需加载
+- **平角工作台**：工具栏、标签、状态栏、文件树、上下文栏、设置页和浮层统一为平角设计
+- **字号与层级优化**：活动标签、路径、状态信息和设置控件重新调整字号与字重，中文界面更清晰
+- **未保存提示修复**：右上角状态改为单行紧凑徽标，不再出现文字逐字换行
+- **标签交互增强**：悬浮显示完整路径与状态，增加活动定位线、关闭按钮反馈和键盘导航
+- **视觉回归基线**：新增 `npm run test:visual:baseline`，覆盖编辑器、命令面板和设置页
 
 完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 

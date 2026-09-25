@@ -1453,10 +1453,7 @@ onMounted(async () => {
   min-height: 0;
   overflow: hidden;
   --animate-duration: 320ms;
-  background:
-    radial-gradient(120% 120% at 10% -10%, rgba(56, 189, 248, 0.16), transparent 45%),
-    radial-gradient(90% 90% at 90% 0%, rgba(14, 165, 233, 0.12), transparent 46%),
-    var(--panel, #101726);
+  background: var(--panel, #101726);
   transition: background-color 260ms ease, color 260ms ease;
 }
 
@@ -1477,13 +1474,13 @@ onMounted(async () => {
 
 .settings-title {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-ui-lg, 15px);
   font-weight: 700;
 }
 
 .settings-subtitle {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted, #94a3b8);
 }
 
@@ -2246,5 +2243,40 @@ onMounted(async () => {
 
 .settings-item-hint.error {
   color: #f87171;
+}
+
+.settings-close,
+.settings-action-btn,
+.settings-nav-item,
+.settings-overview-item,
+.settings-section,
+.font-preview,
+.theme-btn,
+.font-size-control,
+.settings-checkbox,
+.settings-update-btn,
+.custom-theme-item,
+.custom-theme-import,
+.theme-package-item,
+.keybinding-row,
+.keybinding-recorder,
+.font-size-btn,
+.font-size-reset,
+.settings-update-item,
+.settings-author-inline,
+.settings-author-qr-card,
+.settings-author-qr-card img,
+.association-script-badge {
+  border-radius: 0;
+}
+
+.settings-close:focus-visible,
+.settings-action-btn:focus-visible,
+.settings-nav-item:focus-visible,
+.theme-btn:focus-visible,
+.font-size-btn:focus-visible,
+.font-size-reset:focus-visible {
+  outline: 1px solid var(--accent-blue-strong, #4dabff);
+  outline-offset: -2px;
 }
 </style>

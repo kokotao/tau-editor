@@ -159,7 +159,7 @@ function formatTime(value: number | null | undefined): string {
   flex-direction: column;
   gap: 14px;
   padding: 20px;
-  border-radius: 14px;
+  border-radius: 0;
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
   background: var(--panel, #101726);
   color: var(--text, #e2e8f0);
@@ -175,17 +175,17 @@ function formatTime(value: number | null | undefined): string {
 
 .external-change-header h2 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--font-size-ui-lg, 15px);
+  font-weight: 700;
 }
 
 .external-change-close {
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
-  border-radius: 6px;
+  border-radius: 0;
   padding: 4px 10px;
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   cursor: pointer;
 }
 
@@ -236,11 +236,11 @@ function formatTime(value: number | null | undefined): string {
 
 .external-change-actions button {
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
-  border-radius: 8px;
+  border-radius: 0;
   padding: 7px 14px;
   background: transparent;
   color: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   cursor: pointer;
 }
 

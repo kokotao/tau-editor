@@ -310,7 +310,7 @@ const linkStatus = (link: MarkdownLink) =>
 
 .context-rail-header,
 .context-rail-section {
-  padding: 16px;
+  padding: 14px;
 }
 
 .context-rail-header {
@@ -328,19 +328,27 @@ const linkStatus = (link: MarkdownLink) =>
 
 .context-rail-kicker {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   font-weight: 700;
-  letter-spacing: .08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .context-rail-header h2 {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: var(--font-size-ui-lg, 15px);
+  font-weight: 700;
 }
 
 .context-rail-collapse {
-  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   font-size: 20px;
@@ -361,14 +369,14 @@ const linkStatus = (link: MarkdownLink) =>
 
 .context-rail-section h3 {
   color: var(--text-secondary);
-  font-size: 11px;
-  letter-spacing: .06em;
+  font-size: var(--font-size-ui-xs, 11px);
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .context-rail-section-header span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .context-outline-list {
@@ -393,8 +401,8 @@ const linkStatus = (link: MarkdownLink) =>
   gap: 6px;
   width: 100%;
   padding: 7px 6px 7px calc(6px + (var(--outline-level) - 1) * 9px);
-  border-radius: 5px;
-  font-size: 12px;
+  border-radius: 0;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .context-work-item {
@@ -404,8 +412,8 @@ const linkStatus = (link: MarkdownLink) =>
   gap: 6px;
   width: 100%;
   padding: 7px 6px;
-  border-radius: 5px;
-  font-size: 12px;
+  border-radius: 0;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .context-work-item small {
@@ -457,15 +465,15 @@ const linkStatus = (link: MarkdownLink) =>
 
 .context-rail-actions button {
   padding: 8px;
-  border-radius: 5px;
-  font-size: 12px;
+  border-radius: 0;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .context-rail-refresh {
   margin-left: auto;
   padding: 2px 6px;
-  border-radius: 5px;
-  font-size: 12px;
+  border-radius: 0;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .context-link-state {
@@ -479,5 +487,10 @@ const linkStatus = (link: MarkdownLink) =>
 .context-link-state--unsupported,
 .context-link-state--invalid {
   color: #f5a524;
+}
+
+.context-outline-item:focus-visible,
+.context-work-item:focus-visible {
+  box-shadow: inset 2px 0 0 var(--accent-blue);
 }
 </style>

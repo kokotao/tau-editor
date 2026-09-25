@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-09-23
-> 当前稳定版本：`v0.4.0`
+> 最后更新：2026-09-25
+> 当前稳定版本：`v0.4.1`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | 待发布回填 | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
 | [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
 | [0.3.3](https://github.com/kokotao/tau-editor/releases/tag/v0.3.3) | 2026-09-22 | 公开 Release     | `cdbca32` | 恢复库 v2、文件监听、三方冲突、大文件事务、搜索替换安全收口   |
 | [0.3.2](https://github.com/kokotao/tau-editor/releases/tag/v0.3.2) | 2026-08-24 | 公开 Release     | `6a96a83` | 修复 Windows 控制台闪窗，文件关联按需加载                     |
@@ -42,6 +43,39 @@
 - 当前官方安装渠道只有 [GitHub Releases](https://github.com/kokotao/tau-editor/releases)。Homebrew、Scoop、Chocolatey、AUR、Flatpak、Snap 等渠道未在本仓库发布记录中声明。
 
 ---
+
+## [0.4.0] - 2026-09-22
+## [0.4.1] - 2026-09-25
+
+### 发布定位
+
+在 `v0.4.0` 功能体验版基础上，统一编辑器工作台视觉语言，优化字体层级、标签交互、状态反馈和浮层样式，并补充可重复执行的视觉回归基线。
+
+### 改进
+
+- 工具栏、标签栏、状态栏、文件树、上下文栏、设置页和对话框统一为平角设计。
+- 统一 UI 字号 token，提升活动标签、路径、状态信息和设置控件的中文可读性。
+- 右上角未保存提示改为单行紧凑徽标，修复中文逐字换行和挤压问题。
+- 标签新增悬浮详情，展示文件名、完整路径、保存状态、重命名和右键操作提示。
+- 活动标签增加顶部定位线；关闭按钮增加默认、悬浮和键盘焦点状态。
+- 标签栏增加 `tablist` 语义，支持方向键、Home/End、Enter/Space 激活。
+- Command Palette、设置工作区、工作区搜索、替换预览、外部变更和通知统一平角与字体规范。
+- 新增视觉基线采集命令 `npm run test:visual:baseline`，覆盖编辑器、命令面板、设置页和紧凑视口。
+
+### 验证
+
+- `npm run type-check`：通过。
+- `npm run build`：通过。
+- `npx vitest run`：51 个文件、778 项测试通过。
+- `npm run test:visual:baseline`：成功生成 4 张视觉基线。
+- `RUSTFLAGS="-D warnings" cargo check --all-targets --locked`：通过。
+- `cargo test --all-targets --locked`：135 项测试通过。
+- Playwright 人工复核：1680×1050、1280×720 无状态徽标溢出和标签 Tooltip 遮挡。
+
+### 兼容性
+
+- 不涉及数据模型、API、存储格式和保存逻辑变更。
+- 回滚到 `v0.4.0` 不影响配置文件和用户数据。
 
 ## [0.4.0] - 2026-09-22
 

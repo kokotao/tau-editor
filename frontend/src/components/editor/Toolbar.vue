@@ -10,7 +10,13 @@
 
     <div class="toolbar-zone toolbar-zone-center">
       <div class="toolbar-group toolbar-group-main">
-        <button class="toolbar-btn" data-testid="btn-new-file" @click="emit('new-file')" :title="copy.newFile">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-new-file"
+          :aria-label="copy.newFile"
+          @click="emit('new-file')"
+          :title="copy.newFile"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14,2 14,8 20,8" />
@@ -18,13 +24,25 @@
             <line x1="9" y1="15" x2="15" y2="15" />
           </svg>
         </button>
-        <button class="toolbar-btn" data-testid="btn-open-file" @click="emit('open-file')" :title="copy.openFile">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-open-file"
+          :aria-label="copy.openFile"
+          @click="emit('open-file')"
+          :title="copy.openFile"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14,2 14,8 20,8" />
           </svg>
         </button>
-        <button class="toolbar-btn" data-testid="btn-open-folder" @click="emit('open-folder')" :title="copy.openFolder">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-open-folder"
+          :aria-label="copy.openFolder"
+          @click="emit('open-folder')"
+          :title="copy.openFolder"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
             <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -36,6 +54,7 @@
           @click="emit('save')"
           :disabled="!isDirty"
           :class="{ disabled: !isDirty }"
+          :aria-label="copy.save"
           :title="copy.save"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -44,7 +63,13 @@
             <polyline points="7,3 7,8 15,8" />
           </svg>
         </button>
-        <button class="toolbar-btn" data-testid="btn-save-as" @click="emit('save-as')" :title="copy.saveAs">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-save-as"
+          :aria-label="copy.saveAs"
+          @click="emit('save-as')"
+          :title="copy.saveAs"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
             <polyline points="17,21 17,13 7,13 7,21" />
@@ -64,6 +89,7 @@
           @click="emit('undo')"
           :disabled="!canUndo"
           :class="{ disabled: !canUndo }"
+          :aria-label="copy.undo"
           :title="copy.undo"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -77,6 +103,7 @@
           @click="emit('redo')"
           :disabled="!canRedo"
           :class="{ disabled: !canRedo }"
+          :aria-label="copy.redo"
           :title="copy.redo"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -93,6 +120,7 @@
           class="toolbar-btn"
           data-testid="btn-toggle-file-tree"
           @click="emit('toggle-file-tree')"
+          :aria-label="sidebarVisible ? copy.collapseExplorer : copy.expandExplorer"
           :title="sidebarVisible ? copy.collapseExplorer : copy.expandExplorer"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -105,6 +133,7 @@
           class="toolbar-btn"
           data-testid="btn-markdown-preview-mode"
           @click="emit('cycle-markdown-preview')"
+          :aria-label="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
           :title="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -117,6 +146,7 @@
           class="toolbar-btn"
           data-testid="btn-toggle-context-rail"
           @click="emit('toggle-context-rail')"
+          :aria-label="contextRailVisible ? copy.collapseContext : copy.expandContext"
           :title="contextRailVisible ? copy.collapseContext : copy.expandContext"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -129,15 +159,24 @@
 
     <div class="toolbar-zone toolbar-zone-end">
       <div class="toolbar-group toolbar-status-group">
-        <span class="toolbar-info" v-if="isDirty" data-testid="dirty-indicator">
-          <span class="dirty-indicator">●</span>
-          {{ copy.dirtyTip }}
+        <span
+          v-if="isDirty"
+          class="toolbar-info toolbar-save-state"
+          data-testid="dirty-indicator"
+          role="status"
+          :aria-label="copy.dirtyTip"
+          :title="copy.dirtyTip"
+        >
+          <span class="dirty-indicator" aria-hidden="true">●</span>
+          <span class="toolbar-save-state-label">{{ copy.dirtyShort }}</span>
         </span>
         <div ref="systemMenuRef" class="toolbar-system-menu" data-testid="system-menu">
           <button
             type="button"
             class="toolbar-system-trigger"
             data-testid="system-menu-trigger"
+            :aria-label="copy.systemMenuTitle"
+            :aria-expanded="systemMenuOpen"
             :title="copy.systemMenuTitle"
             @click="toggleSystemMenu"
           >
@@ -188,7 +227,13 @@
             </div>
           </div>
         </div>
-        <button class="toolbar-btn" data-testid="btn-settings" @click="emit('toggle-settings')" :title="copy.settings">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-settings"
+          :aria-label="copy.settings"
+          @click="emit('toggle-settings')"
+          :title="copy.settings"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l-.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -392,14 +437,13 @@ onUnmounted(() => {
 
 <style scoped>
 .toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: center;
-  height: 56px;
-  padding: 0 14px;
-  gap: 6px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
-    var(--panel-elevated, #151d2d);
+  gap: 12px;
+  height: var(--toolbar-height, 52px);
+  padding: 0 10px;
+  background: var(--panel-elevated, #151d2d);
   border-bottom: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
   user-select: none;
 }
@@ -414,21 +458,22 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   min-height: 100%;
+  min-width: 0;
 }
 
 .toolbar-zone-center {
-  flex: 1;
   gap: 8px;
   justify-content: center;
+  justify-self: center;
 }
 
 .toolbar-zone-start,
 .toolbar-zone-end {
-  flex: 0;
+  width: 100%;
 }
 
 .toolbar-group-main .toolbar-btn {
-  border-radius: 12px;
+  border-radius: 0;
 }
 
 .toolbar-group-history,
@@ -437,7 +482,9 @@ onUnmounted(() => {
 }
 
 .toolbar-status-group {
-  gap: 10px;
+  flex: 0 0 auto;
+  gap: 8px;
+  justify-self: end;
 }
 
 .toolbar-system-menu {
@@ -450,11 +497,12 @@ onUnmounted(() => {
   gap: 6px;
   height: 32px;
   padding: 0 10px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .toolbar-system-trigger:hover {
@@ -463,7 +511,7 @@ onUnmounted(() => {
 }
 
 .toolbar-system-label {
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted, #94a3b8);
   white-space: nowrap;
 }
@@ -476,10 +524,10 @@ onUnmounted(() => {
   max-height: 360px;
   overflow: auto;
   padding: 8px;
-  border-radius: 12px;
+  border-radius: 0;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: var(--surface-raised, #1b2436);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
   z-index: 40;
 }
 
@@ -487,11 +535,13 @@ onUnmounted(() => {
   width: 100%;
   height: 30px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary, #f8fafc);
   outline: none;
+  font: inherit;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .toolbar-system-search:focus {
@@ -501,7 +551,7 @@ onUnmounted(() => {
 .toolbar-system-empty {
   padding: 12px 10px;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .toolbar-system-group {
@@ -510,21 +560,21 @@ onUnmounted(() => {
 
 .toolbar-system-group-title {
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-muted, #94a3b8);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .toolbar-system-item {
   width: 100%;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   text-align: left;
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   cursor: pointer;
 }
 
@@ -538,34 +588,40 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .toolbar-identity span {
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted, #94a3b8);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar-app-label {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary, #f8fafc);
 }
 
 .toolbar-workspace-label {
   padding: 2px 6px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(148, 163, 184, 0.18);
+  max-width: 220px;
 }
 
 .toolbar-file-label {
   color: var(--accent-cyan, #22d3ee);
+  max-width: 260px;
 }
 
 .toolbar-divider {
   width: 1px;
   height: 28px;
-  margin: 0 6px;
+  margin: 0 4px;
   background: var(--border-soft, rgba(148, 163, 184, 0.18));
 }
 
@@ -573,22 +629,21 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .toolbar-btn:hover:not(.disabled) {
   background: var(--surface-hover, rgba(255, 255, 255, 0.08));
   border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
   color: var(--text-primary, #f8fafc);
-  transform: translateY(-1px);
 }
 
 .toolbar-btn.disabled {
@@ -600,20 +655,64 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.toolbar-info {
-  display: flex;
+.toolbar-save-state {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  color: var(--text-secondary, #cbd5e1);
-  font-size: 12px;
+  flex: 0 0 auto;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber, #ffd166) 42%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent-amber, #ffd166) 11%, transparent);
+  color: var(--accent-amber, #ffd166);
+  font-size: var(--font-size-ui-sm, 12px);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.toolbar-save-state-label {
+  color: var(--text-primary, #f8fafc);
 }
 
 .dirty-indicator {
-  color: var(--accent-amber, #ffd166);
-  font-size: 10px;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent-amber, #ffd166);
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-amber, #ffd166) 16%, transparent);
+}
+
+.toolbar-btn:focus-visible,
+.toolbar-system-trigger:focus-visible,
+.toolbar-system-item:focus-visible {
+  outline: 1px solid var(--accent-blue-strong, #4dabff);
+  outline-offset: -2px;
+}
+
+@media (max-width: 1200px) {
+  .toolbar-file-label {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .toolbar {
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+    gap: 6px;
+  }
+
+  .toolbar-zone-start {
+    display: none;
+  }
+
+  .toolbar-divider {
+    display: none;
+  }
 }
 </style>
