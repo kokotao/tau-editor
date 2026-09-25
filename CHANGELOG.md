@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | 待发布回填 | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
+| [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | `335f6ab` | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
 | [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
 | [0.3.3](https://github.com/kokotao/tau-editor/releases/tag/v0.3.3) | 2026-09-22 | 公开 Release     | `cdbca32` | 恢复库 v2、文件监听、三方冲突、大文件事务、搜索替换安全收口   |
 | [0.3.2](https://github.com/kokotao/tau-editor/releases/tag/v0.3.2) | 2026-08-24 | 公开 Release     | `6a96a83` | 修复 Windows 控制台闪窗，文件关联按需加载                     |
