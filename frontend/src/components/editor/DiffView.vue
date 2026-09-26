@@ -178,7 +178,7 @@ watch(
   height: 28px;
   padding: 0 10px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: rgba(15, 23, 42, 0.4);
   color: var(--text-secondary, #cbd5e1);
   font-size: 12px;

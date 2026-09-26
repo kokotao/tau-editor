@@ -50,21 +50,21 @@ export const useEditorSession = defineStore('editor-session', () => {
 });
 `;
 
-const MARKDOWN_DOC = `# Tau Editor v0.4.1
+const MARKDOWN_DOC = `# Tau Editor v0.4.2
 
 跨平台文本编辑器，支持主题包、快捷键自定义与 Monaco Diff 对比。
 
 ## 本次更新
 
-- 工作台与浮层统一平角设计
-- 字体层级与标签悬浮详情优化
-- 右上角未保存状态单行显示
-- 新增可重复视觉基线采集
+- 工作台微圆角与结构平角体系
+- 设置页与浮层视觉层级收口
+- macOS 构建期签名修复
+- Developer ID 公证开关
 
 | 能力 | 状态 |
 | --- | --- |
-| 平角工作台 | 已完成 |
-| 标签交互 | 已完成 |
+| 微圆角体系 | 已完成 |
+| macOS 签名 | 已修复 |
 | 视觉基线 | 已支持 |
 
 > 提示：按 F1 打开命令面板。

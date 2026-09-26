@@ -963,7 +963,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   border: 1px solid color-mix(in srgb, var(--color-border-default, #2a3a57) 85%, transparent);
   background: color-mix(in srgb, var(--color-panel-base, #111b2f) 95%, #05080f 5%);
   box-shadow: 0 14px 28px rgba(5, 12, 26, 0.28);
@@ -976,7 +976,7 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   color: var(--color-text-primary, #eef2ff);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   text-align: left;
   font-size: var(--font-size-ui-sm, 12px);

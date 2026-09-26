@@ -509,7 +509,7 @@ onUnmounted(() => {
   gap: 6px;
   flex: 1;
   padding: 4px 10px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--n-border-color, #333);
   background: var(--n-background-strong, #1e1e1e);
   color: var(--n-text-color, #ccc);
@@ -537,7 +537,7 @@ onUnmounted(() => {
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: inherit;
   opacity: 0;
@@ -673,7 +673,7 @@ onUnmounted(() => {
   position: absolute;
   background: var(--n-color, #252526);
   border: 1px solid var(--n-border-color, #333);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   padding: 4px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 1000;
@@ -682,6 +682,7 @@ onUnmounted(() => {
 
 .context-menu-item {
   padding: 6px 16px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
   color: var(--n-text-color, #ccc);

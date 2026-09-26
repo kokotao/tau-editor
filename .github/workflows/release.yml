@@ -69,9 +69,68 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Configure Apple code signing
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "No Apple certificate secret configured; the bundle falls back to the ad-hoc signature from tauri.conf.json."
+            exit 0
+          fi
+
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "::error::APPLE_CERTIFICATE is set, but APPLE_SIGNING_IDENTITY is missing."
+            exit 1
+          fi
+
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "::error::Developer ID signing requires APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID for notarization."
+            exit 1
+          fi
+
+          {
+            echo "APPLE_CERTIFICATE=$(printf '%s' "$APPLE_CERTIFICATE" | tr -d '\r\n')"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+          echo "Developer ID signing and notarization credentials configured."
+
       - name: Build Tauri bundles
         working-directory: frontend
         run: pnpm tauri build ${{ matrix.args }}
+
+      - name: Verify macOS code signature
+        if: matrix.platform == 'macos-latest'
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No macOS .app bundle found to verify."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            spctl --assess --type execute --verbose=4 "$APP_PATH"
+            xcrun stapler validate "$APP_PATH"
+          else
+            echo "Ad-hoc signature verified; macOS still asks users to allow the app once in System Settings > Privacy & Security."
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

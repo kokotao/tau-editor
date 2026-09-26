@@ -88,7 +88,7 @@ const handleAction = (notification: any) => {
   padding: 12px 16px;
   background: var(--n-color, #252526);
   border: 1px solid var(--n-border-color, #333);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   box-shadow: 0 14px 32px rgba(2, 6, 23, 0.32);
   pointer-events: auto;
   position: relative;
@@ -161,7 +161,7 @@ const handleAction = (notification: any) => {
   padding: 4px 12px;
   background: var(--n-active-color, #37373d);
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   color: var(--n-text-color, #fff);
   font-size: var(--font-size-ui-sm, 12px);
   cursor: pointer;
@@ -182,7 +182,7 @@ const handleAction = (notification: any) => {
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--n-text-color, #999);
   opacity: 0.7;

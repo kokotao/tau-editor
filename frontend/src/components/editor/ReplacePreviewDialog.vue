@@ -215,7 +215,7 @@ const statusLabel = (status: WorkspaceReplaceStatus) => {
   overflow: auto;
   padding: 14px;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   background: var(--panel);
   color: var(--text-primary);
   box-shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
@@ -244,7 +244,7 @@ header button {
 .replace-preview-dialog button {
   padding: 8px 10px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--surface-hover);
   color: inherit;
   cursor: pointer;
@@ -279,7 +279,7 @@ header button {
 .preview-files > li {
   padding: 8px;
   border: 1px solid var(--border-soft);
-  border-radius: 0;
+  border-radius: var(--radius-md);
 }
 
 .file-head {
@@ -343,7 +343,7 @@ code {
 
 .status {
   padding: 2px 8px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--surface-hover);
 }
 

@@ -32,31 +32,35 @@
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon) | `Tau.Editor_0.4.1_aarch64.dmg` | 首次打开如提示「已损坏」见下方说明 |
-| Windows (x64) | `Tau.Editor_0.4.1_x64-setup.exe` / `Tau.Editor_0.4.1_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.4.1_amd64.deb` / `Tau.Editor-0.4.1-1.x86_64.rpm` / `Tau.Editor_0.4.1_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS (Apple Silicon) | `Tau.Editor_0.4.2_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
+| Windows (x64) | `Tau.Editor_0.4.2_x64-setup.exe` / `Tau.Editor_0.4.2_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.4.2_amd64.deb` / `Tau.Editor-0.4.2-1.x86_64.rpm` / `Tau.Editor_0.4.2_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
-> **macOS 首次打开提示「已损坏，无法打开」**：当前安装包未做 Apple Developer ID 签名与公证，浏览器下载会带上隔离属性。
-> 把 App 拖到「应用程序」后执行一次即可：
+> **macOS 首次打开说明**：构建流程已在打包前对 `.app` 做 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`），
+> 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需
+> 在「系统设置 → 隐私与安全性」点击一次「仍要打开」（旧版 macOS 也可右键点击 App 选择「打开」）；
+> 如需完全免提示，需配置 Developer ID 签名与公证。
+>
+> `v0.4.1` 及更早的安装包如仍提示「已损坏」，把 App 拖到「应用程序」后执行一次：
 >
 > ```bash
 > xattr -cr "/Applications/Tau Editor.app"
 > codesign --force --sign - "/Applications/Tau Editor.app"
 > ```
 >
-> 升级版本或重新从 DMG 安装后需要重新执行；完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
+> 完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
 
-## ✨ v0.4.1 更新亮点
+## ✨ v0.4.2 更新亮点
 
-- **平角工作台**：工具栏、标签、状态栏、文件树、上下文栏、设置页和浮层统一为平角设计
-- **字号与层级优化**：活动标签、路径、状态信息和设置控件重新调整字号与字重，中文界面更清晰
-- **未保存提示修复**：右上角状态改为单行紧凑徽标，不再出现文字逐字换行
-- **标签交互增强**：悬浮显示完整路径与状态，增加活动定位线、关闭按钮反馈和键盘导航
-- **视觉回归基线**：新增 `npm run test:visual:baseline`，覆盖编辑器、命令面板和设置页
+- **微圆角体系**：统一采用 `0 / 2 / 4 / 6 / 8px`，结构保持平角，交互控件与浮层使用克制圆角
+- **工作台视觉优化**：工具栏、标签、状态栏、设置页、菜单和 Markdown 预览统一视觉层级
+- **macOS 签名修复**：构建期对整个 `.app` 执行 ad-hoc 签名，修复旧产物「已损坏」问题
+- **Developer ID 开关**：CI 支持 Apple 证书与公证 Secrets，配置后可实现用户零提示打开
+- **视觉回归基线**：继续覆盖编辑器、命令面板、设置页及双视口截图
 
 完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 

@@ -348,7 +348,7 @@ const linkStatus = (link: MarkdownLink) =>
   height: 28px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-size: 20px;
@@ -465,14 +465,14 @@ const linkStatus = (link: MarkdownLink) =>
 
 .context-rail-actions button {
   padding: 8px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-ui-sm, 12px);
 }
 
 .context-rail-refresh {
   margin-left: auto;
   padding: 2px 6px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-ui-sm, 12px);
 }
 

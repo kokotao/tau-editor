@@ -2991,7 +2991,7 @@ textarea {
   min-width: 132px;
   height: 38px;
   padding: 0 14px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: none;
   background: linear-gradient(135deg, var(--accent-blue-strong), #38bdf8);
   color: #fff;
@@ -3170,7 +3170,7 @@ textarea {
   min-width: 28px;
   height: 28px;
   padding: 0 10px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
   background: rgba(16, 23, 38, 0.85);
   color: var(--text-secondary);
@@ -3196,7 +3196,7 @@ textarea {
 .hero-card {
   max-width: 720px;
   padding: 36px;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at top right, rgba(124, 199, 255, 0.16), transparent 26%),
     var(--panel);
@@ -3208,7 +3208,7 @@ textarea {
   display: inline-flex;
   margin-bottom: 14px;
   padding: 6px 10px;
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   background: rgba(124, 199, 255, 0.12);
   color: var(--accent-blue);
   font-size: 12px;
@@ -3260,7 +3260,7 @@ textarea {
 .recent-chip {
   height: 34px;
   padding: 0 12px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
   background: var(--surface-muted);
   color: var(--text-secondary);
@@ -3271,7 +3271,7 @@ textarea {
   min-width: 120px;
   height: 42px;
   padding: 0 16px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
   background: transparent;
   color: var(--text-primary);

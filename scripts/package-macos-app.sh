@@ -38,6 +38,29 @@ if [[ -z "${APP_PATH}" ]]; then
   exit 1
 fi
 
+# Strip quarantine/provenance attributes before packaging.
+xattr -cr "${APP_PATH}"
+
+# Tauri signs the bundle when bundle.macOS.signingIdentity is configured.
+# Prebuilt bundles may only carry the linker signature, which makes Gatekeeper
+# report the app as damaged, so repair them with an ad-hoc signature first.
+if ! codesign --verify --deep --strict "${APP_PATH}" >/dev/null 2>&1; then
+  signed_with_developer_id=0
+  if codesign -dv "${APP_PATH}" 2>&1 | grep -q "Authority=Developer ID"; then
+    signed_with_developer_id=1
+  fi
+
+  if [[ -n "${APPLE_SIGNING_IDENTITY:-}" || "${signed_with_developer_id}" == "1" ]]; then
+    echo "Signature is invalid and a Developer ID identity is in use; refusing to replace it with an ad-hoc signature." >&2
+    exit 1
+  fi
+
+  echo "App bundle is not validly signed; applying an ad-hoc signature."
+  codesign --force --deep --sign - "${APP_PATH}"
+fi
+
+codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+
 ZIP_NAME="${PRODUCT_NAME}_${VERSION}_universal-macos.zip"
 DMG_NAME="${PRODUCT_NAME}_${VERSION}_universal-macos.dmg"
 ZIP_PATH="${ARTIFACT_DIR}/${ZIP_NAME}"

@@ -524,18 +524,20 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, border-radius 0.15s ease;
 }
 
 .tab:hover {
   background: var(--surface-hover, rgba(255, 255, 255, 0.06));
   border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
   color: var(--text-primary, #f8fafc);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
 .tab.active {
   background: var(--surface-raised, #1c2638);
   border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   box-shadow: inset 0 2px 0 var(--accent-blue, #7cc7ff);
   color: var(--text-primary, #f8fafc);
 }
@@ -599,7 +601,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   padding: 1px 6px;
   font-size: 10px;
   line-height: 1.2;
@@ -615,7 +617,7 @@ onUnmounted(() => {
 .tab-loading-action {
   flex-shrink: 0;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   padding: 0 4px;
   background: color-mix(in srgb, var(--accent-blue-strong, #4dabff) 28%, transparent);
   color: inherit;
@@ -635,7 +637,7 @@ onUnmounted(() => {
 .tab-rename-input {
   width: 100%;
   padding: 3px 7px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--accent-blue-strong, #4dabff);
   background: rgba(0, 0, 0, 0.16);
   color: var(--text-primary, #fff);
@@ -651,7 +653,7 @@ onUnmounted(() => {
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -679,7 +681,7 @@ onUnmounted(() => {
   z-index: 40;
   min-width: 160px;
   padding: 6px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   background: var(--surface-raised, #20242f);
   border: 1px solid var(--border-soft, #3d4354);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
@@ -687,7 +689,7 @@ onUnmounted(() => {
 
 .context-menu-item {
   padding: 10px 12px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
 }
@@ -705,7 +707,7 @@ onUnmounted(() => {
   gap: 5px;
   padding: 10px 12px;
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--panel-elevated, #151d2d) 96%, transparent);
   color: var(--text-secondary, #b6c2d9);
   box-shadow: 0 16px 38px rgba(2, 6, 23, 0.38);

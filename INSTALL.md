@@ -23,8 +23,8 @@
 #### 1. 下载安装程序
 
 从 [Releases](https://github.com/kokotao/tau-editor/releases) 下载最新版本的安装包：
-- `Tau.Editor_0.4.1_x64-setup.exe`（NSIS 安装程序，64 位）
-- `Tau.Editor_0.4.1_x64_zh-CN.msi`（MSI 安装包，64 位）
+- `Tau.Editor_0.4.2_x64-setup.exe`（NSIS 安装程序，64 位）
+- `Tau.Editor_0.4.2_x64_zh-CN.msi`（MSI 安装包，64 位）
 
 > 当前仅提供 x64 安装包，未提供 32 位（x86）版本。
 
@@ -101,7 +101,7 @@ choco install text-editor
 #### 1. 下载 DMG 文件
 
 从 [Releases](https://github.com/kokotao/tau-editor/releases) 下载：
-- `Tau.Editor_0.4.1_aarch64.dmg`（Apple Silicon M 系列，当前唯一发布格式）
+- `Tau.Editor_0.4.2_aarch64.dmg`（Apple Silicon M 系列，当前唯一发布格式）
 
 > 当前未提供 Intel（x64）DMG；Intel Mac 需参考 [从源码编译指南](#从源码编译指南) 自行构建。
 
@@ -156,20 +156,24 @@ brew install --cask text-editor
 
 ### 常见问题
 
-#### Q: 「无法验证开发者」提示
+#### Q: 首次打开提示「无法验证开发者」或「已损坏，无法打开」
 
-**解决方案：**
-1. 打开「系统偏好设置」→「安全性与隐私」
-2. 在「通用」标签页底部，点击「仍要打开」
-3. 或右键点击应用，选择「打开」
+**当前状态：** 构建流程会在打包前对 `.app` 执行 ad-hoc 签名
+（`frontend/src-tauri/tauri.conf.json` → `bundle.macOS.signingIdentity = "-"`）。
+签名覆盖 `Info.plist` 与 `Contents/Resources`，`codesign --verify` 可以完整通过，
+不会再因为只有链接器签名而报「已损坏」。
 
-#### Q: 提示「“Tau Editor”已损坏，无法打开。你应该将它移到废纸篓」
+**正常打开流程（无需终端）：**
+1. 双击 App，出现「无法验证开发者」提示时点击「完成」
+2. 打开「系统设置 → 隐私与安全性」，在安全性区域点击「仍要打开」
+3. 再次双击 App，确认「打开」
 
-**原因：** 当前 Release 的 macOS 包未使用 Apple Developer ID 签名与公证（notarization）。
-通过浏览器下载时系统会写入 `com.apple.quarantine` 隔离属性，Gatekeeper 校验到签名不完整时
-会直接报「已损坏」，而不是「无法验证开发者」。
+macOS 12 及更早版本也可以直接右键点击 App，选择「打开」。
 
-**解决方案（把 App 拖到「应用程序」后执行一次）：**
+这是 ad-hoc 签名的预期行为：macOS 仍要求用户手动白名单一次，但不再需要终端命令，
+也不会再出现无解的「已损坏」提示。
+
+**旧安装包仍提示「已损坏」时（`v0.4.1` 及更早）：** 把 App 拖到「应用程序」后执行一次：
 
 ```bash
 # 1. 清除下载隔离属性
@@ -179,18 +183,23 @@ xattr -cr "/Applications/Tau Editor.app"
 codesign --force --sign - "/Applications/Tau Editor.app"
 ```
 
-执行后可正常双击打开。注意：从 DMG 重新拖拽安装，或升级到新版本后，需要重新执行一次。
-
-**验证是否修复：**
+**验证签名：**
 
 ```bash
 codesign --verify --deep --strict --verbose=2 "/Applications/Tau Editor.app"
 # 输出 valid on disk / satisfies its Designated Requirement 即正常
 ```
 
-**根治方案：** 使用 Apple Developer ID 证书在 CI 中完成签名与公证（`APPLE_CERTIFICATE` /
-`APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_ID` / `APPLE_PASSWORD` /
-`APPLE_TEAM_ID`），之后用户双击即可打开，无需任何手动命令。
+**根治方案（用户零提示）：** 使用 Apple Developer ID 证书签名并公证（notarization）。
+CI 已支持以下 GitHub Actions Secrets，配置后 `Desktop Build` 工作流会自动签名、公证并 staple，
+并在构建后校验 `spctl` 与 `stapler`；未配置时回退到 ad-hoc 签名。
+
+| Secret | 说明 |
+|---|---|
+| `APPLE_CERTIFICATE` | Developer ID Application 证书 `.p12` 的 base64（单行） |
+| `APPLE_CERTIFICATE_PASSWORD` | `.p12` 导出密码 |
+| `APPLE_SIGNING_IDENTITY` | `security find-identity -v -p codesigning` 输出的完整身份名 |
+| `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | 公证账号：Apple ID、App 专用密码、Team ID |
 
 #### Q: Apple Silicon 运行缓慢
 
@@ -217,10 +226,10 @@ brew uninstall --cask text-editor
 
 ```bash
 # 1. 下载 DEB 包
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor_0.4.1_amd64.deb
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.2/Tau.Editor_0.4.2_amd64.deb
 
 # 2. 安装
-sudo apt install ./Tau.Editor_0.4.1_amd64.deb
+sudo apt install ./Tau.Editor_0.4.2_amd64.deb
 
 # 3. 启动
 text-editor
@@ -246,10 +255,10 @@ sudo apt update && sudo apt upgrade text-editor
 
 ```bash
 # 下载 RPM 包
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor-0.4.1-1.x86_64.rpm
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.2/Tau.Editor-0.4.2-1.x86_64.rpm
 
 # 安装
-sudo dnf install ./Tau.Editor-0.4.1-1.x86_64.rpm
+sudo dnf install ./Tau.Editor-0.4.2-1.x86_64.rpm
 
 # 启动
 text-editor
@@ -295,26 +304,26 @@ makepkg -si
 
 ```bash
 # 下载 RPM 包
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor-0.4.1-1.x86_64.rpm
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.2/Tau.Editor-0.4.2-1.x86_64.rpm
 
 # 安装
-sudo zypper install ./Tau.Editor-0.4.1-1.x86_64.rpm
+sudo zypper install ./Tau.Editor-0.4.2-1.x86_64.rpm
 ```
 
 ### AppImage（通用）
 
 ```bash
 # 1. 下载 AppImage
-wget https://github.com/kokotao/tau-editor/releases/download/v0.4.1/Tau.Editor_0.4.1_amd64.AppImage
+wget https://github.com/kokotao/tau-editor/releases/download/v0.4.2/Tau.Editor_0.4.2_amd64.AppImage
 
 # 2. 添加执行权限
-chmod +x Tau.Editor_0.4.1_amd64.AppImage
+chmod +x Tau.Editor_0.4.2_amd64.AppImage
 
 # 3. 运行
-./Tau.Editor_0.4.1_amd64.AppImage
+./Tau.Editor_0.4.2_amd64.AppImage
 
 # 4. （可选）集成到系统
-./Tau.Editor_0.4.1_amd64.AppImage --appimage-install
+./Tau.Editor_0.4.2_amd64.AppImage --appimage-install
 ```
 
 ### Flatpak（规划中，暂未提供）
@@ -659,19 +668,19 @@ pnpm tauri build
 构建完成后，产物位于 `frontend/src-tauri/target/release/bundle/`：
 
 **Windows**
-- `msi/Tau Editor_0.4.1_x64_en-US.msi` - MSI 安装包
-- `nsis/Tau Editor_0.4.1_x64-setup.exe` - NSIS 安装程序
+- `msi/Tau Editor_0.4.2_x64_en-US.msi` - MSI 安装包
+- `nsis/Tau Editor_0.4.2_x64-setup.exe` - NSIS 安装程序
 
 **macOS**
-- `dmg/Tau Editor_0.4.1_aarch64.dmg` - Apple Silicon（当前发布格式）
+- `dmg/Tau Editor_0.4.2_aarch64.dmg` - Apple Silicon（当前发布格式）
 - `macos/Tau Editor.app` - 应用包
 
 **Linux**
-- `deb/Tau Editor_0.4.1_amd64.deb` - DEB 包
-- `rpm/Tau Editor-0.4.1-1.x86_64.rpm` - RPM 包
-- `appimage/Tau Editor_0.4.1_amd64.AppImage` - AppImage
+- `deb/Tau Editor_0.4.2_amd64.deb` - DEB 包
+- `rpm/Tau Editor-0.4.2-1.x86_64.rpm` - RPM 包
+- `appimage/Tau Editor_0.4.2_amd64.AppImage` - AppImage
 
-> CI 上传到 Release 时会将文件名规范化为 `Tau.Editor_0.4.1_*.dmg` 这类形式，与本地构建名字略有差异。
+> CI 上传到 Release 时会将文件名规范化为 `Tau.Editor_0.4.2_*.dmg` 这类形式，与本地构建名字略有差异。
 
 ### 构建验证
 

@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-09-25
-> 当前稳定版本：`v0.4.1`
+> 当前稳定版本：`v0.4.2`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2) | 2026-09-26 | 公开 Release     | 待发布回填 | 微圆角体系、macOS 签名修复、Developer ID 公证开关             |
 | [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | `335f6ab` | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
 | [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
 | [0.3.3](https://github.com/kokotao/tau-editor/releases/tag/v0.3.3) | 2026-09-22 | 公开 Release     | `cdbca32` | 恢复库 v2、文件监听、三方冲突、大文件事务、搜索替换安全收口   |
@@ -43,6 +44,42 @@
 - 当前官方安装渠道只有 [GitHub Releases](https://github.com/kokotao/tau-editor/releases)。Homebrew、Scoop、Chocolatey、AUR、Flatpak、Snap 等渠道未在本仓库发布记录中声明。
 
 ---
+
+## [0.4.2] - 2026-09-26
+
+### 发布定位
+
+微圆角视觉修订版，在不改变桌面编辑器工具感的前提下，为交互控件和浮层增加克制圆角；同时修复 macOS 构建包仅带 linker 签名导致的「已损坏」问题，并接入 Developer ID 签名与公证开关。
+
+### 改进
+
+- 建立 `0 / 2 / 4 / 6 / 8px` 圆角体系与圆形例外规则。
+- 三栏、工具栏、状态栏、全宽列表和 Monaco 区域继续保持平角。
+- 按钮、输入框、状态项、未保存徽标和菜单项应用 `4px` 微圆角。
+- 标签仅顶部使用 `4px`，底部继续与编辑区平齐。
+- 设置卡片、菜单、通知和 Markdown 内容使用 `6px`，大浮层最高使用 `8px`。
+- 清除全部 `9px` 以上硬编码圆角，降低圆角套圆角问题。
+
+### 修复
+
+- macOS 构建期对整个 `.app` 执行 ad-hoc 完整签名，绑定 `Info.plist` 和资源，修复旧产物可能被 Gatekeeper 判定为「已损坏」的问题。
+- 打包脚本增加 quarantine 属性清理、签名有效性检查和 Developer ID 防覆盖保护。
+- Desktop Build 新增 macOS 签名校验，Developer ID 模式下额外校验 `spctl` 与 `stapler`。
+- CI 支持通过 Secrets 启用 Apple Developer ID 签名、公证和 staple；未配置时安全回退到 ad-hoc 签名。
+
+### 验证
+
+- `npm run type-check`：通过。
+- `npx vitest run`：51 个文件、778 项测试通过。
+- `npm run build`：通过。
+- `npm run test:visual:baseline`：双视口基线生成成功，深色与浅色主题完成复核。
+- GitHub CI 与 Desktop Build 结果将在发布后回填。
+
+### 兼容性
+
+- 不涉及数据模型、API、存储格式和保存逻辑变更。
+- 未配置 Apple Secrets 时仍可正常构建，macOS 首次打开需在系统设置中放行一次。
+- 配置 Developer ID Secrets 后不需要用户手动放行。
 
 ## [0.4.1] - 2026-09-25
 

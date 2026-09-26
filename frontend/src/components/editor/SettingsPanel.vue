@@ -1497,7 +1497,7 @@ onMounted(async () => {
   width: 34px;
   height: 34px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
@@ -1512,7 +1512,7 @@ onMounted(async () => {
   height: 34px;
   padding: 0 12px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: rgba(15, 23, 42, 0.4);
   color: var(--text-primary, #f8fafc);
   cursor: pointer;
@@ -1542,7 +1542,7 @@ onMounted(async () => {
 .settings-nav-item {
   height: 38px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   text-align: left;
@@ -1590,7 +1590,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.35);
 }
@@ -1610,7 +1610,7 @@ onMounted(async () => {
 .settings-section {
   margin: 0;
   padding: 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -1660,7 +1660,12 @@ onMounted(async () => {
 .font-size-control,
 .settings-checkbox,
 .settings-update-btn {
-  border-radius: 14px;
+  border-radius: var(--radius-sm);
+}
+
+.font-size-control,
+.settings-checkbox {
+  border-radius: var(--radius-md);
 }
 
 .font-preview {
@@ -1702,7 +1707,7 @@ onMounted(async () => {
   gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   --animate-duration: 260ms;
   transition: transform 180ms ease, border-color 220ms ease, background-color 220ms ease;
@@ -1751,7 +1756,7 @@ onMounted(async () => {
   min-height: 92px;
   margin-top: 8px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   color: var(--text-primary, #f8fafc);
@@ -1786,7 +1791,7 @@ onMounted(async () => {
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
 }
 
@@ -1869,7 +1874,7 @@ onMounted(async () => {
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
 }
 
@@ -1901,7 +1906,7 @@ onMounted(async () => {
   height: 30px;
   padding: 0 10px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: rgba(15, 23, 42, 0.4);
   color: var(--text-secondary, #cbd5e1);
   font-size: 12px;
@@ -1953,7 +1958,7 @@ onMounted(async () => {
   min-width: 34px;
   padding: 0 12px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-primary, #f8fafc);
   cursor: pointer;
@@ -1985,7 +1990,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.35);
 }
@@ -2072,7 +2077,7 @@ onMounted(async () => {
 .settings-author-inline {
   padding: 14px 16px 18px;
   line-height: 1.7;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
   background: rgba(255, 255, 255, 0.02);
 }
@@ -2107,7 +2112,7 @@ onMounted(async () => {
 .settings-author-qr-card {
   margin: 0;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(255, 255, 255, 0.03);
 }
@@ -2116,7 +2121,7 @@ onMounted(async () => {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .settings-author-qr-card figcaption {
@@ -2229,7 +2234,7 @@ onMounted(async () => {
   font-size: 10px;
   line-height: 1;
   padding: 3px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: rgba(250, 204, 21, 0.16);
   color: #fbbf24;
   white-space: nowrap;
@@ -2245,30 +2250,6 @@ onMounted(async () => {
   color: #f87171;
 }
 
-.settings-close,
-.settings-action-btn,
-.settings-nav-item,
-.settings-overview-item,
-.settings-section,
-.font-preview,
-.theme-btn,
-.font-size-control,
-.settings-checkbox,
-.settings-update-btn,
-.custom-theme-item,
-.custom-theme-import,
-.theme-package-item,
-.keybinding-row,
-.keybinding-recorder,
-.font-size-btn,
-.font-size-reset,
-.settings-update-item,
-.settings-author-inline,
-.settings-author-qr-card,
-.settings-author-qr-card img,
-.association-script-badge {
-  border-radius: 0;
-}
 
 .settings-close:focus-visible,
 .settings-action-btn:focus-visible,

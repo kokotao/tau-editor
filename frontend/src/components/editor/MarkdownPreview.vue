@@ -789,7 +789,7 @@ onBeforeUnmount(() => {
 
 .markdown-preview-content :deep(code) {
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--preview-inline-code-bg);
   color: var(--preview-inline-code-text);
 }
@@ -797,7 +797,7 @@ onBeforeUnmount(() => {
 .markdown-preview-content :deep(pre) {
   overflow: auto;
   padding: 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--preview-code-border);
   background: var(--preview-code-bg);
   color: var(--preview-code-text);
@@ -813,7 +813,7 @@ onBeforeUnmount(() => {
   margin: 1.1rem 0;
   padding: 0.85rem 1rem;
   border-left: 4px solid var(--preview-quote-border);
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: var(--preview-quote-bg);
   color: var(--preview-muted);
 }
@@ -840,6 +840,7 @@ onBeforeUnmount(() => {
   border-collapse: collapse;
   margin: 1rem 0;
   border: 1px solid var(--preview-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -861,7 +862,7 @@ onBeforeUnmount(() => {
 .markdown-preview-content :deep(.markdown-mermaid-error) {
   margin: 12px 0;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--preview-mermaid-error-border);
   background: var(--preview-mermaid-error-bg);
   color: var(--preview-mermaid-error-text);
@@ -877,7 +878,7 @@ onBeforeUnmount(() => {
   z-index: 60;
   min-width: 220px;
   padding: 6px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--preview-menu-border);
   background: var(--preview-menu-bg);
   box-shadow: var(--preview-menu-shadow);
@@ -896,7 +897,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 9px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   text-align: left;
   color: var(--preview-menu-text);
   background: transparent;

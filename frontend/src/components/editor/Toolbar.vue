@@ -473,7 +473,7 @@ onUnmounted(() => {
 }
 
 .toolbar-group-main .toolbar-btn {
-  border-radius: 0;
+  border-radius: var(--radius-sm);
 }
 
 .toolbar-group-history,
@@ -497,7 +497,7 @@ onUnmounted(() => {
   gap: 6px;
   height: 32px;
   padding: 0 10px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   color: var(--text-secondary, #cbd5e1);
@@ -524,7 +524,7 @@ onUnmounted(() => {
   max-height: 360px;
   overflow: auto;
   padding: 8px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: var(--surface-raised, #1b2436);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
@@ -535,7 +535,7 @@ onUnmounted(() => {
   width: 100%;
   height: 30px;
   padding: 0 10px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary, #f8fafc);
@@ -569,7 +569,7 @@ onUnmounted(() => {
 .toolbar-system-item {
   width: 100%;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   text-align: left;
@@ -607,7 +607,7 @@ onUnmounted(() => {
 
 .toolbar-workspace-label {
   padding: 2px 6px;
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(148, 163, 184, 0.18);
   max-width: 220px;
@@ -633,7 +633,7 @@ onUnmounted(() => {
   height: 34px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
@@ -663,7 +663,7 @@ onUnmounted(() => {
   height: 32px;
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--accent-amber, #ffd166) 42%, transparent);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-amber, #ffd166) 11%, transparent);
   color: var(--accent-amber, #ffd166);
   font-size: var(--font-size-ui-sm, 12px);

@@ -105,7 +105,7 @@ watch(
 .command-palette {
   width: min(720px, calc(100vw - 32px));
   overflow: hidden;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
   background: var(--panel, #101726);
   box-shadow: 0 30px 72px rgba(2, 6, 23, 0.46);
@@ -121,7 +121,7 @@ watch(
   height: 48px;
   padding: 0 14px;
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary, #ecf2ff);
   font: inherit;
@@ -148,7 +148,7 @@ watch(
   gap: 16px;
   padding: 12px 14px;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -183,7 +183,7 @@ watch(
 
 .palette-shortcut {
   padding: 4px 8px;
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary, #b6c2d9);
   font-size: var(--font-size-ui-xs, 11px);

@@ -335,7 +335,7 @@ const formatLastSaveTime = (date: Date) => {
 .author-trigger {
   height: 28px;
   padding: 0 10px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
   font-size: 11px;
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
@@ -377,7 +377,7 @@ const formatLastSaveTime = (date: Date) => {
 
 .author-modal {
   width: min(560px, 92vw);
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
   background: var(--panel, #101726);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
@@ -400,7 +400,7 @@ const formatLastSaveTime = (date: Date) => {
 .author-modal-close {
   width: 30px;
   height: 30px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary, #cbd5e1);
@@ -451,7 +451,7 @@ const formatLastSaveTime = (date: Date) => {
 .author-qr-card {
   margin: 0;
   padding: 8px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(255, 255, 255, 0.03);
 }
@@ -460,7 +460,7 @@ const formatLastSaveTime = (date: Date) => {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
 }
 
 .author-qr-card figcaption {
@@ -491,7 +491,7 @@ const formatLastSaveTime = (date: Date) => {
   gap: 8px;
   min-height: 26px;
   padding: 0 10px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }
@@ -502,7 +502,7 @@ const formatLastSaveTime = (date: Date) => {
   gap: 8px;
   min-height: 26px;
   padding: 0 9px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
 }

@@ -159,7 +159,7 @@ function formatTime(value: number | null | undefined): string {
   flex-direction: column;
   gap: 14px;
   padding: 20px;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
   background: var(--panel, #101726);
   color: var(--text, #e2e8f0);
@@ -181,7 +181,7 @@ function formatTime(value: number | null | undefined): string {
 
 .external-change-close {
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 4px 10px;
   background: transparent;
   color: inherit;
@@ -236,7 +236,7 @@ function formatTime(value: number | null | undefined): string {
 
 .external-change-actions button {
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 7px 14px;
   background: transparent;
   color: inherit;

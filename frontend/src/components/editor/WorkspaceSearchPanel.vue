@@ -122,7 +122,7 @@ const emitPreviewReplace = () => {
   overflow: auto;
   padding: 14px;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   background: var(--panel);
   color: var(--text-primary);
   box-shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
@@ -144,7 +144,7 @@ input {
   min-width: 0;
   padding: 10px;
   border: 1px solid var(--border-soft);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted);
   color: inherit;
 }
@@ -152,7 +152,7 @@ input {
 .workspace-search-panel button {
   padding: 8px 10px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--surface-hover);
   color: inherit;
   cursor: pointer;
@@ -172,6 +172,7 @@ input {
 .workspace-search-results button {
   display: grid;
   gap: 3px;
+  border-radius: var(--radius-sm);
   text-align: left;
 }
 
