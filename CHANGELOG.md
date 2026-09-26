@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2) | 2026-09-26 | 公开 Release     | 待发布回填 | 微圆角体系、macOS 签名修复、Developer ID 公证开关             |
+| [0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2) | 2026-09-26 | 公开 Release     | `3f8eb6f` | 微圆角体系、macOS 签名修复、Developer ID 公证开关             |
 | [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | `335f6ab` | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
 | [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
 | [0.3.3](https://github.com/kokotao/tau-editor/releases/tag/v0.3.3) | 2026-09-22 | 公开 Release     | `cdbca32` | 恢复库 v2、文件监听、三方冲突、大文件事务、搜索替换安全收口   |
@@ -73,7 +73,8 @@
 - `npx vitest run`：51 个文件、778 项测试通过。
 - `npm run build`：通过。
 - `npm run test:visual:baseline`：双视口基线生成成功，深色与浅色主题完成复核。
-- GitHub CI 与 Desktop Build 结果将在发布后回填。
+- GitHub CI run `36205839854`：四道门禁全部通过。
+- Desktop Build run `36209153008`：三平台构建、ad-hoc 签名校验和 Release 上传成功。
 
 ### 兼容性
 
