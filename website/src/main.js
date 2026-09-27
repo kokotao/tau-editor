@@ -41,7 +41,7 @@ document.querySelector('#app').innerHTML = `
     <section class="faq container reveal"><div><p class="eyebrow">QUESTIONS, ANSWERED</p><h2>开始之前，<br><em>先了解 Tau。</em></h2></div><div class="faq-list"><details open><summary>Tau 是免费的吗？<span>+</span></summary><p>是。Tau Editor 以 MIT License 开源，你可以自由使用、修改和分发。</p></details><details><summary>支持哪些平台？<span>+</span></summary><p>当前支持 macOS、Windows 与 Linux，安装包可在 GitHub Releases 获取。</p></details><details><summary>我可以参与贡献吗？<span>+</span></summary><p>当然。欢迎通过 GitHub 提交 Issue、建议或 Pull Request。</p></details></div></section>
 
     <section class="download container"><div><p class="eyebrow">READY WHEN YOU ARE</p><h2>从今天开始，<br><em>写得更自在。</em></h2></div><a class="button light" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">获取 Tau Editor <b>↗</b></a></section>
-    <footer class="footer container"><a class="brand" href="#top"><span class="mark">τ</span><span>Tau <b>Editor</b></span></a><span>© 2026 Tau Editor · Crafted for focus.</span><a href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">GitHub ↗</a></footer>
+    <footer class="footer container"><a class="brand" href="#top"><span class="mark">τ</span><span>Tau <b>Editor</b></span></a><span>作者：Albert_Luo · <a href="mailto:480199976@qq.com">480199976@qq.com</a></span><a href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">GitHub ↗</a></footer>
   </main>
 `
 
