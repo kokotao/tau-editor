@@ -2,6 +2,31 @@
 
 > 基于 Tauri 2 + Vue 3 的现代跨平台文本编辑器，支持 Windows / macOS / Linux
 
+## 🌐 官方官网
+
+Tau Editor 的宣传官网已从桌面编辑器应用中独立出来，专门用于产品介绍、功能展示和下载引导：
+
+**[访问 Tau Editor 官方官网](https://kokotao.github.io/tau-editor/)**
+
+官网源码位于 [`website/`](website/)；编辑器应用源码仍位于 [`frontend/`](frontend/)，两者独立构建、独立发布。
+
+### 本地预览官网
+
+```bash
+cd website
+npm install
+npm run dev
+```
+
+### 构建官网
+
+```bash
+cd website
+npm run build
+```
+
+推送 `website/` 目录变更后，GitHub Actions 会自动构建并部署 GitHub Pages。
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Release](https://img.shields.io/github/v/release/kokotao/tau-editor?display_name=tag&label=release)
 ![Tauri](https://img.shields.io/badge/Tauri-2.10-blue.svg)
