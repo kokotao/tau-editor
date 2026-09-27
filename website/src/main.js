@@ -6,6 +6,13 @@ const features = [
   ['03', 'Markdown 原生体验', '边写边预览，文档大纲、任务清单和链接状态都在一个工作区里。'],
 ]
 
+const capabilities = [
+  ['⌘', '命令面板', '常用操作、文件跳转和工作区命令，一个快捷键即可触达。'],
+  ['◐', 'Markdown 预览', '编辑与预览并排工作，文档结构一眼可读。'],
+  ['⌁', '工作区上下文', '文件树、标签页、任务与链接状态保持在同一条工作流。'],
+  ['◫', '主题与快捷键', '按自己的习惯调整编辑器，把工具变成你的工具。'],
+]
+
 document.querySelector('#app').innerHTML = `
   <main class="site-shell">
     <header class="nav container">
@@ -21,9 +28,17 @@ document.querySelector('#app').innerHTML = `
 
     <section class="manifesto container"><p>好的工具不会打断你。</p><p>它会在你需要时，<strong>安静地出现。</strong></p></section>
 
-    <section id="features" class="features container"><p class="eyebrow">THE TAU WAY</p><h2>少一点噪音，<br><em>多一点创造。</em></h2><div class="feature-grid"><div class="feature-list">${features.map(([num, title, body], index) => `<button class="feature ${index === 0 ? 'active' : ''}" data-index="${index}"><span>${num}</span><strong>${title}<small>${body}</small></strong><b>↗</b></button>`).join('')}</div><blockquote>“<br><span>编辑器应该消失在你的工作里，而不是成为工作本身。</span><small>— Tau design principle / 01</small></blockquote></div></section>
+    <section id="features" class="features container reveal"><p class="eyebrow">THE TAU WAY</p><h2>少一点噪音，<br><em>多一点创造。</em></h2><div class="feature-grid"><div class="feature-list">${features.map(([num, title, body], index) => `<button class="feature ${index === 0 ? 'active' : ''}" data-index="${index}"><span>${num}</span><strong>${title}<small>${body}</small></strong><b>↗</b></button>`).join('')}</div><blockquote>“<br><span>编辑器应该消失在你的工作里，而不是成为工作本身。</span><small>— Tau design principle / 01</small></blockquote></div></section>
 
-    <section id="preview" class="preview container"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>从一个纯文本文件，到一整个项目工作区。Tau 将你每天依赖的能力，收进一个轻盈而清晰的界面。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor 编辑器界面预览"><figcaption>Tau Editor · focused workspace</figcaption></figure></section>
+    <section class="capabilities container reveal"><div class="capability-intro"><p class="eyebrow">BUILT FOR THE FLOW</p><h2>每一个细节，<br><em>都在帮你前进。</em></h2><p>从第一次打开文件，到完成一次提交，Tau 把高频动作变成自然的节奏。</p></div><div class="capability-grid">${capabilities.map(([icon, title, body]) => `<article class="capability"><span>${icon}</span><h3>${title}</h3><p>${body}</p></article>`).join('')}</div></section>
+
+    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>从一个纯文本文件，到一整个项目工作区。Tau 将你每天依赖的能力，收进一个轻盈而清晰的界面。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor 编辑器界面预览"><figcaption>Tau Editor · focused workspace</figcaption></figure></section>
+
+    <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>把工作台，<br><em>带在手边。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/markdown-preview.png" alt="Markdown 分栏预览"><figcaption>Markdown preview</figcaption></figure><figure><img src="./assets/command-palette.png" alt="命令面板"><figcaption>Command palette</figcaption></figure><figure><img src="./assets/settings.png" alt="快捷键与扩展设置"><figcaption>Settings that fit</figcaption></figure></div></section>
+
+    <section class="platforms container reveal"><div><p class="eyebrow">ONE EDITOR, EVERY DESK</p><h2>在你选择的系统上，<br><em>保持同样顺手。</em></h2></div><div class="platform-list"><div><b>⌘</b><span>macOS<small>Apple Silicon</small></span></div><div><b>⊞</b><span>Windows<small>x64</small></span></div><div><b>◉</b><span>Linux<small>Deb · RPM · AppImage</small></span></div></div></section>
+
+    <section class="faq container reveal"><div><p class="eyebrow">QUESTIONS, ANSWERED</p><h2>开始之前，<br><em>先了解 Tau。</em></h2></div><div class="faq-list"><details open><summary>Tau 是免费的吗？<span>+</span></summary><p>是。Tau Editor 以 MIT License 开源，你可以自由使用、修改和分发。</p></details><details><summary>支持哪些平台？<span>+</span></summary><p>当前支持 macOS、Windows 与 Linux，安装包可在 GitHub Releases 获取。</p></details><details><summary>我可以参与贡献吗？<span>+</span></summary><p>当然。欢迎通过 GitHub 提交 Issue、建议或 Pull Request。</p></details></div></section>
 
     <section class="download container"><div><p class="eyebrow">READY WHEN YOU ARE</p><h2>从今天开始，<br><em>写得更自在。</em></h2></div><a class="button light" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">获取 Tau Editor <b>↗</b></a></section>
     <footer class="footer container"><a class="brand" href="#top"><span class="mark">τ</span><span>Tau <b>Editor</b></span></a><span>© 2026 Tau Editor · Crafted for focus.</span><a href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">GitHub ↗</a></footer>
@@ -34,3 +49,26 @@ document.querySelectorAll('.feature').forEach((button) => button.addEventListene
   document.querySelectorAll('.feature').forEach((item) => item.classList.remove('active'))
   button.classList.add('active')
 }))
+
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('is-visible')
+      revealObserver.unobserve(entry.target)
+    }
+  })
+}, { threshold: 0.14 })
+document.querySelectorAll('.reveal').forEach((element) => revealObserver.observe(element))
+
+const pointer = document.querySelector('.hero-art')
+pointer?.addEventListener('pointermove', (event) => {
+  const rect = pointer.getBoundingClientRect()
+  const x = (event.clientX - rect.left) / rect.width - 0.5
+  const y = (event.clientY - rect.top) / rect.height - 0.5
+  pointer.style.setProperty('--mx', `${x * 10}px`)
+  pointer.style.setProperty('--my', `${y * 8}px`)
+})
+pointer?.addEventListener('pointerleave', () => {
+  pointer.style.setProperty('--mx', '0px')
+  pointer.style.setProperty('--my', '0px')
+})
