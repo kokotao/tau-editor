@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.5.0](https://github.com/kokotao/tau-editor/releases/tag/v0.5.0) | 2026-09-28 | 待发布           | 待发布    | 主题模式关联、双模式主题包、色块选择、GitHub 主题市场 MVP    |
+| [0.5.0](https://github.com/kokotao/tau-editor/releases/tag/v0.5.0) | 2026-09-28 | 公开 Release     | `4cb82e0` | 主题模式关联、双模式主题包、色块选择、GitHub 主题市场 MVP    |
 | [0.4.3](https://github.com/kokotao/tau-editor/releases/tag/v0.4.3) | 2026-09-28 | 公开 Release     | `036e162` | Mermaid 多流程图、工作台布局修复、主题可读性与自定义配色      |
 | [0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2) | 2026-09-26 | 公开 Release     | `3f8eb6f` | 微圆角体系、macOS 签名修复、Developer ID 公证开关             |
 | [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | `335f6ab` | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
@@ -82,7 +82,8 @@
 
 - 现有 v1 主题包和旧 localStorage 配置会在首次加载时迁移；旧的背景/面板快速自定义值不再作为全局覆盖写入。
 - 主题市场首期使用 GitHub Raw catalog；网络不可用时使用最近一次缓存或本地主题。
-- 当前版本只提供市场客户端和仓库规范，官方主题仓库需单独创建后才能展示社区主题。
+- 官方主题市场仓库已创建为 [`kokotao/tau-editor-themes`](https://github.com/kokotao/tau-editor-themes)，支持 Fork + Pull Request 共享主题包和配色包。
+- GitHub Actions Desktop Build：[`36442928081`](https://github.com/kokotao/tau-editor/actions/runs/36442928081)，三平台构建成功并上传 6 个安装包。
 - macOS 产物沿用 ad-hoc 签名策略，首次打开可能需要系统手动放行。
 
 ### 回滚
