@@ -2791,43 +2791,16 @@ onUnmounted(() => {
 
 <style>
 :root {
-  color-scheme: dark;
   --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
   --panel-radius: 0;
   --panel-gap: 8px;
-  --app-bg: #0b1020;
-  --panel: #101726;
-  --panel-elevated: #151d2d;
-  --surface-muted: rgba(255, 255, 255, 0.04);
-  --surface-hover: rgba(255, 255, 255, 0.08);
-  --surface-raised: #192235;
-  --border-soft: rgba(148, 163, 184, 0.18);
-  --border-strong: rgba(148, 163, 184, 0.3);
-  --text-primary: #ecf2ff;
-  --text-secondary: #b6c2d9;
-  --text-muted: #75829e;
-  --accent-blue: #7cc7ff;
-  --accent-blue-strong: #4dabff;
-  --accent-amber: #ffd166;
-}
-
-:root.light {
-  color-scheme: light;
-  --app-bg: #eef3ff;
-  --panel: #ffffff;
-  --panel-elevated: #ffffff;
-  --surface-muted: rgba(15, 23, 42, 0.03);
-  --surface-hover: rgba(15, 23, 42, 0.06);
-  --surface-raised: #f8fbff;
-  --border-soft: rgba(51, 65, 85, 0.12);
-  --border-strong: rgba(51, 65, 85, 0.18);
-  --text-primary: #162033;
-  --text-secondary: #49566d;
-  --text-muted: #7b879d;
-  --accent-blue: #2563eb;
-  --accent-blue-strong: #1d4ed8;
-  --accent-amber: #b45309;
+  /* Compatibility aliases shared by the older component styles. */
+  --app-bg: var(--bg-app);
+  --panel: var(--panel-base);
+  --surface-raised: var(--panel-elevated);
+  --accent-blue: var(--accent-brand);
+  --accent-blue-strong: var(--accent-brand-strong);
 }
 
 * {
@@ -3295,7 +3268,7 @@ textarea {
   opacity: 0;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 799px) {
   .sidebar {
     width: 260px;
   }
@@ -3367,6 +3340,33 @@ textarea {
 
   .context-rail-shell:hover .context-rail-resizer,
   .context-rail-resizer.dragging {
+    background: var(--accent-blue);
+  }
+}
+
+/* Desktop workbench: keep panels edge-to-edge once there is enough room for
+   the persistent explorer. The intermediate 1024px layout previously kept
+   the mobile card gutters, leaving visible strips around the editor and
+   sidebar in normal desktop windows. */
+@media (min-width: 800px) {
+  .main-layout {
+    --panel-gap: 0px;
+    gap: 0;
+    padding: 0;
+  }
+
+  .sidebar-shell {
+    width: var(--sidebar-width);
+  }
+
+  .sidebar-resizer {
+    width: 1px;
+    margin: 0;
+  }
+
+  .sidebar-resizer:hover,
+  .sidebar-resizer.dragging {
+    opacity: 1;
     background: var(--accent-blue);
   }
 }

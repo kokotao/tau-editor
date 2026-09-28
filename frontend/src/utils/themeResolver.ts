@@ -7,6 +7,14 @@ export const THEME_SKINS = ['deep-ocean', 'forest-moss', 'solar-sand', 'graphite
 export type ThemeSkinId = (typeof THEME_SKINS)[number];
 export const DEFAULT_THEME_SKIN: ThemeSkinId = 'deep-ocean';
 
+/**
+ * 根据已解析的明暗模式返回可读性更好的 Monaco 默认主题。
+ * 自定义主题包/用户显式选择的 Monaco 主题仍由调用方优先保留。
+ */
+export function getRecommendedMonacoTheme(resolvedTheme: ResolvedTheme): MonacoThemeId {
+  return resolvedTheme === 'light' ? 'vs' : 'vs-dark';
+}
+
 export interface MonacoThemeOption {
   value: MonacoThemeId;
   label: string;
@@ -79,8 +87,7 @@ export function resolveThemeState(input: {
       : input.theme;
   const skin = normalizeThemeSkin(input.themeSkin);
 
-  const recommendedMonacoTheme: MonacoThemeId =
-    resolvedTheme === 'light' ? 'vs' : 'vs-dark';
+  const recommendedMonacoTheme = getRecommendedMonacoTheme(resolvedTheme);
 
   const uiLanguage: UiLanguage = input.uiLanguage ?? 'zh-CN';
 

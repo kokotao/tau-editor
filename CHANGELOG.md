@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-09-25
-> 当前稳定版本：`v0.4.2`
+> 最后更新：2026-09-28
+> 当前稳定版本：`v0.4.3`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.4.3](https://github.com/kokotao/tau-editor/releases/tag/v0.4.3) | 2026-09-28 | 公开 Release     | `9d30bba` | Mermaid 多流程图、工作台布局修复、主题可读性与自定义配色      |
 | [0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2) | 2026-09-26 | 公开 Release     | `3f8eb6f` | 微圆角体系、macOS 签名修复、Developer ID 公证开关             |
 | [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | `335f6ab` | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
 | [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
@@ -44,6 +45,40 @@
 - 当前官方安装渠道只有 [GitHub Releases](https://github.com/kokotao/tau-editor/releases)。Homebrew、Scoop、Chocolatey、AUR、Flatpak、Snap 等渠道未在本仓库发布记录中声明。
 
 ---
+
+## [0.4.3] - 2026-09-28
+
+### 发布定位
+
+围绕 Markdown 图表能力、桌面工作台布局和主题可读性进行体验修订。该版本扩展 Mermaid fenced code 的识别范围，使常见流程图和图表可以直接在 Markdown 预览中渲染；同时修复桌面端侧栏与编辑区之间的异常留白，并为浅色、深色及不同主题皮肤提供可读性优先的默认配色和自定义颜色保护。
+
+### 新增
+
+- Mermaid fenced code 支持更多图表类型：流程图、时序图、类图、状态图、实体关系图、甘特图、饼图、用户旅程、Git 图、思维导图、时间线、象限图、XY 图、Block、Sankey、Packet、Kanban、Architecture、Requirement、C4、ZenUML、Radar、Ishikawa、Treemap 和 Venn 等。
+- Mermaid 语言标识采用大小写不敏感白名单识别，兼容 `mermaid`、`flowchart`、`sequenceDiagram`、`classDiagram` 等常见围栏写法，同时避免误识别普通代码块。
+- 新增主题对比度回归测试，覆盖五种主题皮肤的浅色和深色模式。
+
+### 改进
+
+- 桌面端工作台在宽窗口下改为面板边缘对齐，移除侧栏右侧和编辑区周围的多余留白，缩窄分隔条并保留拖拽反馈。
+- 统一应用级语义色 token，基础样式不再被系统 `prefers-color-scheme` 强制覆盖，显式选择的主题模式优先。
+- 明暗模式切换时自动推荐匹配的 Monaco 编辑器基底主题：浅色使用 `vs`，深色使用 `vs-dark`；用户明确选择的 Monaco 主题仍优先保留。
+- 不同主题皮肤自动提供对应的背景、面板、正文和次级文字颜色；设置面板颜色选择器读取当前皮肤的实际默认值。
+- 自定义正文色和背景色进行对比度保护，低于可读阈值时回退到当前模式的安全颜色，避免浅色模式白字或深色模式黑字。
+
+### 验证
+
+- 前端单元测试：51 个测试文件、778 项通过。
+- 主题与设置相关定向测试：90 项通过。
+- Chromium E2E：17 项通过；主题对比度回归：1 项通过。
+- `pnpm typecheck`：通过。
+- `pnpm build`：通过。
+
+### 兼容性与已知限制
+
+- 不涉及数据模型、API、文件格式和用户数据迁移，升级和回滚均可沿用现有配置。
+- Mermaid 图表仍依赖 Mermaid 本身对具体语法的支持；语法错误会保留为可读的代码块，不阻塞 Markdown 预览。
+- 发布提交和安装包文件名以 GitHub Release `v0.4.3` 为准。
 
 ## [0.4.2] - 2026-09-26
 

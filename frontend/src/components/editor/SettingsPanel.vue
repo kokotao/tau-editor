@@ -634,6 +634,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type SelectOption } from 'naive-ui';
 import {
   CUSTOM_THEME_COLOR_FALLBACKS,
+  CUSTOM_THEME_COLOR_VAR_MAP,
   type MarkdownPreviewTheme,
   type CustomThemeColorKey,
   useSettingsStore,
@@ -944,8 +945,23 @@ const setThemeSkin = (value: string | number | null) => {
   settingsStore.updateSettings({ themeSkin: value as ThemeSkinId });
 };
 
-const getCustomThemeColorValue = (key: CustomThemeColorKey): string =>
-  settingsStore.customThemeColors[key] ?? CUSTOM_THEME_COLOR_FALLBACKS[key];
+const getCustomThemeColorValue = (key: CustomThemeColorKey): string => {
+  const custom = settingsStore.customThemeColors[key];
+  if (custom) {
+    return custom;
+  }
+
+  if (typeof document !== 'undefined' && typeof window !== 'undefined' && window.getComputedStyle) {
+    const themedDefault = window.getComputedStyle(document.documentElement)
+      .getPropertyValue(CUSTOM_THEME_COLOR_VAR_MAP[key])
+      .trim();
+    if (/^#[0-9a-f]{6}$/i.test(themedDefault)) {
+      return themedDefault;
+    }
+  }
+
+  return CUSTOM_THEME_COLOR_FALLBACKS[key];
+};
 
 const setCustomThemeColor = (key: CustomThemeColorKey, value: string) => {
   settingsStore.setCustomThemeColor(key, value);

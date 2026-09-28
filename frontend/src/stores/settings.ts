@@ -151,6 +151,70 @@ function normalizeCustomThemeColors(value: unknown): CustomThemeColors {
   return result;
 }
 
+function relativeLuminance(color: string): number {
+  const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16) / 255);
+  const linear = channels.map((channel) =>
+    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+  );
+  return 0.2126 * (linear[0] ?? 0) + 0.7152 * (linear[1] ?? 0) + 0.0722 * (linear[2] ?? 0);
+}
+
+function contrastRatio(first: string, second: string): number {
+  const firstLuminance = relativeLuminance(first);
+  const secondLuminance = relativeLuminance(second);
+  const lighter = Math.max(firstLuminance, secondLuminance);
+  const darker = Math.min(firstLuminance, secondLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * 防止快速调色把文字改成与背景相近的颜色。低对比度自定义值会回退到
+ * 当前 skin 的默认值，避免浅色模式白字/深色模式黑字导致不可读。
+ */
+function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
+  const style = root.style;
+  if (!style || typeof style.setProperty !== 'function' || typeof style.removeProperty !== 'function') {
+    return;
+  }
+
+  // 清除上一次模式/皮肤留下的内联变量，先让 CSS skin 默认值参与对比度计算。
+  CUSTOM_THEME_COLOR_KEYS.forEach((key) => style.removeProperty(CUSTOM_THEME_COLOR_VAR_MAP[key]));
+
+  const computed = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+    ? window.getComputedStyle(root)
+    : null;
+  const readCssColor = (name: string, fallback: string): string => {
+    const value = computed?.getPropertyValue(name).trim();
+    return normalizeHexColor(value) ?? fallback;
+  };
+  const isLightTheme = typeof root.classList.contains === 'function' && root.classList.contains('light');
+  const baseBackground = readCssColor('--bg-app', isLightTheme ? '#ffffff' : '#0b1020');
+  const panelBackground = readCssColor('--panel-base', baseBackground);
+  const candidateBackground = normalizeHexColor(colors.bgApp) ?? baseBackground;
+  const candidatePanel = normalizeHexColor(colors.panelBase) ?? panelBackground;
+  const candidatePrimary = normalizeHexColor(colors.textPrimary) ?? readCssColor('--text-primary', '#ecf2ff');
+  const candidateSecondary = normalizeHexColor(colors.textSecondary) ?? readCssColor('--text-secondary', '#b6c2d9');
+  const readablePrimary = contrastRatio(candidatePrimary, candidateBackground) >= 4.5;
+  const readableSecondary = contrastRatio(candidateSecondary, candidatePanel) >= 4.5;
+  const fallbackText = relativeLuminance(candidateBackground) > 0.48 ? '#162033' : '#ecf2ff';
+  const fallbackSecondary = relativeLuminance(candidatePanel) > 0.48 ? '#49566d' : '#b6c2d9';
+
+  CUSTOM_THEME_COLOR_KEYS.forEach((key) => {
+    const cssVar = CUSTOM_THEME_COLOR_VAR_MAP[key];
+    const color = normalizeHexColor(colors[key]);
+    const readable = key === 'textPrimary' ? readablePrimary : key === 'textSecondary' ? readableSecondary : true;
+    if (color && readable) {
+      style.setProperty(cssVar, color);
+    } else if (key === 'textPrimary' && colors.bgApp && !readablePrimary) {
+      style.setProperty(cssVar, fallbackText);
+    } else if (key === 'textSecondary' && (colors.panelBase || colors.bgApp) && !readableSecondary) {
+      style.setProperty(cssVar, fallbackSecondary);
+    } else {
+      style.removeProperty(cssVar);
+    }
+  });
+}
+
 function normalizeOpenTabsLimit(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -212,23 +276,6 @@ function normalizeStoredThemePackages(value: unknown): ThemePackage[] {
   });
 
   return packages;
-}
-
-function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
-  const style = root.style;
-  if (!style || typeof style.setProperty !== 'function' || typeof style.removeProperty !== 'function') {
-    return;
-  }
-
-  CUSTOM_THEME_COLOR_KEYS.forEach((key) => {
-    const cssVar = CUSTOM_THEME_COLOR_VAR_MAP[key];
-    const color = normalizeHexColor(colors[key]);
-    if (color) {
-      style.setProperty(cssVar, color);
-    } else {
-      style.removeProperty(cssVar);
-    }
-  });
 }
 
 function getPrefersDark(): boolean {
@@ -435,6 +482,13 @@ export const useSettingsStore = defineStore('settings', {
         this.activeThemePackageId = null;
       }
       this.keybindingOverrides = normalizeKeybindingOverrides(this.keybindingOverrides);
+
+      // 明暗模式切换时同步推荐 Monaco 基底，避免浅色 UI 仍沿用深色编辑器
+      // 或深色 UI 使用浅色编辑器造成文字与背景对比不足。显式传入 monacoTheme
+      // 时视为用户覆盖，保留其选择。
+      if (partial.theme !== undefined && partial.monacoTheme === undefined) {
+        this.monacoTheme = getThemeResolution(this).recommendedMonacoTheme;
+      }
       
       // 保存到 localStorage
       this.saveToStorage();

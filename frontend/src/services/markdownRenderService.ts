@@ -15,6 +15,77 @@ import { getHeadingSourceLines } from '@/services/markdownService';
 
 let mermaidInitialized = false;
 
+/**
+ * Mermaid 支持的常见 fenced code language 标识。
+ *
+ * Markdown 编辑器通常把围栏信息直接编码为 `language-${info}` class，
+ * 因此这里使用白名单而不是模糊匹配，避免把 `language-mermaid-js` 等普通
+ * 代码块误交给 Mermaid。
+ */
+export const MERMAID_FENCE_LANGUAGES = new Set([
+  'mermaid',
+  'graph',
+  'flowchart',
+  'flowchart-v2',
+  'flowchart-elk',
+  'sequence',
+  'sequenceDiagram',
+  'class',
+  'classDiagram',
+  'stateDiagram',
+  'stateDiagram-v2',
+  'state',
+  'er',
+  'erDiagram',
+  'gantt',
+  'pie',
+  'journey',
+  'gitGraph',
+  'mindmap',
+  'timeline',
+  'quadrantChart',
+  'xychart',
+  'xychart-beta',
+  'block-beta',
+  'block',
+  'sankey-beta',
+  'sankey',
+  'packet-beta',
+  'packet',
+  'kanban',
+  'architecture-beta',
+  'architecture',
+  'requirementDiagram',
+  'requirement',
+  'C4Context',
+  'c4',
+  'zenuml',
+  'radar',
+  'radar-beta',
+  'ishikawa',
+  'treemap',
+  'venn',
+  'venn-beta',
+]);
+
+const MERMAID_FENCE_LANGUAGES_NORMALIZED = new Set(
+  Array.from(MERMAID_FENCE_LANGUAGES, (language) => language.toLowerCase()),
+);
+
+const isMermaidCodeBlock = (code: Element): boolean => {
+  for (const className of Array.from(code.classList)) {
+    if (!className.startsWith('language-')) {
+      continue;
+    }
+
+    const language = className.slice('language-'.length);
+    if (MERMAID_FENCE_LANGUAGES_NORMALIZED.has(language.toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+};
+
 function ensureMermaid(theme: 'dark' | 'light') {
   mermaid.initialize({
     startOnLoad: false,
@@ -77,8 +148,8 @@ export async function renderMermaidDiagrams(
   theme: 'dark' | 'light',
 ): Promise<void> {
   const codeBlocks = Array.from(
-    container.querySelectorAll('pre code.language-mermaid'),
-  );
+    container.querySelectorAll('pre code'),
+  ).filter(isMermaidCodeBlock);
   if (codeBlocks.length === 0) {
     return;
   }

@@ -50,7 +50,7 @@ export const useEditorSession = defineStore('editor-session', () => {
 });
 `;
 
-const MARKDOWN_DOC = `# Tau Editor v0.4.2
+const MARKDOWN_DOC = `# Tau Editor v0.4.3
 
 跨平台文本编辑器，支持主题包、快捷键自定义与 Monaco Diff 对比。
 
