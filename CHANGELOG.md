@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.4.3](https://github.com/kokotao/tau-editor/releases/tag/v0.4.3) | 2026-09-28 | 公开 Release     | `9d30bba` | Mermaid 多流程图、工作台布局修复、主题可读性与自定义配色      |
+| [0.4.3](https://github.com/kokotao/tau-editor/releases/tag/v0.4.3) | 2026-09-28 | 公开 Release     | `036e162` | Mermaid 多流程图、工作台布局修复、主题可读性与自定义配色      |
 | [0.4.2](https://github.com/kokotao/tau-editor/releases/tag/v0.4.2) | 2026-09-26 | 公开 Release     | `3f8eb6f` | 微圆角体系、macOS 签名修复、Developer ID 公证开关             |
 | [0.4.1](https://github.com/kokotao/tau-editor/releases/tag/v0.4.1) | 2026-09-25 | 公开 Release     | `335f6ab` | 平角工作台、字体层级、标签交互、浮层收口、视觉基线            |
 | [0.4.0](https://github.com/kokotao/tau-editor/releases/tag/v0.4.0) | 2026-09-22 | 公开 Release     | `8128e02` | 主题包、快捷键自定义、Diff、多窗口、Provider、启动性能        |
@@ -73,12 +73,15 @@
 - Chromium E2E：17 项通过；主题对比度回归：1 项通过。
 - `pnpm typecheck`：通过。
 - `pnpm build`：通过。
+- GitHub Actions Desktop Build run `36420196332`：macOS、Windows、Linux 三平台构建和 Release 资产上传成功。
 
 ### 兼容性与已知限制
 
 - 不涉及数据模型、API、文件格式和用户数据迁移，升级和回滚均可沿用现有配置。
 - Mermaid 图表仍依赖 Mermaid 本身对具体语法的支持；语法错误会保留为可读的代码块，不阻塞 Markdown 预览。
 - 发布提交和安装包文件名以 GitHub Release `v0.4.3` 为准。
+- macOS 产物在未配置 Apple Developer ID Secrets 时使用 ad-hoc 签名，首次打开可能需要在系统设置中手动放行。
+- 全量跨浏览器 E2E 未作为发布门禁完成：Firefox、WebKit、Mobile Safari 环境启动失败，部分用例超时；本次发布以通过的 Chromium 关键路径为准。
 
 ## [0.4.2] - 2026-09-26
 
