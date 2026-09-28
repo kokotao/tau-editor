@@ -57,13 +57,13 @@ npm run build
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.4.3](https://github.com/kokotao/tau-editor/releases/tag/v0.4.3)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.5.0](https://github.com/kokotao/tau-editor/releases/tag/v0.5.0)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon) | `Tau.Editor_0.4.3_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
-| Windows (x64) | `Tau.Editor_0.4.3_x64-setup.exe` / `Tau.Editor_0.4.3_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.4.3_amd64.deb` / `Tau.Editor-0.4.3-1.x86_64.rpm` / `Tau.Editor_0.4.3_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS (Apple Silicon) | `Tau.Editor_0.5.0_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
+| Windows (x64) | `Tau.Editor_0.5.0_x64-setup.exe` / `Tau.Editor_0.5.0_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.5.0_amd64.deb` / `Tau.Editor-0.5.0-1.x86_64.rpm` / `Tau.Editor_0.5.0_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
 > **macOS 首次打开说明**：构建流程已在打包前对 `.app` 做 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`），
 > 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需
@@ -79,7 +79,13 @@ npm run build
 >
 > 完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
 
-## ✨ v0.4.3 更新亮点
+## ✨ v0.5.0 更新亮点
+
+- **主题模式关联**：浅色、深色和系统模式按主题风格分别保存配色，背景、面板和 Monaco 编辑器主题会同步切换
+- **浅深色色块**：设置页提供 5 组浅色和 5 组深色色块，点击色块即可切换对应主题风格
+- **自定义配色分桶**：移除应用背景、面板背景的快速自定义入口，文字、强调色和状态色按浅色/深色分别保存，并保留对比度保护
+- **主题 JSON v2**：支持双模式完整主题包和快速配色包，设置页提供可复制示例与字段说明
+- **GitHub 主题市场 MVP**：支持读取 catalog、搜索筛选、缓存、安装、应用和查看源码，并提供主题贡献仓库规范
 
 - **Mermaid 多流程图**：Markdown 围栏支持流程图、时序图、类图、状态图、ER 图、甘特图、思维导图、时间线、Sankey、Kanban、Architecture、C4 等常见 Mermaid 图表
 - **桌面布局修复**：宽窗口下侧栏与编辑区边缘对齐，移除截图所示的异常空白和过宽分隔区

@@ -22,16 +22,21 @@ import {
   parseThemePackage,
   resolveMonacoThemeId,
   serializeThemePackage,
+  themePackageToMonacoTheme,
   themePackageToCssColors,
   THEME_COLOR_KEYS,
   USER_THEME_ID_PREFIX,
   type MonacoBaseTheme,
   type ThemeColorKey,
+  type ThemeColors,
   type ThemePackage,
   type ThemePackageError,
 } from '@/utils/themePackage';
 
-export const CUSTOM_THEME_COLOR_KEYS = THEME_COLOR_KEYS;
+/** 可由用户微调的颜色；应用/面板背景始终由主题模式或完整主题包决定。 */
+export const CUSTOM_THEME_COLOR_KEYS = THEME_COLOR_KEYS.filter(
+  (key) => key !== 'bgApp' && key !== 'panelBase',
+) as Array<Exclude<ThemeColorKey, 'bgApp' | 'panelBase'>>;
 
 export const MARKDOWN_PREVIEW_THEMES = [
   'docs-clean',
@@ -40,8 +45,9 @@ export const MARKDOWN_PREVIEW_THEMES = [
   'graphite-night',
 ] as const;
 
-export type CustomThemeColorKey = ThemeColorKey;
+export type CustomThemeColorKey = Exclude<ThemeColorKey, 'bgApp' | 'panelBase'>;
 export type CustomThemeColors = Partial<Record<CustomThemeColorKey, string>>;
+export type CustomThemeOverrides = Partial<Record<'light' | 'dark', CustomThemeColors>>;
 
 /** Monaco 自定义主题定义，与 monaco.editor.IStandaloneThemeData 结构对齐。 */
 export interface MonacoThemeDefinition {
@@ -54,8 +60,6 @@ export type { ThemePackage };
 export type MarkdownPreviewTheme = (typeof MARKDOWN_PREVIEW_THEMES)[number];
 
 export const CUSTOM_THEME_COLOR_VAR_MAP: Record<CustomThemeColorKey, string> = {
-  bgApp: '--bg-app',
-  panelBase: '--panel-base',
   textPrimary: '--text-primary',
   textSecondary: '--text-secondary',
   accentBrand: '--accent-brand',
@@ -65,8 +69,6 @@ export const CUSTOM_THEME_COLOR_VAR_MAP: Record<CustomThemeColorKey, string> = {
 };
 
 export const CUSTOM_THEME_COLOR_FALLBACKS: Record<CustomThemeColorKey, string> = {
-  bgApp: '#0b1020',
-  panelBase: '#101726',
   textPrimary: '#ecf2ff',
   textSecondary: '#b6c2d9',
   accentBrand: '#7cc7ff',
@@ -81,6 +83,7 @@ export interface EditorSettings {
   themeSkin: ThemeSkinId;
   monacoTheme: 'vs' | 'vs-dark' | 'hc-black';
   customThemeColors: CustomThemeColors;
+  customThemeOverrides: CustomThemeOverrides;
   // v0.4.0：导入的主题包与当前生效主题包（null 表示使用内置皮肤）
   themePackages: ThemePackage[];
   activeThemePackageId: string | null;
@@ -151,6 +154,17 @@ function normalizeCustomThemeColors(value: unknown): CustomThemeColors {
   return result;
 }
 
+function normalizeCustomThemeOverrides(value: unknown): CustomThemeOverrides {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    light: normalizeCustomThemeColors(record.light),
+    dark: normalizeCustomThemeColors(record.dark),
+  };
+}
+
 function relativeLuminance(color: string): number {
   const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16) / 255);
   const linear = channels.map((channel) =>
@@ -190,10 +204,10 @@ function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
   const isLightTheme = typeof root.classList.contains === 'function' && root.classList.contains('light');
   const baseBackground = readCssColor('--bg-app', isLightTheme ? '#ffffff' : '#0b1020');
   const panelBackground = readCssColor('--panel-base', baseBackground);
-  const candidateBackground = normalizeHexColor(colors.bgApp) ?? baseBackground;
-  const candidatePanel = normalizeHexColor(colors.panelBase) ?? panelBackground;
   const candidatePrimary = normalizeHexColor(colors.textPrimary) ?? readCssColor('--text-primary', '#ecf2ff');
   const candidateSecondary = normalizeHexColor(colors.textSecondary) ?? readCssColor('--text-secondary', '#b6c2d9');
+  const candidateBackground = baseBackground;
+  const candidatePanel = panelBackground;
   const readablePrimary = contrastRatio(candidatePrimary, candidateBackground) >= 4.5;
   const readableSecondary = contrastRatio(candidateSecondary, candidatePanel) >= 4.5;
   const fallbackText = relativeLuminance(candidateBackground) > 0.48 ? '#162033' : '#ecf2ff';
@@ -205,9 +219,9 @@ function applyCustomThemeColors(root: HTMLElement, colors: CustomThemeColors) {
     const readable = key === 'textPrimary' ? readablePrimary : key === 'textSecondary' ? readableSecondary : true;
     if (color && readable) {
       style.setProperty(cssVar, color);
-    } else if (key === 'textPrimary' && colors.bgApp && !readablePrimary) {
+    } else if (key === 'textPrimary' && !readablePrimary) {
       style.setProperty(cssVar, fallbackText);
-    } else if (key === 'textSecondary' && (colors.panelBase || colors.bgApp) && !readableSecondary) {
+    } else if (key === 'textSecondary' && !readableSecondary) {
       style.setProperty(cssVar, fallbackSecondary);
     } else {
       style.removeProperty(cssVar);
@@ -302,6 +316,7 @@ export const useSettingsStore = defineStore('settings', {
     themeSkin: 'deep-ocean',
     monacoTheme: 'vs-dark',
     customThemeColors: {},
+    customThemeOverrides: {},
     themePackages: [],
     activeThemePackageId: null,
     keybindingOverrides: {},
@@ -361,10 +376,10 @@ export const useSettingsStore = defineStore('settings', {
         return null;
       }
       return {
-        base: active.monaco.base,
+        base: themePackageToMonacoTheme(active, getThemeResolution(this).resolvedTheme).base,
         inherit: true,
-        rules: active.monaco.rules,
-        colors: active.monaco.colors,
+        rules: themePackageToMonacoTheme(active, getThemeResolution(this).resolvedTheme).rules,
+        colors: themePackageToMonacoTheme(active, getThemeResolution(this).resolvedTheme).colors,
       };
     },
   },
@@ -402,7 +417,13 @@ export const useSettingsStore = defineStore('settings', {
         if (saved) {
           const parsed = JSON.parse(saved);
           this.$patch(parsed);
-          this.customThemeColors = normalizeCustomThemeColors(this.customThemeColors);
+          const migratedColors = normalizeCustomThemeColors(this.customThemeColors);
+          const loadedOverrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
+          if (Object.keys(migratedColors).length > 0 && Object.keys(loadedOverrides.light ?? {}).length === 0 && Object.keys(loadedOverrides.dark ?? {}).length === 0) {
+            loadedOverrides[getThemeResolution(this).resolvedTheme] = migratedColors;
+          }
+          this.customThemeOverrides = loadedOverrides;
+          this.customThemeColors = loadedOverrides[getThemeResolution(this).resolvedTheme] ?? {};
           this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
           this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
           this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
@@ -435,6 +456,7 @@ export const useSettingsStore = defineStore('settings', {
           themeSkin: this.themeSkin,
           monacoTheme: this.monacoTheme,
           customThemeColors: this.customThemeColors,
+          customThemeOverrides: this.customThemeOverrides,
           themePackages: this.themePackages,
           activeThemePackageId: this.activeThemePackageId,
           keybindingOverrides: this.keybindingOverrides,
@@ -501,6 +523,18 @@ export const useSettingsStore = defineStore('settings', {
       // 如果更新了主题，应用主题
       if (partial.customThemeColors !== undefined) {
         this.customThemeColors = normalizeCustomThemeColors(this.customThemeColors);
+        const mode = getThemeResolution(this).resolvedTheme;
+        this.customThemeOverrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
+        this.customThemeOverrides[mode] = this.customThemeColors;
+      }
+      if (partial.customThemeOverrides !== undefined) {
+        this.customThemeOverrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
+        this.customThemeColors = this.customThemeOverrides[getThemeResolution(this).resolvedTheme] ?? {};
+      }
+      if (partial.theme !== undefined) {
+        const resolvedMode = getThemeResolution(this).resolvedTheme;
+        this.customThemeOverrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
+        this.customThemeColors = this.customThemeOverrides[resolvedMode] ?? {};
       }
 
       if (
@@ -508,6 +542,7 @@ export const useSettingsStore = defineStore('settings', {
         partial.themeSkin !== undefined ||
         partial.monacoTheme !== undefined ||
         partial.customThemeColors !== undefined ||
+        partial.customThemeOverrides !== undefined ||
         partial.themePackages !== undefined ||
         partial.activeThemePackageId !== undefined
       ) {
@@ -541,12 +576,25 @@ export const useSettingsStore = defineStore('settings', {
 
       root.classList.remove('light', 'dark', 'theme-light', 'theme-dark', ...themeSkinClasses);
       root.classList.add(themeState.resolvedTheme, `theme-${themeState.resolvedTheme}`, `skin-${themeState.skin}`);
-      // 生效中的主题包优先于快速调色，保证 UI 与 Monaco 配色同源。
+      // 每次应用前都清理内联变量，避免旧模式的背景/面板颜色锁死后续 CSS skin 切换。
+      const allThemeVars = [
+        '--bg-app', '--panel-base', '--text-primary', '--text-secondary', '--accent-brand',
+        '--accent-brand-strong', '--state-success', '--state-danger',
+      ];
+      allThemeVars.forEach((name) => root.style.removeProperty(name));
+      // 完整主题包按当前 resolved mode 取分支；快速配色只覆盖文字/强调色。
       const activePackage = this.activeThemePackage;
-      applyCustomThemeColors(
-        root,
-        activePackage ? themePackageToCssColors(activePackage) : this.customThemeColors,
-      );
+      const overrides = this.customThemeOverrides[themeState.resolvedTheme] ?? this.customThemeColors;
+      if (activePackage) {
+        const packageColors = themePackageToCssColors(activePackage, themeState.resolvedTheme);
+        ['bgApp', 'panelBase'].forEach((key) => {
+          const color = packageColors[key as ThemeColorKey];
+          if (color) root.style.setProperty(key === 'bgApp' ? '--bg-app' : '--panel-base', color);
+        });
+        applyCustomThemeColors(root, { ...packageColors, ...overrides });
+      } else {
+        applyCustomThemeColors(root, overrides);
+      }
     },
 
     setCustomThemeColor(key: CustomThemeColorKey, color: string) {
@@ -561,7 +609,10 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     resetCustomThemeColors() {
-      this.updateSettings({ customThemeColors: {} });
+      const overrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
+      const mode = this.resolvedTheme;
+      delete overrides[mode];
+      this.updateSettings({ customThemeOverrides: overrides, customThemeColors: {} });
     },
 
     exportCustomThemeColors(): string {
@@ -576,7 +627,9 @@ export const useSettingsStore = defineStore('settings', {
             ? (parsed as Record<string, unknown>).customThemeColors
             : parsed;
         const normalized = normalizeCustomThemeColors(candidate);
-        this.updateSettings({ customThemeColors: normalized });
+        const overrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
+        overrides[this.resolvedTheme] = normalized;
+        this.updateSettings({ customThemeOverrides: overrides, customThemeColors: normalized });
         return {
           success: true,
           applied: Object.keys(normalized).length,
@@ -606,9 +659,8 @@ export const useSettingsStore = defineStore('settings', {
 
       this.activeThemePackageId = target ? target.id : null;
       if (target) {
-        // 主题包自带明暗模式与 Monaco 基底，激活时一并同步。
-        this.theme = target.mode;
-        this.monacoTheme = target.monaco.base;
+        const mode = target.defaultMode ?? target.mode;
+        this.monacoTheme = themePackageToMonacoTheme(target, mode).base;
       }
       this.saveToStorage();
       this.applyTheme();
@@ -677,9 +729,11 @@ export const useSettingsStore = defineStore('settings', {
         : this.activeThemePackage;
 
       if (!target) {
-        const colors: CustomThemeColors = {
+        const colors: ThemeColors = {
+          bgApp: this.resolvedTheme === 'light' ? '#eef3ff' : '#0b1020',
+          panelBase: this.resolvedTheme === 'light' ? '#ffffff' : '#101726',
           ...CUSTOM_THEME_COLOR_FALLBACKS,
-          ...normalizeCustomThemeColors(this.customThemeColors),
+          ...normalizeCustomThemeColors(this.customThemeOverrides[this.resolvedTheme] ?? this.customThemeColors),
         };
         const synthesized = createThemePackageFromColors({
           id: `skin-${this.themeSkin}`.replace(/[^a-z0-9-]/g, '-'),

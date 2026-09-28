@@ -125,6 +125,14 @@ interface SettingsPanelText {
   themeLight: string;
   themeDark: string;
   themeSystem: string;
+  themeCurrent: string;
+  themeStyleMore: string;
+  themeJsonExamples: string;
+  themeJsonExamplesDesc: string;
+  themeJsonThemeExample: string;
+  themeJsonPaletteExample: string;
+  themeJsonCopy: string;
+  themeJsonCopied: string;
   customTheme: string;
   customThemeDesc: string;
   customThemeImportPlaceholder: string;
@@ -572,6 +580,14 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     themeLight: '浅色',
     themeDark: '深色',
     themeSystem: '系统',
+    themeCurrent: '当前生效',
+    themeStyleMore: '更多风格',
+    themeJsonExamples: 'JSON 配置示例',
+    themeJsonExamplesDesc: '完整主题包可配置浅色与深色背景；快速配色包只调整文字、强调色和状态色，不会锁死明暗模式。',
+    themeJsonThemeExample: '完整主题包示例',
+    themeJsonPaletteExample: '快速配色包示例',
+    themeJsonCopy: '复制示例',
+    themeJsonCopied: 'JSON 示例已复制。',
     customTheme: '自定义配色',
     customThemeDesc: '在当前主题风格基础上继续微调关键颜色，可导入/导出复用。',
     customThemeImportPlaceholder: '粘贴 JSON（支持 { "customThemeColors": { ... } } 或直接颜色对象）',
@@ -706,6 +722,14 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     themeLight: 'Light',
     themeDark: 'Dark',
     themeSystem: 'System',
+    themeCurrent: 'Current',
+    themeStyleMore: 'More styles',
+    themeJsonExamples: 'JSON examples',
+    themeJsonExamplesDesc: 'A full theme package configures both light and dark backgrounds. A palette package only changes text, accent, and state colors.',
+    themeJsonThemeExample: 'Full theme package',
+    themeJsonPaletteExample: 'Quick palette package',
+    themeJsonCopy: 'Copy example',
+    themeJsonCopied: 'JSON example copied.',
     customTheme: 'Custom Palette',
     customThemeDesc: 'Fine-tune key colors on top of the selected palette. Supports JSON import/export.',
     customThemeImportPlaceholder: 'Paste JSON ({ "customThemeColors": { ... } } or plain color map)',

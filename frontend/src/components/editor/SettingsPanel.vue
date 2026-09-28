@@ -81,22 +81,46 @@
             <div class="settings-item">
               <label class="settings-label">{{ copy.themeMode }}</label>
               <div class="theme-selector">
-                <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
-                <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
-                <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
+                <button class="theme-btn" data-testid="theme-btn-light" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
+                <button class="theme-btn" data-testid="theme-btn-dark" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
+                <button class="theme-btn" data-testid="theme-btn-system" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
               </div>
+              <p class="settings-item-hint" data-testid="theme-resolved-mode">{{ resolvedThemeHint }}</p>
             </div>
 
             <div class="settings-item">
               <label class="settings-label">{{ copy.themeStyle }}</label>
-              <n-select
-                class="settings-nselect"
-                data-testid="select-theme-skin"
-                :value="settingsStore.themeSkin"
-                :options="themeSkinOptions"
-                :consistent-menu-width="false"
-                @update:value="setThemeSkin"
-              />
+              <div class="theme-swatch-grid" data-testid="theme-swatch-grid">
+                <button
+                  v-for="swatch in visibleThemeSwatches"
+                  :key="`${swatch.mode}-${swatch.skin}`"
+                  class="theme-swatch"
+                  :class="{ active: isThemeSwatchActive(swatch) }"
+                  :data-testid="`theme-swatch-${swatch.mode}-${swatch.skin}`"
+                  :title="swatch.label"
+                  @click="selectThemeSwatch(swatch)"
+                >
+                  <span class="theme-swatch-colors" aria-hidden="true">
+                    <i :style="{ backgroundColor: swatch.bg }"></i>
+                    <i :style="{ backgroundColor: swatch.accent }"></i>
+                  </span>
+                  <span class="theme-swatch-copy">
+                    <strong>{{ swatch.label }}</strong>
+                    <small>{{ swatch.mode === 'light' ? copy.themeLight : copy.themeDark }}</small>
+                  </span>
+                </button>
+              </div>
+              <div class="theme-style-fallback">
+                <span>{{ copy.themeStyleMore }}</span>
+                <n-select
+                  class="settings-nselect"
+                  data-testid="select-theme-skin"
+                  :value="settingsStore.themeSkin"
+                  :options="themeSkinOptions"
+                  :consistent-menu-width="false"
+                  @update:value="setThemeSkin"
+                />
+              </div>
             </div>
 
             <div class="settings-item">
@@ -155,6 +179,21 @@
                 :placeholder="copy.customThemeImportPlaceholder"
               />
               <p v-if="customThemeStatusText" class="custom-theme-status">{{ customThemeStatusText }}</p>
+            </div>
+
+            <div class="settings-item theme-json-examples" data-testid="theme-json-examples">
+              <label class="settings-label">{{ copy.themeJsonExamples }}</label>
+              <p class="custom-theme-desc">{{ copy.themeJsonExamplesDesc }}</p>
+              <details class="theme-json-example">
+                <summary>{{ copy.themeJsonThemeExample }}</summary>
+                <pre><code>{{ themeJsonExample }}</code></pre>
+                <button class="settings-action-btn" data-testid="copy-theme-json-example" @click="copyThemeExample(themeJsonExample)">{{ copy.themeJsonCopy }}</button>
+              </details>
+              <details class="theme-json-example">
+                <summary>{{ copy.themeJsonPaletteExample }}</summary>
+                <pre><code>{{ paletteJsonExample }}</code></pre>
+                <button class="settings-action-btn" data-testid="copy-palette-json-example" @click="copyThemeExample(paletteJsonExample)">{{ copy.themeJsonCopy }}</button>
+              </details>
             </div>
 
             <div class="settings-item theme-package-settings" data-testid="theme-package-settings">
@@ -225,6 +264,15 @@
               <p v-if="themePackageStatusText" class="custom-theme-status" data-testid="theme-package-status">
                 {{ themePackageStatusText }}
               </p>
+            </div>
+
+            <div class="settings-item theme-marketplace-settings" data-testid="theme-marketplace-settings">
+              <ThemeMarketplacePanel
+                :installed-ids="installedMarketplaceIds"
+                :active-id="activeMarketplaceId"
+                @install="handleMarketplaceInstall"
+                @apply="handleMarketplaceApply"
+              />
             </div>
           </div>
 
@@ -580,9 +628,9 @@
           <div class="settings-item">
             <label class="settings-label">{{ copy.themeMode }}</label>
             <div class="theme-selector">
-              <button class="theme-btn" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
-              <button class="theme-btn" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
-              <button class="theme-btn" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
+              <button class="theme-btn" data-testid="drawer-theme-btn-light" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
+              <button class="theme-btn" data-testid="drawer-theme-btn-dark" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
+              <button class="theme-btn" data-testid="drawer-theme-btn-system" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
             </div>
           </div>
 
@@ -669,6 +717,8 @@ import {
 } from '@/services/keybindingService';
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
+import ThemeMarketplacePanel from './ThemeMarketplacePanel.vue';
+import type { ThemeMarketplacePackage } from '@/services/themeMarketplaceService';
 
 export type SettingsCategory = 'general' | 'editor' | 'fileAssociations' | 'updates' | 'about';
 type SettingsMode = 'workspace' | 'drawer';
@@ -809,8 +859,6 @@ const themeSkinOptions = computed<SelectOption[]>(() =>
   })),
 );
 const customThemeColorFields = computed<Array<{ key: CustomThemeColorKey; label: string }>>(() => [
-  { key: 'bgApp', label: copy.value.customColorBgApp },
-  { key: 'panelBase', label: copy.value.customColorPanelBase },
   { key: 'textPrimary', label: copy.value.customColorTextPrimary },
   { key: 'textSecondary', label: copy.value.customColorTextSecondary },
   { key: 'accentBrand', label: copy.value.customColorAccentBrand },
@@ -818,6 +866,69 @@ const customThemeColorFields = computed<Array<{ key: CustomThemeColorKey; label:
   { key: 'stateSuccess', label: copy.value.customColorSuccess },
   { key: 'stateDanger', label: copy.value.customColorDanger },
 ]);
+
+type ThemeSwatch = {
+  mode: 'light' | 'dark';
+  skin: ThemeSkinId;
+  label: string;
+  bg: string;
+  panel: string;
+  accent: string;
+};
+
+const THEME_SWATCHES: ThemeSwatch[] = [
+  { mode: 'light', skin: 'deep-ocean', label: '雾蓝白', bg: '#eef3ff', panel: '#ffffff', accent: '#2563eb' },
+  { mode: 'light', skin: 'forest-moss', label: '森林薄荷', bg: '#edf6f0', panel: '#ffffff', accent: '#1f9d64' },
+  { mode: 'light', skin: 'solar-sand', label: '暖日象牙', bg: '#fff7eb', panel: '#ffffff', accent: '#c96b0c' },
+  { mode: 'light', skin: 'rose-dawn', label: '玫瑰晨雾', bg: '#fff1f5', panel: '#ffffff', accent: '#d94678' },
+  { mode: 'light', skin: 'graphite-ink', label: '石墨银灰', bg: '#f3f5f9', panel: '#ffffff', accent: '#4b5f83' },
+  { mode: 'dark', skin: 'deep-ocean', label: '深海蓝调', bg: '#0b1020', panel: '#101726', accent: '#7cc7ff' },
+  { mode: 'dark', skin: 'forest-moss', label: '森林苔原', bg: '#0d1511', panel: '#14221a', accent: '#4fd28e' },
+  { mode: 'dark', skin: 'solar-sand', label: '暖日砂岩', bg: '#16110a', panel: '#21180d', accent: '#f59e0b' },
+  { mode: 'dark', skin: 'graphite-ink', label: '石墨墨影', bg: '#101216', panel: '#181b22', accent: '#8ea0bf' },
+  { mode: 'dark', skin: 'rose-dawn', label: '玫瑰夜色', bg: '#171018', panel: '#241620', accent: '#ff8ab3' },
+];
+
+// 同时展示两组色块，用户可以直接预览并切换到任意明暗主题；当前生效模式通过 active 状态标识。
+const visibleThemeSwatches = computed(() => THEME_SWATCHES);
+const resolvedThemeHint = computed(() => {
+  const modeLabel = settingsStore.resolvedTheme === 'light' ? copy.value.themeLight : copy.value.themeDark;
+  return settingsStore.theme === 'system'
+    ? `${copy.value.themeSystem}（${copy.value.themeCurrent}：${modeLabel}）`
+    : `${copy.value.themeCurrent}：${modeLabel}`;
+});
+
+const installedMarketplaceIds = computed(() => settingsStore.themePackages.map((theme) =>
+  theme.id.startsWith('user:') ? theme.id.slice('user:'.length) : theme.id,
+));
+const activeMarketplaceId = computed(() => {
+  const active = settingsStore.activeThemePackageId;
+  return active?.startsWith('user:') ? active.slice('user:'.length) : active;
+});
+
+const themeJsonExample = JSON.stringify({
+  schemaVersion: 2,
+  type: 'theme',
+  id: 'ocean-mist',
+  name: 'Ocean Mist',
+  version: '1.0.0',
+  defaultMode: 'light',
+  modes: {
+    light: { colors: { bgApp: '#eef3ff', panelBase: '#ffffff', textPrimary: '#162033', textSecondary: '#49566d', accentBrand: '#2563eb' } },
+    dark: { colors: { bgApp: '#0b1020', panelBase: '#101726', textPrimary: '#ecf2ff', textSecondary: '#b6c2d9', accentBrand: '#7cc7ff' } },
+  },
+}, null, 2);
+const paletteJsonExample = JSON.stringify({
+  schemaVersion: 2,
+  type: 'palette',
+  id: 'mint-contrast',
+  name: 'Mint Contrast',
+  version: '1.0.0',
+  modes: {
+    light: { textPrimary: '#10261b', textSecondary: '#365c47', accentBrand: '#16865a', accentBrandStrong: '#0f6945', stateSuccess: '#15803d', stateDanger: '#b91c1c' },
+    dark: { textPrimary: '#edfff4', textSecondary: '#b9e3c8', accentBrand: '#55d991', accentBrandStrong: '#29b86f', stateSuccess: '#4ade80', stateDanger: '#fb7185' },
+  },
+}, null, 2);
 
 const fontFamilyOptions = computed<SelectOption[]>(() => [
   { label: 'JetBrains Mono Variable', value: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace" },
@@ -943,6 +1054,24 @@ const setTheme = (theme: 'light' | 'dark' | 'system') => {
 const setThemeSkin = (value: string | number | null) => {
   if (typeof value !== 'string') return;
   settingsStore.updateSettings({ themeSkin: value as ThemeSkinId });
+};
+
+const isThemeSwatchActive = (swatch: ThemeSwatch) =>
+  swatch.mode === settingsStore.resolvedTheme && swatch.skin === settingsStore.themeSkin;
+
+const selectThemeSwatch = (swatch: ThemeSwatch) => {
+  // 色块同时表达模式与风格，避免用户选中浅色配色后仍停留在深色背景。
+  settingsStore.updateSettings({ theme: swatch.mode, themeSkin: swatch.skin });
+};
+
+const copyThemeExample = async (payload: string) => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(payload);
+    themePackageStatusText.value = copy.value.themeJsonCopied;
+    return;
+  }
+  themePackageImportText.value = payload;
+  themePackageStatusText.value = copy.value.themeJsonCopied;
 };
 
 const getCustomThemeColorValue = (key: CustomThemeColorKey): string => {
@@ -1131,6 +1260,17 @@ const handleApplyThemePackage = (packageId: string | null) => {
   themePackageStatusText.value = applied
     ? copy.value.themePackageImported(applied.name)
     : copy.value.themePackageReverted;
+};
+
+const handleMarketplaceInstall = (payload: { item: { id: string; name: string }; package: ThemeMarketplacePackage }) => {
+  const result = settingsStore.importThemePackage(JSON.stringify(payload.package));
+  themePackageStatusText.value = result.success && result.theme
+    ? copy.value.themePackageImported(result.theme.name)
+    : copy.value.themePackageImportFailed(result.error?.message ?? payload.item.name);
+};
+
+const handleMarketplaceApply = (packageId: string) => {
+  handleApplyThemePackage(packageId.startsWith('user:') ? packageId : `user:${packageId}`);
 };
 
 const handleDeleteThemePackage = (packageId: string) => {
@@ -1698,6 +1838,80 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.theme-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #f8fafc);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease, transform 180ms ease, background-color 180ms ease;
+}
+
+.theme-swatch:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
+}
+
+.theme-swatch.active {
+  border-color: var(--accent-brand, #38bdf8);
+  box-shadow: inset 0 0 0 1px var(--accent-brand, #38bdf8);
+}
+
+.theme-swatch-colors {
+  display: flex;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: 8px;
+}
+
+.theme-swatch-colors i {
+  flex: 1;
+}
+
+.theme-swatch-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.theme-swatch-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.theme-swatch-copy small {
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+}
+
+.theme-style-fallback {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
 .custom-theme-settings {
   border-top: 1px dashed var(--border-soft, rgba(148, 163, 184, 0.18));
   padding-top: 12px;
@@ -1785,6 +1999,42 @@ onMounted(async () => {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--text-secondary, #cbd5e1);
+}
+
+.theme-json-examples {
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-soft, rgba(148, 163, 184, 0.18));
+  padding-top: 12px;
+}
+
+.theme-json-example {
+  margin-top: 8px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.theme-json-example summary {
+  padding: 9px 10px;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.theme-json-example pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  padding: 10px;
+  color: var(--text-primary, #f8fafc);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.theme-json-example .settings-action-btn {
+  margin: 0 10px 10px;
 }
 
 .theme-package-settings {

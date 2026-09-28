@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "type": "palette",
+  "id": "mint-contrast",
+  "name": "Mint Contrast",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "license": "MIT",
+  "modes": {
+    "light": {
+      "textPrimary": "#10261b",
+      "textSecondary": "#365c47",
+      "accentBrand": "#16865a",
+      "accentBrandStrong": "#0f6945",
+      "stateSuccess": "#15803d",
+      "stateDanger": "#b91c1c"
+    },
+    "dark": {
+      "textPrimary": "#edfff4",
+      "textSecondary": "#b9e3c8",
+      "accentBrand": "#55d991",
+      "accentBrandStrong": "#29b86f",
+      "stateSuccess": "#4ade80",
+      "stateDanger": "#fb7185"
+    }
+  }
+}

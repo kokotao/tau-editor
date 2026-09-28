@@ -76,8 +76,7 @@ describe('settings store theme packages', () => {
     expect(store.themePackages[0]?.id).toBe(`${USER_THEME_ID_PREFIX}midnight-ink`);
     expect(store.activeThemePackageId).toBe(`${USER_THEME_ID_PREFIX}midnight-ink`);
     expect(store.activeMonacoThemeId).toBe('tau-user-midnight-ink');
-    expect(store.activeMonacoThemeDefinition?.base).toBe('vs-dark');
-    expect(store.theme).toBe('dark');
+    expect(store.theme).toBe('system');
   });
 
   it('keeps the current theme when import fails', () => {
@@ -125,11 +124,11 @@ describe('settings store theme packages', () => {
     expect(payload).toBeTruthy();
     const parsed = JSON.parse(payload as string) as {
       id: string;
-      colors: Record<string, string>;
+      modes: Record<string, { colors: Record<string, string> }>;
     };
     expect(parsed.id).toContain('skin-');
-    expect(parsed.colors.bgApp).toBeTruthy();
-    expect(parsed.colors.textPrimary).toBeTruthy();
+    expect(parsed.modes.dark.colors.bgApp).toBeTruthy();
+    expect(parsed.modes.dark.colors.textPrimary).toBeTruthy();
   });
 
   it('removes the active package and falls back to the built-in theme', () => {

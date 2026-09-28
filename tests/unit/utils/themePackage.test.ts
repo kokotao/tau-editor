@@ -154,4 +154,23 @@ describe('themePackage', () => {
     expect(normalizeThemePackageRecord(null).ok).toBe(false);
     expect(normalizeThemePackageRecord({ id: 'ok', name: 'Ok', colors: { bgApp: '#000', textPrimary: '#fff' } }).ok).toBe(true);
   });
+
+  it('normalizes v2 light/dark branches and supports palette packages', () => {
+    const result = parseThemePackage(JSON.stringify({
+      schemaVersion: 2,
+      type: 'palette',
+      id: 'mint-contrast',
+      name: 'Mint Contrast',
+      defaultMode: 'light',
+      modes: {
+        light: { textPrimary: '#10261b', accentBrand: '#16865a' },
+        dark: { textPrimary: '#edfff4', accentBrand: '#55d991' },
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.theme.type).toBe('palette');
+    expect(result.theme.defaultMode).toBe('light');
+    expect(result.theme.modes?.dark?.colors.textPrimary).toBe('#edfff4');
+  });
 });

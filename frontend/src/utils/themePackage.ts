@@ -21,6 +21,11 @@ export type ThemeColors = Partial<Record<ThemeColorKey, string>>;
 export type ThemeMode = 'light' | 'dark';
 export type MonacoBaseTheme = 'vs' | 'vs-dark' | 'hc-black';
 
+export interface ThemePackageModeDefinition {
+  colors: ThemeColors;
+  monaco?: ThemePackageMonacoTheme;
+}
+
 export interface MonacoThemeRule {
   token: string;
   foreground?: string;
@@ -37,6 +42,11 @@ export interface ThemePackage {
   id: string;
   name: string;
   version: string;
+  schemaVersion?: 2;
+  type?: 'theme' | 'palette';
+  defaultMode?: ThemeMode;
+  modes?: Partial<Record<ThemeMode, ThemePackageModeDefinition>>;
+  /** v1 compatibility fields; they mirror the default/legacy mode branch. */
   mode: ThemeMode;
   colors: ThemeColors;
   monaco: ThemePackageMonacoTheme;
@@ -321,8 +331,48 @@ export function normalizeThemePackageRecord(parsed: unknown): ThemePackageParseR
     };
   }
 
-  const colors = normalizeThemeColors(record.colors);
-  const missing = missingRequiredThemeColors(colors);
+  const normalizeMonaco = (value: unknown): ThemePackageMonacoTheme => {
+    const monacoRecord =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+    return {
+      base: normalizeMonacoBase(monacoRecord.base),
+      rules: normalizeMonacoRules(monacoRecord.rules),
+      colors: normalizeMonacoColors(monacoRecord.colors),
+    };
+  };
+
+  const type = record.type === 'palette' ? 'palette' : 'theme';
+  const defaultMode = normalizeThemeMode(record.defaultMode ?? record.mode);
+  const rawModes = record.modes && typeof record.modes === 'object' && !Array.isArray(record.modes)
+    ? (record.modes as Record<string, unknown>)
+    : null;
+
+  const modes: Partial<Record<ThemeMode, ThemePackageModeDefinition>> = {};
+  (['light', 'dark'] as const).forEach((mode) => {
+    const raw = rawModes?.[mode];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return;
+    }
+    const branch = raw as Record<string, unknown>;
+    modes[mode] = {
+      colors: normalizeThemeColors(branch.colors ?? branch),
+      monaco: normalizeMonaco(branch.monaco),
+    };
+  });
+
+  const legacyColors = normalizeThemeColors(record.colors);
+  const legacyMonaco = normalizeMonaco(record.monaco);
+  if (!modes[defaultMode] && Object.keys(legacyColors).length > 0) {
+    modes[defaultMode] = { colors: legacyColors, monaco: legacyMonaco };
+  }
+
+  const defaultBranch = modes[defaultMode];
+  const colors = defaultBranch?.colors ?? legacyColors;
+  const monaco = defaultBranch?.monaco ?? legacyMonaco;
+  const requiredKeys = type === 'palette' ? (['textPrimary'] as ThemeColorKey[]) : REQUIRED_THEME_COLOR_KEYS;
+  const missing = requiredKeys.filter((key) => !colors[key]);
   if (missing.length > 0) {
     return {
       ok: false,
@@ -333,40 +383,58 @@ export function normalizeThemePackageRecord(parsed: unknown): ThemePackageParseR
     };
   }
 
-  const monacoRecord =
-    record.monaco && typeof record.monaco === 'object' && !Array.isArray(record.monaco)
-      ? (record.monaco as Record<string, unknown>)
-      : {};
-
   return {
     ok: true,
     theme: {
       id,
       name,
       version: normalizeThemeVersion(record.version),
-      mode: normalizeThemeMode(record.mode),
+      schemaVersion: 2,
+      type,
+      defaultMode,
+      modes: Object.keys(modes).length > 0 ? modes : undefined,
+      mode: defaultMode,
       colors,
-      monaco: {
-        base: normalizeMonacoBase(monacoRecord.base),
-        rules: normalizeMonacoRules(monacoRecord.rules),
-        colors: normalizeMonacoColors(monacoRecord.colors),
-      },
+      monaco,
     },
   };
 }
 
 export function serializeThemePackage(theme: ThemePackage): string {
-  const payload: ThemePackage = {
+  const payload: Record<string, unknown> = {
     id: theme.id,
     name: theme.name,
     version: theme.version,
-    mode: theme.mode,
+    schemaVersion: 2,
+    type: theme.type ?? 'theme',
+    defaultMode: theme.defaultMode ?? theme.mode,
+    // Keep v1 aliases so older clients can still import the exported package.
+    mode: theme.defaultMode ?? theme.mode,
     colors: { ...theme.colors },
     monaco: {
       base: theme.monaco.base,
       rules: theme.monaco.rules.map((rule) => ({ ...rule })),
       colors: { ...theme.monaco.colors },
     },
+    modes: theme.modes
+      ? Object.fromEntries(Object.entries(theme.modes).map(([mode, branch]) => [mode, {
+        colors: { ...(branch?.colors ?? {}) },
+        monaco: branch?.monaco ? {
+          base: branch.monaco.base,
+          rules: branch.monaco.rules.map((rule) => ({ ...rule })),
+          colors: { ...branch.monaco.colors },
+        } : undefined,
+      }]))
+      : {
+        [theme.mode]: {
+          colors: { ...theme.colors },
+          monaco: {
+            base: theme.monaco.base,
+            rules: theme.monaco.rules.map((rule) => ({ ...rule })),
+            colors: { ...theme.monaco.colors },
+          },
+        },
+      },
   };
 
   return `${JSON.stringify(payload, null, 2)}\n`;
@@ -375,8 +443,20 @@ export function serializeThemePackage(theme: ThemePackage): string {
 /**
  * 把主题包颜色映射为 CSS 变量色值，缺省键返回 undefined 由调用方回退到皮肤默认色。
  */
-export function themePackageToCssColors(theme: ThemePackage): ThemeColors {
+export function themePackageToCssColors(theme: ThemePackage, mode: ThemeMode = theme.defaultMode ?? theme.mode): ThemeColors {
+  const branch = theme.modes?.[mode] ?? theme.modes?.[theme.defaultMode ?? theme.mode];
+  if (branch) {
+    return normalizeThemeColors(branch.colors);
+  }
   return normalizeThemeColors(theme.colors);
+}
+
+export function themePackageToMonacoTheme(theme: ThemePackage, mode: ThemeMode = theme.defaultMode ?? theme.mode): ThemePackageMonacoTheme {
+  const branch = theme.modes?.[mode]?.monaco ?? theme.modes?.[theme.defaultMode ?? theme.mode]?.monaco;
+  if (branch) {
+    return branch;
+  }
+  return theme.monaco;
 }
 
 /**
@@ -402,6 +482,19 @@ export function createThemePackageFromColors(input: {
       id: input.id,
       name: input.name,
       version: input.version ?? '1.0.0',
+      schemaVersion: 2,
+      type: 'theme',
+      defaultMode: input.mode,
+      modes: {
+        [input.mode]: {
+          colors: input.colors,
+          monaco: { base: input.base, rules: [], colors: {} },
+        },
+        [input.mode === 'light' ? 'dark' : 'light']: {
+          colors: input.colors,
+          monaco: { base: input.mode === 'light' ? 'vs-dark' : 'vs', rules: [], colors: {} },
+        },
+      },
       mode: input.mode,
       colors: input.colors,
       monaco: { base: input.base, rules: [], colors: {} },

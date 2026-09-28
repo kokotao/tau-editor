@@ -482,6 +482,28 @@ describe('SettingsStore', () => {
       expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
+
+    it('明暗切换时应清除主题包遗留的背景内联变量', () => {
+      store.theme = 'dark'
+      store.applyTheme()
+      store.theme = 'light'
+      store.applyTheme()
+
+      expect(mockStyle.removeProperty).toHaveBeenCalledWith('--bg-app')
+      expect(mockStyle.removeProperty).toHaveBeenCalledWith('--panel-base')
+    })
+
+    it('自定义配色只允许文字与状态色，不接受背景和面板字段', () => {
+      store.importCustomThemeColors(JSON.stringify({
+        bgApp: '#101010',
+        panelBase: '#202020',
+        textPrimary: '#102030',
+      }))
+
+      expect(store.customThemeColors).toEqual({ textPrimary: '#102030' })
+      expect(JSON.parse(store.exportCustomThemeColors()).customThemeColors).not.toHaveProperty('bgApp')
+      expect(JSON.parse(store.exportCustomThemeColors()).customThemeColors).not.toHaveProperty('panelBase')
+    })
   })
 
   describe('初始化', () => {
@@ -609,7 +631,7 @@ describe('SettingsStore', () => {
       }))
 
       const exported = JSON.parse(store.exportCustomThemeColors())
-      expect(exported.customThemeColors.bgApp).toBe('#101010')
+      expect(exported.customThemeColors.bgApp).toBeUndefined()
       expect(exported.customThemeColors.accentBrand).toBe('#aa22cc')
     })
 

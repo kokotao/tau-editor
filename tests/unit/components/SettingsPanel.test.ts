@@ -182,6 +182,36 @@ describe('SettingsPanel', () => {
     expect(settingsStore.autoSaveEnabled).toBe(false);
   });
 
+  it('通用设置展示当前模式色块，并移除背景自定义字段', async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="theme-swatch-grid"]').exists()).toBe(true);
+    expect(wrapper.findAll('.theme-swatch')).toHaveLength(10);
+    expect(wrapper.find('[data-testid="custom-color-bgApp"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="custom-color-panelBase"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="custom-color-textPrimary"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="theme-json-examples"]').exists()).toBe(true);
+  });
+
+  it('点击主题色块应同时切换明暗模式与主题风格', async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const darkSwatch = wrapper.find('[data-testid="theme-swatch-dark-forest-moss"]');
+    expect(darkSwatch.exists()).toBe(true);
+    await wrapper.find('[data-testid="theme-btn-dark"]').trigger('click');
+    await flushPromises();
+
+    expect(settingsStore.theme).toBe('dark');
+    const forestSwatch = wrapper.find('[data-testid="theme-swatch-dark-forest-moss"]');
+    expect(forestSwatch.exists()).toBe(true);
+    await forestSwatch.trigger('click');
+    await flushPromises();
+    expect(settingsStore.theme).toBe('dark');
+    expect(settingsStore.themeSkin).toBe('forest-moss');
+  });
+
   it('about 分类应展示作者信息', async () => {
     const wrapper = mountPanel({ activeCategory: 'about' });
     await flushPromises();

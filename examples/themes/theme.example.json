@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "type": "theme",
+  "id": "ocean-mist",
+  "name": "Ocean Mist",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "license": "MIT",
+  "defaultMode": "light",
+  "modes": {
+    "light": {
+      "colors": {
+        "bgApp": "#eef3ff",
+        "panelBase": "#ffffff",
+        "textPrimary": "#162033",
+        "textSecondary": "#49566d",
+        "accentBrand": "#2563eb",
+        "accentBrandStrong": "#1d4ed8",
+        "stateSuccess": "#16a34a",
+        "stateDanger": "#dc2626"
+      },
+      "monaco": {
+        "base": "vs",
+        "rules": [],
+        "colors": {
+          "editor.background": "#ffffff",
+          "editor.foreground": "#162033"
+        }
+      }
+    },
+    "dark": {
+      "colors": {
+        "bgApp": "#0b1020",
+        "panelBase": "#101726",
+        "textPrimary": "#ecf2ff",
+        "textSecondary": "#b6c2d9",
+        "accentBrand": "#7cc7ff",
+        "accentBrandStrong": "#4dabff",
+        "stateSuccess": "#4ade80",
+        "stateDanger": "#f87171"
+      },
+      "monaco": {
+        "base": "vs-dark",
+        "rules": [],
+        "colors": {
+          "editor.background": "#0b1020",
+          "editor.foreground": "#ecf2ff"
+        }
+      }
+    }
+  }
+}

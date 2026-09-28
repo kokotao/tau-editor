@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kokotao/tau-editor-themes/schemas/palette-v2.schema.json",
+  "title": "Tau Editor Palette v2",
+  "type": "object",
+  "required": ["schemaVersion", "type", "id", "name", "version", "author", "license", "modes"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "type": { "const": "palette" },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 64 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "author": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "license": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "modes": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "light": { "$ref": "#/$defs/paletteMode" },
+        "dark": { "$ref": "#/$defs/paletteMode" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "paletteMode": {
+      "type": "object",
+      "properties": {
+        "textPrimary": { "$ref": "#/$defs/color" },
+        "textSecondary": { "$ref": "#/$defs/color" },
+        "accentBrand": { "$ref": "#/$defs/color" },
+        "accentBrandStrong": { "$ref": "#/$defs/color" },
+        "stateSuccess": { "$ref": "#/$defs/color" },
+        "stateDanger": { "$ref": "#/$defs/color" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
