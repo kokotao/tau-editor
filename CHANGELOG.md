@@ -777,7 +777,7 @@
 - **Stable**：GitHub Releases，正式安装包和发布说明的唯一官方渠道。
 - **Beta / Nightly**：当前未发布独立渠道。
 - **包管理器**：当前未发布 Scoop、Chocolatey、Homebrew、AUR、Flatpak 或 Snap 官方包。
-- **签名状态**：当前桌面产物为未签名构建；macOS 可能需要手动解除 quarantine，Windows 可能触发 SmartScreen 提示。
+- **签名状态**：`v0.4.3` macOS 产物使用 ad-hoc 签名，首次打开可能需要手动放行；Windows/Linux 产物未配置发行者签名，Windows 可能触发 SmartScreen 提示。
 
 ---
 
@@ -790,4 +790,4 @@
 
 ---
 
-_最后更新：2026-09-23_
+_最后更新：2026-09-28_
