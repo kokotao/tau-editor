@@ -441,7 +441,7 @@ const linkStatus = (link: MarkdownLink) =>
 .context-outline-line {
   color: var(--text-muted);
   font-family: var(--font-code);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .context-outline-label {
@@ -453,7 +453,7 @@ const linkStatus = (link: MarkdownLink) =>
 .context-rail-empty {
   margin: 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   line-height: 1.5;
 }
 
@@ -478,7 +478,7 @@ const linkStatus = (link: MarkdownLink) =>
 
 .context-link-state {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-muted);
 }
 

@@ -54,7 +54,7 @@ body {
     background-color 0.5s;
   line-height: 1.6;
   font-family: var(--font-ui, 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Segoe UI', sans-serif);
-  font-size: 15px;
+  font-size: var(--font-size-ui-base, 11px);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

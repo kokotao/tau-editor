@@ -141,6 +141,11 @@ describe('SettingsStore', () => {
       expect(store.fontSize).toBe(15)
     })
 
+    it('应初始化界面字体为更小的默认值', () => {
+      expect(store.uiFontFamily).toBe("'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif")
+      expect(store.uiFontSize).toBe(11)
+    })
+
     it('应初始化行高为 1.6', () => {
       expect(store.lineHeight).toBe(1.6)
     })
@@ -287,6 +292,15 @@ describe('SettingsStore', () => {
 
       expect(store.fontSize).toBe(16)
       expect(store.minimap).toBe(false)
+    })
+
+    it('updateSettings() 应更新界面字体并写入 CSS 变量', async () => {
+      await store.updateSettings({ uiFontFamily: "system-ui, sans-serif", uiFontSize: 13 })
+
+      expect(store.uiFontFamily).toBe('system-ui, sans-serif')
+      expect(store.uiFontSize).toBe(13)
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--font-ui', 'system-ui, sans-serif')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--font-size-ui-base', '13px')
     })
 
     it('updateSettings() 更新自动保存应同步到 Tauri', async () => {
@@ -543,6 +557,45 @@ describe('SettingsStore', () => {
       expect(mockStyle.setProperty).toHaveBeenCalledWith('--panel-base', '#111827')
       expect(store.activeThemePackageId).toBe('user:priority-check')
       expect(store.themePackages).toHaveLength(1)
+    })
+
+    it('主题包切换时应同步派生顶栏使用的 panel-elevated 颜色', () => {
+      store.applyTheme()
+
+      expect(mockStyle.setProperty).toHaveBeenCalledWith(
+        '--panel-elevated',
+        'color-mix(in srgb, var(--panel-base) 92%, var(--text-primary) 8%)',
+      )
+    })
+
+    it('应应用主题包 UI token，并让用户 UI 覆盖优先', () => {
+      const result = store.importThemePackage(JSON.stringify({
+        id: 'ui-token-check',
+        name: 'UI Token Check',
+        colors: { bgApp: '#101010', textPrimary: '#ffffff' },
+        modes: {
+          dark: {
+            colors: { bgApp: '#101010', textPrimary: '#ffffff' },
+            ui: { sidebar: { activeBg: '#202020', activeText: '#ffffff' }, radius: 10 },
+          },
+        },
+      }))
+      expect(result.success).toBe(true)
+      store.setCustomThemeUiColor('sidebar', 'activeBg', '#303030')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--sidebar-active-bg', '#303030')
+    })
+
+    it('圆角预设和手动值应 clamp、持久化并同步 CSS token', () => {
+      store.setCornerRadiusPreset('round')
+      expect(store.cornerRadius).toBe(12)
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--radius-ui', '12px')
+      store.setCornerRadius(99)
+      expect(store.cornerRadius).toBe(12)
+      store.setCornerRadius(-2)
+      expect(store.cornerRadius).toBe(0)
+      expect(store.cornerRadiusPreset).toBe('sharp')
+      const saved = JSON.parse(vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}')
+      expect(saved.cornerRadius).toBe(0)
     })
   })
 

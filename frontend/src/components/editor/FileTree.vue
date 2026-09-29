@@ -467,7 +467,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 6px;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -490,7 +490,7 @@ onUnmounted(() => {
 }
 
 .workspace-caption {
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 10px);
   letter-spacing: 0.4px;
   text-transform: uppercase;
   color: var(--n-muted-text-color, #a2a2a2);
@@ -524,7 +524,7 @@ onUnmounted(() => {
   border: none;
   outline: none;
   color: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   width: 120px;
 }
 
@@ -575,7 +575,7 @@ onUnmounted(() => {
   padding: 4px 8px;
   cursor: pointer;
   color: var(--n-text-color, #ccc);
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   transition: background 0.15s, box-shadow 0.15s;
   outline: none;
 }
@@ -645,7 +645,7 @@ onUnmounted(() => {
   justify-content: center;
   padding: 24px;
   color: var(--n-text-color, #666);
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
 }
 
 .file-tree-empty {
@@ -656,7 +656,7 @@ onUnmounted(() => {
   justify-content: center;
   padding: 24px;
   color: var(--n-text-color, #666);
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
 }
 
 .file-tree-empty .empty-title {
@@ -665,7 +665,7 @@ onUnmounted(() => {
 }
 
 .file-tree-empty .empty-hint {
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--n-muted-text-color, #9a9a9a);
 }
 
@@ -684,7 +684,7 @@ onUnmounted(() => {
   padding: 6px 16px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   color: var(--n-text-color, #ccc);
 }
 

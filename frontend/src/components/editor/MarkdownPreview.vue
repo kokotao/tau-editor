@@ -901,7 +901,7 @@ onBeforeUnmount(() => {
   text-align: left;
   color: var(--preview-menu-text);
   background: transparent;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   cursor: pointer;
   transition:
     background-color 0.16s ease,

@@ -1,11 +1,13 @@
 /**
  * EditorTabs 的受控组件契约测试：标签状态由宿主传入，所有操作经事件回传。
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
 import type { Tab } from '@/stores/tabs';
+import { appCommands } from '@/lib/tauri';
+import { useNotificationStore } from '@/stores/notification';
 
 const makeTab = (id: string, overrides: Partial<Tab> = {}): Tab => ({
   id,
@@ -88,6 +90,37 @@ describe('EditorTabs.vue', () => {
     expect(wrapper.get('.context-menu').attributes('style')).toContain('left: 8px');
   });
 
+  it('lets the tooltip path copy and the tooltip filename enter rename mode', async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const wrapper = mount(EditorTabs, {
+      props: { tabs: tabs(), activeTabId: 'first' },
+      attachTo: document.body,
+    });
+
+    await wrapper.get('[data-testid="tab"]').trigger('mouseenter');
+    vi.advanceTimersByTime(320);
+    await wrapper.vm.$nextTick();
+
+    const tooltip = document.body.querySelector('[data-testid="tab-tooltip"]');
+    expect(tooltip).not.toBeNull();
+    const path = tooltip?.querySelector('[data-testid="tab-tooltip-path"]') as HTMLButtonElement;
+    await path?.click();
+    expect(writeText).toHaveBeenCalledWith('/workspace/first.txt');
+
+    const name = tooltip?.querySelector('[data-testid="tab-tooltip-name"]');
+    name?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.tab-rename-input').exists()).toBe(true);
+
+    wrapper.unmount();
+    vi.useRealTimers();
+  });
+
   it('emits close-others for the context-menu target', async () => {
     const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
 
@@ -106,6 +139,46 @@ describe('EditorTabs.vue', () => {
     expect(wrapper.emitted('tab-close-all')).toEqual([[]]);
   });
 
+  it('copies the context-menu target file path', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+
+    await wrapper.findAll('[data-testid="tab"]')[1].trigger('contextmenu');
+    await wrapper.get('[data-testid="menu-copy-file-path"]').trigger('click');
+
+    expect(writeText).toHaveBeenCalledWith('/workspace/second.txt');
+    expect(useNotificationStore().notifications.at(-1)?.title).toBe('文件路径已复制');
+  });
+
+  it('reveals the context-menu target file in its folder', async () => {
+    const reveal = vi.spyOn(appCommands, 'revealInFileManager').mockResolvedValue(undefined);
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+
+    await wrapper.findAll('[data-testid="tab"]')[1].trigger('contextmenu');
+    await wrapper.get('[data-testid="menu-reveal-in-folder"]').trigger('click');
+
+    expect(reveal).toHaveBeenCalledWith('/workspace/second.txt');
+    reveal.mockRestore();
+  });
+
+  it('marks path actions unavailable for untitled tabs', async () => {
+    const wrapper = mount(EditorTabs, {
+      props: {
+        tabs: [makeTab('draft', { filePath: null, isUntitled: true })],
+        activeTabId: 'draft',
+      },
+    });
+
+    await wrapper.get('[data-testid="tab"]').trigger('contextmenu');
+
+    expect(wrapper.get('[data-testid="menu-copy-file-path"]').classes()).toContain('disabled');
+    expect(wrapper.get('[data-testid="menu-reveal-in-folder"]').classes()).toContain('disabled');
+  });
+
   it('emits a rename after editing a tab title', async () => {
     const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
 
@@ -115,6 +188,43 @@ describe('EditorTabs.vue', () => {
     await input.trigger('keydown.enter');
 
     expect(wrapper.emitted('rename-tab')).toEqual([['first', 'renamed.txt']]);
+  });
+
+  it('keeps cursor navigation inside the rename input without switching tabs', async () => {
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+
+    await wrapper.get('[data-testid="tab"]').trigger('dblclick');
+    const input = wrapper.get('.tab-rename-input');
+    const element = input.element as HTMLInputElement;
+    element.setSelectionRange(0, 0);
+
+    await input.trigger('keydown', { key: 'ArrowRight' });
+    await input.trigger('keydown', { key: 'ArrowLeft' });
+    await input.trigger('keydown', { key: 'Home' });
+    await input.trigger('keydown', { key: 'End' });
+
+    expect(wrapper.emitted('tab-click')).toBeUndefined();
+    expect(wrapper.findAll('[data-testid="tab"]')[0].classes()).toContain('active');
+    expect(wrapper.find('.tab-rename-input').exists()).toBe(true);
+  });
+
+  it('commits with Enter and cancels with Escape while renaming', async () => {
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+
+    await wrapper.get('[data-testid="tab"]').trigger('dblclick');
+    const input = wrapper.get('.tab-rename-input');
+    await input.setValue('renamed.txt');
+    await input.trigger('keydown.enter');
+
+    expect(wrapper.emitted('rename-tab')).toEqual([['first', 'renamed.txt']]);
+    expect(wrapper.find('.tab-rename-input').exists()).toBe(false);
+
+    await wrapper.findAll('[data-testid="tab"]')[1].trigger('dblclick');
+    await wrapper.get('.tab-rename-input').setValue('discarded.txt');
+    await wrapper.get('.tab-rename-input').trigger('keydown.esc');
+
+    expect(wrapper.emitted('rename-tab')).toEqual([['first', 'renamed.txt']]);
+    expect(wrapper.find('.tab-rename-input').exists()).toBe(false);
   });
 
   it('emits the reordered id sequence after a drag and drop', async () => {

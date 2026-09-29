@@ -288,6 +288,7 @@ const formatLastSaveTime = (date: Date) => {
   color: var(--text-primary, #f8fafc);
   font-size: var(--font-size-ui-sm, 12px);
   border-top: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
+  transition: background-color .22s ease, color .22s ease, border-color .22s ease;
 }
 
 .status-section {
@@ -324,7 +325,7 @@ const formatLastSaveTime = (date: Date) => {
 
 .status-value {
   opacity: 0.74;
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .author-info {
@@ -337,7 +338,7 @@ const formatLastSaveTime = (date: Date) => {
   padding: 0 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.22));
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   color: var(--text-secondary, #cbd5e1);
   display: inline-flex;
@@ -394,7 +395,7 @@ const formatLastSaveTime = (date: Date) => {
 
 .author-modal-header h4 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-ui-lg, 15px);
 }
 
 .author-modal-close {
@@ -422,7 +423,7 @@ const formatLastSaveTime = (date: Date) => {
 .author-modal-content p {
   margin: 0 0 8px;
   color: var(--text-secondary, #cbd5e1);
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
 }
 
 .author-donation {
@@ -433,13 +434,13 @@ const formatLastSaveTime = (date: Date) => {
 
 .author-donation h5 {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   color: var(--text-primary, #f8fafc);
 }
 
 .author-donation-desc {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .author-qr-grid {
@@ -465,14 +466,14 @@ const formatLastSaveTime = (date: Date) => {
 
 .author-qr-card figcaption {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
   text-align: center;
 }
 
 .author-donation-tip {
   margin: 10px 0 0 !important;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 @media (max-width: 520px) {
@@ -508,7 +509,7 @@ const formatLastSaveTime = (date: Date) => {
 }
 
 .pill-prefix {
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: rgba(255, 255, 255, 0.68);
 }
 

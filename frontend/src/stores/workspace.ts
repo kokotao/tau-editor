@@ -58,6 +58,11 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.mode = parsed.mode ?? 'empty';
         this.currentWorkspacePath = parsed.currentWorkspacePath ?? null;
         this.currentWorkspaceName = parsed.currentWorkspaceName ?? null;
+        // 工作区上下文只对 workspace 模式有效，避免旧会话残留到单文件模式。
+        if (this.mode !== 'workspace' || !this.currentWorkspacePath) {
+          this.currentWorkspacePath = null;
+          this.currentWorkspaceName = null;
+        }
         this.recentProjects = parsed.recentProjects ?? [];
         this.recentFiles = parsed.recentFiles ?? [];
       } catch (error) {
@@ -84,8 +89,12 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
 
-    setMode(mode: AppMode) {
+    setMode(mode: AppMode, clearWorkspaceContext = false) {
       this.mode = mode;
+      if (clearWorkspaceContext && mode !== 'workspace') {
+        this.currentWorkspacePath = null;
+        this.currentWorkspaceName = null;
+      }
       this.saveToStorage();
     },
 
@@ -107,6 +116,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     openSingleFile(filePath: string) {
       if (this.mode !== 'workspace') {
         this.mode = 'single-file';
+        this.currentWorkspacePath = null;
+        this.currentWorkspaceName = null;
       }
       this.registerRecentFile(filePath);
       this.saveToStorage();

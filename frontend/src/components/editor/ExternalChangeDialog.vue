@@ -191,7 +191,7 @@ function formatTime(value: number | null | undefined): string {
 
 .external-change-file {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   font-weight: 600;
   word-break: break-all;
 }
@@ -201,7 +201,7 @@ function formatTime(value: number | null | undefined): string {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .external-change-meta div {
@@ -223,7 +223,7 @@ function formatTime(value: number | null | undefined): string {
 .external-change-hint {
   margin: 0;
   color: var(--text-muted, #75829e);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   line-height: 1.6;
 }
 

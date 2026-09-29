@@ -87,7 +87,7 @@ describe('SettingsPanel', () => {
   const mountPanel = (
     props: Partial<{
       mode: 'workspace' | 'drawer';
-      activeCategory: 'general' | 'editor' | 'updates' | 'about';
+      activeCategory: 'general' | 'themes' | 'editor' | 'updates' | 'about';
     }> = {},
   ) => mount(SettingsPanel, {
     props,
@@ -124,6 +124,23 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('[data-testid="settings-general-section"]').exists()).toBe(true);
   });
 
+  it('通用设置可调整界面字体家族与大小', async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const fontFamilySelect = wrapper.findComponent('[data-testid="select-ui-font-family"]');
+    expect(fontFamilySelect.exists()).toBe(true);
+    fontFamilySelect.vm.$emit('update:value', "system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif");
+    await flushPromises();
+
+    await wrapper.find('[data-testid="increase-ui-font-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(settingsStore.uiFontFamily).toBe("system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif");
+    expect(settingsStore.uiFontSize).toBe(12);
+    expect(document.documentElement.style.getPropertyValue('--font-size-ui-base')).toBe('12px');
+  });
+
   it('点击导航可切换到更新分类', async () => {
     const wrapper = mountPanel();
     await flushPromises();
@@ -138,6 +155,19 @@ describe('SettingsPanel', () => {
     await flushPromises();
     expect(wrapper.find('[data-testid="settings-update-section"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="settings-general-section"]').exists()).toBe(false);
+  });
+
+  it('主题市场作为独立栏目展示，并提供圆角与界面颜色配置', async () => {
+    const wrapper = mountPanel({ activeCategory: 'themes' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="settings-nav-themes"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="settings-themes-section"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="theme-ui-settings"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="corner-radius-slider"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="corner-radius-preset-round"]').trigger('click');
+    expect(settingsStore.cornerRadius).toBe(12);
   });
 
   it('drawer 模式仅展示快速设置与完整设置入口', async () => {
@@ -156,6 +186,17 @@ describe('SettingsPanel', () => {
 
     await wrapper.find('[data-testid="open-full-settings-btn"]').trigger('click');
     expect(wrapper.emitted('open-workspace')).toHaveLength(1);
+  });
+
+  it('drawer 快速设置可调整界面字体', async () => {
+    const wrapper = mountPanel({ mode: 'drawer' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="drawer-select-ui-font-family"]').exists()).toBe(true);
+    await wrapper.find('[data-testid="drawer-decrease-ui-font-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(settingsStore.uiFontSize).toBe(10);
   });
 
   it('关闭按钮应触发 close 事件', async () => {

@@ -98,6 +98,7 @@ interface SettingsPanelText {
   quickSettingsDesc: string;
   openFullSettings: string;
   settingsGeneral: string;
+  themeMarketplace: string;
   settingsEditor: string;
   settingsUpdates: string;
   settingsAbout: string;
@@ -158,6 +159,30 @@ interface SettingsPanelText {
   themePackageExported: string;
   themePackageDeleted: string;
   themePackageReverted: string;
+  themeUiAppearance: string;
+  themeUiAppearanceDesc: string;
+  themeUiSidebarBg: string;
+  themeUiSidebarText: string;
+  themeUiSidebarActiveBg: string;
+  themeUiSidebarActiveText: string;
+  themeUiSidebarIndicator: string;
+  themeUiPanelBg: string;
+  themeUiPanelRaised: string;
+  themeUiPanelBorder: string;
+  themeUiTabsActiveBg: string;
+  themeUiTabsActiveText: string;
+  themeUiTabsIndicator: string;
+  themeUiTabsHover: string;
+  cornerRadius: string;
+  cornerRadiusSharp: string;
+  cornerRadiusCompact: string;
+  cornerRadiusStandard: string;
+  cornerRadiusSoft: string;
+  cornerRadiusRound: string;
+  themeSourceTitle: string;
+  themeSourceLoading: string;
+  themeSourceRetry: string;
+  themeSourceCopy: string;
   keybindings: string;
   keybindingsDesc: string;
   keybindingRecording: string;
@@ -184,6 +209,10 @@ interface SettingsPanelText {
   fontSize: string;
   reset: string;
   fontFamily: string;
+  uiFont: string;
+  uiFontSize: string;
+  uiFontFamily: string;
+  systemUiFont: string;
   systemMonospace: string;
   preview: string;
   fontPreviewLine1: string;
@@ -291,6 +320,12 @@ interface EditorTabsText {
   closeOthers: string;
   closeAll: string;
   renameTab: string;
+  copyFilePath: string;
+  revealInFolder: string;
+  noFilePath: string;
+  copyPathDone: string;
+  copyPathFailed: string;
+  revealFailed: string;
   renameHint: string;
   moreActionsHint: string;
   loadingProgress: (progress: number) => string;
@@ -553,6 +588,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     quickSettingsDesc: '这里保留高频选项，可随时进入完整设置查看更多配置。',
     openFullSettings: '进入完整设置',
     settingsGeneral: '通用',
+    themeMarketplace: '主题市场',
     settingsEditor: '编辑器',
     settingsUpdates: '更新与版本',
     settingsAbout: '关于',
@@ -613,6 +649,13 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     themePackageExported: '主题包已导出。',
     themePackageDeleted: '主题包已删除。',
     themePackageReverted: '已回到内置主题。',
+    themeUiAppearance: '界面外观',
+    themeUiAppearanceDesc: '调整侧栏、面板和标签的语义颜色，实时作用于当前主题。',
+    themeUiSidebarBg: '侧栏背景', themeUiSidebarText: '侧栏文字', themeUiSidebarActiveBg: '侧栏选中背景', themeUiSidebarActiveText: '侧栏选中文字', themeUiSidebarIndicator: '侧栏选中指示',
+    themeUiPanelBg: '面板背景', themeUiPanelRaised: '浮层背景', themeUiPanelBorder: '面板边框',
+    themeUiTabsActiveBg: '标签选中背景', themeUiTabsActiveText: '标签选中文字', themeUiTabsIndicator: '标签选中指示', themeUiTabsHover: '标签悬浮背景',
+    cornerRadius: '界面圆角', cornerRadiusSharp: '直角 0', cornerRadiusCompact: '紧凑 4', cornerRadiusStandard: '标准 6', cornerRadiusSoft: '柔和 8', cornerRadiusRound: '圆润 12',
+    themeSourceTitle: '主题源码 JSON', themeSourceLoading: '正在加载主题源码…', themeSourceRetry: '重试', themeSourceCopy: '复制 JSON',
     keybindings: '快捷键',
     keybindingsDesc: '点击按键后直接按下新的组合键，ESC 取消；冲突时会询问是否覆盖。',
     keybindingRecording: '请按下新的组合…',
@@ -639,6 +682,10 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontSize: '字体大小',
     reset: '重置',
     fontFamily: '字体家族',
+    uiFont: '界面字体',
+    uiFontSize: '界面字体大小',
+    uiFontFamily: '界面字体家族',
+    systemUiFont: '系统界面字体',
     systemMonospace: '系统等宽字体',
     preview: '预览',
     fontPreviewLine1: 'const hello = "你好，世界";',
@@ -695,6 +742,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     quickSettingsDesc: 'High-frequency options only. Open full settings for all categories.',
     openFullSettings: 'Open Full Settings',
     settingsGeneral: 'General',
+    themeMarketplace: 'Theme Market',
     settingsEditor: 'Editor',
     settingsUpdates: 'Updates & Version',
     settingsAbout: 'About',
@@ -755,6 +803,13 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     themePackageExported: 'Theme package exported.',
     themePackageDeleted: 'Theme package deleted.',
     themePackageReverted: 'Reverted to the built-in theme.',
+    themeUiAppearance: 'Interface Appearance',
+    themeUiAppearanceDesc: 'Tune sidebar, panel and tab semantic colors for the active theme.',
+    themeUiSidebarBg: 'Sidebar Background', themeUiSidebarText: 'Sidebar Text', themeUiSidebarActiveBg: 'Sidebar Active Background', themeUiSidebarActiveText: 'Sidebar Active Text', themeUiSidebarIndicator: 'Sidebar Active Indicator',
+    themeUiPanelBg: 'Panel Background', themeUiPanelRaised: 'Raised Surface', themeUiPanelBorder: 'Panel Border',
+    themeUiTabsActiveBg: 'Tab Active Background', themeUiTabsActiveText: 'Tab Active Text', themeUiTabsIndicator: 'Tab Active Indicator', themeUiTabsHover: 'Tab Hover Background',
+    cornerRadius: 'Corner Radius', cornerRadiusSharp: 'Sharp 0', cornerRadiusCompact: 'Compact 4', cornerRadiusStandard: 'Standard 6', cornerRadiusSoft: 'Soft 8', cornerRadiusRound: 'Round 12',
+    themeSourceTitle: 'Theme Source JSON', themeSourceLoading: 'Loading theme source…', themeSourceRetry: 'Retry', themeSourceCopy: 'Copy JSON',
     keybindings: 'Keybindings',
     keybindingsDesc: 'Click a key, then press the new combination. Press ESC to cancel; conflicts ask before overriding.',
     keybindingRecording: 'Press new keys…',
@@ -781,6 +836,10 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontSize: 'Font Size',
     reset: 'Reset',
     fontFamily: 'Font Family',
+    uiFont: 'Interface Font',
+    uiFontSize: 'Interface Font Size',
+    uiFontFamily: 'Interface Font Family',
+    systemUiFont: 'System Interface Font',
     systemMonospace: 'System Monospace',
     preview: 'Preview',
     fontPreviewLine1: 'const hello = "Hello, world";',
@@ -1002,6 +1061,12 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     closeOthers: '关闭其他标签',
     closeAll: '关闭所有标签',
     renameTab: '重命名标签',
+    copyFilePath: '复制文件路径',
+    revealInFolder: '打开文件所在位置',
+    noFilePath: '当前标签没有文件路径',
+    copyPathDone: '文件路径已复制',
+    copyPathFailed: '复制文件路径失败',
+    revealFailed: '打开文件所在位置失败',
     renameHint: '双击重命名',
     moreActionsHint: '右键查看更多操作',
     loadingProgress: (progress) => `加载中 ${progress}%`,
@@ -1018,6 +1083,12 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     closeOthers: 'Close Others',
     closeAll: 'Close All',
     renameTab: 'Rename Tab',
+    copyFilePath: 'Copy File Path',
+    revealInFolder: 'Reveal in Folder',
+    noFilePath: 'Current tab has no file path',
+    copyPathDone: 'File path copied',
+    copyPathFailed: 'Failed to copy file path',
+    revealFailed: 'Failed to reveal file location',
     renameHint: 'Double-click to rename',
     moreActionsHint: 'Right-click for more actions',
     loadingProgress: (progress) => `Loading ${progress}%`,

@@ -27,7 +27,7 @@
         @click="handleTabClick(tab.id)"
         @dblclick="startRename(tab)"
         @mouseenter="showTabTooltip($event, tab)"
-        @mouseleave="hideTabTooltip"
+        @mouseleave="scheduleHideTabTooltip"
         @focusin="showTabTooltip($event, tab, true)"
         @focusout="hideTabTooltip"
         @keydown="handleTabKeydown($event, tab.id)"
@@ -56,6 +56,7 @@
             @click.stop
             @input="handleRenameInput"
             @blur="commitRename"
+            @keydown.stop
             @keydown.enter.prevent="commitRename"
             @keydown.esc.prevent="cancelRename"
           />
@@ -119,7 +120,13 @@
       <div class="context-menu-item" data-testid="menu-close-all" @click="handleCloseAll">
         {{ copy.closeAll }}
       </div>
-      <div class="context-menu-item" @click="renameFromMenu">
+      <div class="context-menu-item" data-testid="menu-copy-file-path" :class="{ disabled: !contextMenuTabHasPath }" :title="contextMenuTabHasPath ? undefined : copy.noFilePath" @click="handleCopyFilePath">
+        {{ copy.copyFilePath }}
+      </div>
+      <div class="context-menu-item" data-testid="menu-reveal-in-folder" :class="{ disabled: !contextMenuTabHasPath }" :title="contextMenuTabHasPath ? undefined : copy.noFilePath" @click="handleRevealInFolder">
+        {{ copy.revealInFolder }}
+      </div>
+      <div class="context-menu-item" data-testid="menu-rename-tab" @click="renameFromMenu">
         {{ copy.renameTab }}
       </div>
     </div>
@@ -132,9 +139,23 @@
           data-testid="tab-tooltip"
           role="tooltip"
           :style="{ top: `${tooltip.y}px`, left: `${tooltip.x}px` }"
+          @mouseenter="keepTabTooltipVisible"
+          @mouseleave="hideTabTooltip"
         >
-          <strong>{{ tooltip.tab.fileName }}</strong>
-          <span>{{ tooltip.tab.isUntitled ? copy.unsaved : tooltip.tab.filePath }}</span>
+          <strong
+            class="tab-tooltip-name"
+            data-testid="tab-tooltip-name"
+            :title="copy.renameHint"
+            @dblclick.stop="startRename(tooltip.tab)"
+          >{{ tooltip.tab.fileName }}</strong>
+          <button
+            type="button"
+            class="tab-tooltip-path"
+            data-testid="tab-tooltip-path"
+            :disabled="!tooltip.tab.filePath"
+            :title="tooltip.tab.filePath ? copy.copyFilePath : copy.noFilePath"
+            @click.stop="copyFilePath(tooltip.tab)"
+          >{{ tooltip.tab.isUntitled ? copy.unsaved : tooltip.tab.filePath }}</button>
           <div class="tab-tooltip-footer">
             <em :class="{ dirty: tooltip.tab.isDirty }">
               {{ tooltip.tab.isDirty ? copy.unsaved : copy.saved }}
@@ -153,6 +174,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { Tab } from '@/stores/tabs';
 import { useSettingsStore } from '@/stores/settings';
 import { getEditorTabsI18n } from '@/i18n/ui';
+import { appCommands } from '@/lib/tauri';
+import { useNotificationStore } from '@/stores/notification';
 
 interface EditorTabsProps {
   tabs?: Tab[];
@@ -187,11 +210,14 @@ const contextMenuRef = ref<HTMLElement | null>(null);
 const tabsRootRef = ref<HTMLElement | null>(null);
 const tabsContainerRef = ref<HTMLDivElement | null>(null);
 const settingsStore = useSettingsStore();
+const notificationStore = useNotificationStore();
 const copy = computed(() => getEditorTabsI18n(settingsStore.uiLanguage));
 const renameState = ref({
   tabId: null as string | null,
   value: '',
 });
+const contextMenuTab = computed(() => props.tabs.find((tab) => tab.id === contextMenu.value.tabId) ?? null);
+const contextMenuTabHasPath = computed(() => Boolean(contextMenuTab.value?.filePath?.trim()));
 const tooltip = ref({
   visible: false,
   x: 0,
@@ -280,6 +306,23 @@ const hideTabTooltip = () => {
   tooltip.value.visible = false;
 };
 
+const scheduleHideTabTooltip = () => {
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer);
+  }
+  tooltipTimer = setTimeout(() => {
+    tooltip.value.visible = false;
+    tooltipTimer = null;
+  }, 180);
+};
+
+const keepTabTooltipVisible = () => {
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+  }
+};
+
 const showTabTooltip = (event: MouseEvent | FocusEvent, tab: Tab, immediate = false) => {
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
@@ -357,7 +400,54 @@ const handleCloseAll = () => {
   contextMenu.value.visible = false;
 };
 
+const copyFilePath = async (tab: Tab | null) => {
+  const filePath = tab?.filePath?.trim();
+  if (!filePath) {
+    notificationStore.info(copy.value.noFilePath);
+    return;
+  }
+
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error(copy.value.copyPathFailed);
+    }
+    await navigator.clipboard.writeText(filePath);
+    notificationStore.success(copy.value.copyPathDone, filePath);
+  } catch (error) {
+    notificationStore.error(
+      copy.value.copyPathFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
+const handleCopyFilePath = async () => {
+  await copyFilePath(contextMenuTab.value);
+  contextMenu.value.visible = false;
+};
+
+const handleRevealInFolder = async () => {
+  const filePath = contextMenuTab.value?.filePath?.trim();
+  if (!filePath) {
+    notificationStore.info(copy.value.noFilePath);
+    contextMenu.value.visible = false;
+    return;
+  }
+
+  try {
+    await appCommands.revealInFileManager(filePath);
+  } catch (error) {
+    notificationStore.error(
+      copy.value.revealFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    contextMenu.value.visible = false;
+  }
+};
+
 const startRename = async (tab: Tab) => {
+  hideTabTooltip();
   renameState.value = {
     tabId: tab.id,
     value: tab.fileName,
@@ -491,8 +581,9 @@ onUnmounted(() => {
 <style scoped>
 .editor-tabs {
   position: relative;
-  background: var(--panel, #131b2c);
-  border-bottom: 1px solid var(--border-strong, #334155);
+  background: var(--tab-bg, var(--panel, #131b2c));
+  border-bottom: 1px solid var(--panel-border, var(--border-strong, #334155));
+  transition: background-color .22s ease, border-color .22s ease, color .22s ease;
 }
 
 .tabs-container {
@@ -522,24 +613,24 @@ onUnmounted(() => {
   border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--tab-text, var(--text-secondary, #cbd5e1));
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, border-radius 0.15s ease;
 }
 
 .tab:hover {
-  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
-  border-color: var(--border-soft, rgba(148, 163, 184, 0.18));
-  color: var(--text-primary, #f8fafc);
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--tab-hover-bg, var(--surface-hover, rgba(255, 255, 255, 0.06)));
+  border-color: var(--panel-border, var(--border-soft, rgba(148, 163, 184, 0.18)));
+  color: var(--tab-active-text, var(--text-primary, #f8fafc));
+  border-radius: var(--radius-ui-sm, var(--radius-sm)) var(--radius-ui-sm, var(--radius-sm)) 0 0;
 }
 
 .tab.active {
-  background: var(--surface-raised, #1c2638);
-  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  box-shadow: inset 0 2px 0 var(--accent-blue, #7cc7ff);
-  color: var(--text-primary, #f8fafc);
+  background: var(--tab-active-bg, var(--surface-raised, #1c2638));
+  border-color: var(--panel-border, var(--border-strong, rgba(148, 163, 184, 0.3)));
+  border-radius: var(--radius-ui-sm, var(--radius-sm)) var(--radius-ui-sm, var(--radius-sm)) 0 0;
+  box-shadow: inset 0 2px 0 var(--tab-active-indicator, var(--accent-blue, #7cc7ff));
+  color: var(--tab-active-text, var(--text-primary, #f8fafc));
 }
 
 .tab.active .tab-name {
@@ -555,7 +646,7 @@ onUnmounted(() => {
 }
 
 .tab:focus-visible {
-  outline: 1px solid var(--accent-blue-strong, #4dabff);
+  outline: 1px solid var(--focus-ring, var(--accent-blue-strong, #4dabff));
   outline-offset: -2px;
 }
 
@@ -603,7 +694,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   border-radius: var(--radius-xs);
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 10px);
   line-height: 1.2;
   color: var(--accent-blue-strong, #4dabff);
   border: 1px solid color-mix(in srgb, var(--accent-blue-strong, #4dabff) 50%, transparent);
@@ -621,7 +712,7 @@ onUnmounted(() => {
   padding: 0 4px;
   background: color-mix(in srgb, var(--accent-blue-strong, #4dabff) 28%, transparent);
   color: inherit;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 10px);
   line-height: 1.5;
   cursor: pointer;
 }
@@ -631,7 +722,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted, #94a3b8);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .tab-rename-input {
@@ -698,6 +789,16 @@ onUnmounted(() => {
   background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 }
 
+.context-menu-item.disabled {
+  color: var(--text-muted, #94a3b8);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.context-menu-item.disabled:hover {
+  background: transparent;
+}
+
 .tab-tooltip {
   position: fixed;
   z-index: 9999;
@@ -711,15 +812,35 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--panel-elevated, #151d2d) 96%, transparent);
   color: var(--text-secondary, #b6c2d9);
   box-shadow: 0 16px 38px rgba(2, 6, 23, 0.38);
-  pointer-events: none;
+  pointer-events: auto;
   backdrop-filter: blur(10px);
 }
 
 .tab-tooltip strong,
-.tab-tooltip > span {
+.tab-tooltip > span,
+.tab-tooltip-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tab-tooltip-name {
+  cursor: text;
+}
+
+.tab-tooltip-path {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: copy;
+}
+
+.tab-tooltip-path:disabled {
+  cursor: not-allowed;
 }
 
 .tab-tooltip strong {

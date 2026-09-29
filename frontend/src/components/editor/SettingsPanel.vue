@@ -8,7 +8,7 @@
       <div class="settings-header">
         <div class="settings-header-main">
           <h3 class="settings-title">{{ panelTitle }}</h3>
-          <p class="settings-subtitle">{{ panelSubtitle }}</p>
+          <p v-if="isDrawerMode" class="settings-subtitle">{{ panelSubtitle }}</p>
         </div>
 
         <div class="settings-header-actions">
@@ -36,6 +36,7 @@
             :key="category.id"
             class="settings-nav-item"
             :class="{ active: activeCategoryValue === category.id }"
+            :aria-current="activeCategoryValue === category.id ? 'page' : undefined"
             :data-testid="`settings-nav-${category.id}`"
             @click="setActiveCategory(category.id)"
           >
@@ -76,6 +77,28 @@
                 :consistent-menu-width="false"
                 @update:value="setUiLanguage"
               />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.uiFont }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-ui-font-family"
+                :value="settingsStore.uiFontFamily"
+                :options="uiFontFamilyOptions"
+                :consistent-menu-width="false"
+                @update:value="setUiFontFamily"
+              />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.uiFontSize }}</label>
+              <div class="font-size-control">
+                <button class="font-size-btn" data-testid="decrease-ui-font-btn" @click="decreaseUiFontSize">-</button>
+                <span class="font-size-value">{{ settingsStore.uiFontSize }}px</span>
+                <button class="font-size-btn" data-testid="increase-ui-font-btn" @click="increaseUiFontSize">+</button>
+                <button class="font-size-reset" data-testid="reset-ui-font-btn" @click="resetUiFontSize">{{ copy.reset }}</button>
+              </div>
             </div>
 
             <div class="settings-item">
@@ -266,13 +289,69 @@
               </p>
             </div>
 
+          </div>
+
+          <div
+            v-if="activeCategoryValue === 'themes'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-themes-section"
+          >
+            <h4 class="settings-section-title">{{ copy.themeMarketplace }}</h4>
             <div class="settings-item theme-marketplace-settings" data-testid="theme-marketplace-settings">
               <ThemeMarketplacePanel
                 :installed-ids="installedMarketplaceIds"
                 :active-id="activeMarketplaceId"
                 @install="handleMarketplaceInstall"
                 @apply="handleMarketplaceApply"
+                @view-source="handleViewThemeSource"
               />
+            </div>
+
+            <div class="settings-item theme-ui-settings" data-testid="theme-ui-settings">
+              <label class="settings-label">{{ copy.themeUiAppearance }}</label>
+              <p class="custom-theme-desc">{{ copy.themeUiAppearanceDesc }}</p>
+              <div class="custom-theme-grid">
+                <div v-for="field in themeUiColorFields" :key="`${field.group}.${field.key}`" class="custom-theme-item">
+                  <span>{{ field.label }}</span>
+                  <div class="custom-theme-control">
+                    <input
+                      class="custom-color-input"
+                      :data-testid="`theme-ui-color-${field.group}-${field.key}`"
+                      type="color"
+                      :value="getThemeUiColorValue(field.group, field.key)"
+                      @input="setThemeUiColor(field.group, field.key, ($event.target as HTMLInputElement).value)"
+                    />
+                    <code>{{ getThemeUiColorValue(field.group, field.key) }}</code>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-item radius-settings" data-testid="corner-radius-settings">
+              <label class="settings-label">{{ copy.cornerRadius }}</label>
+              <div class="theme-selector">
+                <button
+                  v-for="preset in cornerRadiusPresets"
+                  :key="preset.value"
+                  class="theme-btn"
+                  :class="{ active: settingsStore.cornerRadiusPreset === preset.value }"
+                  :data-testid="`corner-radius-preset-${preset.value}`"
+                  @click="settingsStore.setCornerRadiusPreset(preset.value)"
+                >{{ preset.label }}</button>
+              </div>
+              <div class="radius-slider-row">
+                <input
+                  class="radius-slider"
+                  data-testid="corner-radius-slider"
+                  type="range"
+                  min="0"
+                  max="12"
+                  step="1"
+                  :value="settingsStore.cornerRadius"
+                  @input="setCornerRadius(($event.target as HTMLInputElement).valueAsNumber)"
+                />
+                <output data-testid="corner-radius-value">{{ settingsStore.cornerRadius }}px</output>
+              </div>
             </div>
           </div>
 
@@ -605,8 +684,30 @@
         </section>
       </div>
 
+      <div v-if="sourceDialog.open" class="theme-source-backdrop" data-testid="theme-source-backdrop" @click.self="closeSourceDialog">
+        <section class="theme-source-dialog" role="dialog" aria-modal="true" :aria-label="copy.themeSourceTitle" data-testid="theme-source-dialog">
+          <header class="theme-source-header">
+            <div>
+              <h4>{{ copy.themeSourceTitle }}</h4>
+              <p>{{ sourceDialog.item?.name }}</p>
+            </div>
+            <button class="settings-close" data-testid="theme-source-close" :title="copy.close" @click="closeSourceDialog">×</button>
+          </header>
+          <div v-if="sourceDialog.loading" class="theme-source-state" data-testid="theme-source-loading">{{ copy.themeSourceLoading }}</div>
+          <div v-else-if="sourceDialog.error" class="theme-source-state theme-source-error" data-testid="theme-source-error">
+            <p>{{ sourceDialog.error }}</p>
+            <button class="settings-action-btn" data-testid="theme-source-retry" @click="loadThemeSource">{{ copy.themeSourceRetry }}</button>
+          </div>
+          <pre v-else class="theme-source-pre" data-testid="theme-source-content"><code>{{ sourceDialog.raw }}</code></pre>
+          <footer class="theme-source-actions">
+            <button v-if="sourceDialog.raw" class="settings-action-btn" data-testid="theme-source-copy" @click="copyThemeSource">{{ copy.themeSourceCopy }}</button>
+            <button class="settings-action-btn" data-testid="theme-source-close-bottom" @click="closeSourceDialog">{{ copy.close }}</button>
+          </footer>
+        </section>
+      </div>
+
       <div
-        v-else
+        v-if="!isWorkspaceMode"
         class="settings-drawer-content animate__animated animate__fadeInUp animate__faster"
         data-testid="settings-quick-drawer"
       >
@@ -647,6 +748,28 @@
           </div>
 
           <div class="settings-item">
+            <label class="settings-label">{{ copy.uiFont }}</label>
+            <n-select
+              class="settings-nselect"
+              data-testid="drawer-select-ui-font-family"
+              :value="settingsStore.uiFontFamily"
+              :options="uiFontFamilyOptions"
+              :consistent-menu-width="false"
+              @update:value="setUiFontFamily"
+            />
+          </div>
+
+          <div class="settings-item">
+            <label class="settings-label">{{ copy.uiFontSize }}</label>
+            <div class="font-size-control">
+              <button class="font-size-btn" data-testid="drawer-decrease-ui-font-btn" @click="decreaseUiFontSize">-</button>
+              <span class="font-size-value">{{ settingsStore.uiFontSize }}px</span>
+              <button class="font-size-btn" data-testid="drawer-increase-ui-font-btn" @click="increaseUiFontSize">+</button>
+              <button class="font-size-reset" data-testid="drawer-reset-ui-font-btn" @click="resetUiFontSize">{{ copy.reset }}</button>
+            </div>
+          </div>
+
+          <div class="settings-item">
             <label class="settings-label">{{ copy.fontSize }}</label>
             <div class="font-size-control">
               <button class="font-size-btn" data-testid="drawer-decrease-font-btn" @click="decreaseFontSize">-</button>
@@ -683,6 +806,7 @@ import { darkTheme, NConfigProvider, NSelect, type GlobalThemeOverrides, type Se
 import {
   CUSTOM_THEME_COLOR_FALLBACKS,
   CUSTOM_THEME_COLOR_VAR_MAP,
+  DEFAULT_UI_FONT_FAMILY,
   type MarkdownPreviewTheme,
   type CustomThemeColorKey,
   useSettingsStore,
@@ -718,9 +842,10 @@ import {
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 import ThemeMarketplacePanel from './ThemeMarketplacePanel.vue';
-import type { ThemeMarketplacePackage } from '@/services/themeMarketplaceService';
+import { ThemeMarketplaceService, type ThemeMarketplaceCatalogItem, type ThemeMarketplacePackage } from '@/services/themeMarketplaceService';
+import type { ThemeUiOverrides } from '@/utils/themePackage';
 
-export type SettingsCategory = 'general' | 'editor' | 'fileAssociations' | 'updates' | 'about';
+export type SettingsCategory = 'general' | 'themes' | 'editor' | 'fileAssociations' | 'updates' | 'about';
 type SettingsMode = 'workspace' | 'drawer';
 type UpdateStatus = 'idle' | 'checking' | 'upToDate' | 'available' | 'installing' | 'installTriggered' | 'error';
 
@@ -739,6 +864,7 @@ const emit = defineEmits<{
 }>();
 
 const settingsStore = useSettingsStore();
+const marketplaceService = new ThemeMarketplaceService();
 const providersStore = useProvidersStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
@@ -767,6 +893,7 @@ const isWindows = computed(() => {
 const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() => {
   const list: Array<{ id: SettingsCategory; label: string }> = [
     { id: 'general', label: copy.value.settingsGeneral },
+    { id: 'themes', label: copy.value.themeMarketplace },
     { id: 'editor', label: copy.value.settingsEditor },
   ];
   if (isWindows.value) {
@@ -790,6 +917,36 @@ const themePackageStatusText = ref('');
 const isImportingThemePackage = ref(false);
 const recordingCommandId = ref<string | null>(null);
 const keybindingStatusText = ref('');
+const sourceDialog = ref<{ open: boolean; loading: boolean; raw: string; error: string; item: ThemeMarketplaceCatalogItem | null }>({
+  open: false,
+  loading: false,
+  raw: '',
+  error: '',
+  item: null,
+});
+
+const themeUiColorFields = computed(() => [
+  { group: 'sidebar', key: 'bg', label: copy.value.themeUiSidebarBg },
+  { group: 'sidebar', key: 'text', label: copy.value.themeUiSidebarText },
+  { group: 'sidebar', key: 'activeBg', label: copy.value.themeUiSidebarActiveBg },
+  { group: 'sidebar', key: 'activeText', label: copy.value.themeUiSidebarActiveText },
+  { group: 'sidebar', key: 'activeIndicator', label: copy.value.themeUiSidebarIndicator },
+  { group: 'panel', key: 'bg', label: copy.value.themeUiPanelBg },
+  { group: 'panel', key: 'raisedBg', label: copy.value.themeUiPanelRaised },
+  { group: 'panel', key: 'border', label: copy.value.themeUiPanelBorder },
+  { group: 'tabs', key: 'activeBg', label: copy.value.themeUiTabsActiveBg },
+  { group: 'tabs', key: 'activeText', label: copy.value.themeUiTabsActiveText },
+  { group: 'tabs', key: 'activeIndicator', label: copy.value.themeUiTabsIndicator },
+  { group: 'tabs', key: 'hoverBg', label: copy.value.themeUiTabsHover },
+] as Array<{ group: keyof Omit<ThemeUiOverrides, 'radius'>; key: string; label: string }>);
+
+const cornerRadiusPresets = computed(() => [
+  { value: 'sharp' as const, label: copy.value.cornerRadiusSharp },
+  { value: 'compact' as const, label: copy.value.cornerRadiusCompact },
+  { value: 'standard' as const, label: copy.value.cornerRadiusStandard },
+  { value: 'soft' as const, label: copy.value.cornerRadiusSoft },
+  { value: 'round' as const, label: copy.value.cornerRadiusRound },
+]);
 
 const associationGroups = computed(() => {
   const groups = new Map<string, FileAssociationState[]>();
@@ -944,6 +1101,14 @@ const fontFamilyOptions = computed<SelectOption[]>(() => [
   { label: copy.value.systemMonospace, value: 'monospace' },
 ]);
 
+const uiFontFamilyOptions = computed<SelectOption[]>(() => [
+  { label: 'Manrope Variable', value: DEFAULT_UI_FONT_FAMILY },
+  { label: copy.value.systemUiFont, value: "system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif" },
+  { label: 'PingFang SC', value: "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" },
+  { label: 'Microsoft YaHei', value: "'Microsoft YaHei', 'PingFang SC', sans-serif" },
+  { label: 'Helvetica Neue', value: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+]);
+
 const autoSaveIntervalOptions = computed<SelectOption[]>(() => [
   { label: copy.value.seconds10, value: 10 },
   { label: copy.value.seconds30, value: 30 },
@@ -1045,6 +1210,56 @@ const updateStatusText = computed(() => {
 
 const setActiveCategory = (category: SettingsCategory) => {
   emit('update:activeCategory', category);
+};
+
+const themeUiFallbacks: Record<string, string> = {
+  'sidebar.bg': '#111827', 'sidebar.text': '#cbd5e1', 'sidebar.activeBg': '#1e3a5f', 'sidebar.activeText': '#ffffff', 'sidebar.activeIndicator': '#38bdf8',
+  'panel.bg': '#172033', 'panel.raisedBg': '#202c43', 'panel.border': '#334155',
+  'tabs.activeBg': '#1e3a5f', 'tabs.activeText': '#ffffff', 'tabs.activeIndicator': '#38bdf8', 'tabs.hoverBg': '#243552',
+};
+
+const getThemeUiColorValue = (group: keyof Omit<ThemeUiOverrides, 'radius'>, key: string): string => {
+  const mode = settingsStore.resolvedTheme;
+  const override = settingsStore.customThemeUiOverrides?.[mode]?.[group] as Record<string, string> | undefined;
+  const value = override?.[key];
+  if (value) return value;
+  if (typeof document !== 'undefined') {
+    const css = getComputedStyle(document.documentElement).getPropertyValue(`--${group === 'sidebar' ? `sidebar-${key}` : group === 'panel' ? `panel-${key}` : `tab-${key}`}`).trim();
+    if (/^#[0-9a-f]{6}$/i.test(css)) return css;
+  }
+  return themeUiFallbacks[`${group}.${key}`] ?? '#64748b';
+};
+
+const setThemeUiColor = (group: keyof Omit<ThemeUiOverrides, 'radius'>, key: string, color: string) => {
+  settingsStore.setCustomThemeUiColor(group, key, color);
+};
+
+const setCornerRadius = (value: number) => settingsStore.setCornerRadius(value);
+
+const handleViewThemeSource = async ({ item }: { item: ThemeMarketplaceCatalogItem }) => {
+  sourceDialog.value = { open: true, loading: true, raw: '', error: '', item };
+  await loadThemeSource();
+};
+
+const loadThemeSource = async () => {
+  const item = sourceDialog.value.item;
+  if (!item) return;
+  sourceDialog.value.loading = true;
+  sourceDialog.value.error = '';
+  const result = await marketplaceService.fetchPackageSource(item);
+  sourceDialog.value.loading = false;
+  if (result.ok) sourceDialog.value.raw = result.value;
+  else sourceDialog.value.error = result.error.message;
+};
+
+const closeSourceDialog = () => {
+  sourceDialog.value.open = false;
+};
+
+const copyThemeSource = async () => {
+  if (sourceDialog.value.raw && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(sourceDialog.value.raw);
+  }
 };
 
 const setTheme = (theme: 'light' | 'dark' | 'system') => {
@@ -1413,6 +1628,23 @@ const resetFontSize = () => {
   settingsStore.resetFontSize();
 };
 
+const increaseUiFontSize = () => {
+  settingsStore.adjustUiFontSize(1);
+};
+
+const decreaseUiFontSize = () => {
+  settingsStore.adjustUiFontSize(-1);
+};
+
+const resetUiFontSize = () => {
+  settingsStore.resetUiFontSize();
+};
+
+const setUiFontFamily = (value: string | number | null) => {
+  if (typeof value !== 'string') return;
+  settingsStore.updateSettings({ uiFontFamily: value });
+};
+
 const setFontFamily = (value: string | number | null) => {
   if (typeof value !== 'string') return;
   settingsStore.updateSettings({ fontFamily: value });
@@ -1729,7 +1961,7 @@ onMounted(async () => {
 
 .settings-drawer-tip {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   line-height: 1.6;
   color: var(--text-secondary, #cbd5e1);
 }
@@ -1752,12 +1984,12 @@ onMounted(async () => {
 }
 
 .settings-overview-item span {
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted, #94a3b8);
 }
 
 .settings-overview-item strong {
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   line-height: 1.4;
   color: var(--text-primary, #f8fafc);
   word-break: break-word;
@@ -1783,7 +2015,7 @@ onMounted(async () => {
 .settings-section-title {
   margin: 0 0 14px;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1801,13 +2033,13 @@ onMounted(async () => {
   display: block;
   margin-bottom: 8px;
   color: var(--text-secondary, #cbd5e1);
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
 }
 
 .settings-item-hint {
   margin: 8px 0 0;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   line-height: 1.45;
 }
 
@@ -1894,12 +2126,12 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .theme-swatch-copy small {
   color: var(--text-muted, #94a3b8);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .theme-style-fallback {
@@ -1909,7 +2141,7 @@ onMounted(async () => {
   gap: 10px;
   margin-top: 8px;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .custom-theme-settings {
@@ -1920,7 +2152,7 @@ onMounted(async () => {
 .custom-theme-desc {
   margin: 0 0 10px;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   line-height: 1.5;
 }
 
@@ -1950,7 +2182,7 @@ onMounted(async () => {
 }
 
 .custom-theme-item span {
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
 }
 
@@ -1970,7 +2202,7 @@ onMounted(async () => {
 }
 
 .custom-theme-control code {
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-muted, #94a3b8);
 }
 
@@ -1991,13 +2223,13 @@ onMounted(async () => {
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   color: var(--text-primary, #f8fafc);
   resize: vertical;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   line-height: 1.5;
 }
 
 .custom-theme-status {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
 }
 
@@ -2018,7 +2250,7 @@ onMounted(async () => {
   padding: 9px 10px;
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .theme-json-example pre {
@@ -2028,7 +2260,7 @@ onMounted(async () => {
   border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
   padding: 10px;
   color: var(--text-primary, #f8fafc);
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -2074,12 +2306,12 @@ onMounted(async () => {
 }
 
 .theme-package-name {
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   color: var(--text-primary, #f8fafc);
 }
 
 .theme-package-meta {
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-muted, #94a3b8);
   overflow-wrap: anywhere;
 }
@@ -2094,7 +2326,7 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
 }
 
@@ -2104,9 +2336,54 @@ onMounted(async () => {
 
 .theme-package-empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted, #94a3b8);
 }
+
+.theme-source-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, 0.62);
+  backdrop-filter: blur(5px);
+}
+
+.theme-source-dialog {
+  display: flex;
+  width: min(860px, 100%);
+  max-height: min(760px, 90vh);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.3));
+  border-radius: var(--radius-ui-lg, 8px);
+  background: var(--panel-raised, #202c43);
+  color: var(--text-primary, #f8fafc);
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.45);
+}
+
+.theme-source-header,
+.theme-source-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--panel-border, rgba(148, 163, 184, 0.2));
+}
+
+.theme-source-header h4,
+.theme-source-header p { margin: 0; }
+.theme-source-header p { margin-top: 3px; color: var(--text-muted, #94a3b8); font-size: 12px; }
+.theme-source-pre { flex: 1; min-height: 220px; margin: 0; overflow: auto; padding: 16px; background: rgba(2, 6, 23, 0.25); font: 12px/1.6 var(--font-family-mono, monospace); white-space: pre-wrap; }
+.theme-source-state { padding: 32px 16px; text-align: center; color: var(--text-secondary, #cbd5e1); }
+.theme-source-error { color: #fca5a5; }
+.theme-source-actions { justify-content: flex-end; border-top: 1px solid var(--panel-border, rgba(148, 163, 184, 0.2)); border-bottom: 0; }
+.radius-slider-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.radius-slider { flex: 1; accent-color: var(--accent-brand, #38bdf8); }
+.radius-slider-row output { min-width: 42px; color: var(--text-secondary, #cbd5e1); font-size: 12px; }
 
 .settings-action-btn:disabled {
   cursor: default;
@@ -2153,7 +2430,7 @@ onMounted(async () => {
 
 .keybinding-title {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-primary, #f8fafc);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2161,7 +2438,7 @@ onMounted(async () => {
 
 .keybinding-meta {
   overflow: hidden;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 10px);
   color: var(--text-muted, #94a3b8);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2175,7 +2452,7 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
   background: rgba(15, 23, 42, 0.4);
   color: var(--text-secondary, #cbd5e1);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   cursor: pointer;
 }
 
@@ -2263,11 +2540,11 @@ onMounted(async () => {
 
 .settings-update-item span {
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .settings-update-item strong {
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   line-height: 1.4;
   color: var(--text-primary, #f8fafc);
   word-break: break-word;
@@ -2281,7 +2558,7 @@ onMounted(async () => {
 .settings-update-message,
 .settings-update-notes {
   margin: 12px 0 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   line-height: 1.6;
 }
 
@@ -2360,13 +2637,13 @@ onMounted(async () => {
 
 .settings-author-donation h5 {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   color: var(--text-primary, #f8fafc);
 }
 
 .settings-author-donation-desc {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .settings-author-qr-grid {
@@ -2392,14 +2669,14 @@ onMounted(async () => {
 
 .settings-author-qr-card figcaption {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
   text-align: center;
 }
 
 .settings-author-donation-tip {
   margin: 10px 0 0 !important;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
 }
 
@@ -2463,7 +2740,7 @@ onMounted(async () => {
 
 .association-group-title {
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-weight: 600;
   color: var(--text-muted, #94a3b8);
   text-transform: uppercase;
@@ -2493,11 +2770,11 @@ onMounted(async () => {
 }
 
 .association-item code {
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 
 .association-script-badge {
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 10px);
   line-height: 1;
   padding: 3px 6px;
   border-radius: var(--radius-xs);
@@ -2508,7 +2785,7 @@ onMounted(async () => {
 
 .association-state {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-muted, #94a3b8);
 }
 

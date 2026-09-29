@@ -1,10 +1,39 @@
 :root {
+  --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  --font-size-ui-base: 11px;
+  --font-size-ui-xs: max(10px, calc(var(--font-size-ui-base) - 1px));
+  --font-size-ui-sm: var(--font-size-ui-base);
+  --font-size-ui-md: calc(var(--font-size-ui-base) + 1px);
+  --font-size-ui-lg: calc(var(--font-size-ui-base) + 3px);
   --bg-app: #0b1020;
   --bg-backdrop: rgba(8, 13, 26, 0.78);
 
   --panel-base: #101726;
   --panel-elevated: #151d2d;
+  --panel-raised: #151d2d;
+  --panel-border: var(--border-soft);
+  --section-heading: var(--text-primary);
   --panel-overlay: rgba(13, 19, 34, 0.92);
+
+  --sidebar-bg: var(--panel-base);
+  --sidebar-text: var(--text-secondary);
+  --sidebar-active-bg: var(--surface-active);
+  --sidebar-active-text: var(--text-primary);
+  --sidebar-active-indicator: var(--accent-brand);
+  --tab-bg: var(--panel-base);
+  --tab-text: var(--text-secondary);
+  --tab-active-bg: var(--panel-elevated);
+  --tab-active-text: var(--text-primary);
+  --tab-active-indicator: var(--accent-brand);
+  --tab-hover-bg: var(--surface-hover);
+  --syntax-keyword: var(--accent-brand);
+  --syntax-string: var(--state-success);
+  --syntax-number: var(--accent-amber);
+  --syntax-comment: var(--text-muted);
+  --syntax-function: var(--accent-brand-strong);
+  --syntax-type: var(--accent-brand);
+  --syntax-variable: var(--text-primary);
 
   --surface-muted: rgba(255, 255, 255, 0.04);
   --surface-hover: rgba(255, 255, 255, 0.08);
@@ -29,15 +58,13 @@
   --radius-none: 0;
   --radius-xs: 2px;
   --radius-sm: 4px;
-  --radius-md: 6px;
+  --radius-ui: 6px;
+  --radius-ui-sm: 4px;
+  --radius-ui-lg: 8px;
+  --radius-md: var(--radius-ui);
   --radius-lg: 8px;
   --radius-pill: 999px;
   --radius-round: var(--radius-pill);
-
-  --font-size-ui-xs: 11px;
-  --font-size-ui-sm: 12px;
-  --font-size-ui-md: 13px;
-  --font-size-ui-lg: 15px;
   --toolbar-height: 52px;
   --tabs-height: 44px;
 

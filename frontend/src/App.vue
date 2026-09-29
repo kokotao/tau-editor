@@ -205,7 +205,7 @@ const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
 };
 type SettingsContainer = 'workspace' | 'drawer';
-type SettingsCategory = 'general' | 'editor' | 'fileAssociations' | 'updates' | 'about';
+type SettingsCategory = 'general' | 'editor' | 'themes' | 'fileAssociations' | 'updates' | 'about';
 const settingsContainer = ref<SettingsContainer | null>(null);
 const activeSettingsCategory = ref<SettingsCategory>('general');
 const fileTreeContextEntry = ref<FileTreeNode | null>(null);
@@ -337,7 +337,13 @@ const wordCount = computed(() => {
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
-const workspaceLabel = computed(() => workspaceStore.currentWorkspaceName ?? appText.value.workspaceNotOpen);
+const workspaceLabel = computed(() => {
+  if (mode.value !== 'workspace') {
+    return undefined;
+  }
+
+  return workspaceStore.currentWorkspaceName ?? appText.value.workspaceNotOpen;
+});
 const currentFileLabel = computed(() => {
   if (!activeTab.value) {
     return appText.value.fileNotOpen;
@@ -2214,7 +2220,7 @@ async function restoreSession() {
     workspaceStore.openWorkspace(snapshot.workspacePath);
     void fileSystemStore.syncFromWorkspace();
   } else if (restoredTabs.length > 0) {
-    workspaceStore.setMode('single-file');
+    workspaceStore.setMode('single-file', true);
   } else {
     workspaceStore.setEmptyMode();
   }
@@ -2793,7 +2799,7 @@ onUnmounted(() => {
 :root {
   --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  --panel-radius: 0;
+  --panel-radius: var(--radius-ui, 0px);
   --panel-gap: 8px;
   /* Compatibility aliases shared by the older component styles. */
   --app-bg: var(--bg-app);
@@ -2818,8 +2824,8 @@ body,
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(76, 146, 255, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(85, 239, 196, 0.12), transparent 24%),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-brand) 18%, transparent), transparent 28%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent-brand-strong) 12%, transparent), transparent 24%),
     var(--app-bg);
   color: var(--text-primary);
   font-family: var(--font-ui);
@@ -2883,8 +2889,9 @@ textarea {
   overflow: hidden;
   border: 1px solid var(--border-soft);
   border-radius: var(--panel-radius);
-  background: rgba(9, 14, 26, 0.52);
+  background: color-mix(in srgb, var(--panel-base) 82%, transparent);
   box-shadow: var(--shadow-soft);
+  transition: background-color .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
 
 .context-rail-resizer {
@@ -2909,12 +2916,13 @@ textarea {
   flex-shrink: 0;
   border: 1px solid var(--border-soft);
   border-radius: var(--panel-radius);
-  background: rgba(9, 14, 26, 0.52);
+  background: color-mix(in srgb, var(--panel-base) 82%, transparent);
   backdrop-filter: blur(14px);
   min-height: 0;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-soft);
+  transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
 
 .settings-drawer {
@@ -2935,7 +2943,7 @@ textarea {
   position: absolute;
   inset: var(--panel-gap);
   border-radius: 0;
-  background: rgba(2, 6, 23, 0.48);
+  background: color-mix(in srgb, var(--bg-app) 48%, transparent);
   backdrop-filter: blur(4px);
   z-index: calc(var(--z-drawer, 50) - 1);
 }
@@ -2977,7 +2985,7 @@ textarea {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(8, 12, 22, 0.34);
+  background: color-mix(in srgb, var(--panel-base) 88%, transparent);
 }
 
 .settings-page {
@@ -2986,7 +2994,7 @@ textarea {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(160deg, rgba(13, 21, 36, 0.92), rgba(10, 16, 29, 0.96));
+  background: color-mix(in srgb, var(--panel-base) 96%, transparent);
 }
 
 .editor-stage {
@@ -3184,7 +3192,7 @@ textarea {
   border-radius: var(--radius-xs);
   background: rgba(124, 199, 255, 0.12);
   color: var(--accent-blue);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0;
@@ -3198,7 +3206,7 @@ textarea {
 
 .hero-card p {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-ui-lg, 15px);
   line-height: 1.7;
   color: var(--text-secondary);
 }
@@ -3226,7 +3234,7 @@ textarea {
 
 .recent-label {
   min-width: 64px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted);
 }
 

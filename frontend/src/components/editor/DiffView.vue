@@ -154,7 +154,7 @@ watch(
   min-width: 0;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
 }
 
@@ -181,7 +181,7 @@ watch(
   border-radius: var(--radius-sm);
   background: rgba(15, 23, 42, 0.4);
   color: var(--text-secondary, #cbd5e1);
-  font-size: 12px;
+  font-size: var(--font-size-ui-sm, 12px);
   cursor: pointer;
 }
 

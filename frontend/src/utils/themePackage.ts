@@ -21,9 +21,18 @@ export type ThemeColors = Partial<Record<ThemeColorKey, string>>;
 export type ThemeMode = 'light' | 'dark';
 export type MonacoBaseTheme = 'vs' | 'vs-dark' | 'hc-black';
 
+export interface ThemeUiOverrides {
+  sidebar?: { bg?: string; text?: string; activeBg?: string; activeText?: string; activeIndicator?: string };
+  panel?: { bg?: string; raisedBg?: string; border?: string; heading?: string };
+  tabs?: { bg?: string; text?: string; activeBg?: string; activeText?: string; activeIndicator?: string; hoverBg?: string };
+  syntax?: { keyword?: string; string?: string; number?: string; comment?: string; function?: string; type?: string; variable?: string };
+  radius?: number;
+}
+
 export interface ThemePackageModeDefinition {
   colors: ThemeColors;
   monaco?: ThemePackageMonacoTheme;
+  ui?: ThemeUiOverrides;
 }
 
 export interface MonacoThemeRule {
@@ -86,6 +95,35 @@ const HEX_COLOR_WITH_ALPHA_PATTERN = /^#[0-9a-fA-F]{8}$/;
 const THEME_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 const MONACO_COLOR_KEY_PATTERN = /^[a-zA-Z0-9.[\]#_-]+$/;
 const FONT_STYLE_TOKENS = new Set(['', 'italic', 'bold', 'underline', 'strikethrough']);
+
+const THEME_UI_COLOR_KEYS = {
+  sidebar: ['bg', 'text', 'activeBg', 'activeText', 'activeIndicator'],
+  panel: ['bg', 'raisedBg', 'border', 'heading'],
+  tabs: ['bg', 'text', 'activeBg', 'activeText', 'activeIndicator', 'hoverBg'],
+  syntax: ['keyword', 'string', 'number', 'comment', 'function', 'type', 'variable'],
+} as const;
+
+/** 只保留主题 UI 覆盖白名单内的 hex 颜色，忽略任意 CSS/未知字段。 */
+export function normalizeThemeUiOverrides(value: unknown): ThemeUiOverrides | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const result: ThemeUiOverrides = {};
+  Object.entries(THEME_UI_COLOR_KEYS).forEach(([group, keys]) => {
+    const source = record[group];
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+    const colors: Record<string, string> = {};
+    keys.forEach((key) => {
+      const color = normalizeHexColor((source as Record<string, unknown>)[key]);
+      if (color) colors[key] = color;
+    });
+    if (Object.keys(colors).length) (result as Record<string, unknown>)[group] = colors;
+  });
+  const radius = record.radius;
+  if (typeof radius === 'number' && Number.isInteger(radius) && radius >= 0 && radius <= 12) {
+    result.radius = radius;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
 
 export function normalizeHexColor(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -359,6 +397,7 @@ export function normalizeThemePackageRecord(parsed: unknown): ThemePackageParseR
     modes[mode] = {
       colors: normalizeThemeColors(branch.colors ?? branch),
       monaco: normalizeMonaco(branch.monaco),
+      ui: normalizeThemeUiOverrides(branch.ui),
     };
   });
 
@@ -419,6 +458,7 @@ export function serializeThemePackage(theme: ThemePackage): string {
     modes: theme.modes
       ? Object.fromEntries(Object.entries(theme.modes).map(([mode, branch]) => [mode, {
         colors: { ...(branch?.colors ?? {}) },
+        ui: branch?.ui ? JSON.parse(JSON.stringify(branch.ui)) : undefined,
         monaco: branch?.monaco ? {
           base: branch.monaco.base,
           rules: branch.monaco.rules.map((rule) => ({ ...rule })),
@@ -426,9 +466,9 @@ export function serializeThemePackage(theme: ThemePackage): string {
         } : undefined,
       }]))
       : {
-        [theme.mode]: {
-          colors: { ...theme.colors },
-          monaco: {
+      [theme.mode]: {
+        colors: { ...theme.colors },
+        monaco: {
             base: theme.monaco.base,
             rules: theme.monaco.rules.map((rule) => ({ ...rule })),
             colors: { ...theme.monaco.colors },
@@ -476,6 +516,7 @@ export function createThemePackageFromColors(input: {
   colors: ThemeColors;
   base: MonacoBaseTheme;
   version?: string;
+  ui?: ThemeUiOverrides;
 }): ThemePackageParseResult {
   return parseThemePackage(
     JSON.stringify({
@@ -488,6 +529,7 @@ export function createThemePackageFromColors(input: {
       modes: {
         [input.mode]: {
           colors: input.colors,
+          ui: input.ui,
           monaco: { base: input.base, rules: [], colors: {} },
         },
         [input.mode === 'light' ? 'dark' : 'light']: {

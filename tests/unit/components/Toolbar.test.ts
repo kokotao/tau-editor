@@ -75,6 +75,19 @@ describe('Toolbar.vue', () => {
       expect(wrapper.text()).toContain('README.md')
     })
 
+    it('当前文件名作为主身份信息并提供可访问名称', () => {
+      const wrapper = mountToolbar({
+        appLabel: 'Text Studio',
+        workspaceLabel: 'Default Workspace',
+        currentFileLabel: 'a-very-long-file-name.sql',
+      })
+
+      const fileLabel = wrapper.get('.toolbar-file-label')
+      expect(fileLabel.attributes('title')).toBe('a-very-long-file-name.sql')
+      expect(fileLabel.attributes('aria-label')).toBe('当前文件：a-very-long-file-name.sql')
+      expect(fileLabel.classes()).toContain('toolbar-file-label')
+    })
+
     it('未提供任何 label 时不显示身份区域', () => {
       const wrapper = mountToolbar()
       expect(wrapper.find('.toolbar-identity').exists()).toBe(false)

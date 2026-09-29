@@ -155,6 +155,32 @@ describe('themePackage', () => {
     expect(normalizeThemePackageRecord({ id: 'ok', name: 'Ok', colors: { bgApp: '#000', textPrimary: '#fff' } }).ok).toBe(true);
   });
 
+  it('normalizes optional UI overrides and drops unsafe fields', () => {
+    const result = parseThemePackage(JSON.stringify({
+      id: 'ui-pack',
+      name: 'UI Pack',
+      colors: { bgApp: '#000000', textPrimary: '#ffffff' },
+      ui: { sidebar: { activeBg: '#123', activeText: 'red', ignored: '#fff' }, radius: 13 },
+      modes: {
+        dark: {
+          colors: { bgApp: '#000000', textPrimary: '#ffffff' },
+          ui: {
+            sidebar: { bg: '#101010', activeBg: '#202020' },
+            tabs: { activeIndicator: '#abcdef' },
+            radius: 8,
+          },
+        },
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.theme.modes?.dark?.ui).toEqual({
+      sidebar: { bg: '#101010', activeBg: '#202020' },
+      tabs: { activeIndicator: '#abcdef' },
+      radius: 8,
+    });
+  });
+
   it('normalizes v2 light/dark branches and supports palette packages', () => {
     const result = parseThemePackage(JSON.stringify({
       schemaVersion: 2,

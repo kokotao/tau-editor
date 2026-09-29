@@ -19,6 +19,7 @@ import {
   normalizeHexColor as normalizeThemeHexColor,
   normalizeThemeColors,
   normalizeThemePackageRecord,
+  normalizeThemeUiOverrides,
   parseThemePackage,
   resolveMonacoThemeId,
   serializeThemePackage,
@@ -31,6 +32,7 @@ import {
   type ThemeColors,
   type ThemePackage,
   type ThemePackageError,
+  type ThemeUiOverrides,
 } from '@/utils/themePackage';
 
 /** 可由用户微调的颜色；应用/面板背景始终由主题模式或完整主题包决定。 */
@@ -48,6 +50,8 @@ export const MARKDOWN_PREVIEW_THEMES = [
 export type CustomThemeColorKey = Exclude<ThemeColorKey, 'bgApp' | 'panelBase'>;
 export type CustomThemeColors = Partial<Record<CustomThemeColorKey, string>>;
 export type CustomThemeOverrides = Partial<Record<'light' | 'dark', CustomThemeColors>>;
+export type CornerRadiusPreset = 'sharp' | 'compact' | 'standard' | 'soft' | 'round' | 'custom';
+export type CustomThemeUiOverrides = Partial<Record<'light' | 'dark', ThemeUiOverrides>>;
 
 /** Monaco 自定义主题定义，与 monaco.editor.IStandaloneThemeData 结构对齐。 */
 export interface MonacoThemeDefinition {
@@ -84,6 +88,9 @@ export interface EditorSettings {
   monacoTheme: 'vs' | 'vs-dark' | 'hc-black';
   customThemeColors: CustomThemeColors;
   customThemeOverrides: CustomThemeOverrides;
+  customThemeUiOverrides: CustomThemeUiOverrides;
+  cornerRadius: number;
+  cornerRadiusPreset: CornerRadiusPreset;
   // v0.4.0：导入的主题包与当前生效主题包（null 表示使用内置皮肤）
   themePackages: ThemePackage[];
   activeThemePackageId: string | null;
@@ -91,6 +98,8 @@ export interface EditorSettings {
   keybindingOverrides: KeybindingOverrides;
   fontFamily: string;
   fontSize: number;
+  uiFontFamily: string;
+  uiFontSize: number;
   lineHeight: number;
   minimap: boolean;
   wordWrap: boolean;
@@ -127,16 +136,70 @@ export interface EditorSettings {
 // localStorage 键名
 const STORAGE_KEY = 'text-editor-settings';
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
+export const DEFAULT_UI_FONT_FAMILY = "'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif";
+export const DEFAULT_UI_FONT_SIZE = 11;
+export const MIN_UI_FONT_SIZE = 10;
+export const MAX_UI_FONT_SIZE = 16;
 const DEFAULT_MAX_OPEN_TABS = 30;
 const DEFAULT_MEMORY_LIMIT_MB = 256;
 const MIN_CONTEXT_RAIL_WIDTH = 240;
 const MAX_CONTEXT_RAIL_WIDTH = 420;
 const DEFAULT_CONTEXT_RAIL_WIDTH = 300;
+const DEFAULT_CORNER_RADIUS = 6;
+const CORNER_RADIUS_PRESETS: Record<Exclude<CornerRadiusPreset, 'custom'>, number> = {
+  sharp: 0,
+  compact: 4,
+  standard: 6,
+  soft: 8,
+  round: 12,
+};
+
+const THEME_UI_CSS_VAR_MAP: Record<string, string> = {
+  'sidebar.bg': '--sidebar-bg',
+  'sidebar.text': '--sidebar-text',
+  'sidebar.activeBg': '--sidebar-active-bg',
+  'sidebar.activeText': '--sidebar-active-text',
+  'sidebar.activeIndicator': '--sidebar-active-indicator',
+  'panel.bg': '--panel-base',
+  'panel.raisedBg': '--panel-raised',
+  'panel.border': '--panel-border',
+  'panel.heading': '--section-heading',
+  'tabs.bg': '--tab-bg',
+  'tabs.text': '--tab-text',
+  'tabs.activeBg': '--tab-active-bg',
+  'tabs.activeText': '--tab-active-text',
+  'tabs.activeIndicator': '--tab-active-indicator',
+  'tabs.hoverBg': '--tab-hover-bg',
+  'syntax.keyword': '--syntax-keyword',
+  'syntax.string': '--syntax-string',
+  'syntax.number': '--syntax-number',
+  'syntax.comment': '--syntax-comment',
+  'syntax.function': '--syntax-function',
+  'syntax.type': '--syntax-type',
+  'syntax.variable': '--syntax-variable',
+};
 
 let systemThemeMediaQuery: MediaQueryList | null = null;
 let systemThemeListenerAttached = false;
 
 const normalizeHexColor = (value: unknown): string | null => normalizeThemeHexColor(value);
+
+function normalizeUiFontFamily(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    return DEFAULT_UI_FONT_FAMILY;
+  }
+
+  return value.trim();
+}
+
+function normalizeUiFontSize(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_UI_FONT_SIZE;
+  }
+
+  return Math.max(MIN_UI_FONT_SIZE, Math.min(MAX_UI_FONT_SIZE, Math.round(parsed)));
+}
 
 function normalizeCustomThemeColors(value: unknown): CustomThemeColors {
   if (!value || typeof value !== 'object') {
@@ -163,6 +226,39 @@ function normalizeCustomThemeOverrides(value: unknown): CustomThemeOverrides {
     light: normalizeCustomThemeColors(record.light),
     dark: normalizeCustomThemeColors(record.dark),
   };
+}
+
+function normalizeCornerRadius(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(12, Math.max(0, Math.round(parsed))) : DEFAULT_CORNER_RADIUS;
+}
+
+function normalizeCornerRadiusPreset(value: unknown): CornerRadiusPreset {
+  return value === 'sharp' || value === 'compact' || value === 'standard' || value === 'soft' || value === 'round' || value === 'custom'
+    ? value
+    : 'standard';
+}
+
+function normalizeCustomThemeUiOverrides(value: unknown): CustomThemeUiOverrides {
+  if (!value || typeof value !== 'object') return {};
+  const result: CustomThemeUiOverrides = {};
+  (['light', 'dark'] as const).forEach((mode) => {
+    const normalized = normalizeThemeUiOverrides((value as Record<string, unknown>)[mode]);
+    if (normalized) result[mode] = normalized;
+  });
+  return result;
+}
+
+function flattenThemeUiOverrides(value: ThemeUiOverrides | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!value) return result;
+  Object.entries(value).forEach(([group, fields]) => {
+    if (!fields || typeof fields !== 'object') return;
+    Object.entries(fields).forEach(([key, color]) => {
+      if (typeof color === 'string') result[`${group}.${key}`] = color;
+    });
+  });
+  return result;
 }
 
 function relativeLuminance(color: string): number {
@@ -325,11 +421,16 @@ export const useSettingsStore = defineStore('settings', {
     monacoTheme: 'vs-dark',
     customThemeColors: {},
     customThemeOverrides: {},
+    customThemeUiOverrides: {},
+    cornerRadius: DEFAULT_CORNER_RADIUS,
+    cornerRadiusPreset: 'standard',
     themePackages: [],
     activeThemePackageId: null,
     keybindingOverrides: {},
     fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace",
     fontSize: 15,
+    uiFontFamily: DEFAULT_UI_FONT_FAMILY,
+    uiFontSize: DEFAULT_UI_FONT_SIZE,
     lineHeight: 1.6,
     minimap: true,
     wordWrap: false,
@@ -393,6 +494,15 @@ export const useSettingsStore = defineStore('settings', {
   },
 
   actions: {
+    applyUiFont() {
+      if (typeof document === 'undefined') return;
+      const root = document.documentElement as HTMLElement | null;
+      if (!root?.style?.setProperty) return;
+
+      root.style.setProperty('--font-ui', this.uiFontFamily);
+      root.style.setProperty('--font-size-ui-base', `${this.uiFontSize}px`);
+    },
+
     ensureThemeListener() {
       if (
         typeof window === 'undefined' ||
@@ -425,6 +535,8 @@ export const useSettingsStore = defineStore('settings', {
         if (saved) {
           const parsed = JSON.parse(saved);
           this.$patch(parsed);
+          this.uiFontFamily = normalizeUiFontFamily(this.uiFontFamily);
+          this.uiFontSize = normalizeUiFontSize(this.uiFontSize);
           const migratedColors = normalizeCustomThemeColors(this.customThemeColors);
           const loadedOverrides = normalizeCustomThemeOverrides(this.customThemeOverrides);
           if (Object.keys(migratedColors).length > 0 && Object.keys(loadedOverrides.light ?? {}).length === 0 && Object.keys(loadedOverrides.dark ?? {}).length === 0) {
@@ -432,6 +544,9 @@ export const useSettingsStore = defineStore('settings', {
           }
           this.customThemeOverrides = loadedOverrides;
           this.customThemeColors = loadedOverrides[getThemeResolution(this).resolvedTheme] ?? {};
+          this.customThemeUiOverrides = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides);
+          this.cornerRadius = normalizeCornerRadius(this.cornerRadius);
+          this.cornerRadiusPreset = normalizeCornerRadiusPreset(this.cornerRadiusPreset);
           this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
           this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
           this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
@@ -465,11 +580,16 @@ export const useSettingsStore = defineStore('settings', {
           monacoTheme: this.monacoTheme,
           customThemeColors: this.customThemeColors,
           customThemeOverrides: this.customThemeOverrides,
+          customThemeUiOverrides: this.customThemeUiOverrides,
+          cornerRadius: normalizeCornerRadius(this.cornerRadius),
+          cornerRadiusPreset: normalizeCornerRadiusPreset(this.cornerRadiusPreset),
           themePackages: this.themePackages,
           activeThemePackageId: this.activeThemePackageId,
           keybindingOverrides: this.keybindingOverrides,
           fontFamily: this.fontFamily,
           fontSize: this.fontSize,
+          uiFontFamily: this.uiFontFamily,
+          uiFontSize: this.uiFontSize,
           lineHeight: this.lineHeight,
           minimap: this.minimap,
           wordWrap: this.wordWrap,
@@ -508,10 +628,16 @@ export const useSettingsStore = defineStore('settings', {
       this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
       this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
       this.themePackages = normalizeStoredThemePackages(this.themePackages);
+      this.customThemeUiOverrides = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides);
+      this.cornerRadius = normalizeCornerRadius(this.cornerRadius);
+      this.cornerRadiusPreset = normalizeCornerRadiusPreset(this.cornerRadiusPreset);
       if (!this.themePackages.some((theme) => theme.id === this.activeThemePackageId)) {
         this.activeThemePackageId = null;
       }
       this.keybindingOverrides = normalizeKeybindingOverrides(this.keybindingOverrides);
+      this.uiFontFamily = normalizeUiFontFamily(this.uiFontFamily);
+      this.uiFontSize = normalizeUiFontSize(this.uiFontSize);
+      this.applyUiFont();
 
       // 明暗模式切换时同步推荐 Monaco 基底，避免浅色 UI 仍沿用深色编辑器
       // 或深色 UI 使用浅色编辑器造成文字与背景对比不足。显式传入 monacoTheme
@@ -553,6 +679,9 @@ export const useSettingsStore = defineStore('settings', {
         partial.customThemeOverrides !== undefined ||
         partial.themePackages !== undefined ||
         partial.activeThemePackageId !== undefined
+        || partial.customThemeUiOverrides !== undefined
+        || partial.cornerRadius !== undefined
+        || partial.cornerRadiusPreset !== undefined
       ) {
         this.applyTheme();
       }
@@ -573,6 +702,7 @@ export const useSettingsStore = defineStore('settings', {
       this.saveToStorage();
       await this.syncAutoSaveToTauri();
       this.applyTheme();
+      this.applyUiFont();
       this.applyLanguage();
     },
 
@@ -586,13 +716,18 @@ export const useSettingsStore = defineStore('settings', {
       root.classList.add(themeState.resolvedTheme, `theme-${themeState.resolvedTheme}`, `skin-${themeState.skin}`);
       // 每次应用前都清理内联变量，避免旧模式的背景/面板颜色锁死后续 CSS skin 切换。
       const allThemeVars = [
-        '--bg-app', '--panel-base', '--text-primary', '--text-secondary', '--accent-brand',
+        '--bg-app', '--panel-base', '--panel-elevated', '--text-primary', '--text-secondary', '--accent-brand',
         '--accent-brand-strong', '--state-success', '--state-danger',
+        ...Object.values(THEME_UI_CSS_VAR_MAP).filter((name) => name !== '--panel-base'),
+        '--radius-ui', '--radius-ui-sm', '--radius-ui-lg',
       ];
       allThemeVars.forEach((name) => root.style.removeProperty(name));
       // 完整主题包按当前 resolved mode 取分支；快速配色只覆盖文字/强调色。
       const activePackage = this.activeThemePackage;
       const overrides = this.customThemeOverrides[themeState.resolvedTheme] ?? this.customThemeColors;
+      const packageUi = activePackage?.modes?.[themeState.resolvedTheme]?.ui
+        ?? activePackage?.modes?.[activePackage.defaultMode ?? activePackage.mode]?.ui;
+      const customUi = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides)[themeState.resolvedTheme];
       if (activePackage) {
         const packageColors = themePackageToCssColors(activePackage, themeState.resolvedTheme);
         ['bgApp', 'panelBase'].forEach((key) => {
@@ -603,6 +738,54 @@ export const useSettingsStore = defineStore('settings', {
       } else {
         applyCustomThemeColors(root, overrides);
       }
+
+      // 顶栏、状态栏和浮层统一从当前面板色派生，避免主题包只覆盖 panelBase 时残留旧色。
+      root.style.setProperty('--panel-elevated', 'color-mix(in srgb, var(--panel-base) 92%, var(--text-primary) 8%)');
+      const mergedUi = { ...flattenThemeUiOverrides(packageUi), ...flattenThemeUiOverrides(customUi) };
+      Object.entries(mergedUi).forEach(([key, color]) => {
+        const cssVar = THEME_UI_CSS_VAR_MAP[key];
+        if (cssVar) root.style.setProperty(cssVar, color);
+      });
+      // 用户圆角设置始终优先于主题包提供的建议值。
+      const radius = normalizeCornerRadius(this.cornerRadius);
+      root.style.setProperty('--radius-ui', `${radius}px`);
+      root.style.setProperty('--radius-ui-sm', `max(0px, ${radius - 2}px)`);
+      root.style.setProperty('--radius-ui-lg', `min(12px, ${radius + 2}px)`);
+    },
+
+    setCustomThemeUiColor(group: keyof Omit<ThemeUiOverrides, 'radius'>, key: string, color: string) {
+      const cssKey = `${group}.${key}`;
+      if (!THEME_UI_CSS_VAR_MAP[cssKey]) return;
+      const normalized = normalizeHexColor(color);
+      const mode = this.resolvedTheme;
+      const overrides = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides);
+      const current = { ...(overrides[mode] ?? {}) } as ThemeUiOverrides;
+      const groupValues = { ...((current[group] ?? {}) as Record<string, string>) };
+      if (normalized) groupValues[key] = normalized;
+      else delete groupValues[key];
+      (current as Record<string, unknown>)[group] = Object.keys(groupValues).length ? groupValues : undefined;
+      overrides[mode] = normalizeThemeUiOverrides(current);
+      this.customThemeUiOverrides = overrides;
+      this.saveToStorage();
+      this.applyTheme();
+    },
+
+    setCornerRadiusPreset(preset: CornerRadiusPreset) {
+      const normalizedPreset = normalizeCornerRadiusPreset(preset);
+      this.cornerRadiusPreset = normalizedPreset;
+      if (normalizedPreset !== 'custom') {
+        this.cornerRadius = CORNER_RADIUS_PRESETS[normalizedPreset];
+      }
+      this.saveToStorage();
+      this.applyTheme();
+    },
+
+    setCornerRadius(value: number) {
+      this.cornerRadius = normalizeCornerRadius(value);
+      this.cornerRadiusPreset = Object.entries(CORNER_RADIUS_PRESETS)
+        .find(([, radius]) => radius === this.cornerRadius)?.[0] as CornerRadiusPreset | undefined ?? 'custom';
+      this.saveToStorage();
+      this.applyTheme();
     },
 
     setCustomThemeColor(key: CustomThemeColorKey, color: string) {
@@ -749,6 +932,10 @@ export const useSettingsStore = defineStore('settings', {
           mode: this.resolvedTheme,
           colors,
           base: this.monacoTheme,
+          ui: {
+            ...this.customThemeUiOverrides[this.resolvedTheme],
+            radius: this.cornerRadius,
+          },
         });
         return synthesized.ok ? serializeThemePackage(synthesized.theme) : null;
       }
@@ -837,6 +1024,14 @@ export const useSettingsStore = defineStore('settings', {
       this.updateSettings({ fontSize: 15 });
     },
 
+    adjustUiFontSize(delta: number) {
+      this.updateSettings({ uiFontSize: this.uiFontSize + delta });
+    },
+
+    resetUiFontSize() {
+      this.updateSettings({ uiFontSize: DEFAULT_UI_FONT_SIZE });
+    },
+
     // 初始化
     async init() {
       this.ensureThemeListener();
@@ -845,6 +1040,7 @@ export const useSettingsStore = defineStore('settings', {
       this.uiLanguage = normalizeUiLanguage(this.uiLanguage);
       // 然后应用主题
       this.applyTheme();
+      this.applyUiFont();
       this.applyLanguage();
       // 最后从 Tauri 加载（覆盖部分设置）
       await this.loadFromTauri();

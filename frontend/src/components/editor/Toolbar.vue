@@ -2,9 +2,24 @@
   <div class="toolbar" data-testid="toolbar">
     <div class="toolbar-zone toolbar-zone-start">
       <div v-if="hasIdentity" class="toolbar-identity">
-        <span v-if="appLabel" class="toolbar-app-label">{{ appLabel }}</span>
-        <span v-if="workspaceLabel" class="toolbar-workspace-label">{{ workspaceLabel }}</span>
-        <span v-if="currentFileLabel" class="toolbar-file-label">{{ currentFileLabel }}</span>
+        <span
+          v-if="appLabel"
+          class="toolbar-app-label"
+          :title="appLabel"
+          :aria-label="appLabel"
+        >{{ appLabel }}</span>
+        <span
+          v-if="workspaceLabel"
+          class="toolbar-workspace-label"
+          :title="workspaceLabel"
+          :aria-label="`工作区：${workspaceLabel}`"
+        >{{ workspaceLabel }}</span>
+        <span
+          v-if="currentFileLabel"
+          class="toolbar-file-label"
+          :title="currentFileLabel"
+          :aria-label="`当前文件：${currentFileLabel}`"
+        >{{ currentFileLabel }}</span>
       </div>
     </div>
 
@@ -446,6 +461,7 @@ onUnmounted(() => {
   background: var(--panel-elevated, #151d2d);
   border-bottom: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
   user-select: none;
+  transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
 
 .toolbar-group {
@@ -587,12 +603,14 @@ onUnmounted(() => {
 .toolbar-identity {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 
 .toolbar-identity span {
+  min-width: 0;
   font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-muted, #94a3b8);
   white-space: nowrap;
@@ -601,21 +619,25 @@ onUnmounted(() => {
 }
 
 .toolbar-app-label {
+  flex: 0 0 auto;
   font-weight: 700;
   color: var(--text-primary, #f8fafc);
 }
 
 .toolbar-workspace-label {
+  flex: 0 1 220px;
   padding: 2px 6px;
   border-radius: var(--radius-xs);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(148, 163, 184, 0.18);
-  max-width: 220px;
+  color: var(--text-secondary, #cbd5e1);
 }
 
 .toolbar-file-label {
+  flex: 1 1 auto;
+  min-width: 80px;
   color: var(--accent-cyan, #22d3ee);
-  max-width: 260px;
+  font-weight: 600;
 }
 
 .toolbar-divider {
@@ -696,7 +718,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1200px) {
-  .toolbar-file-label {
+  .toolbar-workspace-label {
     display: none;
   }
 }

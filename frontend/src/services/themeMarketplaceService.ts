@@ -326,7 +326,9 @@ export class ThemeMarketplaceService {
       if (packageUrl.protocol !== 'https:' || packageUrl.hostname !== 'raw.githubusercontent.com') {
         throw new MarketplaceServiceException('MARKETPLACE_INVALID_URL', '主题包地址不是受信任的 GitHub raw 地址');
       }
-      const response = await getFetch(this.options.fetchImpl)(packageUrl, { headers: { Accept: 'application/json' } });
+      const response = await getFetch(this.options.fetchImpl)(packageUrl, {
+        headers: { Accept: 'application/json' },
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.text();
       if (new TextEncoder().encode(raw).length > MAX_PACKAGE_BYTES) {
@@ -338,6 +340,46 @@ export class ThemeMarketplaceService {
         throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', '主题包 id 与 catalog 不一致');
       }
       return { ...parsed, source: 'network' };
+    } catch (error) {
+      return errorResult(error, 'MARKETPLACE_FETCH_FAILED');
+    }
+  }
+
+  async fetchPackageSource(item: ThemeMarketplaceCatalogItem, catalogUrl = DEFAULT_THEME_MARKETPLACE_CATALOG_URL): Promise<ThemeMarketplaceResult<string>> {
+    try {
+      assertRemoteUrl(catalogUrl);
+      const catalog = new URL(catalogUrl);
+      const packagePath = item.file.replace(/^\/+/, '');
+      const packageUrl = new URL(`../${packagePath}`, catalog);
+      if (packageUrl.protocol !== 'https:' || packageUrl.hostname !== 'raw.githubusercontent.com') {
+        throw new MarketplaceServiceException('MARKETPLACE_INVALID_URL', '主题包地址不是受信任的 GitHub raw 地址');
+      }
+
+      const response = await getFetch(this.options.fetchImpl)(packageUrl, {
+        headers: { Accept: 'application/json' },
+        redirect: 'error',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const raw = await response.text();
+      if (new TextEncoder().encode(raw).length > MAX_PACKAGE_BYTES) {
+        throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', '主题包超过 256 KB 上限');
+      }
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = JSON.parse(raw);
+      } catch {
+        throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', '主题包不是合法 JSON');
+      }
+      const parsedPackage = validateThemeMarketplacePackage(parsedJson);
+      if (!parsedPackage.ok) {
+        throw new MarketplaceServiceException(parsedPackage.error.code, parsedPackage.error.message);
+      }
+      if (parsedPackage.value.id !== item.id) {
+        throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', '主题包 id 与 catalog 不一致');
+      }
+
+      return { ok: true, value: raw, source: 'network' };
     } catch (error) {
       return errorResult(error, 'MARKETPLACE_FETCH_FAILED');
     }
