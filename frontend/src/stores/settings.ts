@@ -275,7 +275,15 @@ function normalizeStoredThemePackages(value: unknown): ThemePackage[] {
   const packages: ThemePackage[] = [];
   const seen = new Set<string>();
   value.slice(0, 64).forEach((entry) => {
-    const result = normalizeThemePackageRecord(entry);
+    // 已安装主题在本地存储中使用 `user:` 前缀避免与内置 id 冲突；
+    // 归一化前先去掉内部前缀，校验完成后再恢复，否则每次切换模式都会把已安装主题丢弃。
+    const candidate =
+      entry && typeof entry === 'object' && !Array.isArray(entry)
+        ? { ...(entry as Record<string, unknown>), id: typeof (entry as Record<string, unknown>).id === 'string'
+            ? String((entry as Record<string, unknown>).id).replace(/^user:/, '')
+            : (entry as Record<string, unknown>).id }
+        : entry;
+    const result = normalizeThemePackageRecord(candidate);
     if (!result.ok) {
       return;
     }

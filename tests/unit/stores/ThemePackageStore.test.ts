@@ -152,4 +152,51 @@ describe('settings store theme packages', () => {
     expect(store.themePackages.map((theme) => theme.id)).toEqual([packageId]);
     expect(store.activeThemePackageId).toBeNull();
   });
+
+  it('keeps installed v2 theme packages when switching light and dark modes', async () => {
+    const store = useSettingsStore();
+    const result = store.importThemePackage(JSON.stringify({
+      schemaVersion: 2,
+      type: 'theme',
+      id: 'mode-persistence',
+      name: 'Mode Persistence',
+      version: '1.0.0',
+      author: 'Test',
+      license: 'MIT',
+      defaultMode: 'dark',
+      modes: {
+        light: {
+          colors: {
+            bgApp: '#f8fafc',
+            panelBase: '#ffffff',
+            textPrimary: '#172033',
+          },
+        },
+        dark: {
+          colors: {
+            bgApp: '#0f172a',
+            panelBase: '#111827',
+            textPrimary: '#f8fafc',
+          },
+        },
+      },
+    }));
+
+    expect(result.success).toBe(true);
+    const packageId = `${USER_THEME_ID_PREFIX}mode-persistence`;
+    expect(store.themePackages.map((theme) => theme.id)).toEqual([packageId]);
+
+    await store.updateSettings({ theme: 'light' });
+    expect(store.themePackages.map((theme) => theme.id)).toEqual([packageId]);
+    expect(store.activeThemePackageId).toBe(packageId);
+
+    await store.updateSettings({ theme: 'dark' });
+    expect(store.themePackages.map((theme) => theme.id)).toEqual([packageId]);
+    expect(store.activeThemePackageId).toBe(packageId);
+
+    const reloaded = useSettingsStore();
+    reloaded.loadFromStorage();
+    expect(reloaded.themePackages.map((theme) => theme.id)).toEqual([packageId]);
+    expect(reloaded.activeThemePackageId).toBe(packageId);
+  });
 });

@@ -504,6 +504,46 @@ describe('SettingsStore', () => {
       expect(JSON.parse(store.exportCustomThemeColors()).customThemeColors).not.toHaveProperty('bgApp')
       expect(JSON.parse(store.exportCustomThemeColors()).customThemeColors).not.toHaveProperty('panelBase')
     })
+
+    it('已选主题包在浅色和深色切换时都应优先应用对应背景', async () => {
+      const result = store.importThemePackage(JSON.stringify({
+        schemaVersion: 2,
+        type: 'theme',
+        id: 'priority-check',
+        name: 'Priority Check',
+        version: '1.0.0',
+        author: 'Test',
+        license: 'MIT',
+        defaultMode: 'dark',
+        modes: {
+          light: {
+            colors: {
+              bgApp: '#f8fafc',
+              panelBase: '#ffffff',
+              textPrimary: '#172033',
+            },
+          },
+          dark: {
+            colors: {
+              bgApp: '#0f172a',
+              panelBase: '#111827',
+              textPrimary: '#f8fafc',
+            },
+          },
+        },
+      }))
+
+      expect(result.success).toBe(true)
+      await store.updateSettings({ theme: 'light' })
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--bg-app', '#f8fafc')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--panel-base', '#ffffff')
+
+      await store.updateSettings({ theme: 'dark' })
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--bg-app', '#0f172a')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--panel-base', '#111827')
+      expect(store.activeThemePackageId).toBe('user:priority-check')
+      expect(store.themePackages).toHaveLength(1)
+    })
   })
 
   describe('初始化', () => {
