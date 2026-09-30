@@ -168,6 +168,52 @@ describe('Toolbar.vue', () => {
     })
   })
 
+  describe('Markdown 工具菜单', () => {
+    it('Markdown 工具按钮应使用可见 SVG 图标', () => {
+      const wrapper = mountToolbar({ isMarkdown: true })
+
+      const markdownButtons = wrapper.findAll('[data-testid^="markdown-action-"]')
+      expect(markdownButtons.length).toBeGreaterThanOrEqual(14)
+      expect(markdownButtons.every((button) => button.find('svg').exists())).toBe(true)
+    })
+
+    it('标题 H 按钮应展开级别并发射选择结果', async () => {
+      const wrapper = mountToolbar({ isMarkdown: true })
+
+      await wrapper.get('[data-testid="markdown-action-heading"]').trigger('click')
+      const panel = document.body.querySelector('[data-testid="markdown-heading-panel"]') as HTMLElement | null
+      expect(panel).not.toBeNull()
+
+      const headingButton = document.body.querySelector('[data-testid="markdown-heading-2"]') as HTMLButtonElement | null
+      expect(headingButton).not.toBeNull()
+      headingButton?.click()
+
+      expect(wrapper.emitted('markdown-heading')).toEqual([[2]])
+    })
+
+    it('代码按钮应支持选择语言和自定义语言', async () => {
+      const wrapper = mountToolbar({ isMarkdown: true })
+
+      await wrapper.get('[data-testid="markdown-action-code"]').trigger('click')
+      const languageButton = document.body.querySelector('[data-testid="markdown-code-python"]') as HTMLButtonElement | null
+      expect(languageButton).not.toBeNull()
+      languageButton?.click()
+      expect(wrapper.emitted('markdown-code')).toEqual([['python']])
+
+      await wrapper.get('[data-testid="markdown-action-code"]').trigger('click')
+      const input = document.body.querySelector('[data-testid="markdown-code-custom-input"]') as HTMLInputElement | null
+      expect(input).not.toBeNull()
+      if (input) {
+        input.value = 'kotlin'
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      }
+      await flushPromises()
+
+      expect(wrapper.emitted('markdown-code')).toEqual([['python'], ['kotlin']])
+    })
+  })
+
   describe('保存按钮状态', () => {
     it('保存按钮在 isDirty=false 时应禁用', () => {
       const wrapper = mountToolbar()

@@ -9,7 +9,8 @@ use std::fs;
 use tempfile::TempDir;
 use text_editor_lib::{
     check_markdown_links_for_registry, collect_workspace_tasks_for_registry,
-    import_markdown_asset_for_registry, resolve_workspace_for_registry, WorkspaceRegistry,
+    import_markdown_asset_bytes_for_registry, import_markdown_asset_for_registry,
+    resolve_workspace_for_registry, WorkspaceRegistry,
 };
 
 fn prepare_workspace() -> (TempDir, WorkspaceRegistry, String) {
@@ -19,6 +20,29 @@ fn prepare_workspace() -> (TempDir, WorkspaceRegistry, String) {
         resolve_workspace_for_registry(&registry, temp_dir.path().to_string_lossy().as_ref())
             .expect("workspace resolves");
     (temp_dir, registry, workspace.workspace_id)
+}
+
+#[test]
+fn imports_clipboard_image_bytes_into_document_assets() {
+    let (temp_dir, registry, workspace_id) = prepare_workspace();
+    fs::write(temp_dir.path().join("doc.md"), "# Doc\n").expect("write document");
+
+    let imported = import_markdown_asset_bytes_for_registry(
+        &registry,
+        &workspace_id,
+        "doc.md",
+        "Clipboard Image.PNG",
+        b"clipboard-png",
+    )
+    .expect("clipboard import succeeds");
+
+    assert_eq!(imported.relative_path, "assets/Clipboard-Image.png");
+    assert_eq!(imported.markdown_snippet, "![Clipboard-Image](assets/Clipboard-Image.png)");
+    assert_eq!(imported.bytes, 13);
+    assert_eq!(
+        fs::read(temp_dir.path().join("assets/Clipboard-Image.png")).expect("read asset"),
+        b"clipboard-png"
+    );
 }
 
 #[test]

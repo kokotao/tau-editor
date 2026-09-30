@@ -339,6 +339,42 @@ describe('FileTree.vue', () => {
       expect(wrapper.find('.context-menu').exists()).toBe(true)
     })
 
+    it('空工作区右键应显示创建菜单并隐藏无目标操作', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: [],
+        },
+      })
+
+      await wrapper.find('.file-tree-empty').trigger('contextmenu', {
+        clientX: 100,
+        clientY: 200,
+      })
+
+      expect(wrapper.find('.context-menu').exists()).toBe(true)
+      expect(wrapper.findAll('.context-menu-item')).toHaveLength(2)
+      expect(wrapper.text()).toContain('新建文件')
+      expect(wrapper.text()).toContain('新建文件夹')
+      expect(wrapper.text()).not.toContain('重命名')
+      expect(wrapper.text()).not.toContain('删除')
+    })
+
+    it('文件树空白区域右键应使用工作区创建菜单', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+
+      await wrapper.find('.file-tree-content').trigger('contextmenu', {
+        clientX: 100,
+        clientY: 200,
+      })
+
+      expect(wrapper.find('.context-menu').exists()).toBe(true)
+      expect(wrapper.emitted('contextMenu')?.at(-1)).toEqual([null, expect.anything()])
+    })
+
     it('右键菜单应显示正确位置', async () => {
       const wrapper = mount(FileTree, {
         props: {

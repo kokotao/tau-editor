@@ -35,9 +35,12 @@ const monacoMockFactory = () => ({
   },
   KeyMod: {
     CtrlCmd: 2048,
+    chord: (first: number, second: number) => first * 100000 + second,
   },
   KeyCode: {
     KeyS: 49,
+    KeyB: 50,
+    KeyI: 51,
   },
 });
 
@@ -51,8 +54,8 @@ vi.mock('@/lib/monaco/editor', () => ({
     createModel: monacoMocks.createModel,
   },
   Uri: { parse: monacoMocks.parseUri },
-  KeyMod: { CtrlCmd: 2048 },
-  KeyCode: { KeyS: 49 },
+  KeyMod: { CtrlCmd: 2048, chord: (first: number, second: number) => first * 100000 + second },
+  KeyCode: { KeyS: 49, KeyB: 50, KeyI: 51 },
 }));
 vi.mock('@/lib/monaco/setupMonaco', () => ({ ensureMonacoSetup: vi.fn() }));
 
@@ -271,6 +274,23 @@ describe('EditorCore.vue', () => {
     saveCallback();
 
     expect(wrapper.emitted('model-save')).toBeTruthy();
+  });
+
+  it('Markdown 编辑器应注册 Ctrl+B/ Ctrl+I 双向加粗斜体组合快捷键', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'markdown-shortcuts', language: 'markdown' },
+    });
+
+    await flushPromises();
+
+    const ctrlB = 2048 | 50;
+    const ctrlI = 2048 | 51;
+    const chord = (first: number, second: number) => first * 100000 + second;
+    const registeredKeybindings = mockAddCommand.mock.calls.map(([keybinding]) => keybinding);
+
+    expect(registeredKeybindings).toContain(chord(ctrlB, ctrlI));
+    expect(registeredKeybindings).toContain(chord(ctrlI, ctrlB));
+    wrapper.unmount();
   });
 
   it('暴露方法应可用', async () => {

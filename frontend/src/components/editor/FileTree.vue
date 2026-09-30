@@ -1,5 +1,9 @@
 <template>
-  <div ref="fileTreeRootRef" class="file-tree" role="tree">
+  <div
+    ref="fileTreeRootRef"
+    class="file-tree"
+    role="tree"
+  >
     <div v-if="!nested" class="file-tree-header">
       <div class="file-tree-header-top">
         <div class="file-tree-header-action">
@@ -29,7 +33,11 @@
       </div>
     </div>
 
-    <div class="file-tree-content" v-if="!loading">
+    <div
+      v-if="!loading"
+      class="file-tree-content"
+      @contextmenu.prevent.stop="handleRootContextMenu"
+    >
       <div
         v-for="entry in displayedTree"
         :key="entry.path"
@@ -51,7 +59,7 @@
           :style="{ paddingLeft: (level * 16 + 8) + 'px' }"
           @click="handleClick(entry)"
           @keydown="handleItemKeyDown($event, entry)"
-          @contextmenu.prevent="handleContextMenu($event, entry)"
+          @contextmenu.prevent.stop="handleContextMenu($event, entry)"
         >
           <button
             v-if="entry.type === 'folder'"
@@ -157,7 +165,7 @@
         {{ copy.newFolder }}
       </div>
       <div class="context-menu-divider"></div>
-      <div class="context-menu-item" @click="handleRename">
+      <div v-if="contextMenu.entry" class="context-menu-item" @click="handleRename">
         {{ copy.rename }}
       </div>
       <div
@@ -179,8 +187,8 @@
           {{ action.title }}
         </div>
       </template>
-      <div class="context-menu-divider"></div>
-      <div class="context-menu-item danger" @click="handleDelete">
+      <div v-if="contextMenu.entry" class="context-menu-divider"></div>
+      <div v-if="contextMenu.entry" class="context-menu-item danger" @click="handleDelete">
         {{ copy.delete }}
       </div>
     </div>
@@ -222,7 +230,7 @@ const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCas
 const emit = defineEmits<{
   'file-open': [filePath: string];
   'folder-toggle': [folderPath: string];
-  'contextMenu': [entry: FileTreeNode, event: MouseEvent];
+  'contextMenu': [entry: FileTreeNode | null, event: MouseEvent];
   'refresh': [];
   'new-file': [];
   'new-folder': [];
@@ -359,7 +367,7 @@ const handleItemKeyDown = (event: KeyboardEvent, entry: FileTreeNode) => {
   }
 };
 
-const openContextMenu = async (event: MouseEvent, entry: FileTreeNode) => {
+const openContextMenu = async (event: MouseEvent, entry: FileTreeNode | null) => {
   const rootRect = fileTreeRootRef.value?.getBoundingClientRect();
   const localX = rootRect ? event.clientX - rootRect.left : event.clientX;
   const localY = rootRect ? event.clientY - rootRect.top : event.clientY;
@@ -396,6 +404,17 @@ const handleContextMenu = (event: MouseEvent, entry: FileTreeNode) => {
   event.preventDefault();
   void openContextMenu(event, entry);
   emit('contextMenu', entry, event);
+};
+
+const handleRootContextMenu = (event: MouseEvent) => {
+  // 子节点会在自身处理右键并阻止冒泡；此处只负责工作区空白区域。
+  if ((event.target as HTMLElement | null)?.closest('.file-tree-item')) {
+    return;
+  }
+
+  event.preventDefault();
+  void openContextMenu(event, null);
+  emit('contextMenu', null, event);
 };
 
 const handleNewFile = () => {

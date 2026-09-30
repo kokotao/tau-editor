@@ -90,6 +90,7 @@ pub fn run() {
             commands::apply_workspace_replace_preview,
             commands::undo_workspace_replace,
             commands::import_markdown_asset,
+            commands::import_markdown_asset_bytes,
             commands::check_markdown_links,
             commands::collect_workspace_tasks,
             commands::open_editor_window,

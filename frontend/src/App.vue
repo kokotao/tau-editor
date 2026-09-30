@@ -40,6 +40,7 @@ import { collectMarkdownContext } from '@/services/markdownService';
 import {
   flattenWorkspaceTasks,
   importMarkdownAsset,
+  importMarkdownAssetBytes,
   loadMarkdownLinkStatuses,
   loadWorkspaceTasks,
 } from '@/services/markdownContextService';
@@ -209,6 +210,13 @@ type SettingsCategory = 'general' | 'editor' | 'themes' | 'fileAssociations' | '
 const settingsContainer = ref<SettingsContainer | null>(null);
 const activeSettingsCategory = ref<SettingsCategory>('general');
 const fileTreeContextEntry = ref<FileTreeNode | null>(null);
+const nameDialogInput = ref<HTMLInputElement | null>(null);
+const nameDialog = ref({
+  visible: false,
+  title: '',
+  value: '',
+  resolve: null as ((value: string | null) => void) | null,
+});
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 type EditorCoreExpose = {
   getContent: () => string;
@@ -218,7 +226,13 @@ type EditorCoreExpose = {
   triggerFindWidget: () => void;
   triggerGoToLine: () => void;
   revealLine: (line: number, column?: number) => void;
+  applyMarkdownAction: (action: MarkdownAction) => void;
+  applyMarkdownHeading: (level: number) => void;
+  applyMarkdownCode: (language: string) => void;
+  undo: () => void;
+  redo: () => void;
 };
+type MarkdownAction = 'heading' | 'bold' | 'italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
 const editorCoreRef = ref<EditorCoreExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
 const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
@@ -491,11 +505,35 @@ const handleSaveAs = async () => {
 };
 
 const handleUndo = () => {
-  notificationStore.info(appText.value.undoTitle, appText.value.undoHint);
+  editorCoreRef.value?.undo();
 };
 
 const handleRedo = () => {
-  notificationStore.info(appText.value.redoTitle, appText.value.redoHint);
+  editorCoreRef.value?.redo();
+};
+
+const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint8Array }) => {
+  const tab = activeTab.value;
+  const workspaceId = workspaceRuntimeId.value;
+  const documentRelativePath = resolveWorkspaceRelativePath(tab?.filePath);
+  if (!tab || tab.language !== 'markdown' || tab.isLargeFile || !workspaceId || !documentRelativePath) {
+    notificationStore.warning('无法插入剪贴板图片', '请先保存 Markdown 文档并打开工作区。');
+    return;
+  }
+
+  try {
+    syncActiveEditorContent();
+    const result = await importMarkdownAssetBytes(
+      workspaceId,
+      documentRelativePath,
+      payload.fileName,
+      payload.bytes,
+    );
+    editorCoreRef.value?.insertText(result.markdownSnippet);
+    notificationStore.success('图片已插入', result.relativePath);
+  } catch (error: any) {
+    notificationStore.error('插入剪贴板图片失败', error?.message || '无法保存图片资源');
+  }
 };
 
 const handleToggleFileTree = () => {
@@ -1027,6 +1065,24 @@ const handleCycleMarkdownPreview = () => {
   setMarkdownPreviewMode(nextMode);
 };
 
+const handleMarkdownAction = (action: MarkdownAction) => {
+  if (isMarkdownTab.value) {
+    editorCoreRef.value?.applyMarkdownAction(action);
+  }
+};
+
+const handleMarkdownHeading = (level: number) => {
+  if (isMarkdownTab.value) {
+    editorCoreRef.value?.applyMarkdownHeading(level);
+  }
+};
+
+const handleMarkdownCode = (language: string) => {
+  if (isMarkdownTab.value) {
+    editorCoreRef.value?.applyMarkdownCode(language);
+  }
+};
+
 const toggleSettingsContainer = (container: SettingsContainer) => {
   if (settingsContainer.value === container) {
     settingsContainer.value = null;
@@ -1062,22 +1118,47 @@ const handleFileOpen = async (filePath: string) => {
   await openFileInEditor(filePath);
 };
 
-const handleFileTreeContextMenu = (entry: FileTreeNode) => {
+const handleFileTreeContextMenu = (entry: FileTreeNode | null) => {
   fileTreeContextEntry.value = entry;
 };
 
-const requestName = (title: string, defaultValue: string) => {
+const requestName = async (title: string, defaultValue: string): Promise<string | null> => {
   if (typeof window === 'undefined') {
     return null;
   }
 
-  const value = window.prompt(title, defaultValue);
-  if (value === null) {
-    return null;
+  if (nameDialog.value.resolve) {
+    nameDialog.value.resolve(null);
   }
 
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  return new Promise<string | null>((resolve) => {
+    nameDialog.value = {
+      visible: true,
+      title,
+      value: defaultValue,
+      resolve,
+    };
+    void nextTick(() => {
+      nameDialogInput.value?.focus();
+      nameDialogInput.value?.select();
+    });
+  });
+};
+
+const closeNameDialog = (submitted: boolean) => {
+  const dialog = nameDialog.value;
+  if (!dialog.visible) {
+    return;
+  }
+
+  const value = submitted ? dialog.value.trim() : null;
+  nameDialog.value = {
+    visible: false,
+    title: '',
+    value: '',
+    resolve: null,
+  };
+  dialog.resolve?.(value && value.length > 0 ? value : null);
 };
 
 const updateTabsAfterPathRename = (oldPath: string, newPath: string, targetType: 'file' | 'folder') => {
@@ -1135,7 +1216,7 @@ const handleFileTreeCreateFile = async () => {
     return;
   }
 
-  const fileName = requestName('请输入新文件名', 'NewFile.txt');
+  const fileName = await requestName('请输入新文件名', 'NewFile.txt');
   if (!fileName) {
     return;
   }
@@ -1158,7 +1239,7 @@ const handleFileTreeCreateFolder = async () => {
     return;
   }
 
-  const folderName = requestName('请输入新文件夹名称', 'NewFolder');
+  const folderName = await requestName('请输入新文件夹名称', 'NewFolder');
   if (!folderName) {
     return;
   }
@@ -1176,7 +1257,7 @@ const handleFileTreeCreateFolder = async () => {
 
 const handleFileTreeRename = async (entry: FileTreeNode) => {
   fileTreeContextEntry.value = entry;
-  const nextName = requestName('请输入新的名称', entry.name);
+  const nextName = await requestName('请输入新的名称', entry.name);
   if (!nextName || nextName === entry.name) {
     return;
   }
@@ -2481,6 +2562,39 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <Notification />
+    <div
+      v-if="nameDialog.visible"
+      class="name-dialog-backdrop"
+      data-testid="name-dialog-backdrop"
+      @click.self="closeNameDialog(false)"
+    >
+      <section
+        class="name-dialog"
+        role="dialog"
+        aria-modal="true"
+        data-testid="name-dialog"
+        @keydown.esc="closeNameDialog(false)"
+        @keydown.enter.prevent="closeNameDialog(true)"
+      >
+        <h2 class="name-dialog-title">{{ nameDialog.title }}</h2>
+        <input
+          ref="nameDialogInput"
+          v-model="nameDialog.value"
+          class="name-dialog-input"
+          data-testid="name-dialog-input"
+          type="text"
+          autocomplete="off"
+        />
+        <div class="name-dialog-actions">
+          <button type="button" class="name-dialog-button" data-testid="name-dialog-cancel" @click="closeNameDialog(false)">
+            取消
+          </button>
+          <button type="button" class="name-dialog-button primary" data-testid="name-dialog-confirm" @click="closeNameDialog(true)">
+            确定
+          </button>
+        </div>
+      </section>
+    </div>
     <ExternalChangeDialog
       :visible="externalConflictDialogOpen && Boolean(activeExternalConflict)"
       :conflict="activeExternalConflict"
@@ -2544,7 +2658,7 @@ onUnmounted(() => {
       :current-file-label="currentFileLabel"
       :sidebar-visible="showFileTree"
       :context-rail-visible="showContextRail"
-      :is-markdown="isMarkdownTab && settingsStore.markdownPreviewEnabled"
+      :is-markdown="isMarkdownTab"
       :markdown-preview-mode="markdownPreviewMode"
       @new-file="handleNewFile"
       @open-file="() => executeCommand('file.open')"
@@ -2557,6 +2671,10 @@ onUnmounted(() => {
       @toggle-context-rail="handleToggleContextRail"
       @toggle-settings="handleToolbarToggleSettings"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
+      @markdown-action="handleMarkdownAction"
+      @markdown-heading="handleMarkdownHeading"
+      @markdown-code="handleMarkdownCode"
+      @markdown-image="handleInsertMarkdownImage"
       @system-action="handleSystemAction"
     />
 
@@ -2691,6 +2809,8 @@ onUnmounted(() => {
               @cursor-change="handleCursorChange"
               @scroll-change="handleEditorScrollChange"
               @model-save="handleSave"
+              @markdown-image-request="handleInsertMarkdownImage"
+              @markdown-image-paste="handleMarkdownImagePaste"
             />
           </div>
           <div
@@ -2859,6 +2979,70 @@ textarea {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+.name-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 8, 12, 0.58);
+}
+
+.name-dialog {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--panel-elevated);
+  box-shadow: var(--shadow-overlay);
+}
+
+.name-dialog-title {
+  margin: 0 0 14px;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.name-dialog-input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm, 6px);
+  outline: none;
+  background: var(--panel-base);
+  color: var(--text-primary);
+}
+
+.name-dialog-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-blue) 24%, transparent);
+}
+
+.name-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.name-dialog-button {
+  padding: 7px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.name-dialog-button.primary {
+  border-color: var(--accent-blue);
+  background: var(--accent-blue);
+  color: #fff;
 }
 
 .main-layout {

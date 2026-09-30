@@ -642,6 +642,22 @@ export const markdownCommands = {
     });
   },
 
+  async importAssetBytes(
+    workspaceId: string,
+    documentRelativePath: string,
+    fileName: string,
+    bytes: Uint8Array | number[],
+  ): Promise<MarkdownAssetImportResponse> {
+    return invokeCommand<MarkdownAssetImportResponse>('import_markdown_asset_bytes', {
+      workspaceId,
+      documentRelativePath,
+      fileName,
+      // Tauri serializes command arguments as JSON; normalize typed arrays to a
+      // plain number array so clipboard image bytes arrive losslessly in Rust.
+      bytes: Array.from(bytes),
+    });
+  },
+
   async checkLinks(
     workspaceId: string,
     documentRelativePath: string,

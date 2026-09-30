@@ -338,7 +338,12 @@ export class WorkspaceService {
       isUntitled: true,
       content: '',
     });
-    this.workspaceStore.setMode('single-file');
+    if (this.workspaceStore.currentWorkspacePath) {
+      // 工作区内的新建标签仍属于当前工作区，不能切换到单文件模式并清空资源管理器。
+      this.workspaceStore.setMode('workspace');
+    } else {
+      this.workspaceStore.setMode('single-file');
+    }
     this.editorStore.setLanguage(detectLanguage(fileName));
   }
 

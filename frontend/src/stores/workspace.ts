@@ -30,6 +30,21 @@ function getBaseName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
+function normalizeWorkspacePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  if (normalized === '/') {
+    return normalized;
+  }
+  return normalized.replace(/\/+$/, '');
+}
+
+function isPathInWorkspace(filePath: string, workspacePath: string): boolean {
+  const normalizedFilePath = normalizeWorkspacePath(filePath);
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+  return normalizedFilePath === normalizedWorkspacePath
+    || normalizedFilePath.startsWith(`${normalizedWorkspacePath}/`);
+}
+
 export const useWorkspaceStore = defineStore('workspace', {
   state: (): WorkspaceState => ({
     mode: 'empty',
@@ -114,7 +129,11 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
 
     openSingleFile(filePath: string) {
-      if (this.mode !== 'workspace') {
+      const workspacePath = this.currentWorkspacePath;
+      if (workspacePath && isPathInWorkspace(filePath, workspacePath)) {
+        // 从当前工作区打开/创建的文件仍属于工作区，资源管理器必须保持可见。
+        this.mode = 'workspace';
+      } else {
         this.mode = 'single-file';
         this.currentWorkspacePath = null;
         this.currentWorkspaceName = null;

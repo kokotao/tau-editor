@@ -95,6 +95,123 @@
         </button>
       </div>
 
+      <template v-if="isMarkdown">
+        <div class="toolbar-divider markdown-toolbar-divider"></div>
+        <div class="toolbar-group toolbar-group-markdown" data-testid="markdown-toolbar">
+          <div ref="markdownHeadingRef" class="markdown-heading-menu">
+            <button
+              type="button"
+              class="toolbar-btn markdown-toolbar-btn markdown-heading-trigger"
+              data-testid="markdown-action-heading"
+              aria-label="标题级别"
+              title="标题级别"
+              :aria-expanded="markdownHeadingOpen"
+              @mousedown.prevent
+              @click="toggleMarkdownHeading"
+            >
+              <MarkdownActionIcon name="heading" />
+              <svg class="markdown-heading-caret" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          </div>
+          <template v-for="action in markdownActions" :key="action.value">
+            <div v-if="action.value === 'code'" ref="markdownCodeRef" class="markdown-code-menu">
+              <button
+                type="button"
+                class="toolbar-btn markdown-toolbar-btn"
+                :data-testid="`markdown-action-${action.value}`"
+                :aria-label="action.label"
+                :title="action.label"
+                :aria-expanded="markdownCodeOpen"
+                @mousedown.prevent
+                @click="toggleMarkdownCode"
+              >
+                <MarkdownActionIcon :name="action.value" />
+              </button>
+            </div>
+            <button
+              v-else
+              type="button"
+              class="toolbar-btn markdown-toolbar-btn"
+              :data-testid="`markdown-action-${action.value}`"
+              :aria-label="action.label"
+              :title="action.label"
+              @mousedown.prevent
+              @click="action.value === 'image' ? emit('markdown-image') : emit('markdown-action', action.value)"
+            >
+              <MarkdownActionIcon :name="action.value" />
+            </button>
+          </template>
+        </div>
+      </template>
+
+      <Teleport to="body">
+        <div
+          v-if="markdownHeadingOpen"
+          ref="markdownHeadingPanelRef"
+          class="markdown-heading-panel"
+          data-testid="markdown-heading-panel"
+          :style="markdownHeadingPanelStyle"
+          @mousedown.stop
+        >
+          <button
+            v-for="level in headingLevels"
+            :key="level"
+            type="button"
+            class="markdown-heading-option"
+            :data-testid="`markdown-heading-${level}`"
+            @mousedown.prevent.stop
+            @click="selectMarkdownHeading(level)"
+          >
+            <span class="markdown-heading-mark">{{ '#'.repeat(level) }}</span>
+            <span>标题 {{ level }}</span>
+          </button>
+        </div>
+      </Teleport>
+
+      <Teleport to="body">
+        <div
+          v-if="markdownCodeOpen"
+          ref="markdownCodePanelRef"
+          class="markdown-code-panel"
+          data-testid="markdown-code-panel"
+          :style="markdownCodePanelStyle"
+          @mousedown.stop
+        >
+          <div class="markdown-code-panel-title">代码格式</div>
+          <button
+            type="button"
+            class="markdown-code-option"
+            data-testid="markdown-code-inline"
+            @mousedown.prevent.stop
+            @click="selectMarkdownCode('__inline__')"
+          >
+            <span>行内代码</span><code>`code`</code>
+          </button>
+          <button
+            v-for="language in codeLanguages"
+            :key="language"
+            type="button"
+            class="markdown-code-option"
+            :data-testid="`markdown-code-${language}`"
+            @mousedown.prevent.stop
+            @click="selectMarkdownCode(language)"
+          >
+            <span>{{ language }}</span><code>```{{ language }}</code>
+          </button>
+          <label class="markdown-code-custom">
+            <span>自定义语言</span>
+            <input
+              v-model="customCodeLanguage"
+              data-testid="markdown-code-custom-input"
+              placeholder="例如：cpp"
+              @keydown.enter.prevent="selectMarkdownCode(customCodeLanguage)"
+            />
+          </label>
+        </div>
+      </Teleport>
+
       <div class="toolbar-divider"></div>
 
       <div class="toolbar-group toolbar-group-history">
@@ -260,7 +377,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
 import { getToolbarI18n, type SystemMenuAction } from '@/i18n/ui';
 
@@ -277,6 +394,113 @@ interface ToolbarProps {
   appLabel?: string;
 }
 
+type MarkdownAction = 'bold' | 'italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
+
+type MarkdownIconNode = {
+  tag: string;
+  attrs: Record<string, string | number>;
+};
+
+const markdownIconNodes: Record<string, MarkdownIconNode[]> = {
+  heading: [
+    { tag: 'path', attrs: { d: 'M5 4v16M19 4v16M5 12h14' } },
+  ],
+  bold: [
+    { tag: 'path', attrs: { d: 'M6 5h6.5a3.5 3.5 0 0 1 0 7H6V5Zm0 7h7.5a3.5 3.5 0 0 1 0 7H6v-7Z' } },
+  ],
+  italic: [
+    { tag: 'path', attrs: { d: 'M14 5h5M5 19h5M15 5 9 19' } },
+  ],
+  strike: [
+    { tag: 'path', attrs: { d: 'M18 7.5c-1.1-1.7-3-2.5-5.5-2.5-2.6 0-4.5 1.2-4.5 3 0 4.5 10 2.5 10 7 0 2-1.8 3.5-4.8 3.5-2.5 0-4.4-.8-5.7-2.5' } },
+    { tag: 'path', attrs: { d: 'M4 12h16' } },
+  ],
+  quote: [
+    { tag: 'path', attrs: { d: 'M9 18H4l3-6V6h5v6H9v6Zm8 0h-5l3-6V6h5v6h-3v6Z' } },
+  ],
+  'bullet-list': [
+    { tag: 'circle', attrs: { cx: 5, cy: 6, r: 1.2, fill: 'currentColor', stroke: 'none' } },
+    { tag: 'circle', attrs: { cx: 5, cy: 12, r: 1.2, fill: 'currentColor', stroke: 'none' } },
+    { tag: 'circle', attrs: { cx: 5, cy: 18, r: 1.2, fill: 'currentColor', stroke: 'none' } },
+    { tag: 'path', attrs: { d: 'M10 6h9M10 12h9M10 18h9' } },
+  ],
+  'ordered-list': [
+    { tag: 'path', attrs: { d: 'M4 7h2M4 6v2M4 13h2M4 12v2l2-2M4 18h2M4 17v2h2' } },
+    { tag: 'path', attrs: { d: 'M10 6h9M10 12h9M10 18h9' } },
+  ],
+  'task-list': [
+    { tag: 'rect', attrs: { x: 4, y: 4, width: 6, height: 6, rx: 1 } },
+    { tag: 'path', attrs: { d: 'm5.5 7 1.4 1.4L9 6.2M13 7h6M4 16h6M13 16h6' } },
+  ],
+  code: [
+    { tag: 'path', attrs: { d: 'm8 6-6 6 6 6M16 6l6 6-6 6M14 3l-4 18' } },
+  ],
+  link: [
+    { tag: 'path', attrs: { d: 'm9.5 14.5 5-5' } },
+    { tag: 'path', attrs: { d: 'm7 17-1.5 1.5a3.5 3.5 0 0 1-5-5L4 10a3.5 3.5 0 0 1 5-0.1M17 7l1.5-1.5a3.5 3.5 0 0 1 5 5L20 14a3.5 3.5 0 0 1-5 .1' } },
+  ],
+  image: [
+    { tag: 'rect', attrs: { x: 3, y: 4, width: 18, height: 16, rx: 2 } },
+    { tag: 'circle', attrs: { cx: 8, cy: 9, r: 1.5 } },
+    { tag: 'path', attrs: { d: 'm4 17 5-5 3 3 2-2 6 6' } },
+  ],
+  table: [
+    { tag: 'rect', attrs: { x: 3, y: 4, width: 18, height: 16, rx: 1 } },
+    { tag: 'path', attrs: { d: 'M3 10h18M3 15h18M9 4v16M15 4v16' } },
+  ],
+  'horizontal-rule': [
+    { tag: 'path', attrs: { d: 'M4 12h16' } },
+  ],
+  details: [
+    { tag: 'path', attrs: { d: 'm6 9 4 4 4-4' } },
+    { tag: 'path', attrs: { d: 'M17 7h4M17 12h4M17 17h4' } },
+  ],
+  mermaid: [
+    { tag: 'path', attrs: { d: 'M8 6h8M6 18h12M6 8v8M18 8v8M8 6l-2 2M16 6l2 2M8 18l-2-2M16 18l2-2' } },
+    { tag: 'circle', attrs: { cx: 8, cy: 6, r: 2 } },
+    { tag: 'circle', attrs: { cx: 16, cy: 6, r: 2 } },
+    { tag: 'circle', attrs: { cx: 6, cy: 18, r: 2 } },
+    { tag: 'circle', attrs: { cx: 18, cy: 18, r: 2 } },
+  ],
+  toc: [
+    { tag: 'circle', attrs: { cx: 5, cy: 6, r: 1, fill: 'currentColor', stroke: 'none' } },
+    { tag: 'circle', attrs: { cx: 5, cy: 12, r: 1, fill: 'currentColor', stroke: 'none' } },
+    { tag: 'circle', attrs: { cx: 5, cy: 18, r: 1, fill: 'currentColor', stroke: 'none' } },
+    { tag: 'path', attrs: { d: 'M9 6h10M9 12h10M9 18h10' } },
+  ],
+  timestamp: [
+    { tag: 'circle', attrs: { cx: 12, cy: 12, r: 8.5 } },
+    { tag: 'path', attrs: { d: 'M12 7v5l3 2' } },
+  ],
+};
+
+const MarkdownActionIcon = defineComponent({
+  name: 'MarkdownActionIcon',
+  props: {
+    name: { type: String, required: true },
+  },
+  setup(props) {
+    return () => h(
+      'svg',
+      {
+        class: 'markdown-action-icon',
+        width: 18,
+        height: 18,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': 1.8,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'aria-hidden': 'true',
+      },
+      (markdownIconNodes[props.name] ?? markdownIconNodes.heading ?? []).map((node, index) =>
+        h(node.tag, { ...node.attrs, key: `${props.name}-${index}` }),
+      ),
+    );
+  },
+});
+
 const props = withDefaults(defineProps<ToolbarProps>(), {
   isMarkdown: false,
   markdownPreviewMode: 'split',
@@ -286,6 +510,35 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
 
 const settingsStore = useSettingsStore();
 const copy = computed(() => getToolbarI18n(settingsStore.uiLanguage));
+const headingLevels = [1, 2, 3, 4, 5, 6];
+const markdownHeadingRef = ref<HTMLElement | null>(null);
+const markdownHeadingPanelRef = ref<HTMLElement | null>(null);
+const markdownHeadingOpen = ref(false);
+const markdownHeadingPanelStyle = ref<Record<string, string>>({});
+const markdownCodeRef = ref<HTMLElement | HTMLElement[] | null>(null);
+const markdownCodePanelRef = ref<HTMLElement | null>(null);
+const markdownCodeOpen = ref(false);
+const markdownCodePanelStyle = ref<Record<string, string>>({});
+const customCodeLanguage = ref('');
+const codeLanguages = ['plaintext', 'javascript', 'typescript', 'python', 'java', 'go', 'rust', 'c', 'cpp', 'csharp', 'json', 'html', 'css', 'sql', 'bash', 'yaml', 'xml'];
+const markdownActions: Array<{ value: MarkdownAction; label: string; glyph: string }> = [
+  { value: 'bold', label: '粗体', glyph: 'B' },
+  { value: 'italic', label: '斜体', glyph: 'I' },
+  { value: 'strike', label: '删除线', glyph: 'S' },
+  { value: 'quote', label: '引用', glyph: '❝' },
+  { value: 'bullet-list', label: '无序列表', glyph: '•' },
+  { value: 'ordered-list', label: '有序列表', glyph: '1.' },
+  { value: 'task-list', label: '任务列表', glyph: '☑' },
+  { value: 'code', label: '代码', glyph: '</>' },
+  { value: 'link', label: '链接', glyph: '↗' },
+  { value: 'image', label: '图片', glyph: '▧' },
+  { value: 'table', label: '表格', glyph: '▦' },
+  { value: 'horizontal-rule', label: '分割线', glyph: '—' },
+  { value: 'details', label: '折叠块', glyph: '◇' },
+  { value: 'mermaid', label: 'Mermaid 图', glyph: 'M' },
+  { value: 'toc', label: '目录', glyph: 'TOC' },
+  { value: 'timestamp', label: '时间戳', glyph: 'T' },
+];
 type SystemMenuGroupId = 'file' | 'view' | 'theme' | 'language';
 
 const systemMenuActions: Array<{ value: SystemMenuAction; group: SystemMenuGroupId; keywords: string[] }> = [
@@ -361,6 +614,10 @@ const emit = defineEmits<{
   'toggle-context-rail': [];
   'toggle-settings': [];
   'cycle-markdown-preview': [];
+  'markdown-action': [action: MarkdownAction];
+  'markdown-heading': [level: number];
+  'markdown-code': [language: string];
+  'markdown-image': [];
   'system-action': [action: SystemMenuAction];
 }>();
 
@@ -427,14 +684,69 @@ const handleSystemMenuKeydown = (event: KeyboardEvent) => {
 };
 
 const handleDocumentPointerDown = (event: MouseEvent) => {
-  if (!systemMenuOpen.value) {
-    return;
-  }
   const target = event.target as Node | null;
-  if (target && systemMenuRef.value?.contains(target)) {
+  const codeMenuElement = Array.isArray(markdownCodeRef.value) ? markdownCodeRef.value[0] : markdownCodeRef.value;
+  if (systemMenuOpen.value && (!target || !systemMenuRef.value?.contains(target))) {
+    closeSystemMenu();
+  }
+  if (
+    markdownHeadingOpen.value
+    && (!target || (!markdownHeadingRef.value?.contains(target) && !markdownHeadingPanelRef.value?.contains(target)))
+  ) {
+    markdownHeadingOpen.value = false;
+  }
+  if (
+    markdownCodeOpen.value
+    && (!target || (!codeMenuElement?.contains(target) && !markdownCodePanelRef.value?.contains(target)))
+  ) {
+    markdownCodeOpen.value = false;
+  }
+};
+
+const toggleMarkdownHeading = async () => {
+  markdownHeadingOpen.value = !markdownHeadingOpen.value;
+  if (!markdownHeadingOpen.value) {
     return;
   }
-  closeSystemMenu();
+  await nextTick();
+  const trigger = markdownHeadingRef.value?.querySelector<HTMLElement>('.markdown-heading-trigger');
+  if (!trigger) {
+    return;
+  }
+  const rect = trigger.getBoundingClientRect();
+  markdownHeadingPanelStyle.value = {
+    position: 'fixed',
+    top: `${Math.round(rect.bottom + 7)}px`,
+    left: `${Math.round(rect.left)}px`,
+  };
+};
+
+const toggleMarkdownCode = async () => {
+  markdownCodeOpen.value = !markdownCodeOpen.value;
+  if (!markdownCodeOpen.value) return;
+  await nextTick();
+  const codeMenuElement = Array.isArray(markdownCodeRef.value) ? markdownCodeRef.value[0] : markdownCodeRef.value;
+  const trigger = codeMenuElement?.querySelector<HTMLElement>('.markdown-toolbar-btn');
+  if (!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  markdownCodePanelStyle.value = {
+    position: 'fixed',
+    top: `${Math.round(rect.bottom + 7)}px`,
+    left: `${Math.round(rect.left)}px`,
+  };
+};
+
+const selectMarkdownCode = (language: string) => {
+  const value = language.trim();
+  if (!value) return;
+  markdownCodeOpen.value = false;
+  customCodeLanguage.value = value === '__inline__' ? '' : value;
+  emit('markdown-code', value);
+};
+
+const selectMarkdownHeading = (level: number) => {
+  markdownHeadingOpen.value = false;
+  emit('markdown-heading', level);
 };
 
 watch(systemMenuQuery, () => {
@@ -493,9 +805,123 @@ onUnmounted(() => {
 }
 
 .toolbar-group-history,
-.toolbar-group-views {
+.toolbar-group-views,
+.toolbar-group-markdown {
   gap: 4px;
 }
+
+.toolbar-group-markdown { max-width: min(42vw, 470px); overflow-x: auto; scrollbar-width: none; }
+.toolbar-group-markdown::-webkit-scrollbar { display: none; }
+.markdown-toolbar-btn { width: 30px; height: 30px; flex: 0 0 auto; }
+.markdown-heading-menu { position: relative; flex: 0 0 auto; }
+.markdown-heading-trigger { width: 42px; gap: 2px; }
+.markdown-heading-caret { flex: 0 0 auto; fill: none; stroke: var(--text-muted, #94a3b8); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.markdown-heading-panel {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 60;
+  min-width: 142px;
+  padding: 6px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, .24));
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-raised, #1b2436);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, .32);
+  animation: markdown-heading-in .14s ease-out;
+}
+.markdown-heading-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.markdown-heading-option:hover { background: var(--surface-hover, rgba(255,255,255,.08)); color: var(--text-primary, #f8fafc); }
+.markdown-heading-mark { min-width: 42px; color: var(--accent-blue-strong, #4dabff); font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+@keyframes markdown-heading-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.markdown-code-panel {
+  position: fixed;
+  z-index: 61;
+  width: 248px;
+  max-height: min(520px, calc(100vh - 24px));
+  overflow: auto;
+  padding: 7px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, .24));
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-raised, #1b2436);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, .32);
+  animation: markdown-heading-in .14s ease-out;
+}
+.markdown-code-panel-title {
+  padding: 4px 8px 7px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.markdown-code-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.markdown-code-option:hover { background: var(--surface-hover, rgba(255,255,255,.08)); color: var(--text-primary, #f8fafc); }
+.markdown-code-option code { color: var(--accent-cyan, #22d3ee); font-size: 10px; }
+.markdown-code-custom {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+  padding: 8px;
+  border-top: 1px solid var(--border-soft, rgba(148, 163, 184, .16));
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+}
+.markdown-code-custom input {
+  width: 100%;
+  height: 29px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, .22));
+  border-radius: var(--radius-xs, 4px);
+  outline: none;
+  background: var(--surface-muted, rgba(255, 255, 255, .04));
+  color: var(--text-primary, #f8fafc);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.markdown-code-custom input:focus { border-color: var(--accent-blue-strong, #4dabff); }
+.markdown-action-icon { display: block; flex: 0 0 auto; color: var(--text-secondary, #cbd5e1); transition: color .15s ease, transform .15s ease; }
+.markdown-toolbar-btn:hover .markdown-action-icon,
+.markdown-heading-trigger:hover .markdown-action-icon { color: var(--text-primary, #f8fafc); transform: scale(1.08); }
+.markdown-toolbar-btn:focus-visible .markdown-action-icon,
+.markdown-heading-trigger:focus-visible .markdown-action-icon { color: var(--text-primary, #f8fafc); }
+.markdown-action-glyph { display: inline-flex; min-width: 18px; align-items: center; justify-content: center; color: var(--text-secondary, #cbd5e1); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; font-weight: 700; line-height: 1; }
+.markdown-action-heading { font-size: 15px; }
+.markdown-action-bold { font-family: Georgia, serif; font-size: 16px; }
+.markdown-action-italic { font-family: Georgia, serif; font-size: 16px; font-style: italic; }
+.markdown-action-strike { text-decoration: line-through; }
+.markdown-action-quote { font-size: 18px; }
+.markdown-action-code { font-size: 10px; letter-spacing: -1px; }
+.markdown-action-table { font-size: 16px; }
+.markdown-action-horizontal-rule { font-size: 18px; }
+.markdown-action-mermaid { color: var(--accent-cyan, #22d3ee); }
+.markdown-action-toc { min-width: 26px; font-size: 9px; letter-spacing: -0.5px; }
 
 .toolbar-status-group {
   flex: 0 0 auto;

@@ -22,9 +22,8 @@ use crate::services::SearchCancellation;
 
 const MAX_ASSET_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_ASSET_NAME_ATTEMPTS: usize = 50;
-const ALLOWED_ASSET_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif",
-];
+const ALLOWED_ASSET_EXTENSIONS: &[&str] =
+    &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const MAX_TASK_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_TASK_FILES: usize = 200;
 const MAX_TASKS: usize = 500;
@@ -43,6 +42,27 @@ pub fn import_markdown_asset(
         &workspace_id,
         &document_relative_path,
         &source_path,
+    )
+}
+
+/// 把前端剪贴板中的图片字节导入 Markdown 文档同级 `assets/` 目录。
+///
+/// 前端只需传递图片字节和带扩展名的建议文件名（例如 `pasted-image.png`），
+/// 后端会复用与文件选择导入相同的大小限制、文件名清洗和去重策略。
+#[tauri::command]
+pub fn import_markdown_asset_bytes(
+    registry: State<'_, WorkspaceRegistry>,
+    workspace_id: String,
+    document_relative_path: String,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<ImportMarkdownAssetResponse, CommandError> {
+    import_markdown_asset_bytes_for_registry(
+        registry.inner(),
+        &workspace_id,
+        &document_relative_path,
+        &file_name,
+        &bytes,
     )
 }
 
@@ -76,12 +96,6 @@ pub fn import_markdown_asset_for_registry(
     document_relative_path: &str,
     source_path: &str,
 ) -> Result<ImportMarkdownAssetResponse, CommandError> {
-    let document_path =
-        workspace_file_path_for_registry(registry, workspace_id, document_relative_path)?;
-    let document_dir = document_path
-        .parent()
-        .ok_or_else(|| CommandError::new("PATH_OUTSIDE_WORKSPACE", "文档路径无效"))?;
-
     let source = PathBuf::from(source_path);
     let metadata = fs::symlink_metadata(&source)
         .map_err(|error| CommandError::new("ASSET_NOT_FOUND", format!("无法读取图片：{error}")))?;
@@ -99,17 +113,47 @@ pub fn import_markdown_asset_for_registry(
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
         .ok_or_else(|| CommandError::new("ASSET_NOT_FILE", "图片文件名无效"))?;
-    let file_name = sanitize_asset_file_name(&source_name)?;
     let bytes = fs::read(&source)
         .map_err(|error| CommandError::io(format!("无法读取图片内容：{error}")))?;
+
+    import_markdown_asset_bytes_for_registry(
+        registry,
+        workspace_id,
+        document_relative_path,
+        &source_name,
+        &bytes,
+    )
+}
+
+/// 将图片字节写入文档同级 assets 目录；供文件路径导入和剪贴板导入共用。
+pub fn import_markdown_asset_bytes_for_registry(
+    registry: &WorkspaceRegistry,
+    workspace_id: &str,
+    document_relative_path: &str,
+    source_name: &str,
+    bytes: &[u8],
+) -> Result<ImportMarkdownAssetResponse, CommandError> {
+    if bytes.len() as u64 > MAX_ASSET_BYTES {
+        return Err(CommandError::new(
+            "ASSET_TOO_LARGE",
+            "图片超过 10 MiB 导入上限",
+        ));
+    }
+
+    let document_path =
+        workspace_file_path_for_registry(registry, workspace_id, document_relative_path)?;
+    let document_dir = document_path
+        .parent()
+        .ok_or_else(|| CommandError::new("PATH_OUTSIDE_WORKSPACE", "文档路径无效"))?;
+    let file_name = sanitize_asset_file_name(source_name)?;
 
     let assets_dir = document_dir.join("assets");
     fs::create_dir_all(&assets_dir)
         .map_err(|error| CommandError::io(format!("无法创建 assets 目录：{error}")))?;
 
-    let (target_name, reused_existing) = select_asset_target(&assets_dir, &file_name, &bytes)?;
+    let (target_name, reused_existing) = select_asset_target(&assets_dir, &file_name, bytes)?;
     if !reused_existing {
-        write_asset_atomically(&assets_dir.join(&target_name), &bytes)?;
+        write_asset_atomically(&assets_dir.join(&target_name), bytes)?;
     }
 
     let relative_path = format!("assets/{target_name}");
@@ -236,7 +280,9 @@ fn sanitize_asset_file_name(name: &str) -> Result<String, CommandError> {
             }
         })
         .collect();
-    let sanitized = sanitized.trim_matches(|value| value == '-' || value == '.').to_string();
+    let sanitized = sanitized
+        .trim_matches(|value| value == '-' || value == '.')
+        .to_string();
     let sanitized = if sanitized.is_empty() {
         "image".to_string()
     } else {
@@ -273,9 +319,8 @@ fn select_asset_target(
         match fs::symlink_metadata(&candidate_path) {
             Err(_) => return Ok((candidate, false)),
             Ok(_) => {
-                let existing = fs::read(&candidate_path).map_err(|error| {
-                    CommandError::io(format!("无法读取已有图片资产：{error}"))
-                })?;
+                let existing = fs::read(&candidate_path)
+                    .map_err(|error| CommandError::io(format!("无法读取已有图片资产：{error}")))?;
                 if existing == bytes {
                     return Ok((candidate, true));
                 }
@@ -389,7 +434,9 @@ fn percent_decode(input: &str) -> String {
 
     while index < bytes.len() {
         if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) = (hex_value(bytes[index + 1]), hex_value(bytes[index + 2])) {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
                 output.push(high * 16 + low);
                 index += 3;
                 continue;

@@ -131,5 +131,12 @@ export const importMarkdownAsset = async (
   sourcePath: string,
 ) => markdownCommands.importAsset(workspaceId, documentRelativePath, sourcePath);
 
+export const importMarkdownAssetBytes = async (
+  workspaceId: string,
+  documentRelativePath: string,
+  fileName: string,
+  bytes: Uint8Array | number[],
+) => markdownCommands.importAssetBytes(workspaceId, documentRelativePath, fileName, bytes);
+
 export const isBrokenLink = (status: string | undefined): boolean =>
   status === 'missing' || status === 'outside' || status === 'unsupported' || status === 'invalid';

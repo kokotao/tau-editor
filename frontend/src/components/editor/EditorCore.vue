@@ -1,6 +1,25 @@
 <template>
-  <div class="editor-core-shell" @contextmenu.prevent>
+  <div class="editor-core-shell" @contextmenu.prevent @paste.capture="handleClipboardPaste">
     <div ref="editorContainer" class="editor-core" data-testid="editor-container"></div>
+
+    <div
+      v-if="markdownSelectionToolbar.visible"
+      class="markdown-selection-toolbar"
+      :style="{ top: `${markdownSelectionToolbar.y}px`, left: `${markdownSelectionToolbar.x}px` }"
+      data-testid="markdown-selection-toolbar"
+      @mousedown.prevent.stop
+    >
+      <button
+        v-for="action in markdownQuickActions"
+        :key="action.value"
+        type="button"
+        class="markdown-selection-action"
+        :data-testid="`markdown-selection-action-${action.value}`"
+        :title="action.label"
+        :aria-label="action.label"
+        @click="applyMarkdownAction(action.value)"
+      >{{ action.glyph }}</button>
+    </div>
 
     <div
       v-if="contextMenu.visible"
@@ -85,6 +104,8 @@ const emit = defineEmits<{
   'cursor-change': [position: { line: number; column: number }];
   'scroll-change': [state: { top: number; height: number; scrollHeight: number }];
   'model-save': [];
+  'markdown-image-request': [];
+  'markdown-image-paste': [payload: { fileName: string; bytes: Uint8Array }];
   'error': [error: Error];
 }>();
 
@@ -116,6 +137,7 @@ const contextMenu = ref({
   x: 0,
   y: 0,
 });
+const markdownSelectionToolbar = ref({ visible: false, x: 0, y: 0 });
 const CONTEXT_MENU_MARGIN = 8;
 
 type ContextMenuDivider = {
@@ -132,6 +154,17 @@ type ContextMenuItem = {
 };
 
 type ContextMenuEntry = ContextMenuDivider | ContextMenuItem;
+
+type MarkdownAction = 'heading' | 'bold' | 'italic' | 'bold-italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
+const markdownQuickActions: Array<{ value: MarkdownAction; label: string; glyph: string }> = [
+  { value: 'bold', label: '粗体', glyph: 'B' },
+  { value: 'italic', label: '斜体', glyph: 'I' },
+  { value: 'strike', label: '删除线', glyph: 'S' },
+  { value: 'link', label: '链接', glyph: '↗' },
+  { value: 'code', label: '代码', glyph: '</>' },
+  { value: 'quote', label: '引用', glyph: '❝' },
+  { value: 'bullet-list', label: '无序列表', glyph: '•' },
+];
 
 const emitScrollState = () => {
   if (!editor.value) {
@@ -310,6 +343,7 @@ const activateModel = (nextModelId: string) => {
 
   activeModelId.value = nextModelId;
   applyLargeFilePerformanceOptions();
+  syncUndoRedoState();
   scheduleLineCountSync();
   emitScrollState();
 };
@@ -335,6 +369,167 @@ const triggerEditorCommand = (commandId: string) => {
   }
   editor.value.focus();
   editor.value.trigger('tau-editor-context-menu', commandId, null);
+};
+
+const isMarkdownEditor = computed(() => props.language.toLowerCase() === 'markdown');
+
+const updateMarkdownSelectionToolbar = () => {
+  const instance = editor.value;
+  const container = editorContainer.value;
+  const selection = instance?.getSelection();
+  if (!instance || !container || !isMarkdownEditor.value || props.readOnly || !selection || selection.isEmpty()) {
+    markdownSelectionToolbar.value.visible = false;
+    return;
+  }
+  const position = instance.getScrolledVisiblePosition(selection.getStartPosition());
+  if (!position) {
+    markdownSelectionToolbar.value.visible = false;
+    return;
+  }
+  const width = 248;
+  markdownSelectionToolbar.value = {
+    visible: true,
+    x: Math.max(8, Math.min(position.left, container.clientWidth - width - 8)),
+    y: Math.max(8, position.top - 42),
+  };
+};
+
+const setSelectionByOffsets = (model: monaco.editor.ITextModel, start: number, end: number) => {
+  if (!editor.value) return;
+  const a = model.getPositionAt(Math.max(0, start));
+  const b = model.getPositionAt(Math.max(0, end));
+  editor.value.setSelection({ startLineNumber: a.lineNumber, startColumn: a.column, endLineNumber: b.lineNumber, endColumn: b.column });
+};
+
+const applyMarkdownAction = (action: MarkdownAction) => {
+  const instance = editor.value;
+  const model = instance?.getModel();
+  const selection = instance?.getSelection();
+  if (!instance || !model || !selection || !isMarkdownEditor.value || props.readOnly) return;
+  const selected = model.getValueInRange(selection);
+  const start = model.getOffsetAt(selection.getStartPosition());
+  const end = model.getOffsetAt(selection.getEndPosition());
+  let range: monaco.IRange = selection;
+  let text = selected;
+  let nextStart = start;
+  let nextEnd = end;
+  const wrap = (before: string, after: string, placeholder: string) => {
+    text = selected ? `${before}${selected}${after}` : `${before}${placeholder}${after}`;
+    nextStart = selected ? start : start + before.length;
+    nextEnd = selected ? end + before.length + after.length : nextStart + placeholder.length;
+  };
+  const prefix = (prefixText: string, placeholder: string) => {
+    const startLine = selection.startLineNumber;
+    const endLine = selection.endLineNumber;
+    range = new monaco.Range(startLine, 1, endLine, model.getLineMaxColumn(endLine));
+    const lines = model.getValueInRange(range) || placeholder;
+    text = lines.split('\n').map((line) => `${prefixText}${line}`).join('\n');
+    nextStart = model.getOffsetAt({ lineNumber: startLine, column: 1 });
+    nextEnd = nextStart + text.length;
+  };
+  switch (action) {
+    case 'bold': wrap('**', '**', '粗体'); break;
+    case 'italic': wrap('*', '*', '斜体'); break;
+    case 'bold-italic': wrap('***', '***', '粗斜体'); break;
+    case 'strike': wrap('~~', '~~', '删除线'); break;
+    case 'link': wrap('[', '](https://)', '链接文本'); break;
+    case 'code': selected.includes('\n') ? wrap('```\n', '\n```', '代码') : wrap('`', '`', '代码'); break;
+    case 'quote': prefix('> ', '引用'); break;
+    case 'bullet-list': prefix('- ', '列表项'); break;
+    case 'ordered-list': prefix('1. ', '列表项'); break;
+    case 'task-list': prefix('- [ ] ', '任务项'); break;
+    case 'timestamp': {
+      text = new Date().toLocaleString('zh-CN', { hour12: false });
+      nextStart = start;
+      nextEnd = start + text.length;
+      break;
+    }
+    case 'table': text = '| 列 1 | 列 2 | 列 3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |'; nextEnd = start + text.length; break;
+    case 'horizontal-rule': text = '\n---\n'; nextEnd = start + text.length; break;
+    case 'details': text = '<details>\n<summary>折叠标题</summary>\n\n内容\n\n</details>'; nextEnd = start + text.length; break;
+    case 'mermaid': text = '```mermaid\ngraph TD\n  A[开始] --> B[下一步]\n```'; nextEnd = start + text.length; break;
+    case 'toc': text = '[TOC]'; nextEnd = start + text.length; break;
+    case 'image': wrap('![', '](image-url)', '图片描述'); break;
+  }
+  instance.executeEdits('tau-markdown-format', [{ range, text, forceMoveMarkers: true }]);
+  setSelectionByOffsets(model, nextStart, nextEnd);
+  instance.focus();
+  markdownSelectionToolbar.value.visible = false;
+};
+
+const applyMarkdownCode = (language: string) => {
+  const instance = editor.value;
+  const model = instance?.getModel();
+  const selection = instance?.getSelection();
+  if (!instance || !model || !selection || !isMarkdownEditor.value || props.readOnly) return;
+
+  const selected = model.getValueInRange(selection);
+  const start = model.getOffsetAt(selection.getStartPosition());
+  const end = model.getOffsetAt(selection.getEndPosition());
+  if (language === '__inline__') {
+    const text = selected ? `\`${selected}\`` : '`代码`';
+    instance.executeEdits('tau-markdown-inline-code', [{ range: selection, text, forceMoveMarkers: true }]);
+    setSelectionByOffsets(model, selected ? start : start + 1, selected ? end + 2 : start + 3);
+  } else {
+    const safeLanguage = (language.trim().split(/\s+/)[0] || 'plaintext').replace(/[^a-zA-Z0-9_+#.-]/g, '');
+    const normalizedLanguage = safeLanguage || 'plaintext';
+    const text = selected
+      ? `\`\`\`${normalizedLanguage}\n${selected}\n\`\`\``
+      : `\`\`\`${normalizedLanguage}\n代码\n\`\`\``;
+    instance.executeEdits('tau-markdown-code-block', [{ range: selection, text, forceMoveMarkers: true }]);
+    setSelectionByOffsets(model, selected ? start : start + normalizedLanguage.length + 4, selected ? end + normalizedLanguage.length + 8 : start + normalizedLanguage.length + 6);
+  }
+  instance.focus();
+  markdownSelectionToolbar.value.visible = false;
+};
+
+const handleClipboardPaste = async (event: ClipboardEvent) => {
+  if (!isMarkdownEditor.value || props.readOnly) return;
+  const items = Array.from(event.clipboardData?.items ?? []);
+  const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+  const file = imageItem?.getAsFile();
+  if (!file) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const extension = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+  const fileName = file.name || `pasted-image-${Date.now()}.${extension}`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  emit('markdown-image-paste', { fileName, bytes });
+};
+
+const applyMarkdownHeading = (level: number) => {
+  const safeLevel = Math.min(6, Math.max(1, Math.floor(level)));
+  const instance = editor.value;
+  const model = instance?.getModel();
+  const selection = instance?.getSelection();
+  if (!instance || !model || !selection || !isMarkdownEditor.value || props.readOnly) return;
+  const range = new monaco.Range(selection.startLineNumber, 1, selection.endLineNumber, model.getLineMaxColumn(selection.endLineNumber));
+  const source = model.getValueInRange(range);
+  const prefix = `${'#'.repeat(safeLevel)} `;
+  const text = source.split('\n').map((line) => `${prefix}${line.replace(/^#{1,6}\s+/, '')}`).join('\n');
+  const start = model.getOffsetAt({ lineNumber: selection.startLineNumber, column: 1 });
+  instance.executeEdits('tau-markdown-heading', [{ range, text, forceMoveMarkers: true }]);
+  setSelectionByOffsets(model, start, start + text.length);
+  instance.focus();
+  markdownSelectionToolbar.value.visible = false;
+};
+
+const syncUndoRedoState = () => {
+  const model = editor.value?.getModel();
+  if (!model) {
+    editorStore.updateUndoRedoState(false, false);
+    return;
+  }
+
+  const undoModel = model as monaco.editor.ITextModel & {
+    canUndo?: () => boolean;
+    canRedo?: () => boolean;
+  };
+  editorStore.updateUndoRedoState(
+    undoModel.canUndo?.() ?? false,
+    undoModel.canRedo?.() ?? false,
+  );
 };
 
 const handlePasteCommand = async () => {
@@ -489,6 +684,25 @@ const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
     enabled: true,
     action: () => triggerEditorAction('editor.action.startFindReplaceAction'),
   },
+  ...(isMarkdownEditor.value ? [
+    { type: 'divider' as const, key: 'divider-markdown' },
+    ...([
+      ['bold', '插入粗体'], ['italic', '插入斜体'], ['strike', '插入删除线'],
+      ['link', '插入链接'], ['code', '插入代码块'], ['quote', '插入引用'],
+      ['bullet-list', '插入无序列表'], ['ordered-list', '插入有序列表'], ['task-list', '插入任务列表'],
+      ['table', '插入表格'], ['horizontal-rule', '插入分割线'], ['details', '插入折叠块'],
+      ['mermaid', '插入 Mermaid 图'], ['toc', '插入目录'], ['timestamp', '插入时间戳'],
+    ] as Array<[MarkdownAction, string]>).map(([action, label]) => ({
+      type: 'item' as const, key: `markdown-${action}`, label, enabled: !props.readOnly, action: () => applyMarkdownAction(action),
+    })),
+    {
+      type: 'item' as const,
+      key: 'markdown-image',
+      label: '插入图片',
+      enabled: !props.readOnly,
+      action: () => emit('markdown-image-request'),
+    },
+  ] : []),
   { type: 'divider', key: 'divider-path' },
   {
     type: 'item',
@@ -606,6 +820,7 @@ const initEditor = () => {
 
     const scrollDisposable = editor.value.onDidScrollChange(() => {
       emitScrollState();
+      updateMarkdownSelectionToolbar();
     });
     disposables.value.push(scrollDisposable);
 
@@ -620,16 +835,15 @@ const initEditor = () => {
       const start = model.getOffsetAt(selection.getStartPosition());
       const end = model.getOffsetAt(selection.getEndPosition());
       editorStore.updateSelection(start, end);
+      updateMarkdownSelectionToolbar();
     });
     disposables.value.push(selectionDisposable);
 
     const undoRedoDisposable = editor.value.onDidChangeModelContent(() => {
-      if (!editor.value) return;
-      const undoState = editor.value.getAction('undo')?.isSupported() ?? false;
-      const redoState = editor.value.getAction('redo')?.isSupported() ?? false;
-      editorStore.updateUndoRedoState(undoState, redoState);
+      syncUndoRedoState();
     });
     disposables.value.push(undoRedoDisposable);
+    syncUndoRedoState();
 
     const contextMenuDisposable = editor.value.onContextMenu((event) => {
       if (!editorContainer.value) {
@@ -646,12 +860,41 @@ const initEditor = () => {
       const relativeY = eventY - bounds.top;
 
       openContextMenu(relativeX, relativeY);
+      markdownSelectionToolbar.value.visible = false;
     });
     disposables.value.push(contextMenuDisposable);
 
-    editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      emit('model-save');
-    });
+    editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => emit('model-save'));
+    const markdownShortcuts: Array<[number, () => void]> = [
+      [monaco.KeyCode.Digit1, () => applyMarkdownHeading(1)],
+      [monaco.KeyCode.Digit2, () => applyMarkdownHeading(2)],
+      [monaco.KeyCode.Digit3, () => applyMarkdownHeading(3)],
+      [monaco.KeyCode.Digit4, () => applyMarkdownHeading(4)],
+      [monaco.KeyCode.KeyB, () => applyMarkdownAction('bold')],
+      [monaco.KeyCode.KeyI, () => applyMarkdownAction('italic')],
+      [monaco.KeyCode.KeyQ, () => applyMarkdownAction('quote')],
+      [monaco.KeyCode.KeyK, () => applyMarkdownAction('code')],
+      [monaco.KeyCode.KeyO, () => applyMarkdownAction('ordered-list')],
+      [monaco.KeyCode.KeyU, () => applyMarkdownAction('bullet-list')],
+      [monaco.KeyCode.KeyG, () => emit('markdown-image-request')],
+      [monaco.KeyCode.KeyL, () => applyMarkdownAction('link')],
+      [monaco.KeyCode.KeyT, () => applyMarkdownAction('timestamp')],
+    ];
+    for (const [keyCode, handler] of markdownShortcuts) {
+      editor.value.addCommand(monaco.KeyMod.CtrlCmd | keyCode, () => {
+        if (isMarkdownEditor.value && !props.readOnly) handler();
+      });
+    }
+
+    const ctrlB = monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB;
+    const ctrlI = monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI;
+    const applyBoldItalicShortcut = () => {
+      if (isMarkdownEditor.value && !props.readOnly) {
+        applyMarkdownAction('bold-italic');
+      }
+    };
+    editor.value.addCommand(monaco.KeyMod.chord(ctrlB, ctrlI), applyBoldItalicShortcut);
+    editor.value.addCommand(monaco.KeyMod.chord(ctrlI, ctrlB), applyBoldItalicShortcut);
 
     activeModelId.value = props.modelId;
     applyLargeFilePerformanceOptions();
@@ -760,6 +1003,15 @@ defineExpose({
   triggerGoToLine: () => {
     void triggerEditorAction('editor.action.gotoLine');
   },
+  undo: () => {
+    void triggerEditorAction('undo');
+  },
+  redo: () => {
+    void triggerEditorAction('redo');
+  },
+  applyMarkdownAction,
+  applyMarkdownHeading,
+  applyMarkdownCode,
 });
 
 watch(
@@ -953,6 +1205,43 @@ onBeforeUnmount(() => {
   min-height: 400px;
   overflow: hidden;
   display: block;
+}
+
+.markdown-selection-toolbar {
+  position: absolute;
+  z-index: 5001;
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-raised, #1b2436);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
+  animation: markdown-toolbar-in 0.16s ease-out;
+}
+
+.markdown-selection-action {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.markdown-selection-action:hover,
+.markdown-selection-action:focus-visible {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #f8fafc);
+  outline: none;
+}
+
+@keyframes markdown-toolbar-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .editor-context-menu {
