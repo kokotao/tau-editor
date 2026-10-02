@@ -76,6 +76,11 @@
 - Playwright 真实浏览器检查确认：资源区无提示，Markdown 二级面板可视化显示。
 - macOS Apple Silicon DMG 重新构建并执行 hdiutil、签名、挂载、arm64 检查。
 
+### 资产回填
+
+- 回填 workflow `37027708397` 已完成 Linux、Windows、macOS 构建并上传；`v0.6.3` 现包含 DMG、DEB、AppImage、RPM、MSI、EXE 及 DMG 校验文件。
+- 本次只补齐发布资产，不改写 `v0.6.3` 历史 tag、版本提交或发布时间，也不与 `v0.6.2` 合并功能日志。
+
 
 ## [0.6.2] - 2026-10-02
 
@@ -95,6 +100,13 @@
 - `pnpm --dir frontend build`：通过；仅保留既有 Tauri 动态导入和 Monaco/Mermaid 大 chunk 提示。
 - `git diff --check`：通过。
 - macOS Apple Silicon DMG：已完成 hdiutil 校验、只读挂载、签名和 arm64 架构检查。
+
+### 资产回填
+
+- 早期发布因 GitHub Actions 的 `Array.prototype.at()` 类型库兼容性错误，`v0.6.2` 仅上传了 macOS 资产。
+- 回填 workflow `37027709282` 已完成 Linux、Windows、macOS 构建并上传；`v0.6.2` 现包含 DMG、DEB、AppImage、RPM、MSI、EXE 及 DMG 校验文件。
+- 回填过程未改写 `v0.6.2` 历史 tag、版本提交或发布时间；本版本继续保留独立功能日志，不与 `v0.6.3` 合并版本归属。
+- GitHub Latest 仍为 `v0.6.4`；`v0.6.2` 仅在资产补齐失败时才需要作为最新版本的兜底方案，本次不启用该方案。
 
 ### 已知限制
 
