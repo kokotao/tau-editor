@@ -298,6 +298,7 @@ interface ToolbarText {
   expandExplorer: string;
   collapseContext: string;
   expandContext: string;
+  locateCurrentFile: string;
   markdownViewPrefix: string;
   dirtyTip: string;
   dirtyShort: string;
@@ -351,6 +352,11 @@ interface FileTreeText {
   rename: string;
   delete: string;
   compareWithCurrent: string;
+  fileDetails: string;
+  locateCurrentFile: string;
+  copyCurrentFilePath: string;
+  revealCurrentFile: string;
+  currentFileUnavailable: string;
 }
 
 interface StatusBarText {
@@ -950,6 +956,7 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     expandExplorer: '展开资源管理器',
     collapseContext: '收起上下文栏',
     expandContext: '展开上下文栏',
+    locateCurrentFile: '定位当前文件',
     markdownViewPrefix: 'Markdown 视图',
     dirtyTip: '当前标签未保存',
     dirtyShort: '未保存',
@@ -1006,6 +1013,7 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     expandExplorer: 'Expand Explorer',
     collapseContext: 'Collapse Context Rail',
     expandContext: 'Expand Context Rail',
+    locateCurrentFile: 'Locate Current File',
     markdownViewPrefix: 'Markdown View',
     dirtyTip: 'Current tab has unsaved changes',
     dirtyShort: 'Unsaved',
@@ -1116,6 +1124,11 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     rename: '重命名',
     delete: '删除',
     compareWithCurrent: '与当前文件对比',
+    fileDetails: '文件详情',
+    locateCurrentFile: '定位当前文件',
+    copyCurrentFilePath: '复制当前文件路径',
+    revealCurrentFile: '在文件管理器中显示',
+    currentFileUnavailable: '当前文件不在工作区',
   },
   'en-US': {
     workspace: 'Workspace',
@@ -1133,6 +1146,11 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     rename: 'Rename',
     delete: 'Delete',
     compareWithCurrent: 'Compare with Current File',
+    fileDetails: 'File Details',
+    locateCurrentFile: 'Locate Current File',
+    copyCurrentFilePath: 'Copy Current File Path',
+    revealCurrentFile: 'Reveal in File Manager',
+    currentFileUnavailable: 'Current file is not in the workspace',
   },
 };
 

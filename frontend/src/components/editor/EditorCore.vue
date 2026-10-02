@@ -21,26 +21,71 @@
       >{{ action.glyph }}</button>
     </div>
 
-    <div
-      v-if="contextMenu.visible"
-      ref="contextMenuRef"
-      class="editor-context-menu"
-      :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
-      @click.stop
-    >
+    <Teleport to="body">
+      <div
+        v-if="contextMenu.visible"
+        ref="contextMenuRef"
+        class="editor-context-menu"
+        :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
+        @click.stop
+      >
       <template v-for="entry in contextMenuEntries" :key="entry.key">
         <div v-if="entry.type === 'divider'" class="editor-context-divider"></div>
+        <div
+          v-else-if="entry.type === 'submenu'"
+          class="editor-context-submenu"
+          :data-testid="`editor-context-submenu-${entry.key}`"
+          @mouseenter="handleContextSubmenuEnter(entry.key, $event)"
+          @mouseleave="scheduleContextSubmenuClose(entry.key)"
+        >
+          <button type="button" class="editor-context-item editor-context-submenu-trigger" :disabled="!entry.enabled">
+            <span>{{ entry.label }}</span><span class="editor-context-chevron">›</span>
+          </button>
+        </div>
         <button
           v-else
           type="button"
           class="editor-context-item"
+          :data-testid="`editor-context-item-${entry.key}`"
           :disabled="!entry.enabled"
           @click="handleContextMenuEntryClick(entry)"
         >
           {{ entry.label }}
         </button>
       </template>
-    </div>
+      </div>
+
+      <!--
+        二级菜单必须脱离主菜单的滚动容器渲染。主菜单为了适配窄窗口会动态
+        设置 overflow-y:auto，若面板作为其后代，即使使用 position:fixed 也
+        可能被 overflow/backdrop-filter 建立的 containing block 截断或只能在
+        主菜单内部滚动。将面板直接 Teleport 到 body 后，定位始终使用视口坐标。
+      -->
+      <template v-for="entry in contextMenuEntries" :key="`panel-${entry.key}`">
+        <div
+          v-if="contextMenu.visible && entry.type === 'submenu' && activeContextSubmenu === entry.key"
+          class="editor-context-submenu-panel"
+          :data-testid="`editor-context-submenu-panel-${entry.key}`"
+          :style="{
+            top: `${contextSubmenuPositions[entry.key]?.top ?? 8}px`,
+            left: `${contextSubmenuPositions[entry.key]?.left ?? 8}px`,
+          }"
+          @mousedown.stop
+          @mouseenter="cancelContextSubmenuClose"
+          @mouseleave="scheduleContextSubmenuClose(entry.key)"
+        >
+          <button
+            v-for="child in entry.items"
+            :key="child.key"
+            type="button"
+            class="editor-context-item"
+            :data-testid="`editor-context-item-${child.key}`"
+            :disabled="!child.enabled"
+            @click="handleContextMenuEntryClick(child)"
+          >{{ child.label }}</button>
+        </div>
+      </template>
+    </Teleport>
   </div>
 </template>
 
@@ -132,6 +177,9 @@ const CONTENT_UPDATE_DELAY = 50;
 const MODEL_STRICT_COMPARE_MAX_CHARS = 300_000;
 
 const contextMenuRef = ref<HTMLElement | null>(null);
+const activeContextSubmenu = ref<string | null>(null);
+const contextSubmenuPositions = ref<Record<string, { top: number; left: number }>>({});
+let contextSubmenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
 const contextMenu = ref({
   visible: false,
   x: 0,
@@ -153,7 +201,15 @@ type ContextMenuItem = {
   action: () => Promise<void> | void;
 };
 
-type ContextMenuEntry = ContextMenuDivider | ContextMenuItem;
+type ContextMenuSubmenu = {
+  type: 'submenu';
+  key: string;
+  label: string;
+  enabled: boolean;
+  items: ContextMenuItem[];
+};
+
+type ContextMenuEntry = ContextMenuDivider | ContextMenuItem | ContextMenuSubmenu;
 
 type MarkdownAction = 'heading' | 'bold' | 'italic' | 'bold-italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
 const markdownQuickActions: Array<{ value: MarkdownAction; label: string; glyph: string }> = [
@@ -449,7 +505,7 @@ const applyMarkdownAction = (action: MarkdownAction) => {
     case 'details': text = '<details>\n<summary>折叠标题</summary>\n\n内容\n\n</details>'; nextEnd = start + text.length; break;
     case 'mermaid': text = '```mermaid\ngraph TD\n  A[开始] --> B[下一步]\n```'; nextEnd = start + text.length; break;
     case 'toc': text = '[TOC]'; nextEnd = start + text.length; break;
-    case 'image': wrap('![', '](image-url)', '图片描述'); break;
+    case 'image': wrap('![', '](image-url){width=60%}', '图片描述'); break;
   }
   instance.executeEdits('tau-markdown-format', [{ range, text, forceMoveMarkers: true }]);
   setSelectionByOffsets(model, nextStart, nextEnd);
@@ -565,28 +621,93 @@ const handlePasteCommand = async () => {
 };
 
 const closeContextMenu = () => {
+  cancelContextSubmenuClose();
   contextMenu.value.visible = false;
+  activeContextSubmenu.value = null;
+};
+
+const cancelContextSubmenuClose = () => {
+  if (contextSubmenuCloseTimer) {
+    clearTimeout(contextSubmenuCloseTimer);
+    contextSubmenuCloseTimer = null;
+  }
+};
+
+const handleContextSubmenuEnter = async (key: string, event: MouseEvent) => {
+  cancelContextSubmenuClose();
+  activeContextSubmenu.value = key;
+  const trigger = event.currentTarget as HTMLElement | null;
+  if (!trigger) return;
+  // Teleport 面板只有在状态更新后的下一帧才会挂载，等待挂载后才能读取真实尺寸。
+  await nextTick();
+  positionContextSubmenu(key, trigger);
+};
+
+const scheduleContextSubmenuClose = (key: string) => {
+  cancelContextSubmenuClose();
+  contextSubmenuCloseTimer = setTimeout(() => {
+    if (activeContextSubmenu.value === key) {
+      activeContextSubmenu.value = null;
+    }
+    contextSubmenuCloseTimer = null;
+  }, 320);
+};
+
+const positionContextSubmenu = (key: string, trigger: HTMLElement | null) => {
+  if (!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const panel = document.querySelector<HTMLElement>(`[data-testid="editor-context-submenu-panel-${key}"]`);
+  const width = Math.max(panel?.getBoundingClientRect().width || panel?.offsetWidth || 0, 190);
+  const height = Math.max(panel?.getBoundingClientRect().height || panel?.offsetHeight || 0, 48);
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  // 让触发项与二级面板无明显断层，鼠标可以直接横向移入面板。
+  const preferredLeft = rect.right + width <= viewportWidth - CONTEXT_MENU_MARGIN
+    ? rect.right
+    : rect.left - width;
+  const preferredTop = rect.bottom + height <= viewportHeight - CONTEXT_MENU_MARGIN
+    ? rect.top
+    : rect.bottom - height;
+  const left = Math.max(
+    CONTEXT_MENU_MARGIN,
+    Math.min(preferredLeft, Math.max(CONTEXT_MENU_MARGIN, viewportWidth - width - CONTEXT_MENU_MARGIN)),
+  );
+  const top = Math.max(
+    CONTEXT_MENU_MARGIN,
+    Math.min(preferredTop, Math.max(CONTEXT_MENU_MARGIN, viewportHeight - height - CONTEXT_MENU_MARGIN)),
+  );
+  contextSubmenuPositions.value[key] = { top, left };
 };
 
 const openContextMenu = (x: number, y: number) => {
+  activeContextSubmenu.value = null;
   contextMenu.value = {
     visible: true,
-    x,
-    y,
+    x: Math.max(CONTEXT_MENU_MARGIN, x),
+    y: Math.max(CONTEXT_MENU_MARGIN, y),
   };
 
   void nextTick(() => {
     const menu = contextMenuRef.value;
-    const container = editorContainer.value;
-    if (!menu || !container) {
+    if (!menu) {
       return;
     }
 
-    const maxX = Math.max(CONTEXT_MENU_MARGIN, container.clientWidth - menu.offsetWidth - CONTEXT_MENU_MARGIN);
-    const maxY = Math.max(CONTEXT_MENU_MARGIN, container.clientHeight - menu.offsetHeight - CONTEXT_MENU_MARGIN);
-
-    contextMenu.value.x = Math.max(CONTEXT_MENU_MARGIN, Math.min(contextMenu.value.x, maxX));
-    contextMenu.value.y = Math.max(CONTEXT_MENU_MARGIN, Math.min(contextMenu.value.y, maxY));
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const menuWidth = menu.offsetWidth;
+    const menuHeight = menu.offsetHeight;
+    const visibleHeight = Math.max(160, viewportHeight - CONTEXT_MENU_MARGIN * 2);
+    menu.style.maxHeight = `${visibleHeight}px`;
+    menu.style.overflowY = 'auto';
+    const x = contextMenu.value.x + menuWidth > viewportWidth - CONTEXT_MENU_MARGIN
+      ? contextMenu.value.x - menuWidth
+      : contextMenu.value.x;
+    const y = contextMenu.value.y + menuHeight > viewportHeight - CONTEXT_MENU_MARGIN
+      ? contextMenu.value.y - menuHeight
+      : contextMenu.value.y;
+    contextMenu.value.x = Math.max(CONTEXT_MENU_MARGIN, Math.min(x, viewportWidth - menuWidth - CONTEXT_MENU_MARGIN));
+    contextMenu.value.y = Math.max(CONTEXT_MENU_MARGIN, Math.min(y, viewportHeight - menuHeight - CONTEXT_MENU_MARGIN));
   });
 };
 
@@ -686,21 +807,44 @@ const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
   },
   ...(isMarkdownEditor.value ? [
     { type: 'divider' as const, key: 'divider-markdown' },
-    ...([
-      ['bold', '插入粗体'], ['italic', '插入斜体'], ['strike', '插入删除线'],
-      ['link', '插入链接'], ['code', '插入代码块'], ['quote', '插入引用'],
-      ['bullet-list', '插入无序列表'], ['ordered-list', '插入有序列表'], ['task-list', '插入任务列表'],
-      ['table', '插入表格'], ['horizontal-rule', '插入分割线'], ['details', '插入折叠块'],
-      ['mermaid', '插入 Mermaid 图'], ['toc', '插入目录'], ['timestamp', '插入时间戳'],
-    ] as Array<[MarkdownAction, string]>).map(([action, label]) => ({
-      type: 'item' as const, key: `markdown-${action}`, label, enabled: !props.readOnly, action: () => applyMarkdownAction(action),
-    })),
     {
-      type: 'item' as const,
-      key: 'markdown-image',
-      label: '插入图片',
+      type: 'submenu' as const,
+      key: 'markdown-format',
+      label: 'Markdown 格式',
       enabled: !props.readOnly,
-      action: () => emit('markdown-image-request'),
+      items: ([
+        ['bold', '粗体'], ['italic', '斜体'], ['strike', '删除线'], ['quote', '引用'],
+        ['bullet-list', '无序列表'], ['ordered-list', '有序列表'], ['task-list', '任务列表'],
+      ] as Array<[MarkdownAction, string]>).map(([action, label]) => ({
+        type: 'item' as const, key: `markdown-${action}`, label: `插入${label}`, enabled: !props.readOnly, action: () => applyMarkdownAction(action),
+      })),
+    },
+    {
+      type: 'submenu' as const,
+      key: 'markdown-insert',
+      label: 'Markdown 插入',
+      enabled: !props.readOnly,
+      items: ([
+        ['link', '链接'], ['code', '代码块'], ['image', '图片'], ['table', '表格'],
+        ['horizontal-rule', '分割线'], ['details', '折叠块'], ['mermaid', 'Mermaid 图'],
+      ] as Array<[MarkdownAction, string]>).map(([action, label]) => ({
+        type: 'item' as const,
+        key: `markdown-${action}`,
+        label: `插入${label}`,
+        enabled: !props.readOnly,
+        action: action === 'image' ? () => emit('markdown-image-request') : () => applyMarkdownAction(action),
+      })),
+    },
+    {
+      type: 'submenu' as const,
+      key: 'markdown-tools',
+      label: 'Markdown 工具',
+      enabled: !props.readOnly,
+      items: ([
+        ['toc', '目录'], ['timestamp', '时间戳'],
+      ] as Array<[MarkdownAction, string]>).map(([action, label]) => ({
+        type: 'item' as const, key: `markdown-${action}`, label: `插入${label}`, enabled: !props.readOnly, action: () => applyMarkdownAction(action),
+      })),
     },
   ] : []),
   { type: 'divider', key: 'divider-path' },
@@ -856,10 +1000,9 @@ const initEditor = () => {
       const bounds = editorContainer.value.getBoundingClientRect();
       const eventX = (event.event as any).posx ?? (event.event.browserEvent?.clientX ?? bounds.left);
       const eventY = (event.event as any).posy ?? (event.event.browserEvent?.clientY ?? bounds.top);
-      const relativeX = eventX - bounds.left;
-      const relativeY = eventY - bounds.top;
 
-      openContextMenu(relativeX, relativeY);
+      // 菜单通过 Teleport 挂载到 body 且使用 fixed 定位，必须传入视口坐标。
+      openContextMenu(eventX, eventY);
       markdownSelectionToolbar.value.visible = false;
     });
     disposables.value.push(contextMenuDisposable);
@@ -1154,6 +1297,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  cancelContextSubmenuClose();
   if (contentUpdateTimer) {
     clearTimeout(contentUpdateTimer);
     contentUpdateTimer = null;
@@ -1245,8 +1389,8 @@ onBeforeUnmount(() => {
 }
 
 .editor-context-menu {
-  position: absolute;
-  z-index: 5000;
+  position: fixed;
+  z-index: 30000;
   min-width: 200px;
   padding: 6px;
   display: flex;
@@ -1258,6 +1402,40 @@ onBeforeUnmount(() => {
   box-shadow: 0 14px 28px rgba(5, 12, 26, 0.28);
   backdrop-filter: blur(8px);
   pointer-events: auto;
+  max-height: calc(100vh - 16px);
+  overflow: visible;
+}
+
+.editor-context-submenu {
+  position: relative;
+}
+
+.editor-context-submenu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.editor-context-chevron {
+  color: var(--color-text-secondary, #94a3b8);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.editor-context-submenu-panel {
+  position: fixed;
+  top: auto;
+  left: auto;
+  min-width: 190px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-border-default, #2a3a57) 85%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-panel-base, #111b2f) 98%, #05080f 2%);
+  box-shadow: 0 14px 28px rgba(5, 12, 26, 0.32);
+  z-index: 30001;
 }
 
 .editor-context-item {

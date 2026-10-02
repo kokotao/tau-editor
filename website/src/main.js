@@ -15,10 +15,10 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.1', date: '2026-09-30', label: 'Markdown 编辑器增强', category: '编辑器体验', latest: true,
+    version: 'v0.6.2', date: '2026-10-02', label: '编辑器导航与图片预览', category: '编辑器体验', latest: true,
     summary: 'Markdown 工具栏完成 SVG 图标、快捷插入、快捷键、图片粘贴和代码块语言选择，编辑体验更接近成熟 Markdown 编辑器。',
     highlights: ['H1-H6 标题下拉与显眼 SVG 工具图标', '图片、表格、分割线、折叠块、Mermaid、目录和时间戳快捷插入', 'Ctrl+B / Ctrl+I 双向加粗斜体组合快捷键', '剪贴板图片写入文档同级 assets 并使用相对路径', '代码块语言选择、自定义语言、撤销与重做可用'],
-    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.1',
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.2',
   },
   {
     version: 'v0.6.0', date: '2026-09-29', label: '主题市场与外观自定义', category: '主题与外观',
@@ -139,7 +139,7 @@ document.querySelector('#app').innerHTML = `
     </header>
 
     <section id="top" class="hero container">
-      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span>v0.6.1</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
+      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span>v0.6.2</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
       <div class="hero-art" aria-label="Tau Editor 编辑器概念预览"><div class="grid"></div><div class="code-window"><div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>welcome.md</span><span class="saved">● saved</span></div><div class="code-body"><span class="numbers">01<br>02<br>03<br>04<br>05<br>06<br>07<br>08</span><code><span>#</span> Make space for<br><strong>your next idea.</strong><br><br><small>A calm place to write,<br>think, and build.</small><br><em>— Tau Editor</em></code></div><div class="window-foot"><span>Markdown</span><span>Ln 8, Col 16</span></div></div><div class="note"><b>⌘</b><span><strong>Command palette</strong><small>Everything within reach</small></span></div></div>
     </section>
 

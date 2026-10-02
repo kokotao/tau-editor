@@ -261,6 +261,21 @@
           </svg>
         </button>
         <button
+          class="toolbar-btn"
+          data-testid="btn-locate-current-file"
+          :disabled="!canRevealCurrentFile || locatingCurrentFile"
+          :class="{ disabled: !canRevealCurrentFile || locatingCurrentFile }"
+          :aria-label="copy.locateCurrentFile"
+          :title="copy.locateCurrentFile"
+          @click="emit('locate-current-file')"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="7" />
+            <circle cx="12" cy="12" r="2" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          </svg>
+        </button>
+        <button
           v-if="isMarkdown"
           class="toolbar-btn"
           data-testid="btn-markdown-preview-mode"
@@ -389,6 +404,8 @@ interface ToolbarProps {
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
   sidebarVisible?: boolean;
   contextRailVisible?: boolean;
+  canRevealCurrentFile?: boolean;
+  locatingCurrentFile?: boolean;
   workspaceLabel?: string;
   currentFileLabel?: string;
   appLabel?: string;
@@ -611,6 +628,7 @@ const emit = defineEmits<{
   'undo': [];
   'redo': [];
   'toggle-file-tree': [];
+  'locate-current-file': [];
   'toggle-context-rail': [];
   'toggle-settings': [];
   'cycle-markdown-preview': [];

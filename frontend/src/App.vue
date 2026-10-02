@@ -31,6 +31,7 @@ import {
   createWorkspaceWatcherService,
   normalizeWorkspacePath,
 } from '@/services/workspaceWatcherService';
+import { createWorkspaceRuntimeService } from '@/services/workspaceRuntimeService';
 import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
@@ -90,6 +91,8 @@ import ExternalChangeDialog from './components/editor/ExternalChangeDialog.vue';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
+import ImagePreview from './components/editor/ImagePreview.vue';
+import { isImageFilePath } from '@/utils/fileTypes';
 
 const fileSystemStore = useFileSystemStore();
 const workspaceStore = useWorkspaceStore();
@@ -119,6 +122,8 @@ const tabService = createTabService(
 );
 const windowService = createWindowService(settingsStore, tabsStore);
 const workspaceWatcherService = createWorkspaceWatcherService();
+// Markdown 图片粘贴可以在未打开工作区时按文档所在目录静默注册临时工作区。
+const markdownWorkspaceRuntime = createWorkspaceRuntimeService();
 const LANGUAGE_MODE_ORDER: EditorLanguageMode[] = [
   'plaintext',
   'javascript',
@@ -217,6 +222,10 @@ const nameDialog = ref({
   value: '',
   resolve: null as ((value: string | null) => void) | null,
 });
+const fileDetailsDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>({
+  visible: false,
+  entry: null,
+});
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 type EditorCoreExpose = {
   getContent: () => string;
@@ -234,6 +243,8 @@ type EditorCoreExpose = {
 };
 type MarkdownAction = 'heading' | 'bold' | 'italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
 const editorCoreRef = ref<EditorCoreExpose | null>(null);
+type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean };
+const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
 const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
 const FIRST_INSTALL_GUIDE_KEY = 'text-editor-first-install-guide-v1';
@@ -257,6 +268,31 @@ const clampSidebarWidth = (value: number) =>
 const clampContextRailWidth = (value: number) =>
   Math.min(MAX_CONTEXT_RAIL_WIDTH, Math.max(MIN_CONTEXT_RAIL_WIDTH, value));
 const normalizeFsPath = (path: string) => path.replace(/\\/g, '/');
+const canonicalFsPath = (path: string) => {
+  const normalized = normalizeFsPath(path).replace(/\/+/g, '/');
+  const prefix = /^[A-Za-z]:\//.test(normalized) ? normalized.slice(0, 3) : normalized.startsWith('/') ? '/' : '';
+  const segments = normalized.slice(prefix.length).split('/');
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (resolved.length && resolved.at(-1) !== '..') resolved.pop();
+      else if (!prefix) resolved.push('..');
+      continue;
+    }
+    resolved.push(segment);
+  }
+  const body = resolved.join('/');
+  if (prefix === '/') return `/${body}` || '/';
+  if (prefix) return `${prefix}${body}`;
+  return body;
+};
+const isWindowsFsPath = (path: string) => /^[A-Za-z]:\//.test(normalizeFsPath(path)) || normalizeFsPath(path).startsWith('//');
+const comparableFsPath = (path: string) => {
+  const normalized = canonicalFsPath(path);
+  if (normalized === '/') return normalized;
+  return isWindowsFsPath(normalized) ? normalized.toLowerCase() : normalized;
+};
 const getBaseNameFromFsPath = (path: string) =>
   normalizeFsPath(path).split('/').filter(Boolean).pop() ?? path;
 const getParentFsPath = (path: string) => {
@@ -268,6 +304,19 @@ const joinFsPath = (dir: string, name: string) => {
   const base = normalizeFsPath(dir).replace(/\/+$/, '');
   const leaf = name.trim().replace(/^\/+/, '');
   return `${base}/${leaf}`;
+};
+const findFileTreeEntryByNormalizedPath = (entries: FileTreeNode[], targetPath: string): FileTreeNode | null => {
+  const normalizedTarget = comparableFsPath(targetPath);
+  for (const entry of entries) {
+    if (comparableFsPath(entry.path) === normalizedTarget) {
+      return entry;
+    }
+    if (entry.children) {
+      const found = findFileTreeEntryByNormalizedPath(entry.children, normalizedTarget);
+      if (found) return found;
+    }
+  }
+  return null;
 };
 const detectLanguageFromFileName = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -332,6 +381,7 @@ const autoSaveEnabled = computed(() => settingsStore.autoSaveEnabled);
 const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
+const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
 const markdownPreviewMode = computed(() => settingsStore.markdownPreviewMode);
 const previewTheme = computed<'dark' | 'light'>(() => settingsStore.previewTheme);
 const canUndo = computed(() => editorStore.canUndo);
@@ -466,6 +516,7 @@ watch(viewportWidth, () => {
 
 watch(activeTab, (tab) => {
   tabService.syncTabToEditor(tab);
+  fileSystemStore.selectEntry?.(tab?.filePath ?? null);
 }, { immediate: true });
 
 const handleNewFile = () => {
@@ -514,18 +565,21 @@ const handleRedo = () => {
 
 const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint8Array }) => {
   const tab = activeTab.value;
-  const workspaceId = workspaceRuntimeId.value;
-  const documentRelativePath = resolveWorkspaceRelativePath(tab?.filePath);
-  if (!tab || tab.language !== 'markdown' || tab.isLargeFile || !workspaceId || !documentRelativePath) {
-    notificationStore.warning('无法插入剪贴板图片', '请先保存 Markdown 文档并打开工作区。');
+  const documentPath = tab?.filePath?.trim();
+  if (!tab || tab.language !== 'markdown' || tab.isLargeFile || !documentPath) {
+    notificationStore.warning('无法插入剪贴板图片', '请先保存 Markdown 文档。');
     return;
   }
 
   try {
+    const location = await markdownWorkspaceRuntime.resolveForFile(
+      documentPath,
+      workspaceStore.currentWorkspacePath,
+    );
     syncActiveEditorContent();
     const result = await importMarkdownAssetBytes(
-      workspaceId,
-      documentRelativePath,
+      location.workspaceId,
+      location.relativePath,
       payload.fileName,
       payload.bytes,
     );
@@ -538,6 +592,90 @@ const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint
 
 const handleToggleFileTree = () => {
   showFileTree.value = !showFileTree.value;
+};
+
+const canRevealCurrentFile = computed(() => {
+  const filePath = activeTab.value?.filePath;
+  const workspacePath = workspaceStore.currentWorkspacePath;
+  if (!filePath || !workspacePath) return false;
+  const normalizedFilePath = comparableFsPath(filePath);
+  const normalizedWorkspacePath = comparableFsPath(workspacePath);
+  return normalizedFilePath === normalizedWorkspacePath
+    || (normalizedWorkspacePath === '/' ? normalizedFilePath.startsWith('/') : normalizedFilePath.startsWith(`${normalizedWorkspacePath}/`));
+});
+
+const locatingCurrentFile = ref(false);
+let locateRequestId = 0;
+const handleRevealCurrentFile = async () => {
+  const filePath = activeTab.value?.filePath;
+  const workspacePath = workspaceStore.currentWorkspacePath;
+  if (!filePath || !workspacePath || !canRevealCurrentFile.value) return;
+  const requestId = ++locateRequestId;
+  locatingCurrentFile.value = true;
+  const isCurrentRequest = () => requestId === locateRequestId
+    && activeTab.value?.filePath === filePath
+    && workspaceStore.currentWorkspacePath === workspacePath;
+
+  try {
+    const normalizedFilePath = normalizeFsPath(filePath);
+    const comparableWorkspacePath = comparableFsPath(workspacePath);
+    const parentPaths: string[] = [];
+    let parentPath = getParentFsPath(normalizedFilePath);
+    while (
+      parentPath
+      && comparableFsPath(parentPath) !== comparableWorkspacePath
+      && comparableFsPath(parentPath).startsWith(`${comparableWorkspacePath}/`)
+    ) {
+      parentPaths.unshift(parentPath);
+      parentPath = getParentFsPath(parentPath);
+    }
+
+    for (const folderPath of parentPaths) {
+      if (!isCurrentRequest()) return;
+      const folder = findFileTreeEntryByNormalizedPath(fileSystemStore.fileTree, folderPath);
+      if (folder?.type === 'folder' && !folder.isExpanded) await fileSystemStore.toggleFolder(folder.path);
+    }
+    if (!isCurrentRequest()) return;
+    const targetEntry = findFileTreeEntryByNormalizedPath(fileSystemStore.fileTree, normalizedFilePath);
+    if (!targetEntry) {
+      notificationStore.warning('无法定位当前文件', '文件树未能加载当前文件所在目录，请刷新资源区后重试。');
+      return;
+    }
+    fileSystemStore.selectEntry?.(targetEntry.path);
+    showFileTree.value = true;
+    await nextTick();
+    if (!isCurrentRequest()) return;
+    const revealed = await fileTreeRef.value?.revealPath(targetEntry.path);
+    if (revealed === false) notificationStore.warning('无法定位当前文件', '文件树视图已发生变化，请重试。');
+  } finally {
+    if (requestId === locateRequestId) locatingCurrentFile.value = false;
+  }
+};
+
+const handleCopyCurrentFilePath = async () => {
+  const filePath = activeTab.value?.filePath?.trim();
+  if (!filePath || !canRevealCurrentFile.value) return;
+
+  try {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      throw new Error('当前环境不支持剪贴板写入');
+    }
+    await navigator.clipboard.writeText(filePath);
+    notificationStore.success('路径已复制', filePath);
+  } catch (error: any) {
+    notificationStore.error('复制路径失败', error?.message || '无法写入系统剪贴板');
+  }
+};
+
+const handleRevealCurrentFileInManager = async () => {
+  const filePath = activeTab.value?.filePath?.trim();
+  if (!filePath || !canRevealCurrentFile.value) return;
+
+  try {
+    await appCommands.revealInFileManager(filePath);
+  } catch (error: any) {
+    notificationStore.error('打开文件位置失败', error?.message || '无法在文件管理器中显示文件');
+  }
 };
 
 const handleToggleContextRail = () => {
@@ -1120,6 +1258,27 @@ const handleFileOpen = async (filePath: string) => {
 
 const handleFileTreeContextMenu = (entry: FileTreeNode | null) => {
   fileTreeContextEntry.value = entry;
+};
+
+const formatFileDetailsDate = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') return '未知';
+  const date = new Date(typeof value === 'number' && value < 10_000_000_000 ? value * 1000 : value);
+  return Number.isNaN(date.getTime()) ? '未知' : date.toLocaleString('zh-CN', { hour12: false });
+};
+
+const formatFileDetailsSize = (size: number | null | undefined) => {
+  if (size === null || size === undefined) return '未知';
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${size} B`;
+};
+
+const handleFileTreeDetails = (entry: FileTreeNode) => {
+  fileDetailsDialog.value = { visible: true, entry };
+};
+
+const closeFileDetailsDialog = () => {
+  fileDetailsDialog.value = { visible: false, entry: null };
 };
 
 const requestName = async (title: string, defaultValue: string): Promise<string | null> => {
@@ -2595,6 +2754,27 @@ onUnmounted(() => {
         </div>
       </section>
     </div>
+    <div
+      v-if="fileDetailsDialog.visible && fileDetailsDialog.entry"
+      class="name-dialog-backdrop"
+      data-testid="file-details-backdrop"
+      @click.self="closeFileDetailsDialog"
+    >
+      <section class="name-dialog file-details-dialog" role="dialog" aria-modal="true" data-testid="file-details-dialog">
+        <h2 class="name-dialog-title">文件详情</h2>
+        <dl class="file-details-list">
+          <div><dt>名称</dt><dd>{{ fileDetailsDialog.entry.name }}</dd></div>
+          <div><dt>类型</dt><dd>{{ fileDetailsDialog.entry.type === 'folder' ? '文件夹' : '文件' }}</dd></div>
+          <div><dt>路径</dt><dd class="file-details-path">{{ fileDetailsDialog.entry.path }}</dd></div>
+          <div><dt>大小</dt><dd>{{ formatFileDetailsSize(fileDetailsDialog.entry.size) }}</dd></div>
+          <div><dt>创建时间</dt><dd>{{ formatFileDetailsDate(fileDetailsDialog.entry.created) }}</dd></div>
+          <div><dt>修改时间</dt><dd>{{ formatFileDetailsDate(fileDetailsDialog.entry.modified) }}</dd></div>
+        </dl>
+        <div class="name-dialog-actions">
+          <button type="button" class="name-dialog-button primary" data-testid="file-details-close" @click="closeFileDetailsDialog">关闭</button>
+        </div>
+      </section>
+    </div>
     <ExternalChangeDialog
       :visible="externalConflictDialogOpen && Boolean(activeExternalConflict)"
       :conflict="activeExternalConflict"
@@ -2653,6 +2833,8 @@ onUnmounted(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :is-dirty="isDirty"
+      :can-reveal-current-file="canRevealCurrentFile"
+      :locating-current-file="locatingCurrentFile"
       :app-label="appText.appLabel"
       :workspace-label="workspaceLabel"
       :current-file-label="currentFileLabel"
@@ -2668,6 +2850,7 @@ onUnmounted(() => {
       @undo="handleUndo"
       @redo="handleRedo"
       @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
+      @locate-current-file="handleRevealCurrentFile"
       @toggle-context-rail="handleToggleContextRail"
       @toggle-settings="handleToolbarToggleSettings"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
@@ -2699,11 +2882,14 @@ onUnmounted(() => {
             :style="{ width: `${sidebarWidth}px` }"
           >
             <FileTree
+              ref="fileTreeRef"
               v-if="workspaceStore.currentWorkspacePath"
               :file-tree="fileTree"
               :loading="loading"
               :selected-path="selectedPath"
               :workspace-label="workspaceLabel"
+              :can-reveal-current-file="canRevealCurrentFile"
+              :locating-current-file="locatingCurrentFile"
               :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
               @file-open="handleFileOpen"
               @folder-toggle="handleFolderToggle"
@@ -2712,9 +2898,13 @@ onUnmounted(() => {
               @new-file="handleFileTreeCreateFile"
               @new-folder="handleFileTreeCreateFolder"
               @rename="handleFileTreeRename"
+              @details="handleFileTreeDetails"
               @delete="handleFileTreeDelete"
               @compare-with-current="handleCompareWithCurrentFile"
               @run-provider-action="handleProviderFileAction"
+              @reveal-current-file="handleRevealCurrentFile"
+              @copy-current-file-path="handleCopyCurrentFilePath"
+              @reveal-current-file-manager="handleRevealCurrentFileInManager"
             />
             <div v-else class="sidebar-empty">
               <p class="sidebar-empty-title">{{ appText.sidebarEmptyTitle }}</p>
@@ -2794,7 +2984,7 @@ onUnmounted(() => {
             [`markdown-mode-${markdownPreviewMode}`]: isMarkdownTab && settingsStore.markdownPreviewEnabled,
           }"
         >
-          <div class="editor-pane">
+          <div v-if="!isImageTab" class="editor-pane">
             <LazyEditorCore
               ref="editorCoreRef"
               :model-id="activeTab.id"
@@ -2813,6 +3003,11 @@ onUnmounted(() => {
               @markdown-image-paste="handleMarkdownImagePaste"
             />
           </div>
+          <ImagePreview
+            v-else
+            :file-path="activeTab.filePath!"
+            :file-name="activeTab.fileName"
+          />
           <div
             v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
             class="preview-pane"
@@ -3043,6 +3238,40 @@ textarea {
   border-color: var(--accent-blue);
   background: var(--accent-blue);
   color: #fff;
+}
+
+.file-details-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.file-details-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.file-details-list > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.file-details-list dt {
+  color: var(--text-secondary, #a8b3bd);
+  font-size: 12px;
+}
+
+.file-details-list dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary, #f8fafc);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.file-details-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .main-layout {

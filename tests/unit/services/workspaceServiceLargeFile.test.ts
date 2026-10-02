@@ -306,4 +306,23 @@ describe('WorkspaceService 大文件加载生命周期', () => {
     expect(tab.fileRevision).toBe('200:5');
     expect(tab.externalModifiedAt).toBeNull();
   });
+
+  it('打开图片时不读取二进制源码，交由图片预览组件渲染', async () => {
+    tauriMocks.getFileInfo.mockResolvedValue({ size: 1024, modified: 100 });
+    const { service, tabsStore, fileSystemStore } = createService(makeTab({
+      filePath: '/work/image.png',
+      fileName: 'image.png',
+      isLargeFile: false,
+      isLoadingContent: false,
+      largeFileLoadState: 'complete',
+    }));
+
+    await service.openFile('/work/image.png');
+
+    expect(fileSystemStore.readFileContent).not.toHaveBeenCalled();
+    expect(tabsStore.addTab).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: '/work/image.png',
+      content: '',
+    }));
+  });
 });

@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-09-30
-> 当前稳定版本：`v0.6.1`
+> 最后更新：2026-10-02
+> 当前稳定版本：`v0.6.2`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 待发布           | 待提交    | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
 | [0.6.1](https://github.com/kokotao/tau-editor/releases/tag/v0.6.1) | 2026-09-30 | 公开 Release     | `3378e13` | Markdown 工具栏、快捷键、图片粘贴、代码语言与撤销重做修复    |
 | [0.6.0](https://github.com/kokotao/tau-editor/releases/tag/v0.6.0) | 2026-09-29 | 公开 Release     | `3f21d42` | 独立主题市场、源码 JSON、主题 UI 配置、圆角调节、主题联动      |
 | [0.5.0](https://github.com/kokotao/tau-editor/releases/tag/v0.5.0) | 2026-09-28 | 公开 Release     | `4cb82e0` | 主题模式关联、双模式主题包、色块选择、GitHub 主题市场 MVP    |
@@ -37,6 +38,34 @@
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
 
 ---
+
+## [0.6.2] - 2026-10-02
+
+### 修复与改进
+
+- 资源区为空时不再显示多余的“暂无文件”提示，保留刷新、右键新建和搜索入口。
+- Markdown 编辑器右键菜单的分类二级菜单脱离滚动容器渲染，支持鼠标悬浮打开、视口边界避让和点击不误关闭。
+- 图片文件改为直接渲染预览，避免把二进制数据展示为源码；图片标签页和旧 FileService 入口均禁止直接覆盖保存。
+- Markdown 本地图片预览通过 Tauri asset URL 加载，并保留宽度/高度渲染设置的安全白名单。
+- 代码文件增加轻量级类、接口、类型、函数和方法定义跳转，以及签名和引用数量悬浮提示；支持箭头函数和常见类方法声明。
+- 文件树保留完整文件名、创建时间、修改时间和大小信息，并支持横向查看。
+
+### 验证
+
+- `pnpm exec vitest run`：57 个测试文件、846 项测试通过。
+- `pnpm --dir frontend type-check`：通过。
+- `pnpm --dir frontend build`：通过；仅保留既有 Tauri 动态导入和 Monaco/Mermaid 大 chunk 提示。
+- `git diff --check`：通过。
+- macOS Apple Silicon DMG：已完成 hdiutil 校验、只读挂载、签名和 arm64 架构检查。
+
+### 已知限制
+
+- 代码导航是轻量符号索引，跨文件跳转范围限于已打开的 Monaco 模型；复杂语义仍需完整语言服务器支持。
+
+### 回滚
+
+- 回滚到 `v0.6.1` 不影响已有文档、图片资源和用户设置；图片预览变更仅影响打开与保存路径。
+
 
 ## 历史口径说明
 

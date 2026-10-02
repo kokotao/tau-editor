@@ -105,6 +105,12 @@ export const useFileSystemStore = defineStore('fileSystem', {
           folder.isExpanded = true;
           folder.children = this.buildTree(entries);
         } catch (error) {
+          // 加载失败时回滚乐观展开状态，避免后续定位把失败目录误判为已展开。
+          this.expandedPaths.delete(folderPath);
+          const failedFolder = this.findEntryByPath(this.fileTree, folderPath);
+          if (failedFolder) {
+            failedFolder.isExpanded = false;
+          }
           const tauriError = error instanceof TauriError ? error : TauriError.fromError(error, 'list_files');
           console.warn('Failed to rehydrate expanded folder:', tauriError.message);
         }
@@ -258,6 +264,7 @@ export const useFileSystemStore = defineStore('fileSystem', {
           const info = await fileCommands.getFileInfo(filePath);
           this.updateEntry(filePath, { 
             size: info.size,
+            created: info.created,
             modified: info.modified,
           });
         } catch (e) {

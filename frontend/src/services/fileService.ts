@@ -8,6 +8,7 @@
 import type { useEditorStore } from '@/stores/editor';
 import type { useTabsStore } from '@/stores/tabs';
 import type { useFileSystemStore } from '@/stores/fileSystem';
+import { isImageFilePath } from '@/utils/fileTypes';
 
 type UseEditorStoreReturn = ReturnType<typeof useEditorStore>;
 type UseTabsStoreReturn = ReturnType<typeof useTabsStore>;
@@ -77,12 +78,14 @@ export class FileService {
         return { success: true };
       }
 
-      // 读取文件内容
-      const content = await this.fileSystemStore.readFileContent(filePath);
-      
-      // 创建新标签
       const fileName = filePath.split('/').pop() || 'Untitled';
       const language = this.detectLanguage(fileName);
+      // 图片标签由 App.vue 的 ImagePreview 直接渲染，禁止将二进制内容解码成文本。
+      const content = isImageFilePath(filePath)
+        ? ''
+        : await this.fileSystemStore.readFileContent(filePath);
+
+      // 创建新标签
       
       this.tabsStore.addTab({
         filePath,
@@ -165,12 +168,20 @@ export class FileService {
   }
 
   private isBinaryPreviewTab(tab: { filePath: string | null; content: string }): boolean {
-    if (!tab.filePath || !tab.content.startsWith('[Binary File Preview]')) {
+    if (!tab.filePath) {
+      return false;
+    }
+
+    if (isImageFilePath(tab.filePath)) {
+      return true;
+    }
+
+    if (!tab.content.startsWith('[Binary File Preview]')) {
       return false;
     }
 
     const ext = tab.filePath.split('.').pop()?.toLowerCase() || '';
-    return this.binaryPreviewExtensions.has(ext);
+    return this.binaryPreviewExtensions.has(ext) || isImageFilePath(tab.filePath);
   }
 
   /**

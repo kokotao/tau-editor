@@ -124,6 +124,24 @@ describe('Toolbar.vue', () => {
     })
   })
 
+  describe('资源定位按钮', () => {
+    it('有可定位文件时应显示并发射定位事件', async () => {
+      const wrapper = mountToolbar({ canRevealCurrentFile: true })
+      const locateBtn = wrapper.get('[data-testid="btn-locate-current-file"]')
+
+      expect(locateBtn.attributes('title')).toBe('定位当前文件')
+      await locateBtn.trigger('click')
+      expect(wrapper.emitted('locate-current-file')).toBeTruthy()
+    })
+
+    it('没有可定位文件时应禁用定位按钮', () => {
+      const wrapper = mountToolbar()
+      const locateBtn = wrapper.get('[data-testid="btn-locate-current-file"]')
+      expect(locateBtn.attributes('disabled')).toBeDefined()
+      expect(locateBtn.classes()).toContain('disabled')
+    })
+  })
+
   describe('撤销重做按钮', () => {
     it('撤销按钮应发射 undo 事件', async () => {
       const wrapper = mountToolbar({ canUndo: true })

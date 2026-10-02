@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use zip::ZipArchive;
 
@@ -19,7 +19,21 @@ pub struct FileEntry {
     #[serde(rename = "type")]
     pub file_type: String, // "file" | "folder"
     pub size: Option<u64>,
+    #[serde(serialize_with = "serialize_system_time_millis")]
+    pub created: Option<SystemTime>,
+    #[serde(serialize_with = "serialize_system_time_millis")]
     pub modified: Option<SystemTime>,
+}
+
+fn serialize_system_time_millis<S>(value: &Option<SystemTime>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let millis = value
+        .as_ref()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+    serializer.serialize_some(&millis)
 }
 
 /// 文件详细信息
@@ -28,8 +42,11 @@ pub struct FileInfo {
     pub name: String,
     pub path: String,
     pub size: u64,
+    #[serde(serialize_with = "serialize_system_time_millis")]
     pub created: Option<SystemTime>,
+    #[serde(serialize_with = "serialize_system_time_millis")]
     pub modified: Option<SystemTime>,
+    #[serde(serialize_with = "serialize_system_time_millis")]
     pub accessed: Option<SystemTime>,
     pub is_dir: bool,
 }
@@ -646,12 +663,14 @@ pub async fn list_files(dir: String) -> Result<Vec<FileEntry>, String> {
             None
         };
         let modified = metadata.modified().ok();
+        let created = metadata.created().ok();
 
         entries.push(FileEntry {
             name: entry.file_name().to_string_lossy().to_string(),
             path: entry.path().to_string_lossy().to_string(),
             file_type,
             size,
+            created,
             modified,
         });
     }

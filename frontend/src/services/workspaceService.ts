@@ -12,6 +12,7 @@ import type { useNotificationStore } from '@/stores/notification';
 import type { useSettingsStore } from '@/stores/settings';
 import type { useTabsStore } from '@/stores/tabs';
 import type { useWorkspaceStore } from '@/stores/workspace';
+import { isImageFilePath } from '@/utils/fileTypes';
 
 type FileSystemStore = ReturnType<typeof useFileSystemStore>;
 type TabsStore = ReturnType<typeof useTabsStore>;
@@ -60,7 +61,7 @@ const BINARY_PREVIEW_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite',
 
 function isBinaryPreviewPath(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-  return BINARY_PREVIEW_EXTENSIONS.has(ext);
+  return BINARY_PREVIEW_EXTENSIONS.has(ext) || isImageFilePath(filePath);
 }
 
 function formatSize(size: number): string {
@@ -458,7 +459,10 @@ export class WorkspaceService {
         }
       }
 
-      content = await this.fileSystemStore.readFileContent(filePath);
+      // 图片由 ImagePreview 通过 Tauri asset URL 直接渲染，不把二进制内容读入文本编辑器。
+      content = isImageFilePath(filePath)
+        ? ''
+        : await this.fileSystemStore.readFileContent(filePath);
       if (!this.ensureTabCapacity(fileName, content)) {
         return;
       }

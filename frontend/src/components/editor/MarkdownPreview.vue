@@ -50,6 +50,7 @@ const loadMarkdownRenderer = async () => {
 };
 import { useSettingsStore } from '@/stores/settings';
 import { getMarkdownPreviewI18n } from '@/i18n/ui';
+import { isTauriApp } from '@/lib/tauri';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -210,6 +211,55 @@ const resolveAddress = (rawAddress: string, sourceFilePath?: string | null) => {
     return new URL(address, baseUrl).toString();
   } catch {
     return null;
+  }
+};
+
+const fileUrlToPath = (address: string): string | null => {
+  try {
+    const url = new URL(address);
+    if (url.protocol !== 'file:') {
+      return null;
+    }
+
+    let pathname = decodeURIComponent(url.pathname);
+    if (/^\/[a-zA-Z]:/.test(pathname)) {
+      pathname = pathname.slice(1);
+    }
+    return pathname || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 将 Markdown 中相对图片路径转换为 Tauri asset URL，避免 WebView 把它解析到应用资源目录。
+ * @author Albert_Luo
+ * @date 2026-10-01
+ */
+const resolveLocalImageSources = async () => {
+  if (!isTauriApp() || !previewRef.value || !props.sourceFilePath) {
+    return;
+  }
+
+  const { convertFileSrc } = await import('@tauri-apps/api/core');
+  const images = Array.from(previewRef.value.querySelectorAll<HTMLImageElement>('img[src]'));
+  for (const image of images) {
+    const rawSrc = image.getAttribute('src')?.trim() ?? '';
+    if (
+      !rawSrc
+      || isAbsoluteAddress(rawSrc)
+      || rawSrc.startsWith('#')
+      || rawSrc.startsWith('data:')
+      || rawSrc.startsWith('blob:')
+    ) {
+      continue;
+    }
+
+    const resolved = resolveAddress(rawSrc, props.sourceFilePath);
+    const filePath = resolved ? fileUrlToPath(resolved) : null;
+    if (filePath) {
+      image.src = convertFileSrc(filePath);
+    }
   }
 };
 
@@ -514,6 +564,7 @@ const scheduleRender = () => {
       const renderer = await loadMarkdownRenderer();
       html.value = renderer.renderMarkdown(props.content || '');
       await nextTick();
+      await resolveLocalImageSources();
       if (previewRef.value) {
         await renderer.renderMermaidDiagrams(previewRef.value, props.theme);
       }

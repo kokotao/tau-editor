@@ -7,6 +7,7 @@ export interface FileEntry {
   path: string;
   type: FileEntryType;
   size?: number;
+  created?: string | number | null;
   modified?: string | number | null;
 }
 

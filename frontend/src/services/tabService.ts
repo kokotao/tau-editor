@@ -12,6 +12,7 @@ import type { useFileSystemStore } from '@/stores/fileSystem';
 import type { useNotificationStore } from '@/stores/notification';
 import type { Tab, useTabsStore } from '@/stores/tabs';
 import type { useWorkspaceStore } from '@/stores/workspace';
+import { isImageFilePath } from '@/utils/fileTypes';
 
 type FileSystemStore = ReturnType<typeof useFileSystemStore>;
 type TabsStore = ReturnType<typeof useTabsStore>;
@@ -67,7 +68,7 @@ const EDITOR_STORE_CONTENT_SYNC_MAX_CHARS = 1_000_000;
 function isBinaryPreviewPath(filePath: string | null | undefined): boolean {
   if (!filePath) return false;
   const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  return BINARY_PREVIEW_EXTENSIONS.has(ext);
+  return BINARY_PREVIEW_EXTENSIONS.has(ext) || isImageFilePath(filePath);
 }
 
 function isBinaryPreviewContent(content: string): boolean {
@@ -202,7 +203,7 @@ export class TabService {
       return;
     }
 
-    if (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content)) {
+    if (isImageFilePath(tab.filePath) || (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content))) {
       this.notificationStore.warning('当前文件为二进制预览', '为避免破坏原始文件，暂不支持直接保存该预览内容');
       return;
     }
@@ -297,7 +298,7 @@ export class TabService {
     const tab = this.tabsStore.activeTab;
     if (!tab) return;
 
-    if (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content)) {
+    if (isImageFilePath(tab.filePath) || (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content))) {
       this.notificationStore.warning('当前文件为二进制预览', '如需编辑，请先导出为文本再保存');
       return;
     }

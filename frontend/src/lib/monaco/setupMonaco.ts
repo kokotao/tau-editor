@@ -5,6 +5,7 @@ import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import { buildCompletionEntries } from '@/services/editorCompletionService';
+import { extractCodeSymbols, findSymbol, type CodeSymbol } from '@/services/codeNavigationService';
 
 const COMPLETION_LANGUAGES = [
   'plaintext',
@@ -29,6 +30,24 @@ const COMPLETION_LANGUAGES = [
   'vue',
 ];
 const LARGE_FILE_COMPLETION_LIMIT = 600_000;
+const NAVIGATION_LANGUAGES = [
+  'javascript',
+  'typescript',
+  'python',
+  'java',
+  'rust',
+  'go',
+  'c',
+  'cpp',
+  'csharp',
+  'shell',
+  'vue',
+  'ruby',
+  'php',
+  'powershell',
+];
+const NAVIGATION_CONTENT_LIMIT = 1_000_000;
+const symbolCache = new WeakMap<monaco.editor.ITextModel, { version: number; symbols: CodeSymbol[] }>();
 
 let monacoSetupComplete = false;
 
@@ -152,6 +171,95 @@ function registerCompletionProviders() {
   }
 }
 
+function getWordAtPosition(model: monaco.editor.ITextModel, position: monaco.Position): string | null {
+  const word = model.getWordAtPosition(position);
+  return word?.word || null;
+}
+
+function getSymbols(model: monaco.editor.ITextModel): CodeSymbol[] {
+  const version = model.getVersionId();
+  const cached = symbolCache.get(model);
+  if (cached?.version === version) {
+    return cached.symbols;
+  }
+  const symbols = extractCodeSymbols(model.getValue());
+  symbolCache.set(model, { version, symbols });
+  return symbols;
+}
+
+function countReferences(name: string, models: monaco.editor.ITextModel[]): number {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matcher = new RegExp(`\\b${escapedName}\\b`, 'g');
+  return models.reduce((count, candidate) => count + (candidate.getValue().match(matcher)?.length ?? 0), 0);
+}
+
+function registerCodeNavigationProviders() {
+  if (!monaco.languages?.registerDefinitionProvider || !monaco.languages?.registerHoverProvider) {
+    return;
+  }
+
+  for (const language of NAVIGATION_LANGUAGES) {
+    monaco.languages.registerDefinitionProvider(language, {
+      provideDefinition(model, position) {
+        const name = getWordAtPosition(model, position);
+        if (!name || model.getValueLength() > NAVIGATION_CONTENT_LIMIT) {
+          return undefined;
+        }
+
+        const models = monaco.editor.getModels().filter((candidate) => (
+          !candidate.isDisposed() && candidate.getValueLength() <= NAVIGATION_CONTENT_LIMIT
+        ));
+        const orderedModels = [model, ...models.filter((candidate) => candidate !== model)];
+        for (const candidate of orderedModels) {
+          const symbol = findSymbol(getSymbols(candidate), name);
+          if (!symbol) continue;
+          return {
+            uri: candidate.uri,
+            range: {
+              startLineNumber: symbol.lineNumber,
+              startColumn: symbol.startColumn,
+              endLineNumber: symbol.lineNumber,
+              endColumn: symbol.endColumn,
+            },
+          };
+        }
+        return undefined;
+      },
+    });
+
+    monaco.languages.registerHoverProvider(language, {
+      provideHover(model, position) {
+        const word = model.getWordAtPosition(position);
+        const name = word?.word || null;
+        if (!word || !name || model.getValueLength() > NAVIGATION_CONTENT_LIMIT) {
+          return undefined;
+        }
+
+        const models = monaco.editor.getModels().filter((candidate) => (
+          !candidate.isDisposed() && candidate.getValueLength() <= NAVIGATION_CONTENT_LIMIT
+        ));
+        const symbol = models
+          .map((candidate) => findSymbol(getSymbols(candidate), name))
+          .find((candidate): candidate is CodeSymbol => Boolean(candidate));
+        if (!symbol) return undefined;
+        const usageCount = countReferences(name, models);
+        return {
+          range: {
+            startLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endLineNumber: position.lineNumber,
+            endColumn: word.endColumn,
+          },
+          contents: [
+            { value: `**${symbol.kind}** \`${symbol.name}\` · ${usageCount} usages` },
+            { value: ['```', symbol.signature, '```'].join('\n') },
+          ],
+        };
+      },
+    });
+  }
+}
+
 export function ensureMonacoSetup() {
   if (monacoSetupComplete) {
     return;
@@ -170,5 +278,6 @@ export function ensureMonacoSetup() {
 
   configureTypescriptDefaults();
   registerCompletionProviders();
+  registerCodeNavigationProviders();
   monacoSetupComplete = true;
 }

@@ -100,6 +100,35 @@ marked.setOptions({
   breaks: true,
 });
 
+const IMAGE_ATTRIBUTE_PATTERN = /\{\s*((?:width|height)\s*=\s*[^\s}]+)\s*((?:width|height)\s*=\s*[^\s}]+)?\s*\}$/i;
+
+const sanitizeImageDimension = (value: string): string | null =>
+  /^\d+(?:\.\d+)?(?:px|%|em|rem|vw|vh)?$/i.test(value) ? value : null;
+
+const enhanceImageDimensions = (html: string): string => html.replace(
+  /<img\b([^>]*?)>/gi,
+  (full, attributes: string) => {
+    const altMatch = attributes.match(/\salt="([^"]*)"/i);
+    const alt = altMatch?.[1] ?? '';
+    const marker = alt.match(IMAGE_ATTRIBUTE_PATTERN);
+    if (!marker) return full;
+
+    const dimensions = [marker[1], marker[2]].filter((part): part is string => Boolean(part)).map((part) => {
+      const [key, value] = part.split('=').map((item) => item.trim());
+      return [(key ?? '').toLowerCase(), value ?? ''] as const;
+    });
+    const width = sanitizeImageDimension(dimensions.find(([key]) => key === 'width')?.[1] ?? '');
+    const height = sanitizeImageDimension(dimensions.find(([key]) => key === 'height')?.[1] ?? '');
+    const cleanAlt = alt.replace(IMAGE_ATTRIBUTE_PATTERN, '').trim().replace(/"/g, '&quot;');
+    let nextAttributes = altMatch ? attributes.replace(altMatch[0], ` alt="${cleanAlt}"`) : attributes;
+    const styles = [width ? `width:${width}` : '', height ? `height:${height}` : ''].filter(Boolean);
+    if (styles.length > 0) {
+      nextAttributes += ` style="max-width:100%;${styles.join(';')};"`;
+    }
+    return `<img${nextAttributes}>`;
+  },
+);
+
 export function renderMarkdown(raw: string): string {
   const headingSourceLines = getHeadingSourceLines(raw);
   let headingIndex = 0;
@@ -116,7 +145,7 @@ export function renderMarkdown(raw: string): string {
   }) as typeof renderer.heading;
 
   const parsed = marked.parse(raw, { renderer }) as string;
-  return DOMPurify.sanitize(parsed);
+  return enhanceImageDimensions(DOMPurify.sanitize(parsed));
 }
 
 const escapeHtmlText = (value: string) => value

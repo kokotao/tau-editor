@@ -91,6 +91,7 @@ describe('EditorCore.vue', () => {
   let cursorCallback: ((event: { position: { lineNumber: number; column: number } }) => void) | null = null;
   let selectionCallback: (() => void) | null = null;
   let scrollCallback: (() => void) | null = null;
+  let contextMenuCallback: ((event: any) => void) | null = null;
 
   beforeAll(async () => {
     EditorCore = (await import('@/components/editor/EditorCore.vue')).default;
@@ -106,6 +107,7 @@ describe('EditorCore.vue', () => {
     cursorCallback = null;
     selectionCallback = null;
     scrollCallback = null;
+    contextMenuCallback = null;
 
     const createDisposable = () => ({ dispose: vi.fn() });
 
@@ -128,7 +130,10 @@ describe('EditorCore.vue', () => {
       scrollCallback = cb;
       return createDisposable();
     });
-    mockOnContextMenu.mockReturnValue(createDisposable());
+    mockOnContextMenu.mockImplementation((cb: (event: any) => void) => {
+      contextMenuCallback = cb;
+      return createDisposable();
+    });
 
     mockGetValue.mockReturnValue('');
     mockGetSelection.mockReturnValue({
@@ -209,6 +214,95 @@ describe('EditorCore.vue', () => {
       }),
     );
     expect(mockOnDidScrollChange).toHaveBeenCalled();
+  });
+
+  it('Teleport 到 body 的右键菜单应使用视口坐标而不是编辑器相对坐标', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'context-menu-position' },
+      attachTo: document.body,
+    });
+
+    await flushPromises();
+    const editorContainer = wrapper.get('[data-testid="editor-container"]').element as HTMLElement;
+    vi.spyOn(editorContainer, 'getBoundingClientRect').mockReturnValue({
+      left: 120,
+      top: 80,
+      right: 920,
+      bottom: 680,
+      width: 800,
+      height: 600,
+      x: 120,
+      y: 80,
+      toJSON: () => ({}),
+    });
+
+    contextMenuCallback?.({
+      event: {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        browserEvent: { clientX: 420, clientY: 300 },
+      },
+    });
+    await nextTick();
+
+    const menu = document.body.querySelector('.editor-context-menu') as HTMLElement;
+    expect(menu).toBeTruthy();
+    expect(menu.style.left).toBe('420px');
+    expect(menu.style.top).toBe('300px');
+
+    wrapper.unmount();
+  });
+
+  it('二级菜单位置应限制在视口范围内', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(320);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(240);
+
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'context-submenu-clamp', filePath: '/tmp/context.md', language: 'markdown' },
+      attachTo: document.body,
+    });
+
+    await flushPromises();
+    contextMenuCallback?.({
+      event: {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        browserEvent: { clientX: 100, clientY: 80 },
+      },
+    });
+    await nextTick();
+
+    const submenuElement = document.body.querySelector('[data-testid="editor-context-submenu-markdown-format"]') as HTMLElement;
+    expect(submenuElement).toBeTruthy();
+    Object.defineProperty(submenuElement, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        left: 250,
+        top: 190,
+        right: 310,
+        bottom: 220,
+        width: 60,
+        height: 30,
+        x: 250,
+        y: 190,
+        toJSON: () => ({}),
+      }),
+    });
+    submenuElement.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    await nextTick();
+
+    const panel = document.body.querySelector('[data-testid="editor-context-submenu-panel-markdown-format"]') as HTMLElement;
+    expect(panel).toBeTruthy();
+    // 面板必须脱离主菜单滚动容器，否则窄窗口下会被 overflow-y 裁剪，
+    // 鼠标悬浮时也无法从触发项移动到二级菜单。
+    const menu = document.body.querySelector('.editor-context-menu') as HTMLElement;
+    expect(menu.contains(panel)).toBe(false);
+    expect(Number.parseFloat(panel.style.left)).toBeGreaterThanOrEqual(8);
+    expect(Number.parseFloat(panel.style.top)).toBeGreaterThanOrEqual(8);
+    expect(Number.parseFloat(panel.style.left)).toBeLessThanOrEqual(320 - 8);
+    expect(Number.parseFloat(panel.style.top)).toBeLessThanOrEqual(240 - 8);
+
+    wrapper.unmount();
   });
 
   it('内容变化应发射事件并同步 store（节流）', async () => {
