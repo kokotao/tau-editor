@@ -276,7 +276,7 @@ const canonicalFsPath = (path: string) => {
   for (const segment of segments) {
     if (!segment || segment === '.') continue;
     if (segment === '..') {
-      if (resolved.length && resolved.at(-1) !== '..') resolved.pop();
+      if (resolved.length && resolved[resolved.length - 1] !== '..') resolved.pop();
       else if (!prefix) resolved.push('..');
       continue;
     }
