@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 待发布           | 待提交    | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
+| [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
 | [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 公开 Release     | `8712e4f` | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
 | [0.6.1](https://github.com/kokotao/tau-editor/releases/tag/v0.6.1) | 2026-09-30 | 公开 Release     | `3378e13` | Markdown 工具栏、快捷键、图片粘贴、代码语言与撤销重做修复    |

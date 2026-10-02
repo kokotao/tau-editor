@@ -284,7 +284,7 @@ const fetchGithubReleases = async () => {
   const timeout = window.setTimeout(() => controller.abort(), 8000)
   try {
     const releases = []
-    for (let page = 1; page <= 10; page += 1) {
+    for (let page = 1; ; page += 1) {
       const response = await fetch(`${githubReleasesApi}?per_page=100&page=${page}`, {
         headers: { Accept: 'application/vnd.github+json' },
         signal: controller.signal,
@@ -349,7 +349,8 @@ fetchGithubReleases()
     const status = document.querySelector('[data-release-sync]')
     if (status) status.textContent = `已同步 ${items.length} 个公开版本 · 来源 GitHub Releases`
     if (activeReleaseFilter !== '全部') {
-      document.querySelector(`[data-release-filter="${CSS.escape(activeReleaseFilter)}"]`)?.click()
+      [...document.querySelectorAll('.release-filter')]
+        .find((button) => button.dataset.releaseFilter === activeReleaseFilter)?.click()
     }
   })
   .catch((error) => {
