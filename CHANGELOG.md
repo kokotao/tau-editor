@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 待发布           | 待提交    | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
+| [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 公开 Release     | `8712e4f` | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
 | [0.6.1](https://github.com/kokotao/tau-editor/releases/tag/v0.6.1) | 2026-09-30 | 公开 Release     | `3378e13` | Markdown 工具栏、快捷键、图片粘贴、代码语言与撤销重做修复    |
 | [0.6.0](https://github.com/kokotao/tau-editor/releases/tag/v0.6.0) | 2026-09-29 | 公开 Release     | `3f21d42` | 独立主题市场、源码 JSON、主题 UI 配置、圆角调节、主题联动      |
 | [0.5.0](https://github.com/kokotao/tau-editor/releases/tag/v0.5.0) | 2026-09-28 | 公开 Release     | `4cb82e0` | 主题模式关联、双模式主题包、色块选择、GitHub 主题市场 MVP    |
