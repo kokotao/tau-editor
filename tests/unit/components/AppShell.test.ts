@@ -326,6 +326,19 @@ describe('AppShell', () => {
     expect(wrapper.find('[data-testid="settings-panel"]').exists()).toBe(true)
   })
 
+  it('单文件模式的资源区不显示空状态提示', async () => {
+    const wrapper = shallowMount(App, {
+      global: {
+        stubs: appShellStubs,
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('.sidebar-empty').exists()).toBe(false)
+    expect(wrapper.find('.file-tree-empty').exists()).toBe(false)
+  })
+
   it('系统菜单动作应打开设置工作区', async () => {
     const wrapper = shallowMount(App, {
       global: {

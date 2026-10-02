@@ -274,11 +274,6 @@ interface AppText {
   redoHint: string;
   commandExecFail: string;
   unknownCommand: string;
-  sidebarEmptyTitle: string;
-  singleFileMode: string;
-  emptyMode: string;
-  sidebarEmptyDesc: string;
-  selectFolder: string;
   collapseExplorer: string;
   expandExplorer: string;
   openFolder: string;
@@ -909,11 +904,6 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     redoHint: '请使用编辑器内置重做，快捷键为 Ctrl/Cmd + Shift + Z',
     commandExecFail: '命令执行失败',
     unknownCommand: '未知命令',
-    sidebarEmptyTitle: '资源管理器目前为空',
-    singleFileMode: '单文件编辑',
-    emptyMode: '空启动',
-    sidebarEmptyDesc: '当前模式是 {mode}，只有在你主动打开工作区后这里才会展示真实文件树。',
-    selectFolder: '选择文件夹',
     collapseExplorer: '折叠资源管理器',
     expandExplorer: '展开资源管理器',
     openFolder: '打开文件夹',
@@ -930,11 +920,6 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     redoHint: 'Use editor built-in redo, shortcut: Ctrl/Cmd + Shift + Z',
     commandExecFail: 'Command Execution Failed',
     unknownCommand: 'Unknown command',
-    sidebarEmptyTitle: 'Explorer is currently empty',
-    singleFileMode: 'Single-file mode',
-    emptyMode: 'Empty startup',
-    sidebarEmptyDesc: 'Current mode is {mode}. The real file tree will appear after you open a workspace.',
-    selectFolder: 'Select Folder',
     collapseExplorer: 'Collapse Explorer',
     expandExplorer: 'Expand Explorer',
     openFolder: 'Open Folder',

@@ -57,13 +57,13 @@ npm run build
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon) | `Tau.Editor_0.6.2_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
-| Windows (x64) | `Tau.Editor_0.6.2_x64-setup.exe` / `Tau.Editor_0.6.2_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.6.2_amd64.deb` / `Tau.Editor-0.6.2-1.x86_64.rpm` / `Tau.Editor_0.6.2_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS (Apple Silicon) | `Tau.Editor_0.6.3_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
+| Windows (x64) | `Tau.Editor_0.6.3_x64-setup.exe` / `Tau.Editor_0.6.3_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.6.3_amd64.deb` / `Tau.Editor-0.6.3-1.x86_64.rpm` / `Tau.Editor_0.6.3_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
 > **macOS 首次打开说明**：构建流程已在打包前对 `.app` 做 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`），
 > 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需
@@ -79,7 +79,7 @@ npm run build
 >
 > 完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
 
-## ✨ v0.6.2 更新亮点
+## ✨ v0.6.3 更新亮点
 
 - **Markdown SVG 工具栏**：标题入口展开支持 H1-H6，粗体、斜体、引用、列表、代码、链接、图片、表格、分割线、折叠块、Mermaid、目录和时间戳均使用清晰的 SVG 图标。
 - **Markdown 快捷插入**：顶部工具栏、编辑器右键菜单和选中文字浮动工具栏提供常用 Markdown 语法快捷插入。
@@ -93,6 +93,8 @@ npm run build
 - **Markdown 右键菜单**：二级菜单脱离滚动容器显示，支持视口边界避让和悬浮打开。
 - **代码导航**：已打开的代码模型支持类、接口、类型和方法的定义跳转，悬浮显示签名与引用数量。
 - **已知限制**：代码导航为轻量符号索引，跨文件范围限于已打开模型，尚未接入完整项目级 LSP。
+- **资源区空状态修复**：单文件模式下资源区保持空白，不再显示“资源管理器目前为空”提示。
+- **右键菜单交互修复**：Markdown 分类菜单支持按钮悬浮、聚焦和点击触发二级工具面板。
 
 ## ✨ v0.6.0 更新亮点（历史版本）
 

@@ -305,6 +305,31 @@ describe('EditorCore.vue', () => {
     wrapper.unmount();
   });
 
+  it('悬浮二级菜单按钮时应显示独立面板', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'context-submenu-trigger', filePath: '/tmp/context.md', language: 'markdown' },
+      attachTo: document.body,
+    });
+
+    await flushPromises();
+    contextMenuCallback?.({
+      event: {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        browserEvent: { clientX: 100, clientY: 80 },
+      },
+    });
+    await nextTick();
+
+    const trigger = document.querySelector('[data-testid="editor-context-submenu-markdown-format"] button') as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    await nextTick();
+
+    expect(document.querySelector('[data-testid="editor-context-submenu-panel-markdown-format"]')).toBeTruthy();
+    wrapper.unmount();
+  });
+
   it('内容变化应发射事件并同步 store（节流）', async () => {
     vi.useFakeTimers();
     const wrapper = mount(EditorCore, {

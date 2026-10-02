@@ -38,7 +38,15 @@
           @mouseenter="handleContextSubmenuEnter(entry.key, $event)"
           @mouseleave="scheduleContextSubmenuClose(entry.key)"
         >
-          <button type="button" class="editor-context-item editor-context-submenu-trigger" :disabled="!entry.enabled">
+          <button
+            type="button"
+            class="editor-context-item editor-context-submenu-trigger"
+            :disabled="!entry.enabled"
+            @mouseenter="handleContextSubmenuEnter(entry.key, $event)"
+            @mouseover="handleContextSubmenuEnter(entry.key, $event)"
+            @focus="handleContextSubmenuEnter(entry.key, $event)"
+            @click.stop="handleContextSubmenuEnter(entry.key, $event)"
+          >
             <span>{{ entry.label }}</span><span class="editor-context-chevron">›</span>
           </button>
         </div>
@@ -633,7 +641,7 @@ const cancelContextSubmenuClose = () => {
   }
 };
 
-const handleContextSubmenuEnter = async (key: string, event: MouseEvent) => {
+const handleContextSubmenuEnter = async (key: string, event: Event) => {
   cancelContextSubmenuClose();
   activeContextSubmenu.value = key;
   const trigger = event.currentTarget as HTMLElement | null;

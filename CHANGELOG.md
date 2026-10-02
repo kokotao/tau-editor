@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-10-02
-> 当前稳定版本：`v0.6.2`
+> 当前稳定版本：`v0.6.3`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 待发布           | 待提交    | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
 | [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 公开 Release     | `8712e4f` | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
 | [0.6.1](https://github.com/kokotao/tau-editor/releases/tag/v0.6.1) | 2026-09-30 | 公开 Release     | `3378e13` | Markdown 工具栏、快捷键、图片粘贴、代码语言与撤销重做修复    |
 | [0.6.0](https://github.com/kokotao/tau-editor/releases/tag/v0.6.0) | 2026-09-29 | 公开 Release     | `3f21d42` | 独立主题市场、源码 JSON、主题 UI 配置、圆角调节、主题联动      |
@@ -38,6 +39,21 @@
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
 
 ---
+
+## [0.6.3] - 2026-10-02
+
+### 补丁修复
+
+- 删除单文件模式下 App 外层的“资源管理器目前为空”提示，资源区没有工作区时保持空白。
+- Markdown 右键分类菜单补充按钮悬浮、聚焦和点击触发，二级面板在真实浏览器运行态可见。
+- 增加 AppShell 空状态回归测试和 EditorCore 触发器回归测试。
+
+### 验证
+
+- 全量 Vitest、类型检查、生产构建和 `git diff --check` 均通过。
+- Playwright 真实浏览器检查确认：资源区无提示，Markdown 二级面板可视化显示。
+- macOS Apple Silicon DMG 重新构建并执行 hdiutil、签名、挂载、arm64 检查。
+
 
 ## [0.6.2] - 2026-10-02
 

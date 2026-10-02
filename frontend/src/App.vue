@@ -415,9 +415,6 @@ const currentFileLabel = computed(() => {
 
   return activeTab.value.fileName;
 });
-const currentModeLabel = computed(() =>
-  mode.value === 'single-file' ? appText.value.singleFileMode : appText.value.emptyMode,
-);
 const filteredCommands = computed(() => commandStore.filteredCommands);
 const flattenFileTree = (nodes: FileTreeNode[]): Array<{ path: string; name: string }> => nodes.flatMap((node) => [
   ...(node.type === 'file' ? [{ path: node.path, name: node.name }] : []),
@@ -2906,11 +2903,6 @@ onUnmounted(() => {
               @copy-current-file-path="handleCopyCurrentFilePath"
               @reveal-current-file-manager="handleRevealCurrentFileInManager"
             />
-            <div v-else class="sidebar-empty">
-              <p class="sidebar-empty-title">{{ appText.sidebarEmptyTitle }}</p>
-              <p class="sidebar-empty-text">{{ appText.sidebarEmptyDesc.replace('{mode}', currentModeLabel) }}</p>
-              <button class="sidebar-empty-action" @click="handleOpenFolder">{{ appText.selectFolder }}</button>
-            </div>
           </aside>
           <div
             class="sidebar-resizer"
@@ -3359,37 +3351,6 @@ textarea {
   background: color-mix(in srgb, var(--bg-app) 48%, transparent);
   backdrop-filter: blur(4px);
   z-index: calc(var(--z-drawer, 50) - 1);
-}
-
-.sidebar-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 28px 20px;
-  color: var(--text-secondary);
-}
-
-.sidebar-empty-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.sidebar-empty-text {
-  line-height: 1.6;
-  color: var(--text-muted);
-}
-
-.sidebar-empty-action {
-  width: fit-content;
-  min-width: 132px;
-  height: 38px;
-  padding: 0 14px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: linear-gradient(135deg, var(--accent-blue-strong), #38bdf8);
-  color: #fff;
-  cursor: pointer;
 }
 
 .editor-panel {
