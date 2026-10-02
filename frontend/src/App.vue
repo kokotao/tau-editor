@@ -276,7 +276,9 @@ const canonicalFsPath = (path: string) => {
   for (const segment of segments) {
     if (!segment || segment === '.') continue;
     if (segment === '..') {
-      if (resolved.length && resolved.at(-1) !== '..') resolved.pop();
+      // Keep the path normalizer compatible with the DOM lib target used by
+      // the release runners; avoid Array.prototype.at() here.
+      if (resolved.length && resolved[resolved.length - 1] !== '..') resolved.pop();
       else if (!prefix) resolved.push('..');
       continue;
     }

@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-10-02
-> 当前稳定版本：`v0.6.3`
+> 当前稳定版本：`v0.6.4`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 待发布           | 待提交    | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
 | [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 公开 Release     | `8712e4f` | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
 | [0.6.1](https://github.com/kokotao/tau-editor/releases/tag/v0.6.1) | 2026-09-30 | 公开 Release     | `3378e13` | Markdown 工具栏、快捷键、图片粘贴、代码语言与撤销重做修复    |
@@ -37,6 +38,27 @@
 | [0.1.3](https://github.com/kokotao/tau-editor/tree/v0.1.3)         | 2026-03-13 | 内部验证 tag     | `b49534f` | 修复 macOS 选择器权限与关闭按钮                               |
 | [0.1.2](https://github.com/kokotao/tau-editor/tree/v0.1.2)         | 2026-03-13 | 内部验证 tag     | `89c1d2b` | 首个可构建基线，命令面板与工作区根目录统一                    |
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
+
+---
+
+## [0.6.4] - 2026-10-02
+
+### 发布与稳定性修复
+
+- 修复 GitHub Actions 在 Linux/Windows 构建阶段因 `Array.prototype.at()` 类型库兼容性导致的 TS2550 错误。
+- 发布流水线新增 tag 与应用版本一致性校验，构建后强制检查 macOS DMG、Linux DEB/AppImage/RPM、Windows MSI/EXE 六类安装包。
+- 官网 Releases 时间线自动读取 GitHub Releases，公开版本按 SemVer 排序，展示更新摘要、版本详情和可下载资产；GitHub API 不可用时回退到内置版本记录。
+- 补齐版本日志索引和发布审计记录，避免官网与 GitHub Release 版本出现跳跃或缺失。
+
+### 验证
+
+- 前端类型检查、生产构建、官网构建和 YAML 解析通过。
+- GitHub Actions 三平台构建通过后再发布资产；Release 必须包含六类系统安装包。
+
+### 已知限制
+
+- GitHub API 动态展示受浏览器网络和 API 限流影响，失败时使用内置 fallback；完整更新详情仍以 GitHub Release 页面为准。
+
 
 ---
 
@@ -81,6 +103,40 @@
 ### 回滚
 
 - 回滚到 `v0.6.1` 不影响已有文档、图片资源和用户设置；图片预览变更仅影响打开与保存路径。
+
+
+## [0.6.1] - 2026-09-30
+
+### Markdown 编辑体验
+
+- 完成 Markdown 工具栏 SVG 图标、H1-H6 标题选择、常用格式快捷插入及快捷键支持。
+- 支持图片、表格、分割线、折叠块、Mermaid、目录和时间戳快捷插入。
+- 代码块支持常用语言选择与自定义语言输入；剪贴板图片可写入文档同级 `assets/` 并以相对路径引用。
+- 修复标题、撤销和重做按钮无响应问题；组合粗斜体快捷键支持 Ctrl+B 与 Ctrl+I 任意顺序触发。
+
+### 验证与发布
+
+- 前端类型检查、生产构建、Rust 检查及 Markdown workspace 定向测试通过。
+- 单元测试：55 个测试文件、822 项通过。
+- GitHub Actions Desktop Build `36652738500` 完成 macOS、Windows、Linux 构建并上传资产。
+- 安装包与 SHA-256 详见 [v0.6.1 发布记录](docs/release/20260930085320000_Tau_Editor_v0.6.1_发布记录.md)。
+
+
+## [0.6.0] - 2026-09-29
+
+### 主题市场与外观自定义
+
+- 将主题市场独立为左侧栏目，支持搜索、筛选、安装、应用和缓存，并支持查看主题源码。
+- 主题包与自定义配色支持选择项颜色、标签高亮、状态色等 UI token 配置。
+- 新增全局圆角配置；主题切换同步工作台顶部栏、标签栏、编辑器和状态栏。
+- 官网新增版本更新日志时间线、分类筛选和展开详情。
+
+### 验证与发布
+
+- 单元测试：54 个测试文件、813 项通过；前端类型检查、生产构建、Rust 检查和官网构建通过。
+- GitHub Actions Desktop Build `36550107694` 完成 macOS、Windows、Linux 构建并上传资产。
+- GitHub Pages 部署 `36550099233` 成功。
+- 安装包列表详见 [v0.6.0 发布记录](docs/release/20260929170000000_Tau_Editor_v0.6.0_发布记录.md)。
 
 
 ## 历史口径说明

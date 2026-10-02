@@ -15,10 +15,28 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.3', date: '2026-10-02', label: '编辑器导航与图片预览', category: '编辑器体验', latest: true,
+    version: 'v0.6.4', date: '2026-10-02', label: '三平台发布与官网动态同步', category: '稳定性', latest: true,
+    summary: '补齐 macOS、Windows、Linux 六类安装包，并让官网更新日志自动同步 GitHub Releases，减少手动维护遗漏。',
+    highlights: ['修复 CI 类型库兼容问题，恢复三平台构建', '发布前校验 tag 与应用版本一致', '构建后校验 DMG、DEB、AppImage、RPM、MSI、EXE 六类资产', '官网按公开 GitHub Release 动态展示版本、摘要和下载资产', 'GitHub API 不可用时自动回退内置版本记录'],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.4',
+  },
+  {
+    version: 'v0.6.3', date: '2026-10-02', label: '编辑器导航与图片预览', category: '编辑器体验',
     summary: 'Markdown 工具栏完成 SVG 图标、快捷插入、快捷键、图片粘贴和代码块语言选择，编辑体验更接近成熟 Markdown 编辑器。',
     highlights: ['H1-H6 标题下拉与显眼 SVG 工具图标', '图片、表格、分割线、折叠块、Mermaid、目录和时间戳快捷插入', 'Ctrl+B / Ctrl+I 双向加粗斜体组合快捷键', '剪贴板图片写入文档同级 assets 并使用相对路径', '代码块语言选择、自定义语言、撤销与重做可用'],
     releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.3',
+  },
+  {
+    version: 'v0.6.2', date: '2026-10-02', label: '资源区与编辑器稳定性', category: '编辑器体验',
+    summary: '补齐资源区信息展示、Markdown 二级菜单、图片预览和代码导航能力，让工作区在真实使用中更稳定。',
+    highlights: ['资源区空状态静默展示，文件信息支持横向查看', '修复 Markdown 右键分类二级菜单被裁剪、悬浮不出现的问题', '图片文件直接渲染预览，避免将二进制内容显示为源码', '代码文件支持已打开模型之间的类、接口、函数和方法跳转', 'Hover 显示符号签名与引用数量'],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.2',
+  },
+  {
+    version: 'v0.6.1', date: '2026-09-30', label: 'Markdown 编辑器工具链', category: '编辑器体验',
+    summary: '补齐 Markdown 工具栏、快捷插入、快捷键、图片粘贴和代码块语言选择，编辑体验更接近成熟 Markdown 编辑器。',
+    highlights: ['标题、粗体、斜体、引用、列表、代码、链接和图片使用清晰 SVG 图标', '支持表格、分割线、折叠块、Mermaid、目录和时间戳快捷插入', 'Ctrl+B 与 Ctrl+I 可按任意顺序组合为加粗斜体', '复制粘贴图片自动保存到文档同级 assets 目录并写入相对路径', '代码块支持常用语言选择和自定义语言输入', '标题、撤销与重做按钮恢复真实可用状态'],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.1',
   },
   {
     version: 'v0.6.0', date: '2026-09-29', label: '主题市场与外观自定义', category: '主题与外观',
@@ -130,6 +148,159 @@ const releases = [
   },
 ]
 
+const githubReleasesApi = 'https://api.github.com/repos/kokotao/tau-editor/releases'
+const releaseCategoryOrder = ['编辑器体验', '主题与外观', '工作台体验', '核心能力', '稳定性']
+
+const escapeHtml = (value) => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#039;')
+
+const stripMarkdown = (value) => String(value ?? '')
+  .replace(/```[\s\S]*?```/g, '')
+  .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  .replace(/[`*_~>#]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const extractReleaseHighlights = (body) => {
+  const lines = String(body ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const bullets = lines
+    .filter((line) => /^(?:[-*+]\s+|\d+[.)]\s+)/.test(line))
+    .map((line) => stripMarkdown(line.replace(/^(?:[-*+]\s+|\d+[.)]\s+)/, '')))
+    .filter(Boolean)
+  if (bullets.length) return [...new Set(bullets)]
+  return [...new Set(lines
+    .filter((line) => !/^#{1,6}\s/.test(line) && !/^```/.test(line))
+    .map(stripMarkdown)
+    .filter(Boolean))].slice(0, 8)
+}
+
+const extractReleaseSummary = (body, highlights) => {
+  const paragraphs = String(body ?? '').split(/\r?\n\s*\r?\n/)
+    .map(stripMarkdown)
+    .filter((paragraph) => paragraph && !/^(?:[-*+]\s+|\d+[.)]\s+)/.test(paragraph))
+  return paragraphs[0] || highlights[0] || '查看 GitHub 发布页面了解本版本的完整更新内容。'
+}
+
+const inferReleaseCategory = (release) => {
+  const text = `${release.name || ''} ${release.body || ''}`.toLowerCase()
+  if (/主题|外观|圆角|颜色|配色|theme|appearance/.test(text)) return '主题与外观'
+  if (/编辑器|markdown|图片|代码|导航|工具栏|快捷键|预览|mermaid/.test(text)) return '编辑器体验'
+  if (/修复|稳定|签名|性能|安全|fix|stability/.test(text)) return '稳定性'
+  if (/工作台|设置|标签|资源|文件|窗口|workspace|settings/.test(text)) return '工作台体验'
+  return '核心能力'
+}
+
+const semverParts = (version) => {
+  const match = String(version ?? '').match(/(\d+)\.(\d+)\.(\d+)/)
+  return match ? match.slice(1).map(Number) : null
+}
+
+const compareReleaseVersions = (left, right) => {
+  const leftParts = semverParts(left.version)
+  const rightParts = semverParts(right.version)
+  if (leftParts && rightParts) {
+    for (let index = 0; index < 3; index += 1) {
+      if (leftParts[index] !== rightParts[index]) return rightParts[index] - leftParts[index]
+    }
+  } else if (leftParts) {
+    return -1
+  } else if (rightParts) {
+    return 1
+  }
+  return String(right.publishedAt).localeCompare(String(left.publishedAt))
+}
+
+const normalizeGithubRelease = (release) => {
+  const version = release.tag_name || release.name || '未知版本'
+  const highlights = extractReleaseHighlights(release.body)
+  const title = stripMarkdown(release.name || '')
+    .replace(/^Tau Editor\s*/i, '')
+    .replace(new RegExp(`^${version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[-:]?\\s*`, 'i'), '')
+  return {
+    version,
+    date: String(release.published_at || release.created_at || '').slice(0, 10) || '未知日期',
+    publishedAt: release.published_at || release.created_at || '',
+    label: title || '版本更新',
+    category: inferReleaseCategory(release),
+    summary: extractReleaseSummary(release.body, highlights),
+    highlights,
+    releaseUrl: release.html_url || `https://github.com/kokotao/tau-editor/releases/tag/${encodeURIComponent(version)}`,
+    assets: Array.isArray(release.assets) ? release.assets
+      .filter((asset) => asset?.name && asset?.browser_download_url)
+      .map((asset) => ({ name: asset.name, url: asset.browser_download_url })) : [],
+  }
+}
+
+const normalizeGithubReleases = (items) => items
+  .filter((release) => release && !release.draft && !release.prerelease && release.tag_name)
+  .map(normalizeGithubRelease)
+  .sort(compareReleaseVersions)
+  .map((release, index) => ({ ...release, latest: index === 0 }))
+
+const renderReleaseFilters = (items) => {
+  const categories = [...new Set(items.map((release) => release.category))]
+    .sort((left, right) => {
+      const leftIndex = releaseCategoryOrder.indexOf(left)
+      const rightIndex = releaseCategoryOrder.indexOf(right)
+      return (leftIndex < 0 ? 99 : leftIndex) - (rightIndex < 0 ? 99 : rightIndex)
+    })
+  return ['全部', ...categories].map((category, index) => `<button class="release-filter${index === 0 ? ' active' : ''}" data-release-filter="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join('')
+}
+
+const renderReleaseCards = (items) => items.map((release) => {
+  const assets = Array.isArray(release.assets) ? release.assets : []
+  const highlights = Array.isArray(release.highlights) ? release.highlights : []
+  return `<article class="release-card ${release.latest ? 'latest' : ''}" data-release-category="${escapeHtml(release.category)}"><div class="release-marker"><span></span></div><div class="release-card-body"><div class="release-meta"><span class="release-version">${escapeHtml(release.version)}</span><time datetime="${escapeHtml(release.date)}">${escapeHtml(release.date)}</time><span class="release-category">${escapeHtml(release.category)}</span>${release.latest ? '<b class="release-latest">当前版本</b>' : ''}</div><div class="release-title-row"><h3>${escapeHtml(release.label)}</h3><a href="${escapeHtml(release.releaseUrl)}" target="_blank" rel="noreferrer" aria-label="查看 ${escapeHtml(release.version)} 发布详情">查看发布 ↗</a></div><p class="release-summary">${escapeHtml(release.summary)}</p><details${release.latest ? ' open' : ''}><summary>查看本版本更新 <span>＋</span></summary><ul>${highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>${assets.length ? `<div class="release-assets"><span>安装包</span>${assets.map((asset) => `<a href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" title="下载 ${escapeHtml(asset.name)}">${escapeHtml(asset.name)} ↗</a>`).join('')}</div>` : ''}</div></article>`
+}).join('')
+
+const renderReleaseSection = (items) => {
+  const filterRoot = document.querySelector('.release-filters')
+  const listRoot = document.querySelector('.release-list')
+  if (!filterRoot || !listRoot) return
+  filterRoot.innerHTML = renderReleaseFilters(items)
+  listRoot.innerHTML = renderReleaseCards(items)
+  document.querySelector('[data-current-version]')?.replaceChildren(items[0]?.version || 'v0.6.4')
+  bindReleaseFilters()
+}
+
+let activeReleaseFilter = '全部'
+const bindReleaseFilters = () => {
+  document.querySelectorAll('.release-filter').forEach((button) => button.addEventListener('click', () => {
+    activeReleaseFilter = button.dataset.releaseFilter || '全部'
+    document.querySelectorAll('.release-filter').forEach((item) => item.classList.toggle('active', item === button))
+    document.querySelectorAll('.release-card').forEach((card) => {
+      card.hidden = activeReleaseFilter !== '全部' && card.dataset.releaseCategory !== activeReleaseFilter
+    })
+  }))
+}
+
+const fetchGithubReleases = async () => {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 8000)
+  try {
+    const releases = []
+    for (let page = 1; page <= 10; page += 1) {
+      const response = await fetch(`${githubReleasesApi}?per_page=100&page=${page}`, {
+        headers: { Accept: 'application/vnd.github+json' },
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error(`GitHub Releases 请求失败：${response.status}`)
+      const pageItems = await response.json()
+      if (!Array.isArray(pageItems)) throw new Error('GitHub Releases 返回数据格式错误')
+      releases.push(...pageItems)
+      if (pageItems.length < 100) break
+    }
+    return normalizeGithubReleases(releases)
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 document.querySelector('#app').innerHTML = `
   <main class="site-shell">
     <header class="nav container">
@@ -139,7 +310,7 @@ document.querySelector('#app').innerHTML = `
     </header>
 
     <section id="top" class="hero container">
-      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span>v0.6.3</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
+      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span data-current-version>v0.6.4</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
       <div class="hero-art" aria-label="Tau Editor 编辑器概念预览"><div class="grid"></div><div class="code-window"><div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>welcome.md</span><span class="saved">● saved</span></div><div class="code-body"><span class="numbers">01<br>02<br>03<br>04<br>05<br>06<br>07<br>08</span><code><span>#</span> Make space for<br><strong>your next idea.</strong><br><br><small>A calm place to write,<br>think, and build.</small><br><em>— Tau Editor</em></code></div><div class="window-foot"><span>Markdown</span><span>Ln 8, Col 16</span></div></div><div class="note"><b>⌘</b><span><strong>Command palette</strong><small>Everything within reach</small></span></div></div>
     </section>
 
@@ -153,7 +324,7 @@ document.querySelector('#app').innerHTML = `
 
     <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>把工作台，<br><em>带在手边。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/markdown-preview.png" alt="Markdown 分栏预览"><figcaption>Markdown preview</figcaption></figure><figure><img src="./assets/command-palette.png" alt="命令面板"><figcaption>Command palette</figcaption></figure><figure><img src="./assets/settings.png" alt="快捷键与扩展设置"><figcaption>Settings that fit</figcaption></figure></div></section>
 
-    <section id="releases" class="releases container reveal"><div class="release-heading"><div><p class="eyebrow">RELEASE NOTES</p><h2>每一次更新，<br><em>都值得被看见。</em></h2></div><p>从首个公开版本到主题市场，Tau 的每一步都围绕更专注、更可靠的写作体验展开。</p></div><div class="release-filters" role="group" aria-label="筛选更新日志"><button class="release-filter active" data-release-filter="全部">全部</button><button class="release-filter" data-release-filter="主题与外观">主题与外观</button><button class="release-filter" data-release-filter="工作台体验">工作台体验</button><button class="release-filter" data-release-filter="核心能力">核心能力</button><button class="release-filter" data-release-filter="稳定性">稳定性</button></div><div class="release-list">${releases.map((release) => `<article class="release-card ${release.latest ? 'latest' : ''}" data-release-category="${release.category}"><div class="release-marker"><span></span></div><div class="release-card-body"><div class="release-meta"><span class="release-version">${release.version}</span><time datetime="${release.date}">${release.date}</time><span class="release-category">${release.category}</span>${release.latest ? '<b class="release-latest">当前版本</b>' : ''}</div><div class="release-title-row"><h3>${release.label}</h3><a href="${release.releaseUrl}" target="_blank" rel="noreferrer" aria-label="查看 ${release.version} 发布详情">查看发布 ↗</a></div><p class="release-summary">${release.summary}</p><details${release.latest ? ' open' : ''}><summary>查看本版本更新 <span>＋</span></summary><ul>${release.highlights.map((item) => `<li>${item}</li>`).join('')}</ul></details></div></article>`).join('')}</div></section>
+    <section id="releases" class="releases container reveal"><div class="release-heading"><div><p class="eyebrow">RELEASE NOTES</p><h2>每一次更新，<br><em>都值得被看见。</em></h2></div><p>更新日志自动同步 GitHub Releases，按公开 tag 排序展示；网络不可用时保留内置版本记录。</p></div><div class="release-sync-status" role="status" aria-live="polite" data-release-sync>内置版本记录 · 正在同步 GitHub Releases…</div><div class="release-filters" role="group" aria-label="筛选更新日志">${renderReleaseFilters(releases)}</div><div class="release-list">${renderReleaseCards(releases)}</div></section>
 
     <section class="platforms container reveal"><div><p class="eyebrow">ONE EDITOR, EVERY DESK</p><h2>在你选择的系统上，<br><em>保持同样顺手。</em></h2></div><div class="platform-list"><div><b>⌘</b><span>macOS<small>Apple Silicon</small></span></div><div><b>⊞</b><span>Windows<small>x64</small></span></div><div><b>◉</b><span>Linux<small>Deb · RPM · AppImage</small></span></div></div></section>
 
@@ -169,13 +340,23 @@ document.querySelectorAll('.feature').forEach((button) => button.addEventListene
   button.classList.add('active')
 }))
 
-document.querySelectorAll('.release-filter').forEach((button) => button.addEventListener('click', () => {
-  const filter = button.dataset.releaseFilter
-  document.querySelectorAll('.release-filter').forEach((item) => item.classList.toggle('active', item === button))
-  document.querySelectorAll('.release-card').forEach((card) => {
-    card.hidden = filter !== '全部' && card.dataset.releaseCategory !== filter
+bindReleaseFilters()
+
+fetchGithubReleases()
+  .then((items) => {
+    if (!items.length) throw new Error('没有可展示的公开 Release')
+    renderReleaseSection(items)
+    const status = document.querySelector('[data-release-sync]')
+    if (status) status.textContent = `已同步 ${items.length} 个公开版本 · 来源 GitHub Releases`
+    if (activeReleaseFilter !== '全部') {
+      document.querySelector(`[data-release-filter="${CSS.escape(activeReleaseFilter)}"]`)?.click()
+    }
   })
-}))
+  .catch((error) => {
+    console.warn('[Tau website] GitHub Releases 动态同步失败，继续使用内置版本记录。', error)
+    const status = document.querySelector('[data-release-sync]')
+    if (status) status.textContent = 'GitHub Releases 暂时不可用 · 当前显示内置版本记录'
+  })
 
 const revealObserver = new IntersectionObserver((entries) => {
   entries.forEach((entry) => {

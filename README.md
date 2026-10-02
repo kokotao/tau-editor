@@ -10,6 +10,8 @@ Tau Editor 的宣传官网已从桌面编辑器应用中独立出来，专门用
 
 官网源码位于 [`website/`](website/)；编辑器应用源码仍位于 [`frontend/`](frontend/)，两者独立构建、独立发布。
 
+官网“更新日志”默认从 GitHub Releases 自动同步公开版本、发布日期、更新摘要和安装包链接；GitHub API 暂时不可用时会回退到内置版本记录，因此发布新版本无需再手动改官网版本列表。
+
 ### 本地预览官网
 
 ```bash
@@ -57,13 +59,13 @@ npm run build
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon) | `Tau.Editor_0.6.3_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
-| Windows (x64) | `Tau.Editor_0.6.3_x64-setup.exe` / `Tau.Editor_0.6.3_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.6.3_amd64.deb` / `Tau.Editor-0.6.3-1.x86_64.rpm` / `Tau.Editor_0.6.3_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS (Apple Silicon) | `Tau.Editor_0.6.4_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
+| Windows (x64) | `Tau.Editor_0.6.4_x64-setup.exe` / `Tau.Editor_0.6.4_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.6.4_amd64.deb` / `Tau.Editor-0.6.4-1.x86_64.rpm` / `Tau.Editor_0.6.4_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
 > **macOS 首次打开说明**：构建流程已在打包前对 `.app` 做 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`），
 > 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需
@@ -78,6 +80,12 @@ npm run build
 > ```
 >
 > 完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
+
+## ✨ v0.6.4 更新亮点
+
+- **三平台安装包补齐**：发布流水线修复 CI 类型兼容问题，并增加 macOS、Windows、Linux 六类安装包完整性门禁。
+- **官网版本动态同步**：更新日志自动读取 GitHub Releases，按公开版本排序并展示安装包链接，网络异常时回退内置记录。
+- **发布可靠性增强**：构建前校验 tag 与应用版本一致，构建后校验平台产物齐全，避免再次发布缺少系统安装包的 Release。
 
 ## ✨ v0.6.3 更新亮点
 

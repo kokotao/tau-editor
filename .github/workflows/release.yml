@@ -44,6 +44,21 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || github.ref }}
 
+      - name: Validate release tag matches app version
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          app_version="$(node -p "require('./frontend/package.json').version")"
+          expected_tag="v${app_version}"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "::error::Release tag '$RELEASE_TAG' does not match checked-out app version '$app_version' (expected '$expected_tag')."
+            exit 1
+          fi
+          echo "Validated release tag $RELEASE_TAG for app version $app_version"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -110,6 +125,55 @@ jobs:
       - name: Build Tauri bundles
         working-directory: frontend
         run: pnpm tauri build ${{ matrix.args }}
+
+      - name: Verify platform bundle matrix
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bundle_root="src-tauri/target/release/bundle"
+          version="$(node -p "require('./package.json').version")"
+          case "${{ matrix.platform }}" in
+            macos-latest)
+              expected=(
+                "$(find "$bundle_root/dmg" -maxdepth 1 -type f -name "*${version}*.dmg" -print -quit)"
+              )
+              ;;
+            ubuntu-22.04)
+              expected=(
+                "$(find "$bundle_root/deb" -maxdepth 1 -type f -name "*${version}*.deb" -print -quit)"
+                "$(find "$bundle_root/appimage" -maxdepth 1 -type f -name "*${version}*.AppImage" -print -quit)"
+                "$(find "$bundle_root/rpm" -maxdepth 1 -type f -name "*${version}*.rpm" -print -quit)"
+              )
+              ;;
+            windows-latest)
+              expected=(
+                "$(find "$bundle_root/msi" -maxdepth 1 -type f -name "*${version}*.msi" -print -quit)"
+                "$(find "$bundle_root/nsis" -maxdepth 1 -type f -name "*${version}*.exe" -print -quit)"
+              )
+              ;;
+            *)
+              echo "::error::Unsupported release platform: ${{ matrix.platform }}"
+              exit 1
+              ;;
+          esac
+
+          missing=0
+          for artifact in "${expected[@]}"; do
+            if [ -z "$artifact" ] || [ ! -f "$artifact" ]; then
+              echo "::error::Missing expected ${version} bundle for ${{ matrix.platform }}"
+              missing=1
+            else
+              echo "Verified bundle: $artifact"
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::The platform build did not produce the complete installer set."
+            find "$bundle_root" -maxdepth 2 -type f -print | sort || true
+            exit 1
+          fi
 
       - name: Verify macOS code signature
         if: matrix.platform == 'macos-latest'
@@ -183,6 +247,27 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
+
+          declare -A required=()
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              *.dmg) required[dmg]="$file" ;;
+              *.deb) required[deb]="$file" ;;
+              *.AppImage) required[appimage]="$file" ;;
+              *.rpm) required[rpm]="$file" ;;
+              *.msi) required[msi]="$file" ;;
+              *.exe) required[exe]="$file" ;;
+            esac
+          done < <(find release-assets -type f \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
+            -print0)
+
+          for kind in dmg deb appimage rpm msi exe; do
+            if [ -z "${required[$kind]:-}" ]; then
+              echo "::error::Release asset set is incomplete; missing ${kind} installer."
+              exit 1
+            fi
+          done
 
           count=$(find release-assets -type f \
             \( -name '*.dmg' -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
