@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.6](https://github.com/kokotao/tau-editor/releases/tag/v0.6.6) | 2026-10-03 | 待发布           | 待补充    | 图片查看器关闭体验、视口空白区关闭与全局 Escape 兜底         |
+| [0.6.6](https://github.com/kokotao/tau-editor/releases/tag/v0.6.6) | 2026-10-03 | 公开 Release     | `978d587` | 图片查看器关闭体验、视口空白区关闭与全局 Escape 兜底         |
 | [0.6.5](https://github.com/kokotao/tau-editor/releases/tag/v0.6.5) | 2026-10-03 | 公开 Release     | `d4586f8` | Markdown 预览宽度、图片边界、图片查看器与超宽表格体验         |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
