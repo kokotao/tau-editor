@@ -10,6 +10,7 @@
       :aria-label="`${alt || '图片'}预览`"
       tabindex="0"
       @keydown="handleKeydown"
+      @click.self="closeViewer"
     >
       <div
         class="image-viewer__backdrop"
@@ -80,6 +81,7 @@
           data-testid="image-viewer-viewport"
           :class="{ 'is-dragging': isDragging }"
           @wheel.prevent="handleWheel"
+          @click.self="closeViewer"
         >
           <img
             :src="src"
@@ -184,6 +186,15 @@ const resetView = () => {
 
 const closeViewer = () => emit('close');
 
+const handleWindowKeydown = (event: KeyboardEvent) => {
+  if (!props.visible || event.key !== 'Escape') {
+    return;
+  }
+
+  event.preventDefault();
+  closeViewer();
+};
+
 const handlePointerDown = (event: PointerEvent) => {
   if (event.button !== 0) return;
   isDragging.value = true;
@@ -251,8 +262,10 @@ watch(
     if (visible) {
       resetView();
       void focusViewer();
+      window.addEventListener('keydown', handleWindowKeydown);
     } else {
       isDragging.value = false;
+      window.removeEventListener('keydown', handleWindowKeydown);
     }
   },
   { immediate: true },
@@ -267,6 +280,7 @@ watch(
 
 onBeforeUnmount(() => {
   isDragging.value = false;
+  window.removeEventListener('keydown', handleWindowKeydown);
 });
 </script>
 

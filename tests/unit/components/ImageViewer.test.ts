@@ -38,6 +38,16 @@ describe('ImageViewer', () => {
     expect(wrapper.emitted('close')).toHaveLength(3);
   });
 
+  it('点击图片周围的视口空白区和窗口级 Escape 都可以关闭', async () => {
+    const wrapper = mountViewer();
+
+    await wrapper.get('[data-testid="image-viewer-viewport"]').trigger('click');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('close')).toHaveLength(2);
+  });
+
   it('双击切换缩放，滚轮缩放并限制在合理范围内', async () => {
     const wrapper = mountViewer();
     const getImage = () => wrapper.get('[data-testid="image-viewer-image"]');

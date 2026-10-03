@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-10-03
-> 当前稳定版本：`v0.6.5`
+> 当前稳定版本：`v0.6.6`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.6](https://github.com/kokotao/tau-editor/releases/tag/v0.6.6) | 2026-10-03 | 待发布           | 待补充    | 图片查看器关闭体验、视口空白区关闭与全局 Escape 兜底         |
 | [0.6.5](https://github.com/kokotao/tau-editor/releases/tag/v0.6.5) | 2026-10-03 | 公开 Release     | `d4586f8` | Markdown 预览宽度、图片边界、图片查看器与超宽表格体验         |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
@@ -41,6 +42,20 @@
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
 
 ---
+
+## [0.6.6] - 2026-10-03
+
+### 图片查看器关闭修复
+
+- 点击图片查看器视口中图片周围的空白区域即可关闭，避免深色面板铺满窗口时找不到可关闭区域。
+- 图片查看器可见期间注册窗口级 Escape 监听，即使焦点离开查看器也能关闭。
+- 增加视口空白区点击和窗口级 Escape 回归测试。
+
+### 验证
+
+- 相关组件单测、类型检查和前端生产构建通过。
+- Chromium 实测：双击图片打开后，点击视口空白区关闭；焦点移到 `body` 后派发 Escape 仍能关闭。
+
 
 ## [0.6.5] - 2026-10-03
 
