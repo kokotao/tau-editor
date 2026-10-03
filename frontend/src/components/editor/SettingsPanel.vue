@@ -535,6 +535,48 @@
                 {{ providersStore.errors.map((error) => `${error.providerId}: ${error.message}`).join('；') }}
               </p>
             </div>
+
+            <div class="settings-item lsp-server-settings" data-testid="lsp-server-settings">
+              <div class="settings-label-row">
+                <label class="settings-label">{{ settingsStore.uiLanguage === 'en-US' ? 'Language servers' : '语言服务器' }}</label>
+                <button
+                  class="settings-action-btn"
+                  data-testid="refresh-lsp-servers-btn"
+                  :disabled="lspServersStore.loading"
+                  @click="lspServersStore.refresh()"
+                >
+                  {{ lspServersStore.loading ? (settingsStore.uiLanguage === 'en-US' ? 'Checking…' : '检测中…') : (settingsStore.uiLanguage === 'en-US' ? 'Check again' : '重新检测') }}
+                </button>
+              </div>
+              <p class="custom-theme-desc">
+                {{ settingsStore.uiLanguage === 'en-US' ? 'Tau Editor uses managed servers when a verified asset is configured, then PATH, and finally lightweight navigation.' : 'Tau Editor 会优先使用应用托管且已校验的语言服务器，其次使用 PATH，最后回退到轻量导航。' }}
+              </p>
+              <div v-if="lspServersStore.error" class="custom-theme-status provider-error" data-testid="lsp-server-error">
+                {{ lspServersStore.error }}
+              </div>
+              <div v-if="lspServersStore.servers.length" class="lsp-server-list">
+                <div v-for="server in lspServersStore.servers" :key="server.id" class="lsp-server-row" :data-testid="`lsp-server-${server.id}`">
+                  <div class="lsp-server-main">
+                    <span class="lsp-server-name">{{ server.displayName }}</span>
+                    <span class="lsp-server-command">{{ server.command }}</span>
+                  </div>
+                  <div class="lsp-server-state" :class="server.available ? 'is-ready' : 'is-missing'">
+                    <strong>{{ lspServerStateLabel(server) }}</strong>
+                    <small v-if="server.version">{{ server.version }}</small>
+                    <small v-else-if="server.reason">{{ server.reason }}</small>
+                    <button
+                      v-if="!server.available && server.managedConfigured"
+                      class="settings-action-btn lsp-server-provision-btn"
+                      :disabled="Boolean(lspServersStore.provisioning[server.id])"
+                      :data-testid="`provision-lsp-server-${server.id}`"
+                      @click="lspServersStore.provision(server.id)"
+                    >
+                      {{ lspServersStore.provisioning[server.id] ? (settingsStore.uiLanguage === 'en-US' ? 'Preparing…' : '准备中…') : (settingsStore.uiLanguage === 'en-US' ? 'Prepare automatically' : '自动准备') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div
@@ -812,6 +854,7 @@ import {
   useSettingsStore,
 } from '@/stores/settings';
 import { useProvidersStore } from '@/stores/providers';
+import { useLspServersStore } from '@/stores/lspServers';
 import {
   appCommands,
   settingsCommands,
@@ -866,12 +909,26 @@ const emit = defineEmits<{
 const settingsStore = useSettingsStore();
 const marketplaceService = new ThemeMarketplaceService();
 const providersStore = useProvidersStore();
+const lspServersStore = useLspServersStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
 const projectHomepageUrl = 'https://github.com/kokotao/tau-editor';
 const naiveTheme = computed(() => (settingsStore.resolvedTheme === 'dark' ? darkTheme : null));
 const isWorkspaceMode = computed(() => props.mode === 'workspace');
 const isDrawerMode = computed(() => props.mode === 'drawer');
+
+const lspServerStateLabel = (server: {
+  available: boolean;
+  source: string;
+  managedState: string;
+  installed: boolean;
+}) => {
+  const english = settingsStore.uiLanguage === 'en-US';
+  if (server.available) return server.source === 'managed' ? (english ? 'Ready (managed)' : '可用（应用托管）') : (english ? 'Ready' : '可用');
+  if (server.managedState === 'preparing') return english ? 'Preparing…' : '准备中…';
+  if (server.installed) return english ? 'Installed, unavailable' : '已安装但不可用';
+  return english ? 'Not prepared' : '尚未准备';
+};
 
 const appVersionInfo = ref<AppVersionInfo | null>(null);
 const updateInfo = ref<GithubUpdateInfo | null>(null);
@@ -1818,6 +1875,7 @@ watch(
 
 onMounted(async () => {
   await loadVersionInfo();
+  void lspServersStore.refresh();
   if (isWorkspaceMode.value) {
     await checkForUpdate(true);
   }
@@ -2328,6 +2386,72 @@ onMounted(async () => {
   gap: 8px;
   font-size: var(--font-size-ui-sm, 12px);
   color: var(--text-secondary, #cbd5e1);
+}
+
+.settings-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lsp-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.lsp-server-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-raised, #182235) 64%, transparent);
+}
+
+.lsp-server-main,
+.lsp-server-state {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lsp-server-name,
+.lsp-server-command,
+.lsp-server-state small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lsp-server-command,
+.lsp-server-state small {
+  color: var(--text-secondary, #8f9bb3);
+  font-size: 11px;
+}
+
+.lsp-server-state {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.lsp-server-state.is-ready strong {
+  color: var(--state-success, #5bd19a);
+}
+
+.lsp-server-state.is-missing strong {
+  color: var(--state-danger, #f28b8b);
+}
+
+.lsp-server-provision-btn {
+  margin-top: 4px;
+  padding: 3px 7px;
+  font-size: 11px;
 }
 
 .provider-error {

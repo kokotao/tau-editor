@@ -2,6 +2,7 @@
 ///
 /// 提供所有 Tauri 命令和后端服务。
 pub mod commands;
+pub mod lsp;
 mod models;
 mod services;
 mod utils;
@@ -28,6 +29,7 @@ pub fn run() {
         .manage(services::FileTransactionRegistry::default())
         .manage(services::SearchSessionRegistry::default())
         .manage(services::ReplacePreviewRegistry::default())
+        .manage(lsp::LspSupervisor::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -95,6 +97,16 @@ pub fn run() {
             commands::collect_workspace_tasks,
             commands::open_editor_window,
             commands::consume_window_transfer,
+            commands::lsp_start_session,
+            commands::lsp_send_request,
+            commands::lsp_send_notification,
+            commands::lsp_stop_session,
+            commands::lsp_session_status,
+            commands::lsp_probe_servers,
+            commands::lsp_platform_info,
+            commands::lsp_provision_status,
+            commands::lsp_install_server,
+            commands::lsp_workspace_data_dir,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

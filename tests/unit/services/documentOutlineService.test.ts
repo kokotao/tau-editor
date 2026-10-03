@@ -1,7 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { buildDocumentOutline } from '@/services/documentOutlineService';
+import {
+  buildDocumentOutline,
+  buildOutlineFromDocumentSymbols,
+} from '@/services/documentOutlineService';
 
 describe('documentOutlineService', () => {
+  it('将 LSP document symbols 转换为带层级和行号的大纲，并保留子符号顺序', () => {
+    expect(buildOutlineFromDocumentSymbols([
+      {
+        name: 'Editor',
+        kind: 4,
+        range: { startLineNumber: 2, endLineNumber: 8 },
+        selectionRange: { startLineNumber: 2, endLineNumber: 2 },
+        children: [
+          {
+            name: 'render',
+            kind: 5,
+            range: { startLineNumber: 3, endLineNumber: 5 },
+            selectionRange: { startLineNumber: 3, endLineNumber: 3 },
+          },
+        ],
+      },
+      {
+        name: 'createEditor',
+        kind: 11,
+        range: { startLineNumber: 10, endLineNumber: 12 },
+        selectionRange: { startLineNumber: 10, endLineNumber: 10 },
+      },
+    ])).toMatchObject([
+      { label: 'Editor', kind: 'class', level: 1, line: 2, endLine: 8 },
+      { label: 'render', kind: 'function', level: 2, line: 3, endLine: 5 },
+      { label: 'createEditor', kind: 'function', level: 1, line: 10, endLine: 12 },
+    ]);
+  });
+
   it('解析 Markdown 标题并跳过 fenced code block 中的伪标题', () => {
     expect(
       buildDocumentOutline({

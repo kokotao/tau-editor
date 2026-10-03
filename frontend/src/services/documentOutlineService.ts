@@ -10,6 +10,27 @@ export interface OutlineItem {
   children?: OutlineItem[];
 }
 
+/**
+ * @description Monaco/LSP document symbol 的最小结构，避免大纲服务依赖 Monaco 运行时。
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-10-03 11:20
+ */
+export interface DocumentSymbolLike {
+  name: string;
+  kind: number;
+  detail?: string;
+  range: {
+    startLineNumber: number;
+    endLineNumber: number;
+  };
+  selectionRange?: {
+    startLineNumber: number;
+    endLineNumber: number;
+  };
+  children?: readonly DocumentSymbolLike[];
+}
+
 export interface DocumentOutlineInput {
   content: string;
   language: string;
@@ -67,6 +88,81 @@ function createItem(
   line: number,
 ): OutlineItem {
   return { id: createId(kind, label, line), label, kind, level, line };
+}
+
+/**
+ * 将 LSP/Monaco 文档符号转换为 ContextRail 使用的大纲项。
+ * ContextRail 当前是扁平列表，因此保留层级字段并按文档顺序展开子符号。
+ */
+export function buildOutlineFromDocumentSymbols(
+  symbols: readonly DocumentSymbolLike[] | null | undefined,
+): OutlineItem[] {
+  if (!symbols?.length) return [];
+
+  const resolveKind = (kind: number): OutlineKind => {
+    // 输入是 Monaco SymbolKind（Bridge 已将 LSP kind 转为 Monaco 枚举）：
+    // Class=4、Method=5、Function=11 等。
+    switch (kind) {
+      case 1: // Module
+      case 2: // Namespace
+      case 3: // Package
+      case 4: // Class
+      case 8: // Constructor
+      case 9: // Enum
+      case 10: // Interface
+      case 22: // Struct
+        return 'class';
+      case 5: // Method
+      case 11: // Function
+      case 24: // Operator
+        return 'function';
+      case 6: // Property
+      case 7: // Field
+      case 12: // Variable
+      case 13: // Constant
+      case 14: // String
+      case 15: // Number
+      case 16: // Boolean
+      case 17: // Array
+      case 18: // Object
+      case 19: // Key
+      case 20: // Null
+      case 21: // EnumMember
+      case 23: // Event
+      case 25: // TypeParameter
+      default:
+        return 'key';
+    }
+  };
+
+  const outline: OutlineItem[] = [];
+  const walk = (items: readonly DocumentSymbolLike[], level: number, parentId = '') => {
+    items.forEach((symbol, index) => {
+      const label = symbol.name.trim();
+      if (!label) return;
+      const kind = resolveKind(symbol.kind);
+      const selectionLine = symbol.selectionRange?.startLineNumber;
+      const line = Math.max(1, selectionLine ?? symbol.range.startLineNumber ?? 1);
+      const endLine = Math.max(line, symbol.range.endLineNumber ?? line);
+      const item: OutlineItem = {
+        id: `lsp-${parentId ? `${parentId}-` : ''}${kind}-${index}-${line}-${label
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}_-]+/gu, '-')}`,
+        label,
+        kind,
+        level,
+        line,
+        endLine,
+      };
+      outline.push(item);
+      if (symbol.children?.length) {
+        walk(symbol.children, level + 1, item.id);
+      }
+    });
+  };
+
+  walk(symbols, 1);
+  return outline;
 }
 
 function parseMarkdown(lines: string[]): OutlineItem[] {

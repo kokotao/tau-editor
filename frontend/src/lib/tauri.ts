@@ -396,6 +396,218 @@ export interface WorkspaceWatchStatus {
 export const WORKSPACE_FILE_CHANGED_EVENT = 'workspace:file-changed';
 
 /**
+ * LSP 原始 JSON-RPC 消息事件名，与 Rust Supervisor 保持一致。
+ */
+export const LSP_MESSAGE_EVENT = 'lsp:message';
+export const LSP_STATE_EVENT = 'lsp:state';
+
+export interface LspSessionStartOptions {
+  sessionId: string;
+  workspaceId: string;
+  languageId: string;
+  rootPath: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface LspRequestPayload {
+  sessionId: string;
+  method: string;
+  params?: unknown;
+}
+
+export interface LspNotificationPayload {
+  sessionId: string;
+  method: string;
+  params?: unknown;
+}
+
+export interface LspMessageEventPayload {
+  sessionId: string;
+  direction: 'clientToServer' | 'serverToClient';
+  message: unknown;
+}
+
+export interface LspSessionStatus {
+  sessionId: string;
+  workspaceId: string;
+  languageId: string;
+  rootPath: string;
+  command: string;
+  state: 'starting' | 'running' | 'stopping' | 'stopped' | 'crashed' | 'failed';
+  pid?: number | null;
+  pendingRequests: number;
+  restartCount: number;
+  error?: string | null;
+}
+
+export interface LspResponse {
+  id: number;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown } | null;
+}
+
+export interface LspServerProbe {
+  id: string;
+  languageIds: string[];
+  command: string;
+  installed: boolean;
+  available: boolean;
+  path?: string | null;
+  version?: string | null;
+  reason?: string | null;
+}
+
+export interface LspProbeResponse {
+  servers: LspServerProbe[];
+}
+
+export interface LspPlatformInfo {
+  platform: string;
+  arch: string;
+}
+
+/** 应用私有语言服务器的探测结果。后端不存在时前端会自动降级到 PATH 探测。 */
+export interface ManagedLspServerProbe {
+  id: string;
+  state: 'ready' | 'not_ready' | 'preparing' | 'failed';
+  installDir?: string | null;
+  executablePath?: string | null;
+  launchCommand?: string | null;
+  launchArgs?: string[];
+  launchEnv?: Record<string, string>;
+  version?: string | null;
+  cached?: boolean;
+  reason?: string | null;
+}
+
+export interface ManagedLspProbeResponse {
+  servers: ManagedLspServerProbe[];
+}
+
+export interface ManagedLspProvisionResult {
+  serverId: string;
+  state: 'ready' | 'preparing' | 'failed';
+  installed?: boolean;
+  installDir?: string | null;
+  executablePath?: string | null;
+  launchCommand?: string | null;
+  launchArgs?: string[];
+  launchEnv?: Record<string, string>;
+  version?: string | null;
+  cached?: boolean;
+  sha256?: string | null;
+  sizeBytes?: number | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+export interface LspInstallRequest {
+  serverId: string;
+  version: string;
+  downloadUrl: string;
+  sha256: string;
+  archiveFormat?: 'binary' | 'zip' | 'tarGz' | 'gzip';
+  executablePath?: string | null;
+  launchCommand?: string | null;
+  launchArgs?: string[];
+  launchEnv?: Record<string, string>;
+}
+
+/**
+ * 订阅 Rust LSP Supervisor 推送的 JSON-RPC 消息；Web 环境不会引入 Tauri event 模块。
+ */
+export async function listenLspMessages(
+  handler: (payload: LspMessageEventPayload) => void,
+): Promise<() => void> {
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<LspMessageEventPayload>(LSP_MESSAGE_EVENT, (event) => handler(event.payload));
+}
+
+/**
+ * LSP Supervisor Tauri 命令桥接。命令参数保留 request 包装层，与 Rust #[tauri::command] 参数名一致。
+ */
+export const lspCommands = {
+  async startSession(options: LspSessionStartOptions): Promise<LspSessionStatus> {
+    return invokeCommand<LspSessionStatus>('lsp_start_session', {
+      request: {
+        ...options,
+        args: options.args ?? [],
+        env: options.env ?? {},
+      },
+    });
+  },
+
+  async sendRequest(payload: LspRequestPayload): Promise<LspResponse> {
+    return invokeCommand<LspResponse>('lsp_send_request', { request: payload });
+  },
+
+  async sendNotification(payload: LspNotificationPayload): Promise<void> {
+    await invokeCommand<void>('lsp_send_notification', { notification: payload });
+  },
+
+  async stopSession(sessionId: string): Promise<LspSessionStatus> {
+    return invokeCommand<LspSessionStatus>('lsp_stop_session', { sessionId });
+  },
+
+  async sessionStatus(sessionId?: string): Promise<{ sessions: LspSessionStatus[] }> {
+    return invokeCommand<{ sessions: LspSessionStatus[] }>('lsp_session_status', {
+      request: sessionId ? { sessionId } : null,
+    });
+  },
+
+  async probeServers(): Promise<LspProbeResponse> {
+    return invokeCommand<LspProbeResponse>('lsp_probe_servers');
+  },
+
+  async platformInfo(): Promise<LspPlatformInfo> {
+    return invokeCommand<LspPlatformInfo>('lsp_platform_info');
+  },
+
+  /** 返回应用私有、按工作区隔离的 LSP 数据目录；不会写入用户项目目录。 */
+  async workspaceDataDir(rootPath: string): Promise<string> {
+    return invokeCommand<string>('lsp_workspace_data_dir', { rootPath });
+  },
+
+  /** 探测应用私有语言服务器缓存；旧版本后端未提供时由调用方捕获并降级。 */
+  async probeManaged(): Promise<ManagedLspProbeResponse> {
+    const response = await invokeCommand<{ servers: ManagedLspProvisionResult[] }>('lsp_provision_status', {
+      request: null,
+    });
+    return {
+      servers: response.servers.map((status) => ({
+        id: status.serverId,
+        state: status.installed && status.executablePath ? 'ready' : 'not_ready',
+        installDir: status.installDir ?? null,
+        executablePath: status.executablePath ?? null,
+        launchCommand: status.launchCommand ?? null,
+        launchArgs: status.launchArgs ?? [],
+        launchEnv: status.launchEnv ?? {},
+        version: status.version ?? null,
+        cached: status.installed,
+        reason: status.error ?? null,
+      })),
+    };
+  },
+
+  /** 兼容调用方旧命名。 */
+  async probeManagedServers(): Promise<ManagedLspProbeResponse> {
+    return this.probeManaged();
+  },
+
+  /** 按需下载/校验并准备一个应用私有语言服务器。 */
+  async installServer(request: LspInstallRequest): Promise<ManagedLspProvisionResult> {
+    return invokeCommand<ManagedLspProvisionResult>('lsp_install_server', { request });
+  },
+
+  /** 兼容调用方旧命名。 */
+  async provisionServer(serverId: string): Promise<ManagedLspProvisionResult> {
+    throw new TauriError(`语言服务器 ${serverId} 尚未配置受信任的下载资产`, 'lsp_install_server');
+  },
+};
+
+/**
  * 订阅后端工作区文件变更事件，返回解绑函数。延迟加载 Tauri 事件模块，Web 环境不会引入。
  */
 export async function listenWorkspaceFileChanges(

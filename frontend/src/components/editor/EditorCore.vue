@@ -106,6 +106,14 @@ import { useNotificationStore } from '@/stores/notification';
 import { getEditorCoreI18n } from '@/i18n/ui';
 import { appCommands } from '@/lib/tauri';
 import { ensureMonacoSetup } from '@/lib/monaco/setupMonaco';
+import { getMonacoLspBridge, type MonacoHierarchyItem } from '@/services/lsp/monacoLspBridge';
+import {
+  registerMonacoLspModel,
+  saveMonacoLspModel,
+  syncMonacoLspModel,
+  unregisterMonacoLspModel,
+} from '@/lib/monaco/lspModel';
+import { pathToUri, untitledUri } from '@/services/lsp/pathUri';
 
 interface EditorCoreProps {
   modelId: string;
@@ -159,6 +167,7 @@ const emit = defineEmits<{
   'model-save': [];
   'markdown-image-request': [];
   'markdown-image-paste': [payload: { fileName: string; bytes: Uint8Array }];
+  'find-references': [];
   'error': [error: Error];
 }>();
 
@@ -178,6 +187,8 @@ const modelIdsByModel = new WeakMap<monaco.editor.ITextModel, string>();
 let pendingContentModel: monaco.editor.ITextModel | null = null;
 let pendingContentModelId: string | null = null;
 let suppressContentEmit = false;
+let referencesCancellation: monaco.CancellationTokenSource | null = null;
+let hierarchyCancellation: monaco.CancellationTokenSource | null = null;
 
 let contentUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let lineCountSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -290,8 +301,8 @@ const applyLargeFilePerformanceOptions = () => {
   });
 };
 
-const normalizeModelUri = (modelId: string) =>
-  monaco.Uri.parse(`inmemory://tau-editor/${encodeURIComponent(modelId)}`);
+const normalizeModelUri = (modelId: string, filePath?: string | null) =>
+  monaco.Uri.parse(filePath ? pathToUri(filePath) : untitledUri(modelId));
 
 const updateModelContent = (
   model: monaco.editor.ITextModel,
@@ -313,17 +324,18 @@ const updateModelContent = (
   suppressContentEmit = false;
 };
 
-const getOrCreateModel = (modelId: string, content: string, language: string) => {
+const getOrCreateModel = (modelId: string, content: string, language: string, filePath?: string | null) => {
   const cachedModel = modelCache.get(modelId);
   if (cachedModel && !cachedModel.isDisposed()) {
     modelIdsByModel.set(cachedModel, modelId);
     if (cachedModel.getLanguageId() !== language) {
       monaco.editor.setModelLanguage(cachedModel, language);
     }
+    registerMonacoLspModel(cachedModel, { filePath: filePath ?? null, languageId: language });
     return cachedModel;
   }
 
-  const uri = normalizeModelUri(modelId);
+  const uri = normalizeModelUri(modelId, filePath);
   const existingModel = monaco.editor.getModel(uri);
   const model = existingModel ?? monaco.editor.createModel(content, language, uri);
   if (model.getLanguageId() !== language) {
@@ -332,7 +344,22 @@ const getOrCreateModel = (modelId: string, content: string, language: string) =>
 
   modelCache.set(modelId, model);
   modelIdsByModel.set(model, modelId);
+  registerMonacoLspModel(model, {
+    filePath: modelId === props.modelId ? props.filePath : null,
+    languageId: language,
+  });
   return model;
+};
+
+/**
+ * 打开代码文件后后台预热语言服务，让首次悬浮、定义跳转和引用查询不承担下载延迟。
+ * 该调用不会阻塞编辑器；Markdown/纯文本等没有 LSP 的语言会快速 no-op。
+ */
+const warmUpLspModel = (model: monaco.editor.ITextModel, filePath?: string | null) => {
+  syncMonacoLspModel(model, {
+    filePath: filePath ?? null,
+    languageId: model.getLanguageId(),
+  });
 };
 
 const cleanupOrphanModels = (openedModelIds: string[]) => {
@@ -369,6 +396,10 @@ const flushPendingContent = () => {
 
   const content = model.getValue();
   emit('content-change', content, modelId);
+  syncMonacoLspModel(model, {
+    filePath: modelId === props.modelId ? props.filePath : null,
+    languageId: model.getLanguageId(),
+  });
   if (editor.value?.getModel() === model) {
     editorStore.setContent(content);
   }
@@ -388,7 +419,7 @@ const activateModel = (nextModelId: string) => {
     viewStateCache.set(activeModelId.value, editor.value.saveViewState());
   }
 
-  const targetModel = getOrCreateModel(nextModelId, props.value, props.language);
+  const targetModel = getOrCreateModel(nextModelId, props.value, props.language, nextModelId === props.modelId ? props.filePath : null);
   if (editor.value.getModel() !== targetModel) {
     editor.value.setModel(targetModel);
   }
@@ -408,6 +439,7 @@ const activateModel = (nextModelId: string) => {
   activeModelId.value = nextModelId;
   applyLargeFilePerformanceOptions();
   syncUndoRedoState();
+  warmUpLspModel(targetModel, nextModelId === props.modelId ? props.filePath : null);
   scheduleLineCountSync();
   emitScrollState();
 };
@@ -801,6 +833,63 @@ const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
   { type: 'divider', key: 'divider-edit-2' },
   {
     type: 'item',
+    key: 'go-to-definition',
+    label: '跳转到定义',
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.revealDefinition'),
+  },
+  {
+    type: 'item',
+    key: 'go-to-declaration',
+    label: '跳转到声明',
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.revealDeclaration'),
+  },
+  {
+    type: 'item',
+    key: 'go-to-type-definition',
+    label: '跳转到类型定义',
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.goToTypeDefinition'),
+  },
+  {
+    type: 'item',
+    key: 'go-to-implementation',
+    label: '跳转到实现',
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.goToImplementation'),
+  },
+  {
+    type: 'item',
+    key: 'peek-definition',
+    label: '查看定义',
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.peekDefinition'),
+  },
+  {
+    type: 'item',
+    key: 'find-references',
+    label: '查找所有引用',
+    enabled: true,
+    action: () => emit('find-references'),
+  },
+  {
+    type: 'item',
+    key: 'peek-references',
+    label: '查看引用',
+    enabled: true,
+    action: () => triggerEditorAction('editor.action.referenceSearch.trigger'),
+  },
+  {
+    type: 'item',
+    key: 'rename-symbol',
+    label: '重命名符号',
+    enabled: !props.readOnly,
+    action: () => triggerEditorAction('editor.action.rename'),
+  },
+  { type: 'divider', key: 'divider-navigation' },
+  {
+    type: 'item',
     key: 'find',
     label: i18n.value.contextFind,
     enabled: true,
@@ -907,7 +996,7 @@ const initEditor = () => {
   try {
     ensureMonacoSetup();
     const monacoTheme = registerActiveMonacoTheme() || props.theme;
-    const initialModel = getOrCreateModel(props.modelId, props.value, props.language);
+    const initialModel = getOrCreateModel(props.modelId, props.value, props.language, props.filePath);
 
     const largeFileOptimizations = {
       maxTokenizationLineLength: 10000,
@@ -939,6 +1028,12 @@ const initEditor = () => {
       ...largeFileOptimizations,
       ...props.options,
     });
+
+    registerMonacoLspModel(initialModel, {
+      filePath: props.filePath,
+      languageId: props.language,
+    });
+    warmUpLspModel(initialModel, props.filePath);
 
     disposables.value.forEach((disposable) => disposable.dispose());
     disposables.value = [];
@@ -1016,6 +1111,26 @@ const initEditor = () => {
     disposables.value.push(contextMenuDisposable);
 
     editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => emit('model-save'));
+    const lspNavigationShortcuts: Array<[number, string]> = [
+      [monaco.KeyCode.F12, 'editor.action.revealDefinition'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyU, 'editor.action.revealDeclaration'],
+      [(monaco.KeyMod.Shift || 0) | monaco.KeyCode.F12, 'editor.action.referenceSearch.trigger'],
+      [monaco.KeyCode.F2, 'editor.action.rename'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.F12, 'editor.action.goToTypeDefinition'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.F12, 'editor.action.goToImplementation'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.F7, 'editor.action.referenceSearch.trigger'],
+    ];
+    for (const [keybinding, actionId] of lspNavigationShortcuts) {
+      if (keybinding) {
+        editor.value.addCommand(keybinding, () => {
+          if (actionId === 'editor.action.referenceSearch.trigger') {
+            emit('find-references');
+            return;
+          }
+          void triggerEditorAction(actionId);
+        });
+      }
+    }
     const markdownShortcuts: Array<[number, () => void]> = [
       [monaco.KeyCode.Digit1, () => applyMarkdownHeading(1)],
       [monaco.KeyCode.Digit2, () => applyMarkdownHeading(2)],
@@ -1154,11 +1269,126 @@ defineExpose({
   triggerGoToLine: () => {
     void triggerEditorAction('editor.action.gotoLine');
   },
+  goToDefinition: () => {
+    void triggerEditorAction('editor.action.revealDefinition');
+  },
+  goToDeclaration: () => {
+    void triggerEditorAction('editor.action.revealDeclaration');
+  },
+  goToTypeDefinition: () => {
+    void triggerEditorAction('editor.action.goToTypeDefinition');
+  },
+  goToImplementation: () => {
+    void triggerEditorAction('editor.action.goToImplementation');
+  },
+  peekDefinition: () => {
+    void triggerEditorAction('editor.action.peekDefinition');
+  },
+  peekReferences: () => {
+    void triggerEditorAction('editor.action.referenceSearch.trigger');
+  },
+  findReferences: () => {
+    emit('find-references');
+  },
+  triggerNativeReferences: () => {
+    void triggerEditorAction('editor.action.referenceSearch.trigger');
+  },
+  requestReferences: async () => {
+    const model = editor.value?.getModel();
+    const position = editor.value?.getPosition();
+    const bridge = getMonacoLspBridge();
+    if (!model || !position || !bridge) return null;
+    referencesCancellation?.cancel();
+    referencesCancellation?.dispose();
+    referencesCancellation = new monaco.CancellationTokenSource();
+    try {
+      if (!await bridge.hasClient(model)) return null;
+      const locations = await bridge.provideReferences(
+        model,
+        position,
+        { includeDeclaration: true },
+        referencesCancellation.token,
+      );
+      return locations ?? [];
+    } finally {
+      referencesCancellation?.dispose();
+      referencesCancellation = null;
+    }
+  },
+  cancelReferences: () => {
+    referencesCancellation?.cancel();
+  },
+  requestCallHierarchy: async () => {
+    const model = editor.value?.getModel();
+    const position = editor.value?.getPosition();
+    const bridge = getMonacoLspBridge();
+    if (!model || !position || !bridge || !await bridge.hasClient(model)) return null;
+    hierarchyCancellation?.cancel();
+    hierarchyCancellation?.dispose();
+    hierarchyCancellation = new monaco.CancellationTokenSource();
+    try {
+      const roots = await bridge.prepareCallHierarchy(model, position, hierarchyCancellation.token);
+      const root = roots?.[0];
+      if (!root) return { root: null, rows: [] };
+      const [incoming, outgoing] = await Promise.all([
+        bridge.provideIncomingCalls(model, root, hierarchyCancellation.token),
+        bridge.provideOutgoingCalls(model, root, hierarchyCancellation.token),
+      ]);
+      return {
+        root,
+        rows: [
+          ...(incoming || []).map((entry) => ({ direction: 'incoming' as const, item: entry.from })),
+          ...(outgoing || []).map((entry) => ({ direction: 'outgoing' as const, item: entry.to })),
+        ],
+      };
+    } finally {
+      hierarchyCancellation?.dispose();
+      hierarchyCancellation = null;
+    }
+  },
+  requestTypeHierarchy: async () => {
+    const model = editor.value?.getModel();
+    const position = editor.value?.getPosition();
+    const bridge = getMonacoLspBridge();
+    if (!model || !position || !bridge || !await bridge.hasClient(model)) return null;
+    hierarchyCancellation?.cancel();
+    hierarchyCancellation?.dispose();
+    hierarchyCancellation = new monaco.CancellationTokenSource();
+    try {
+      const roots = await bridge.prepareTypeHierarchy(model, position, hierarchyCancellation.token);
+      const root = roots?.[0];
+      if (!root) return { root: null, rows: [] };
+      const [supertypes, subtypes] = await Promise.all([
+        bridge.provideTypeHierarchySupertypes(model, root, hierarchyCancellation.token),
+        bridge.provideTypeHierarchySubtypes(model, root, hierarchyCancellation.token),
+      ]);
+      return {
+        root,
+        rows: [
+          ...(supertypes || []).map((entry) => ({ direction: 'supertype' as const, item: entry.item })),
+          ...(subtypes || []).map((entry) => ({ direction: 'subtype' as const, item: entry.item })),
+        ],
+      };
+    } finally {
+      hierarchyCancellation?.dispose();
+      hierarchyCancellation = null;
+    }
+  },
+  cancelHierarchy: () => {
+    hierarchyCancellation?.cancel();
+  },
+  renameSymbol: () => {
+    void triggerEditorAction('editor.action.rename');
+  },
   undo: () => {
     void triggerEditorAction('undo');
   },
   redo: () => {
     void triggerEditorAction('redo');
+  },
+  saveLspDocument: () => {
+    const model = editor.value?.getModel();
+    if (model) saveMonacoLspModel(model);
   },
   applyMarkdownAction,
   applyMarkdownHeading,
@@ -1249,6 +1479,18 @@ watch(
 );
 
 watch(
+  () => props.filePath,
+  (filePath) => {
+    const model = editor.value?.getModel();
+    if (!model) return;
+    registerMonacoLspModel(model, {
+      filePath: filePath ?? null,
+      languageId: model.getLanguageId(),
+    });
+  },
+);
+
+watch(
   () => props.readOnly,
   (readOnly) => {
     if (editor.value) {
@@ -1305,6 +1547,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  referencesCancellation?.cancel();
+  referencesCancellation?.dispose();
+  referencesCancellation = null;
   cancelContextSubmenuClose();
   if (contentUpdateTimer) {
     clearTimeout(contentUpdateTimer);
@@ -1333,6 +1578,7 @@ onBeforeUnmount(() => {
   }
 
   for (const model of modelCache.values()) {
+    unregisterMonacoLspModel(model);
     if (!model.isDisposed()) {
       model.dispose();
     }

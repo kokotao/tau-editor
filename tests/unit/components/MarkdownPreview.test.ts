@@ -80,6 +80,22 @@ describe('MarkdownPreview', () => {
     expect(wrapper.find('[data-testid="markdown-preview"]').html()).toContain('<p>hello</p>');
   });
 
+  it('超宽表格应包裹在预览区域内的横向滚动容器中', async () => {
+    renderMarkdownMock.mockReturnValue('<table><thead><tr><th>Header</th></tr></thead><tbody><tr><td>Cell</td></tr></tbody></table>');
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: '| Header |\n| --- |\n| Cell |',
+        theme: 'dark',
+      },
+    });
+
+    await flushRender();
+
+    const tableScroll = wrapper.find('.markdown-table-scroll');
+    expect(tableScroll.exists()).toBe(true);
+    expect(tableScroll.find('table').exists()).toBe(true);
+  });
+
   it('scrollToSourceLine 应滚动到对应源代码行的标题', async () => {
     renderMarkdownMock.mockReturnValue('<h2 data-source-line="3">Target</h2>');
     const scrollIntoView = vi.fn();
@@ -293,6 +309,49 @@ describe('MarkdownPreview', () => {
 
     expect(clipboard).toHaveBeenCalledWith('https://example.com/a.png');
     expect(getMenuElement()).toBeNull();
+  });
+
+  it('双击图片应发射原始地址、替代文本和解析后的地址', async () => {
+    renderMarkdownMock.mockReturnValue('<p><img src="assets/hero.png" alt="hero" /></p>');
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'image',
+        theme: 'dark',
+        sourceFilePath: '/Users/albertluo/docs/readme.md',
+      },
+    });
+
+    await flushRender();
+    await wrapper.find('img').trigger('dblclick');
+
+    expect(wrapper.emitted('open-image')).toEqual([[
+      {
+        src: 'assets/hero.png',
+        alt: 'hero',
+        resolvedSrc: 'file:///Users/albertluo/docs/assets/hero.png',
+      },
+    ]]);
+  });
+
+  it('无法解析图片地址时应回传原始地址作为 resolvedSrc', async () => {
+    renderMarkdownMock.mockReturnValue('<p><img src="hero.png" /></p>');
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'image',
+        theme: 'dark',
+      },
+    });
+
+    await flushRender();
+    await wrapper.find('img').trigger('dblclick');
+
+    expect(wrapper.emitted('open-image')).toEqual([[
+      {
+        src: 'hero.png',
+        alt: undefined,
+        resolvedSrc: 'hero.png',
+      },
+    ]]);
   });
 
   it('点击预览模式菜单项应发射模式切换事件', async () => {

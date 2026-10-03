@@ -1,6 +1,6 @@
 [package]
 name = "text-editor"
-version = "0.6.4"
+version = "0.6.7"
 description = "A cross-platform text editor built with Tauri"
 authors = ["罗小纯"]
 edition = "2021"
@@ -32,6 +32,7 @@ pdf-extract = "0.7"
 quick-xml = "0.38"
 regex = "1.12.3"
 sha2 = "0.10"
+flate2 = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

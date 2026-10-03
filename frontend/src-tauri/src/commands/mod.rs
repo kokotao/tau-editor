@@ -4,6 +4,8 @@
 pub mod file;
 pub mod file_association;
 pub mod file_optimized;
+pub mod lsp;
+pub mod lsp_provision;
 mod file_transaction;
 mod git;
 mod markdown;
@@ -19,6 +21,8 @@ mod workspace;
 pub use file::*;
 pub use file_association::*;
 pub use file_optimized::*;
+pub use lsp::*;
+pub use lsp_provision::*;
 pub use file_transaction::*;
 pub use git::*;
 pub use markdown::*;

@@ -11,3 +11,4 @@ export * from './notification';
 export * from './keyboard';
 export * from './workspace';
 export * from './commands';
+export * from './diagnostics';

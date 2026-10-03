@@ -64,6 +64,20 @@ export type CommandId =
   | 'window.moveToNewWindow'
   | 'search.findText'
   | 'search.goToLine'
+  | 'editor.goToDefinition'
+  | 'editor.goToDeclaration'
+  | 'editor.goToTypeDefinition'
+  | 'editor.goToImplementation'
+  | 'editor.peekDefinition'
+  | 'editor.peekReferences'
+  | 'editor.callHierarchy'
+  | 'editor.typeHierarchy'
+  | 'editor.findReferences'
+  | 'editor.renameSymbol'
+  | 'editor.toggleProblems'
+  | 'editor.goBack'
+  | 'editor.goForward'
+  | 'workspace.searchSymbols'
   | 'view.toggleSidebar'
   | 'view.toggleSettings';
 
@@ -465,6 +479,62 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '跳转到行',
       keywords: ['跳转', '行号', '定位', 'go to line', 'line'],
     },
+    'editor.goToDefinition': {
+      title: '跳转到定义',
+      keywords: ['定义', '声明', '跳转', 'go to definition', 'definition', 'declaration'],
+    },
+    'editor.goToDeclaration': {
+      title: '跳转到声明',
+      keywords: ['声明', '跳转', 'go to declaration', 'declaration'],
+    },
+    'editor.goToTypeDefinition': {
+      title: '跳转到类型定义',
+      keywords: ['类型定义', '类型', '跳转', 'go to type definition', 'type definition'],
+    },
+    'editor.goToImplementation': {
+      title: '跳转到实现',
+      keywords: ['实现', '跳转', 'go to implementation', 'implementation'],
+    },
+      'editor.peekDefinition': {
+      title: '查看定义',
+      keywords: ['查看定义', '预览定义', 'peek definition', 'definition'],
+      },
+      'editor.peekReferences': {
+        title: '查看引用',
+        keywords: ['查看引用', 'Peek References', 'references', 'usages'],
+      },
+    'editor.callHierarchy': {
+      title: '查看调用层级',
+      keywords: ['调用层级', '谁调用', '调用方', 'call hierarchy', 'incoming calls', 'outgoing calls'],
+    },
+    'editor.typeHierarchy': {
+      title: '查看类型层级',
+      keywords: ['类型层级', '父类', '子类', 'type hierarchy', 'supertypes', 'subtypes'],
+    },
+    'editor.findReferences': {
+      title: '查找所有引用',
+      keywords: ['引用', '查找引用', 'references', 'find references', 'usages'],
+    },
+    'editor.renameSymbol': {
+      title: '重命名符号',
+      keywords: ['重命名', '符号', 'rename', 'symbol'],
+    },
+    'editor.toggleProblems': {
+      title: '切换问题面板',
+      keywords: ['问题', '诊断', '错误', '警告', 'problems', 'diagnostics'],
+    },
+    'editor.goBack': {
+      title: '返回上一个导航位置',
+      keywords: ['返回', '后退', '导航历史', 'go back', 'back'],
+    },
+    'editor.goForward': {
+      title: '前进到下一个导航位置',
+      keywords: ['前进', '导航历史', 'go forward', 'forward'],
+    },
+    'workspace.searchSymbols': {
+      title: '搜索工作区符号',
+      keywords: ['工作区符号', '全局符号', '类', '方法', 'symbol', 'workspace symbol'],
+    },
     'view.toggleSidebar': {
       title: '切换资源管理器',
       keywords: ['资源管理器', '侧边栏', '文件树', '面板', 'sidebar', 'explorer', 'drawer', 'split', 'panel'],
@@ -518,6 +588,62 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'search.goToLine': {
       title: 'Go To Line',
       keywords: ['go to line', 'line', 'jump', '跳转', '行号'],
+    },
+    'editor.goToDefinition': {
+      title: 'Go to Definition',
+      keywords: ['go to definition', 'definition', 'declaration', '跳转', '定义'],
+    },
+    'editor.goToDeclaration': {
+      title: 'Go to Declaration',
+      keywords: ['go to declaration', 'declaration', '跳转到声明'],
+    },
+    'editor.goToTypeDefinition': {
+      title: 'Go to Type Definition',
+      keywords: ['go to type definition', 'type definition', '类型定义'],
+    },
+    'editor.goToImplementation': {
+      title: 'Go to Implementation',
+      keywords: ['go to implementation', 'implementation', '跳转到实现'],
+    },
+      'editor.peekDefinition': {
+      title: 'Peek Definition',
+      keywords: ['peek definition', 'definition', '预览定义'],
+      },
+      'editor.peekReferences': {
+        title: 'Peek References',
+        keywords: ['Peek References', 'references', 'usages', '查看引用'],
+      },
+    'editor.callHierarchy': {
+      title: 'Show Call Hierarchy',
+      keywords: ['call hierarchy', 'incoming calls', 'outgoing calls', '调用层级'],
+    },
+    'editor.typeHierarchy': {
+      title: 'Show Type Hierarchy',
+      keywords: ['type hierarchy', 'supertypes', 'subtypes', '类型层级'],
+    },
+    'editor.findReferences': {
+      title: 'Find All References',
+      keywords: ['find references', 'references', 'usages', '查找引用'],
+    },
+    'editor.renameSymbol': {
+      title: 'Rename Symbol',
+      keywords: ['rename', 'symbol', '重命名'],
+    },
+    'editor.toggleProblems': {
+      title: 'Toggle Problems',
+      keywords: ['problems', 'diagnostics', 'errors', 'warnings', '问题', '诊断'],
+    },
+    'editor.goBack': {
+      title: 'Go Back',
+      keywords: ['go back', 'back', 'navigation history', '返回', '后退'],
+    },
+    'editor.goForward': {
+      title: 'Go Forward',
+      keywords: ['go forward', 'forward', 'navigation history', '前进'],
+    },
+    'workspace.searchSymbols': {
+      title: 'Search Workspace Symbols',
+      keywords: ['workspace symbol', 'global symbol', 'class', 'method', '符号', '工作区'],
     },
     'view.toggleSidebar': {
       title: 'Toggle Explorer',

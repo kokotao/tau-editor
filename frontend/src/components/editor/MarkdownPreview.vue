@@ -5,6 +5,7 @@
     :class="previewThemeClass"
     data-testid="markdown-preview"
     @contextmenu.prevent="handleContextMenu"
+    @dblclick="handlePreviewDoubleClick"
   >
     <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
   </div>
@@ -90,6 +91,7 @@ const props = withDefaults(defineProps<MarkdownPreviewProps>(), {
 });
 const emit = defineEmits<{
   'request-preview-mode-change': [mode: 'edit' | 'split' | 'preview'];
+  'open-image': [payload: { src: string; alt?: string; resolvedSrc: string }];
 }>();
 
 const previewRef = ref<HTMLElement | null>(null);
@@ -245,6 +247,9 @@ const resolveLocalImageSources = async () => {
   const images = Array.from(previewRef.value.querySelectorAll<HTMLImageElement>('img[src]'));
   for (const image of images) {
     const rawSrc = image.getAttribute('src')?.trim() ?? '';
+    if (rawSrc) {
+      image.dataset.markdownSrc = rawSrc;
+    }
     if (
       !rawSrc
       || isAbsoluteAddress(rawSrc)
@@ -258,9 +263,43 @@ const resolveLocalImageSources = async () => {
     const resolved = resolveAddress(rawSrc, props.sourceFilePath);
     const filePath = resolved ? fileUrlToPath(resolved) : null;
     if (filePath) {
-      image.src = convertFileSrc(filePath);
+      const tauriSrc = convertFileSrc(filePath);
+      image.src = tauriSrc;
+      image.dataset.markdownResolvedSrc = tauriSrc;
+    } else if (resolved) {
+      image.dataset.markdownResolvedSrc = resolved;
     }
   }
+};
+
+const getImageSourceParts = (image: HTMLImageElement) => {
+  const rawSrc = image.dataset.markdownSrc?.trim()
+    || image.getAttribute('src')?.trim()
+    || '';
+  const resolvedSrc = image.dataset.markdownResolvedSrc?.trim()
+    || resolveAddress(rawSrc, props.sourceFilePath)
+    || null;
+
+  return { rawSrc, resolvedSrc };
+};
+
+const getImageInteractionPayload = (image: HTMLImageElement) => {
+  const { rawSrc, resolvedSrc } = getImageSourceParts(image);
+
+  return {
+    src: rawSrc,
+    alt: image.getAttribute('alt')?.trim() || undefined,
+    resolvedSrc: resolvedSrc || rawSrc,
+  };
+};
+
+const handlePreviewDoubleClick = (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target.closest('img[src]') : null;
+  if (!(target instanceof HTMLImageElement) || !previewRef.value?.contains(target)) {
+    return;
+  }
+
+  emit('open-image', getImageInteractionPayload(target));
 };
 
 const resolveContextTarget = (eventTarget: EventTarget | null): MarkdownPreviewContextTarget => {
@@ -271,11 +310,11 @@ const resolveContextTarget = (eventTarget: EventTarget | null): MarkdownPreviewC
   if (target && preview?.contains(target)) {
     const imageEl = target.closest('img[src]');
     if (imageEl instanceof HTMLImageElement) {
-      const rawSrc = imageEl.getAttribute('src') ?? '';
+      const { rawSrc, resolvedSrc } = getImageSourceParts(imageEl);
       return {
         kind: 'image',
         src: rawSrc,
-        resolvedSrc: resolveAddress(rawSrc, sourceFilePath),
+        resolvedSrc,
         alt: imageEl.getAttribute('alt') ?? undefined,
         sourceFilePath,
       };
@@ -548,6 +587,30 @@ const syncPreviewScroll = (state: { top: number; height: number; scrollHeight: n
   previewContainer.scrollTop = previewScrollable * ratio;
 };
 
+/**
+ * 将超宽表格隔离到自己的横向滚动容器，避免撑破预览区域的布局边界。
+ * @author Albert_Luo
+ * @date 2026-10-03
+ */
+const wrapMarkdownTables = () => {
+  const preview = previewRef.value;
+  if (!preview) {
+    return;
+  }
+
+  preview.querySelectorAll<HTMLTableElement>('table').forEach((table) => {
+    const parent = table.parentElement;
+    if (parent?.classList.contains('markdown-table-scroll')) {
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'markdown-table-scroll';
+    table.replaceWith(wrapper);
+    wrapper.appendChild(table);
+  });
+};
+
 const scheduleRender = () => {
   if (renderTimer) {
     clearTimeout(renderTimer);
@@ -564,6 +627,7 @@ const scheduleRender = () => {
       const renderer = await loadMarkdownRenderer();
       html.value = renderer.renderMarkdown(props.content || '');
       await nextTick();
+      wrapMarkdownTables();
       await resolveLocalImageSources();
       if (previewRef.value) {
         await renderer.renderMermaidDiagrams(previewRef.value, props.theme);
@@ -669,7 +733,10 @@ onBeforeUnmount(() => {
   --preview-menu-hover-text: #0f172a;
   --preview-menu-disabled-text: #94a3b8;
   position: relative;
+  width: 100%;
+  min-width: 0;
   height: 100%;
+  box-sizing: border-box;
   overflow: auto;
   background: var(--preview-bg);
   color: var(--preview-text);
@@ -803,13 +870,17 @@ onBeforeUnmount(() => {
 }
 
 .markdown-preview-content {
-  max-width: 900px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
   padding: 24px;
+  box-sizing: border-box;
   color: var(--preview-text);
   line-height: 1.65;
   background: var(--preview-surface);
   min-height: 100%;
+  overflow-wrap: anywhere;
 }
 
 .markdown-preview-content :deep(h1),
@@ -847,6 +918,8 @@ onBeforeUnmount(() => {
 
 .markdown-preview-content :deep(pre) {
   overflow: auto;
+  overflow-wrap: normal;
+  word-break: normal;
   padding: 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--preview-code-border);
@@ -856,6 +929,8 @@ onBeforeUnmount(() => {
 
 .markdown-preview-content :deep(pre code) {
   padding: 0;
+  overflow-wrap: normal;
+  word-break: normal;
   background: transparent;
   color: inherit;
 }
@@ -886,19 +961,45 @@ onBeforeUnmount(() => {
   color: var(--preview-link-hover);
 }
 
-.markdown-preview-content :deep(table) {
+.markdown-preview-content :deep(img),
+.markdown-preview-content :deep(svg),
+.markdown-preview-content :deep(video),
+.markdown-preview-content :deep(canvas) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  box-sizing: border-box;
+}
+
+.markdown-preview-content :deep(img) {
+  object-fit: contain;
+}
+
+.markdown-preview-content :deep(.markdown-table-scroll) {
   width: 100%;
-  border-collapse: collapse;
+  max-width: 100%;
   margin: 1rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown-preview-content :deep(table) {
+  width: max-content;
+  min-width: 100%;
+  white-space: nowrap;
+  border-collapse: collapse;
   border: 1px solid var(--preview-border);
   border-radius: var(--radius-md);
-  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .markdown-preview-content :deep(th),
 .markdown-preview-content :deep(td) {
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--preview-border);
+  overflow-wrap: anywhere;
 }
 
 .markdown-preview-content :deep(th) {

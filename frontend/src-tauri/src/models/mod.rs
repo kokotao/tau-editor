@@ -2,6 +2,7 @@
 mod error;
 mod file;
 mod git;
+mod lsp;
 mod markdown;
 mod recovery;
 mod replace;
@@ -14,6 +15,7 @@ mod watch;
 pub use error::*;
 pub use file::*;
 pub use git::*;
+pub use lsp::*;
 pub use markdown::*;
 pub use recovery::*;
 pub use replace::*;

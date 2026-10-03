@@ -4472,12 +4472,13 @@ dependencies = [
 
 [[package]]
 name = "text-editor"
-version = "0.6.4"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "chardetng",
  "encoding_rs",
  "env_logger",
+ "flate2",
  "log",
  "notify",
  "pdf-extract",

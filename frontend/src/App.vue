@@ -11,6 +11,7 @@ import { useKeyboardStore } from '@/stores/keyboard';
 import { useCommandStore } from '@/stores/commands';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useDiffStore } from '@/stores/diff';
+import { useDiagnosticsStore, type DiagnosticRecord } from '@/stores/diagnostics';
 import {
   loadGitDiffSession,
   loadWorkspaceFileDiffSession,
@@ -36,7 +37,20 @@ import { sessionService } from '@/services/sessionService';
 import { createWorkspaceService } from '@/services/workspaceService';
 import { createTabService } from '@/services/tabService';
 import { createWindowService } from '@/services/windowService';
-import { buildDocumentOutline } from '@/services/documentOutlineService';
+import { createApplicationLspService } from '@/services/lsp/applicationLspService';
+import {
+  configureMonacoLspBridge,
+  getMonacoLspBridge,
+  type MonacoHierarchyItem,
+  type MonacoWorkspaceSymbol,
+} from '@/services/lsp/monacoLspBridge';
+import { registerMonacoEditorOpener } from '@/lib/monaco/setupMonaco';
+import { pathToUri, uriToPath, untitledUri } from '@/services/lsp/pathUri';
+import {
+  buildDocumentOutline,
+  buildOutlineFromDocumentSymbols,
+  type OutlineItem,
+} from '@/services/documentOutlineService';
 import { collectMarkdownContext } from '@/services/markdownService';
 import {
   flattenWorkspaceTasks,
@@ -46,6 +60,7 @@ import {
   loadWorkspaceTasks,
 } from '@/services/markdownContextService';
 import { rankQuickOpenFiles } from '@/services/quickOpenService';
+import { NavigationHistory, type NavigationLocation } from '@/services/navigationHistory';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import {
   DEFAULT_KEYBINDINGS,
@@ -88,11 +103,16 @@ import MarkdownPreview from './components/editor/MarkdownPreview.vue';
 import ContextRail from './components/editor/ContextRail.vue';
 import DiffView from './components/editor/DiffView.vue';
 import ExternalChangeDialog from './components/editor/ExternalChangeDialog.vue';
+import ProblemsPanel from './components/editor/ProblemsPanel.vue';
+import ReferenceResultsPanel, { type ReferenceResultGroup, type ReferenceResultItem } from './components/editor/ReferenceResultsPanel.vue';
+import HierarchyPanel, { type HierarchyMode, type HierarchyRow } from './components/editor/HierarchyPanel.vue';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
+import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
+import * as monaco from '@/lib/monaco/editor';
 
 const fileSystemStore = useFileSystemStore();
 const workspaceStore = useWorkspaceStore();
@@ -104,6 +124,7 @@ const keyboardStore = useKeyboardStore();
 const commandStore = useCommandStore();
 const fileConflictsStore = useFileConflictsStore();
 const diffStore = useDiffStore();
+const diagnosticsStore = useDiagnosticsStore();
 const providersStore = useProvidersStore();
 const workspaceService = createWorkspaceService(
   fileSystemStore,
@@ -122,6 +143,50 @@ const tabService = createTabService(
 );
 const windowService = createWindowService(settingsStore, tabsStore);
 const workspaceWatcherService = createWorkspaceWatcherService();
+const applicationLspService = createApplicationLspService(undefined, {
+  onUnavailable: (descriptor) => {
+    const languages = descriptor.languageIds.join(', ');
+    notificationStore.warning(
+      `语言服务不可用：${languages}`,
+      `Tau Editor 未能自动准备 ${descriptor.displayName}，已回退基础导航。请检查网络后重试，或在设置中点击“自动准备”。`,
+    );
+  },
+});
+const lspDiagnosticCounts = new Map<string, number>();
+const problemsPanelVisible = ref(false);
+const referencePanelVisible = ref(false);
+const referencePanelLoading = ref(false);
+const referencePanelError = ref<string | null>(null);
+const referenceGroups = ref<ReferenceResultGroup[]>([]);
+let referenceRequestId = 0;
+const hierarchyPanelVisible = ref(false);
+const hierarchyPanelMode = ref<HierarchyMode>('call');
+const hierarchyPanelLoading = ref(false);
+const hierarchyPanelError = ref<string | null>(null);
+const hierarchyRoot = ref<{ name: string; detail?: string } | null>(null);
+const hierarchyRows = ref<HierarchyRow[]>([]);
+let hierarchyRequestId = 0;
+configureMonacoLspBridge({
+  resolveClient: (model, context) => applicationLspService.resolveClient(model, context),
+  onDiagnostics: ({ uri, diagnostics }) => {
+    diagnosticsStore.setDiagnostics(uri, diagnostics.map((diagnostic) => ({
+      message: diagnostic.message,
+      severity: diagnostic.severity,
+      source: diagnostic.source,
+      code: typeof diagnostic.code === 'object' ? diagnostic.code.value : diagnostic.code,
+      startLineNumber: diagnostic.startLineNumber,
+      startColumn: diagnostic.startColumn,
+      endLineNumber: diagnostic.endLineNumber,
+      endColumn: diagnostic.endColumn,
+    })));
+    if (diagnostics.length > 0) {
+      lspDiagnosticCounts.set(uri, diagnostics.length);
+      problemsPanelVisible.value = true;
+    } else {
+      lspDiagnosticCounts.delete(uri);
+    }
+  },
+});
 // Markdown 图片粘贴可以在未打开工作区时按文档所在目录静默注册临时工作区。
 const markdownWorkspaceRuntime = createWorkspaceRuntimeService();
 const LANGUAGE_MODE_ORDER: EditorLanguageMode[] = [
@@ -180,7 +245,12 @@ const sidebarWidth = ref(300);
 const contextRailWidth = ref(300);
 const fileTreeDrawerOpen = ref(false);
 const contextRailDrawerOpen = ref(false);
-const paletteMode = ref<'commands' | 'quick-open'>('commands');
+const paletteMode = ref<'commands' | 'quick-open' | 'workspace-symbol'>('commands');
+const navigationHistory = new NavigationHistory();
+const restoringNavigation = ref(false);
+const workspaceSymbolCommands = ref<AppCommand[]>([]);
+const workspaceSymbolTargets = ref<NavigationLocation[]>([]);
+let workspaceSymbolRequestId = 0;
 const workspaceRuntimeId = ref<string | null>(null);
 const gitStatus = ref<GitStatusResponse | null>(null);
 const workspaceSearchOpen = ref(false);
@@ -234,6 +304,27 @@ type EditorCoreExpose = {
   layout: () => void;
   triggerFindWidget: () => void;
   triggerGoToLine: () => void;
+  goToDefinition: () => void;
+  goToDeclaration: () => void;
+  goToTypeDefinition: () => void;
+  goToImplementation: () => void;
+  peekDefinition: () => void;
+  peekReferences: () => void;
+  findReferences: () => void;
+  renameSymbol: () => void;
+  requestReferences: () => Promise<monaco.languages.Location[] | null>;
+  cancelReferences: () => void;
+  triggerNativeReferences: () => void;
+  requestCallHierarchy: () => Promise<{
+    root: MonacoHierarchyItem | null;
+    rows: Array<{ direction: string; item: MonacoHierarchyItem }>;
+  } | null>;
+  requestTypeHierarchy: () => Promise<{
+    root: MonacoHierarchyItem | null;
+    rows: Array<{ direction: string; item: MonacoHierarchyItem }>;
+  } | null>;
+  cancelHierarchy: () => void;
+  saveLspDocument: () => void;
   revealLine: (line: number, column?: number) => void;
   applyMarkdownAction: (action: MarkdownAction) => void;
   applyMarkdownHeading: (level: number) => void;
@@ -247,6 +338,16 @@ type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean
 const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
 const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
+type ImageViewerPayload = {
+  src: string;
+  alt?: string;
+  resolvedSrc?: string;
+};
+type ImageViewerState = {
+  src: string;
+  alt: string;
+};
+const imageViewerState = ref<ImageViewerState | null>(null);
 const FIRST_INSTALL_GUIDE_KEY = 'text-editor-first-install-guide-v1';
 const GUIDE_LAST_OPENED_AT_KEY = 'text-editor-last-opened-at-v1';
 const GUIDE_LAST_SHOWN_AT_KEY = 'text-editor-guide-last-shown-at-v1';
@@ -259,9 +360,11 @@ const MARKDOWN_ASSET_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', '
 const externalConflictDialogOpen = ref(false);
 const externalConflictBusy = ref(false);
 let unlistenExternalOpen: (() => void) | null = null;
+let disposeMonacoEditorOpener: (() => void) | null = null;
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let externalFileSyncTimer: ReturnType<typeof setInterval> | null = null;
 let externalFileSyncInFlight = false;
+let workspaceContextRequestId = 0;
 
 const clampSidebarWidth = (value: number) =>
   Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -402,6 +505,22 @@ const wordCount = computed(() => {
   const content = tab.content;
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
+
+const openImageViewer = (payload: ImageViewerPayload) => {
+  const src = payload.resolvedSrc?.trim() || payload.src.trim();
+  if (!src) {
+    return;
+  }
+
+  imageViewerState.value = {
+    src,
+    alt: payload.alt?.trim() || '图片',
+  };
+};
+
+const closeImageViewer = () => {
+  imageViewerState.value = null;
+};
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
@@ -433,12 +552,63 @@ const quickOpenCommands = computed(() => rankQuickOpenFiles(
 })));
 const paletteCommands = computed(() => paletteMode.value === 'quick-open'
   ? quickOpenCommands.value
-  : filteredCommands.value);
+  : paletteMode.value === 'workspace-symbol' ? workspaceSymbolCommands.value : filteredCommands.value);
 const highlightedCommand = computed(() => paletteCommands.value[commandStore.highlightedIndex] ?? paletteCommands.value[0] ?? null);
+const lspDocumentOutline = ref<OutlineItem[] | null>(null);
+let documentOutlineRequestId = 0;
+
+/**
+ * 优先从当前 Monaco 模型请求 LSP documentSymbol；模型尚未创建或服务不可用时
+ * 返回 null，由 documentOutline computed 自动使用原有 Markdown/正则解析器。
+ */
+const refreshLspDocumentOutline = async (tab: Tab | null) => {
+  const requestId = ++documentOutlineRequestId;
+  lspDocumentOutline.value = null;
+  if (!tab || tab.isLargeFile || !['markdown', 'json', 'yaml', 'typescript', 'javascript', 'vue', 'python', 'java', 'go', 'rust', 'c', 'cpp', 'csharp'].includes(tab.language)) {
+    return;
+  }
+
+  const modelUris = [
+    tab.filePath ? pathToUri(tab.filePath) : null,
+    // 保存前创建的缓存模型在部分切换时仍保持 untitled URI；Bridge 的注册上下文
+    // 已经会更新为 file URI，因此这里把两种 URI 都作为查找候选。
+    untitledUri(tab.id),
+  ].filter((uri): uri is string => Boolean(uri));
+  // EditorCore 在 Vue 更新后才创建模型；短暂重试可覆盖切换标签和首次恢复会话。
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (requestId !== documentOutlineRequestId) return;
+    await nextTick();
+    const model = modelUris
+      .map((uri) => monaco.editor.getModel(monaco.Uri.parse(uri)))
+      .find((candidate): candidate is monaco.editor.ITextModel => Boolean(candidate));
+    if (model) {
+      const bridge = getMonacoLspBridge();
+      if (!bridge) return;
+      try {
+        const symbols = await bridge.provideDocumentSymbols(model);
+        if (requestId !== documentOutlineRequestId) return;
+        const outline = buildOutlineFromDocumentSymbols(symbols);
+        // 空响应通常表示语言服务未启动、文件暂时未解析或该语言没有符号，
+        // 此时保留既有 fallback，避免侧栏从可用内容变为空白。
+        lspDocumentOutline.value = outline.length > 0 ? outline : null;
+      } catch (error) {
+        if (requestId === documentOutlineRequestId) {
+          console.debug('[DocumentOutline] LSP documentSymbol unavailable', error);
+        }
+      }
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 16));
+  }
+};
+
 const documentOutline = computed(() => {
   const tab = activeTab.value;
   if (!tab || tab.isLargeFile) {
     return [];
+  }
+  if (lspDocumentOutline.value !== null) {
+    return lspDocumentOutline.value;
   }
   return buildDocumentOutline({ content: tab.content, language: tab.language });
 });
@@ -516,7 +686,22 @@ watch(viewportWidth, () => {
 watch(activeTab, (tab) => {
   tabService.syncTabToEditor(tab);
   fileSystemStore.selectEntry?.(tab?.filePath ?? null);
+  void refreshLspDocumentOutline(tab);
 }, { immediate: true });
+
+// 内容、路径或语言变化时重新请求符号；未安装 LSP 时 computed 仍稳定使用 fallback。
+watch(
+  () => [
+    activeTab.value?.id ?? '',
+    activeTab.value?.content ?? '',
+    activeTab.value?.filePath ?? '',
+    activeTab.value?.language ?? '',
+  ],
+  () => {
+    if (activeTab.value) void refreshLspDocumentOutline(activeTab.value);
+  },
+  { flush: 'post' },
+);
 
 const handleNewFile = () => {
   workspaceService.createUntitledFile();
@@ -527,6 +712,62 @@ const handleNewFile = () => {
 
 const openFileInEditor = async (filePath: string) => {
   await workspaceService.openFile(filePath);
+};
+
+/**
+ * 等待目标标签和 EditorCore 完成响应式切换。openFile() 会同步激活已有标签，
+ * 新标签则要等 Vue 更新一次后才会由 EditorCore 创建/绑定 Monaco model。
+ */
+const waitForEditorTarget = async (filePath: string, attempts = 40): Promise<boolean> => {
+  const targetPath = comparableFsPath(filePath);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await nextTick();
+    const activePath = activeTab.value?.filePath;
+    if (
+      activePath
+      && comparableFsPath(activePath) === targetPath
+      && editorCoreRef.value
+    ) {
+      return true;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 16));
+  }
+  return false;
+};
+
+/**
+ * 接管 Monaco 的跨文件 openCodeEditor 请求，让 LSP 返回的 file:// 位置进入
+ * Tau 的标签/工作区打开流程，再按 Monaco 已转换好的 1-based 选区定位。
+ */
+const openMonacoCodeEditor: monaco.editor.ICodeEditorOpener['openCodeEditor'] = async (
+  _source,
+  resource,
+  selectionOrPosition,
+): Promise<boolean> => {
+  const filePath = uriToPath(resource.toString());
+  if (!filePath) {
+    return false;
+  }
+
+  pushCurrentNavigation();
+  await openFileInEditor(filePath);
+  if (!await waitForEditorTarget(filePath)) {
+    return false;
+  }
+
+  const line = selectionOrPosition && 'startLineNumber' in selectionOrPosition
+    ? selectionOrPosition.startLineNumber
+    : selectionOrPosition?.lineNumber;
+  const column = selectionOrPosition && 'startColumn' in selectionOrPosition
+    ? selectionOrPosition.startColumn
+    : selectionOrPosition?.column;
+  editorCoreRef.value?.revealLine(line ?? 1, column ?? 1);
+  navigationHistory.push({
+    filePath,
+    line: line ?? 1,
+    column: column ?? 1,
+  });
+  return true;
 };
 
 const handleOpenFile = async () => {
@@ -543,6 +784,7 @@ const handleOpenFolder = async () => {
 const handleSave = async () => {
   syncActiveEditorContent();
   await tabService.saveActiveTab();
+  editorCoreRef.value?.saveLspDocument();
   // 保存后任务勾选状态可能变化，静默重扫一次工作区任务。
   if (workspaceRuntimeId.value && activeTab.value?.language === 'markdown') {
     void refreshWorkspaceTasks();
@@ -687,15 +929,31 @@ const handleContextNavigate = (line: number) => {
 };
 
 const refreshWorkspaceContext = async (workspacePath: string | null) => {
+  const requestId = ++workspaceContextRequestId;
   workspaceRuntimeId.value = null;
   gitStatus.value = null;
+  lspDiagnosticCounts.clear();
+  diagnosticsStore.clearAll();
+  problemsPanelVisible.value = false;
+  await applicationLspService.setWorkspace(null);
   if (!workspacePath || !isTauriApp()) {
     return;
   }
 
   try {
     const runtime = await workspaceCommands.resolveWorkspace(workspacePath);
+    if (requestId !== workspaceContextRequestId) {
+      return;
+    }
     workspaceRuntimeId.value = runtime.workspaceId;
+    await applicationLspService.setWorkspace({
+      workspaceId: runtime.workspaceId,
+      rootPath: workspacePath,
+    });
+    if (requestId !== workspaceContextRequestId) {
+      await applicationLspService.setWorkspace(null);
+      return;
+    }
     gitStatus.value = await gitCommands.status(runtime.workspaceId);
   } catch (error) {
     // 非 Git 工作区或暂时不可访问时保持空上下文，不打断编辑流程。
@@ -1076,6 +1334,34 @@ const openWorkspaceFileAtLine = async (relativePath: string, line: number) => {
   await openFileInEditor(joinFsPath(root, relativePath));
   await nextTick();
   editorCoreRef.value?.revealLine(line);
+};
+
+/** 打开 LSP 诊断对应文件，并将编辑器定位到具体行列。 */
+const handleDiagnosticNavigate = async (diagnostic: DiagnosticRecord) => {
+  const filePath = uriToPath(diagnostic.uri);
+  if (!filePath) return;
+
+  if (activeTab.value?.filePath && canonicalFsPath(activeTab.value.filePath) === canonicalFsPath(filePath)) {
+    pushCurrentNavigation();
+    editorCoreRef.value?.revealLine(diagnostic.startLineNumber, diagnostic.startColumn);
+    navigationHistory.push({
+      filePath,
+      line: diagnostic.startLineNumber,
+      column: diagnostic.startColumn,
+    });
+    return;
+  }
+
+  pushCurrentNavigation();
+  await openFileInEditor(filePath);
+  if (await waitForEditorTarget(filePath)) {
+    editorCoreRef.value?.revealLine(diagnostic.startLineNumber, diagnostic.startColumn);
+    navigationHistory.push({
+      filePath,
+      line: diagnostic.startLineNumber,
+      column: diagnostic.startColumn,
+    });
+  }
 };
 
 const handleWorkspaceTaskNavigate = async (relativePath: string, line: number) => {
@@ -1567,6 +1853,95 @@ const handleOpenQuickOpen = () => {
   commandStore.openPalette();
 };
 
+const pushCurrentNavigation = () => {
+  const tab = activeTab.value;
+  if (!tab?.filePath) return;
+  navigationHistory.push({
+    filePath: tab.filePath,
+    line: editorStore.cursorPosition.line,
+    column: editorStore.cursorPosition.column,
+  });
+};
+
+const navigateToHistoryLocation = async (location: NavigationLocation | null) => {
+  if (!location) return;
+  restoringNavigation.value = true;
+  try {
+    await openFileInEditor(location.filePath);
+    if (await waitForEditorTarget(location.filePath)) {
+      editorCoreRef.value?.revealLine(location.line, location.column);
+    }
+  } finally {
+    restoringNavigation.value = false;
+  }
+};
+
+const handleGoBack = async () => {
+  await navigateToHistoryLocation(navigationHistory.back());
+};
+
+const handleGoForward = async () => {
+  await navigateToHistoryLocation(navigationHistory.forward());
+};
+
+const buildWorkspaceSymbolCommands = (symbols: Array<{ name: string; containerName?: string; location: monaco.languages.Location }>) => {
+  workspaceSymbolTargets.value = symbols.map((symbol) => {
+    const path = uriToPath(symbol.location.uri.toString());
+    return {
+      filePath: path || symbol.location.uri.toString(),
+      line: Math.max(1, symbol.location.range.startLineNumber),
+      column: Math.max(1, symbol.location.range.startColumn),
+    };
+  });
+  workspaceSymbolCommands.value = symbols.map((symbol, index) => ({
+    id: `workspace-symbol:${index}`,
+    title: symbol.containerName ? `${symbol.name} · ${symbol.containerName}` : symbol.name,
+    category: 'workspace',
+    keywords: [symbol.name, symbol.containerName || '', symbol.location.uri.toString()],
+    run: async () => {
+      const target = workspaceSymbolTargets.value[index];
+      if (!target) return;
+      pushCurrentNavigation();
+      await navigateToHistoryLocation(target);
+      navigationHistory.push(target);
+    },
+  }));
+};
+
+const refreshWorkspaceSymbols = async (query = '') => {
+  const active = activeTab.value;
+  const modelUri = active?.filePath ? pathToUri(active.filePath) : active ? untitledUri(active.id) : null;
+  const model = modelUri ? monaco.editor.getModel(monaco.Uri.parse(modelUri)) : null;
+  const bridge = model ? getMonacoLspBridge() : null;
+  if (!model || !bridge) {
+    workspaceSymbolCommands.value = [];
+    return;
+  }
+  const requestId = ++workspaceSymbolRequestId;
+  try {
+    const symbols = await bridge.provideWorkspaceSymbols(model, query);
+    if (requestId !== workspaceSymbolRequestId) return;
+    buildWorkspaceSymbolCommands(symbols || []);
+  } catch (error) {
+    if (requestId === workspaceSymbolRequestId) {
+      workspaceSymbolCommands.value = [];
+      console.debug('[WorkspaceSymbols] unavailable', error);
+    }
+  }
+};
+
+const handleSearchWorkspaceSymbols = async () => {
+  paletteMode.value = 'workspace-symbol';
+  commandStore.openPalette();
+};
+
+watch(
+  () => [paletteMode.value, commandStore.paletteOpen, commandStore.query] as const,
+  ([mode, open, query]) => {
+    if (mode === 'workspace-symbol' && open) void refreshWorkspaceSymbols(query);
+  },
+);
+
 const handleOpenWorkspaceSearch = () => {
   if (!workspaceRuntimeId.value) {
     notificationStore.warning('工作区搜索不可用', '请先打开本地工作区。');
@@ -1797,7 +2172,14 @@ const handleUndoWorkspaceReplace = async () => {
 };
 
 const handleWorkspaceSearchNavigate = async (relativePath: string, line: number) => {
+  const root = workspaceStore.currentWorkspacePath;
+  if (!root || !relativePath) return;
+  const filePath = joinFsPath(root, relativePath);
+  pushCurrentNavigation();
   await openWorkspaceFileAtLine(relativePath, line);
+  if (await waitForEditorTarget(filePath)) {
+    navigationHistory.push({ filePath, line, column: 1 });
+  }
 };
 
 const handleFindText = () => {
@@ -1806,6 +2188,169 @@ const handleFindText = () => {
 
 const handleGoToLine = () => {
   editorCoreRef.value?.triggerGoToLine();
+};
+
+const handleGoToDefinition = () => editorCoreRef.value?.goToDefinition();
+const handleGoToDeclaration = () => editorCoreRef.value?.goToDeclaration();
+const handleGoToTypeDefinition = () => editorCoreRef.value?.goToTypeDefinition();
+const handleGoToImplementation = () => editorCoreRef.value?.goToImplementation();
+const handlePeekDefinition = () => editorCoreRef.value?.peekDefinition();
+const handlePeekReferences = () => editorCoreRef.value?.peekReferences();
+const handleFindReferences = () => editorCoreRef.value?.findReferences();
+const handleRenameSymbol = () => editorCoreRef.value?.renameSymbol();
+const handleCancelReferences = () => {
+  referenceRequestId += 1;
+  editorCoreRef.value?.cancelReferences();
+  referencePanelLoading.value = false;
+};
+
+const buildReferenceGroups = async (locations: monaco.languages.Location[]): Promise<ReferenceResultGroup[]> => {
+  const contents = new Map<string, string>();
+  const records: ReferenceResultItem[] = [];
+  for (const [index, location] of locations.entries()) {
+    const uri = location.uri.toString();
+    const path = uriToPath(uri);
+    if (!path) continue;
+    let content = contents.get(path);
+    if (content === undefined) {
+      const openTab = tabsStore.tabs.find((tab) => tab.filePath && comparableFsPath(tab.filePath) === comparableFsPath(path));
+      try {
+        content = openTab?.content ?? await fileCommands.readFile(path);
+      } catch {
+        content = '';
+      }
+      contents.set(path, content);
+    }
+    const lines = content.split(/\r?\n/);
+    const line = Math.max(1, location.range.startLineNumber);
+    records.push({
+      id: `reference-${index}-${encodeURIComponent(uri)}-${line}`,
+      uri,
+      path,
+      line,
+      column: Math.max(1, location.range.startColumn),
+      preview: (lines[line - 1] ?? '').trim() || path,
+    });
+  }
+  const grouped = new Map<string, ReferenceResultItem[]>();
+  for (const record of records) {
+    const list = grouped.get(record.path) ?? [];
+    list.push(record);
+    grouped.set(record.path, list);
+  }
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, items]) => ({
+      path,
+      items: items.sort((a, b) => a.line - b.line || a.column - b.column),
+    }));
+};
+
+const runFindReferences = async () => {
+  const requestId = ++referenceRequestId;
+  referencePanelVisible.value = true;
+  referencePanelLoading.value = true;
+  referencePanelError.value = null;
+  referenceGroups.value = [];
+  const locations = await editorCoreRef.value?.requestReferences();
+  if (requestId !== referenceRequestId) return;
+  if (locations === null || locations === undefined) {
+    referencePanelVisible.value = false;
+    referencePanelLoading.value = false;
+    editorCoreRef.value?.triggerNativeReferences();
+    return;
+  }
+  try {
+    referenceGroups.value = await buildReferenceGroups(locations);
+  } catch (error) {
+    referencePanelError.value = error instanceof Error ? error.message : '引用结果加载失败';
+  } finally {
+    if (requestId === referenceRequestId) referencePanelLoading.value = false;
+  }
+};
+
+const handleReferenceNavigate = async (item: ReferenceResultItem) => {
+  const path = uriToPath(item.uri);
+  if (!path) return;
+  pushCurrentNavigation();
+  await openFileInEditor(path);
+  if (await waitForEditorTarget(path)) {
+    editorCoreRef.value?.revealLine(item.line, item.column);
+    navigationHistory.push({ filePath: path, line: item.line, column: item.column });
+  }
+};
+
+const hierarchyItemToRow = (item: MonacoHierarchyItem, index: number, direction: string): HierarchyRow => {
+  const path = uriToPath(item.uri.toString()) || item.uri.toString();
+  const directionLabel = hierarchyPanelMode.value === 'call'
+    ? direction === 'incoming' ? '调用方' : '被调用'
+    : direction === 'supertype' ? '父类型' : '子类型';
+  return {
+    id: `${direction}-${index}-${encodeURIComponent(item.uri.toString())}-${item.selectionRange.startLineNumber}`,
+    name: item.name,
+    detail: [directionLabel, item.detail].filter(Boolean).join(' · '),
+    path,
+    line: Math.max(1, item.selectionRange.startLineNumber),
+    column: Math.max(1, item.selectionRange.startColumn),
+    uri: item.uri.toString(),
+  };
+};
+
+const runHierarchy = async (mode: HierarchyMode) => {
+  const requestId = ++hierarchyRequestId;
+  hierarchyPanelMode.value = mode;
+  hierarchyPanelVisible.value = true;
+  hierarchyPanelLoading.value = true;
+  hierarchyPanelError.value = null;
+  hierarchyRoot.value = null;
+  hierarchyRows.value = [];
+
+  try {
+    const result = mode === 'call'
+      ? await editorCoreRef.value?.requestCallHierarchy()
+      : await editorCoreRef.value?.requestTypeHierarchy();
+    if (requestId !== hierarchyRequestId) return;
+    if (!result) {
+      hierarchyPanelVisible.value = false;
+      notificationStore.warning(
+        mode === 'call' ? '调用层级不可用' : '类型层级不可用',
+        '当前语言服务尚未准备完成，Tau Editor 会自动下载；请稍后重试或到设置中点击“自动准备”。',
+      );
+      return;
+    }
+    hierarchyRoot.value = result.root
+      ? { name: result.root.name, detail: result.root.detail }
+      : null;
+    hierarchyRows.value = result.rows.map(({ direction, item }, index) => hierarchyItemToRow(item, index, direction));
+  } catch (error) {
+    if (requestId === hierarchyRequestId) {
+      hierarchyPanelError.value = error instanceof Error ? error.message : '层级关系加载失败';
+    }
+  } finally {
+    if (requestId === hierarchyRequestId) hierarchyPanelLoading.value = false;
+  }
+};
+
+const handleCallHierarchy = () => { void runHierarchy('call'); };
+const handleTypeHierarchy = () => { void runHierarchy('type'); };
+const handleCancelHierarchy = () => {
+  hierarchyRequestId += 1;
+  editorCoreRef.value?.cancelHierarchy();
+  hierarchyPanelLoading.value = false;
+};
+const handleHierarchyNavigate = async (row: HierarchyRow) => {
+  const path = uriToPath(row.uri);
+  if (!path) return;
+  pushCurrentNavigation();
+  await openFileInEditor(path);
+  if (await waitForEditorTarget(path)) {
+    editorCoreRef.value?.revealLine(row.line, row.column);
+    navigationHistory.push({ filePath: path, line: row.line, column: row.column });
+  }
+};
+
+const handleToggleProblems = () => {
+  problemsPanelVisible.value = !problemsPanelVisible.value;
 };
 
 const getLocalizedCommandTitle = (id: CommandId) =>
@@ -1820,12 +2365,26 @@ const createLocalizedCommands = () => {
   saveAs: handleSaveAs,
   findText: handleFindText,
   goToLine: handleGoToLine,
+  goToDefinition: handleGoToDefinition,
+  goToDeclaration: handleGoToDeclaration,
+  goToTypeDefinition: handleGoToTypeDefinition,
+  goToImplementation: handleGoToImplementation,
+  peekDefinition: handlePeekDefinition,
+  peekReferences: handlePeekReferences,
+  findReferences: handleFindReferences,
+  renameSymbol: handleRenameSymbol,
+  showCallHierarchy: handleCallHierarchy,
+  showTypeHierarchy: handleTypeHierarchy,
+  toggleProblems: handleToggleProblems,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
   openCommandPalette: handleOpenCommandPalette,
   compareWithFile: handleCompareWithFile,
   openInNewWindow: handleOpenTabInNewWindow,
   moveToNewWindow: handleMoveTabToNewWindow,
+  goBack: handleGoBack,
+  goForward: handleGoForward,
+  searchWorkspaceSymbols: handleSearchWorkspaceSymbols,
   }, settingsStore.uiLanguage);
 
   // Provider 命令与内置命令合并，同 id 时内置优先。
@@ -1883,6 +2442,15 @@ const handlePaletteSelect = async (id: string) => {
     await openFileInEditor(id.slice('quick-open:'.length));
     return;
   }
+  if (id.startsWith('workspace-symbol:')) {
+    paletteMode.value = 'commands';
+    const index = Number(id.slice('workspace-symbol:'.length));
+    const targetCommand = Number.isInteger(index) ? workspaceSymbolCommands.value[index] : undefined;
+    if (targetCommand?.run) {
+      await targetCommand.run();
+    }
+    return;
+  }
   await executeCommand(id);
 };
 
@@ -1907,8 +2475,22 @@ const keybindingCommandHandlers: Record<string, () => void> = {
   'file.saveAs': () => void executeCommand('file.saveAs'),
   'search.findText': () => void executeCommand('search.findText'),
   'search.goToLine': () => void executeCommand('search.goToLine'),
+  'editor.goToDefinition': () => void executeCommand('editor.goToDefinition'),
+  'editor.goToDeclaration': () => void executeCommand('editor.goToDeclaration'),
+  'editor.goToTypeDefinition': () => void executeCommand('editor.goToTypeDefinition'),
+  'editor.goToImplementation': () => void executeCommand('editor.goToImplementation'),
+  'editor.peekDefinition': () => void executeCommand('editor.peekDefinition'),
+  'editor.peekReferences': () => void executeCommand('editor.peekReferences'),
+  'editor.callHierarchy': () => void executeCommand('editor.callHierarchy'),
+  'editor.typeHierarchy': () => void executeCommand('editor.typeHierarchy'),
+  'editor.findReferences': () => void executeCommand('editor.findReferences'),
+  'editor.renameSymbol': () => void executeCommand('editor.renameSymbol'),
+  'editor.toggleProblems': () => void executeCommand('editor.toggleProblems'),
+  'editor.goBack': () => void executeCommand('editor.goBack'),
+  'editor.goForward': () => void executeCommand('editor.goForward'),
   'workspace.search': handleOpenWorkspaceSearch,
   'workspace.quickOpen': handleOpenQuickOpen,
+  'workspace.searchSymbols': () => void executeCommand('workspace.searchSymbols'),
   'view.toggleSidebar': handleToggleFileTree,
   'view.toggleSettings': () => void executeCommand('view.toggleSettings'),
   'editor.zoomIn': () => settingsStore.adjustFontSize(1),
@@ -2172,6 +2754,22 @@ const notifyExternalConflict = (fileName: string) => {
  * 处理工作区监听推送的批量变更：脏标签只标记冲突，干净标签自动重新加载。
  */
 const handleWorkspaceFileChanges = async (changes: WorkspaceFileChange[]) => {
+  const lspChanges = changes.flatMap((change) => {
+    if (change.kind === 'renamed' && change.oldPath) {
+      return [
+        { uri: pathToUri(change.oldPath), type: 3 },
+        { uri: pathToUri(change.path), type: 1 },
+      ];
+    }
+    return [{
+      uri: pathToUri(change.path),
+      type: change.kind === 'created' ? 1 : change.kind === 'removed' ? 3 : 2,
+    }];
+  });
+  void applicationLspService.notifyWatchedFiles(lspChanges).catch((error) => {
+    console.debug('[LSP] 工作区文件变更通知失败', error);
+  });
+
   let shouldRefreshTree = false;
 
   for (const change of changes) {
@@ -2687,6 +3285,10 @@ onMounted(async () => {
     await restoreSession();
   }
   await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
+  const monacoEditorOpener = registerMonacoEditorOpener({
+    openCodeEditor: openMonacoCodeEditor,
+  });
+  disposeMonacoEditorOpener = () => monacoEditorOpener.dispose();
   await windowService.attach();
   windowService.onBeforeClose(() => saveSession());
   registerShortcuts();
@@ -2702,6 +3304,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (disposeMonacoEditorOpener) {
+    disposeMonacoEditorOpener();
+    disposeMonacoEditorOpener = null;
+  }
   cancelScheduledSessionSave();
   void saveSession();
   cancelScheduledMarkdownLinkStatusRefresh();
@@ -2712,6 +3318,10 @@ onUnmounted(() => {
     unlistenExternalOpen = null;
   }
   void stopExternalFileWatch();
+  void applicationLspService.dispose();
+  lspDiagnosticCounts.clear();
+  diagnosticsStore.clearAll();
+  configureMonacoLspBridge(null);
   window.removeEventListener('keydown', handleShellKeydown);
   window.removeEventListener('resize', syncViewportWidth);
 });
@@ -2720,6 +3330,12 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <Notification />
+    <ImageViewer
+      :visible="Boolean(imageViewerState)"
+      :src="imageViewerState?.src ?? ''"
+      :alt="imageViewerState?.alt ?? '图片'"
+      @close="closeImageViewer"
+    />
     <div
       v-if="nameDialog.visible"
       class="name-dialog-backdrop"
@@ -2993,6 +3609,7 @@ onUnmounted(() => {
               @cursor-change="handleCursorChange"
               @scroll-change="handleEditorScrollChange"
               @model-save="handleSave"
+              @find-references="runFindReferences"
               @markdown-image-request="handleInsertMarkdownImage"
               @markdown-image-paste="handleMarkdownImagePaste"
             />
@@ -3001,6 +3618,7 @@ onUnmounted(() => {
             v-else
             :file-path="activeTab.filePath!"
             :file-name="activeTab.fileName"
+            @open="openImageViewer"
           />
           <div
             v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
@@ -3014,6 +3632,7 @@ onUnmounted(() => {
               :source-file-path="activeTab.filePath"
               :editor-scroll-state="editorScrollState"
               @request-preview-mode-change="setMarkdownPreviewMode"
+              @open-image="openImageViewer"
             />
           </div>
         </div>
@@ -3025,6 +3644,37 @@ onUnmounted(() => {
             <button class="hero-btn" @click="handleNewFile">{{ appText.newFile }}</button>
           </div>
         </div>
+
+        <ProblemsPanel
+          v-if="problemsPanelVisible"
+          :locale="settingsStore.uiLanguage"
+          @navigate="handleDiagnosticNavigate"
+          @close="problemsPanelVisible = false"
+        />
+
+        <ReferenceResultsPanel
+          v-if="referencePanelVisible"
+          :locale="settingsStore.uiLanguage"
+          :loading="referencePanelLoading"
+          :groups="referenceGroups"
+          :error="referencePanelError"
+          @navigate="handleReferenceNavigate"
+          @cancel="handleCancelReferences"
+          @close="referencePanelVisible = false"
+        />
+
+        <HierarchyPanel
+          v-if="hierarchyPanelVisible"
+          :locale="settingsStore.uiLanguage"
+          :mode="hierarchyPanelMode"
+          :loading="hierarchyPanelLoading"
+          :root="hierarchyRoot"
+          :rows="hierarchyRows"
+          :error="hierarchyPanelError"
+          @navigate="handleHierarchyNavigate"
+          @cancel="handleCancelHierarchy"
+          @close="hierarchyPanelVisible = false"
+        />
       </section>
 
       <transition name="context-rail-shell">
