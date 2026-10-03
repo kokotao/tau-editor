@@ -19,9 +19,19 @@ const componentStubs = vi.hoisted(() => ({
   },
   markdownPreview: {
     props: ['content', 'theme', 'sourceFilePath', 'editorScrollState'],
-    emits: ['request-preview-mode-change'],
+    emits: ['request-preview-mode-change', 'open-image'],
     methods: { scrollToSourceLine: vi.fn() },
     template: '<div data-testid="markdown-preview-stub" @click="$emit(\'request-preview-mode-change\', \'preview\')"></div>',
+  },
+  imagePreview: {
+    props: ['filePath', 'fileName', 'src', 'alt'],
+    emits: ['open', 'open-image'],
+    template: '<div data-testid="image-preview-stub"></div>',
+  },
+  imageViewer: {
+    props: ['visible', 'src', 'alt'],
+    emits: ['close'],
+    template: '<div data-testid="image-viewer-stub" :data-visible="visible ? \'true\' : \'false\'"></div>',
   },
   editorCore: {
     emits: ['scroll-change'],
@@ -266,10 +276,14 @@ import App from '@/App.vue'
 const ToolbarStub = componentStubs.toolbar
 const SettingsPanelStub = componentStubs.settingsPanel
 const MarkdownPreviewStub = componentStubs.markdownPreview
+const ImagePreviewStub = componentStubs.imagePreview
+const ImageViewerStub = componentStubs.imageViewer
 const ContextRailStub = componentStubs.contextRail
 vi.mock('../../../frontend/src/components/editor/Toolbar.vue', () => ({ default: componentStubs.toolbar }))
 vi.mock('../../../frontend/src/components/editor/SettingsPanel.vue', () => ({ default: componentStubs.settingsPanel }))
 vi.mock('../../../frontend/src/components/editor/MarkdownPreview.vue', () => ({ default: componentStubs.markdownPreview }))
+vi.mock('../../../frontend/src/components/editor/ImagePreview.vue', () => ({ default: componentStubs.imagePreview }))
+vi.mock('../../../frontend/src/components/editor/ImageViewer.vue', () => ({ default: componentStubs.imageViewer }))
 vi.mock('../../../frontend/src/components/editor/EditorCore.vue', () => ({ default: componentStubs.editorCore }))
 vi.mock('../../../frontend/src/components/editor/LazyEditorCore', () => ({ LazyEditorCore: componentStubs.editorCore }))
 vi.mock('../../../frontend/src/components/editor/ContextRail.vue', () => ({ default: componentStubs.contextRail }))
@@ -279,6 +293,8 @@ const appShellStubs = {
   Toolbar: false,
   SettingsPanel: false,
   MarkdownPreview: false,
+  ImagePreview: false,
+  ImageViewer: false,
   EditorCore: false,
   ExternalChangeDialog: false,
   ContextRail: false,
@@ -412,6 +428,78 @@ describe('AppShell', () => {
     expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({
       markdownPreviewMode: 'preview',
     })
+  })
+
+  it('Markdown 图片双击事件应打开图片查看器，关闭时不关闭当前标签页', async () => {
+    const imageTab = {
+      id: 'tab-image',
+      fileName: 'photo.png',
+      filePath: '/workspace/photo.png',
+      content: '',
+      language: 'plaintext',
+      isDirty: false,
+    }
+    storeMocks.tabs.activeTab = imageTab
+    storeMocks.tabs.tabs = [imageTab]
+    storeMocks.tabs.activeTabId = imageTab.id
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
+    })
+    await flushPromises()
+
+    const imagePreview = wrapper.findComponent(ImagePreviewStub)
+    expect(imagePreview.exists()).toBe(true)
+    imagePreview.vm.$emit('open', {
+      src: 'asset:///workspace/photo.png',
+      alt: 'photo.png',
+    })
+    await flushPromises()
+
+    const viewer = wrapper.findComponent(ImageViewerStub)
+    expect(viewer.props('visible')).toBe(true)
+    expect(viewer.props('src')).toBe('asset:///workspace/photo.png')
+    expect(viewer.props('alt')).toBe('photo.png')
+
+    viewer.vm.$emit('close')
+    await flushPromises()
+    expect(wrapper.findComponent(ImageViewerStub).props('visible')).toBe(false)
+    expect(storeMocks.tabs.tabs).toHaveLength(1)
+    expect(storeMocks.tabs.activeTabId).toBe(imageTab.id)
+  })
+
+  it('MarkdownPreview open-image 应优先使用 resolvedSrc 打开图片查看器', async () => {
+    const markdownTab = {
+      id: 'tab-md',
+      fileName: 'README.md',
+      filePath: '/workspace/README.md',
+      content: '![logo](./logo.png)',
+      language: 'markdown',
+      isDirty: false,
+    }
+    storeMocks.tabs.activeTab = markdownTab
+    storeMocks.tabs.tabs = [markdownTab]
+    storeMocks.tabs.activeTabId = markdownTab.id
+    storeMocks.settings.markdownPreviewEnabled = true
+    storeMocks.settings.markdownPreviewMode = 'preview'
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
+    })
+    await flushPromises()
+
+    const preview = wrapper.findComponent(MarkdownPreviewStub)
+    preview.vm.$emit('open-image', {
+      src: './logo.png',
+      resolvedSrc: 'asset:///workspace/logo.png',
+      alt: 'logo',
+    })
+    await flushPromises()
+
+    const viewer = wrapper.findComponent(ImageViewerStub)
+    expect(viewer.props('visible')).toBe(true)
+    expect(viewer.props('src')).toBe('asset:///workspace/logo.png')
+    expect(viewer.props('alt')).toBe('logo')
   })
 
   it('左下角应显示统一控制组且仅保留侧栏按钮', async () => {

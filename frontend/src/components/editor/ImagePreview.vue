@@ -5,10 +5,11 @@
     <img
       v-else
       :src="sourceUrl"
-      :alt="fileName"
+      :alt="imageAlt"
       class="image-file-preview-image"
       data-testid="image-file-preview"
       draggable="false"
+      @dblclick="handleDoubleClick"
     >
   </section>
 </template>
@@ -19,13 +20,25 @@ import { isTauriApp } from '@/lib/tauri';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 const props = defineProps<{
-  filePath: string;
+  filePath?: string;
   fileName?: string;
+  src?: string;
+  alt?: string;
 }>();
 
-const fileName = computed(() => props.fileName || props.filePath.split(/[\\/]/).pop() || '图片');
+const emit = defineEmits<{
+  open: [payload: { src: string; alt: string }];
+  'open-image': [payload: { src: string; alt: string }];
+}>();
+
+const imageAlt = computed(() => props.alt || props.fileName || props.filePath?.split(/[\\/]/).pop() || '图片');
 const sourceUrl = computed(() => {
-  const filePath = props.filePath.trim();
+  const directSrc = props.src?.trim();
+  if (directSrc) {
+    return directSrc;
+  }
+
+  const filePath = props.filePath?.trim() ?? '';
   if (!filePath) return '';
   try {
     return isTauriApp()
@@ -37,6 +50,18 @@ const sourceUrl = computed(() => {
 });
 const loading = computed(() => !sourceUrl.value);
 const error = computed(() => sourceUrl.value ? '' : '图片路径为空或当前环境无法读取本地图片');
+
+const handleDoubleClick = () => {
+  const src = sourceUrl.value;
+  if (!src) {
+    return;
+  }
+
+  const payload = { src, alt: imageAlt.value };
+  emit('open', payload);
+  // 保留语义化别名，方便 Markdown 预览与文件图片统一接入图片查看器。
+  emit('open-image', payload);
+};
 </script>
 
 <style scoped>
@@ -62,6 +87,7 @@ const error = computed(() => sourceUrl.value ? '' : '图片路径为空或当前
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
+  cursor: zoom-in;
 }
 
 .image-file-preview-state {

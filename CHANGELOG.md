@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-02
-> 当前稳定版本：`v0.6.4`
+> 最后更新：2026-10-03
+> 当前稳定版本：`v0.6.5`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.5](https://github.com/kokotao/tau-editor/releases/tag/v0.6.5) | 2026-10-03 | 待发布           | 待补充    | Markdown 预览宽度、图片边界、图片查看器与超宽表格体验         |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
 | [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 公开 Release     | `8712e4f` | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
@@ -40,6 +41,27 @@
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
 
 ---
+
+## [0.6.5] - 2026-10-03
+
+### Markdown 预览与图片体验
+
+- Markdown 预览内容区改为跟随所在工作区宽度，不再受固定 900px 最大宽度限制。
+- 图片、SVG、视频和 Canvas 在内容边界内自适应，避免大图撑破预览区域。
+- 超宽表格自动包裹到独立横向滚动容器，长表格不会改变外层布局宽度。
+- Markdown 图片和普通图片标签页支持双击打开统一图片查看器。
+- 图片查看器支持关闭、遮罩点击、Escape、滚轮/按钮/双击缩放、拖拽平移、旋转和重置。
+
+### 验证
+
+- 图片查看器、图片预览、Markdown 预览和 AppShell 单测通过。
+- `pnpm --dir frontend type-check` 与 `pnpm --dir frontend build-only` 通过。
+- Chromium 真实浏览器验证确认：预览列宽铺满、图片不越界、超宽表格容器内滚动、双击图片打开查看器、缩放/旋转/Escape 关闭链路正常。
+
+### 已知限制
+
+- GitHub Actions 负责生成 Windows/Linux 产物；本次发布前需等待三平台 workflow 完成后再确认 Release 资产清单。
+
 
 ## [0.6.4] - 2026-10-02
 

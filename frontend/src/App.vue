@@ -92,6 +92,7 @@ import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
+import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
 
 const fileSystemStore = useFileSystemStore();
@@ -247,6 +248,16 @@ type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean
 const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
 const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
+type ImageViewerPayload = {
+  src: string;
+  alt?: string;
+  resolvedSrc?: string;
+};
+type ImageViewerState = {
+  src: string;
+  alt: string;
+};
+const imageViewerState = ref<ImageViewerState | null>(null);
 const FIRST_INSTALL_GUIDE_KEY = 'text-editor-first-install-guide-v1';
 const GUIDE_LAST_OPENED_AT_KEY = 'text-editor-last-opened-at-v1';
 const GUIDE_LAST_SHOWN_AT_KEY = 'text-editor-guide-last-shown-at-v1';
@@ -402,6 +413,22 @@ const wordCount = computed(() => {
   const content = tab.content;
   return content.trim() ? content.trim().split(/\s+/).length : 0;
 });
+
+const openImageViewer = (payload: ImageViewerPayload) => {
+  const src = payload.resolvedSrc?.trim() || payload.src.trim();
+  if (!src) {
+    return;
+  }
+
+  imageViewerState.value = {
+    src,
+    alt: payload.alt?.trim() || '图片',
+  };
+};
+
+const closeImageViewer = () => {
+  imageViewerState.value = null;
+};
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
@@ -2720,6 +2747,12 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <Notification />
+    <ImageViewer
+      :visible="Boolean(imageViewerState)"
+      :src="imageViewerState?.src ?? ''"
+      :alt="imageViewerState?.alt ?? '图片'"
+      @close="closeImageViewer"
+    />
     <div
       v-if="nameDialog.visible"
       class="name-dialog-backdrop"
@@ -3001,6 +3034,7 @@ onUnmounted(() => {
             v-else
             :file-path="activeTab.filePath!"
             :file-name="activeTab.fileName"
+            @open="openImageViewer"
           />
           <div
             v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
@@ -3014,6 +3048,7 @@ onUnmounted(() => {
               :source-file-path="activeTab.filePath"
               :editor-scroll-state="editorScrollState"
               @request-preview-mode-change="setMarkdownPreviewMode"
+              @open-image="openImageViewer"
             />
           </div>
         </div>
