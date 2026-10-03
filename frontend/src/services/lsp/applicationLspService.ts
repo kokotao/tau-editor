@@ -305,7 +305,6 @@ export class ApplicationLspService {
   ): Promise<string[]> {
     if (!args.some((arg) => arg.includes('${installDir}') || arg.includes('${workspaceData}') || arg.includes('${executablePath}'))) return args;
     if (!installDir || !this.workspace) throw new Error('语言服务器启动参数缺少托管安装目录或工作区');
-    const separator = this.managedPlatformKey?.startsWith('windows-') ? '\\' : '/';
     const normalizedInstallDir = installDir.replace(/[\\/]+$/, '');
     if (args.some((arg) => arg.includes('${executablePath}') && !executablePath)) {
       throw new Error('语言服务器启动参数缺少可执行文件路径');
@@ -315,10 +314,17 @@ export class ApplicationLspService {
       this.workspaceDataDir = await lspCommands.workspaceDataDir(this.workspace.rootPath);
     }
     const workspaceData = this.workspaceDataDir.replace(/[\\/]+$/, '');
-    return args.map((arg) => arg
-      .replaceAll('${installDir}', normalizedInstallDir)
-      .replaceAll('${workspaceData}', workspaceData)
-      .replaceAll('${executablePath}', normalizedExecutablePath));
+    const replaceToken = (value: string, token: string, replacement: string): string =>
+      value.split(token).join(replacement);
+    return args.map((arg) => replaceToken(
+      replaceToken(
+        replaceToken(arg, '${installDir}', normalizedInstallDir),
+        '${workspaceData}',
+        workspaceData,
+      ),
+      '${executablePath}',
+      normalizedExecutablePath,
+    ));
   }
 
   async notifyWatchedFiles(changes: Array<{ uri: string; type: number }>): Promise<void> {
