@@ -15,7 +15,22 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.4', date: '2026-10-02', label: '三平台发布与官网动态同步', category: '稳定性', latest: true,
+    version: 'v0.6.8', date: '2026-10-04', label: 'PAX 与 Java 语言服务修复', category: '稳定性', latest: true,
+    summary: '完善跨平台安装包与 Java 语言服务准备流程，补齐安全解包、超时重试和分阶段错误提示。',
+    highlights: ['支持 POSIX PAX 与 GNU L/K 长路径扩展', '安全处理 tar 路径穿越、绝对路径和危险条目类型', 'Java 安装拆分为 JRE runtime 与 JDTLS 两个阶段并复用缓存', '下载器增加连接超时、总超时、指数退避和可重试 HTTP 状态处理', 'Java 准备失败显示具体阶段、URL、尝试次数与底层错误原因'],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.8',
+    assets: [
+      ['Tau.Editor-0.6.8-1.x86_64.rpm', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor-0.6.8-1.x86_64.rpm'],
+      ['Tau.Editor_0.6.8_aarch64.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_aarch64.dmg'],
+      ['Tau.Editor_0.6.8_amd64.AppImage', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_amd64.AppImage'],
+      ['Tau.Editor_0.6.8_amd64.deb', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_amd64.deb'],
+      ['Tau.Editor_0.6.8_universal.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_universal.dmg'],
+      ['Tau.Editor_0.6.8_x64-setup.exe', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_x64-setup.exe'],
+      ['Tau.Editor_0.6.8_x64_zh-CN.msi', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_x64_zh-CN.msi'],
+    ].map(([name, url]) => ({ name, url })),
+  },
+  {
+    version: 'v0.6.4', date: '2026-10-02', label: '三平台发布与官网动态同步', category: '稳定性', latest: false,
     summary: '补齐 macOS、Windows、Linux 六类安装包，并让官网更新日志自动同步 GitHub Releases，减少手动维护遗漏。',
     highlights: ['修复 CI 类型库兼容问题，恢复三平台构建', '发布前校验 tag 与应用版本一致', '构建后校验 DMG、DEB、AppImage、RPM、MSI、EXE 六类资产', '官网按公开 GitHub Release 动态展示版本、摘要和下载资产', 'GitHub API 不可用时自动回退内置版本记录'],
     releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.4',
@@ -215,6 +230,14 @@ const compareReleaseVersions = (left, right) => {
   return String(right.publishedAt).localeCompare(String(left.publishedAt))
 }
 
+const inferAssetPlatform = (assetName) => {
+  const name = String(assetName ?? '').toLowerCase()
+  if (/\.(?:exe|msi)$/i.test(name) || /(?:windows|win32|win64|x64-setup|x64_zh)/i.test(name)) return 'Windows'
+  if (/\.(?:dmg|pkg)$/i.test(name) || /(?:macos|darwin|universal|apple|arm64\.dmg|amd64\.dmg)/i.test(name)) return 'macOS'
+  if (/\.(?:deb|rpm|appimage)$/i.test(name) || /(?:linux|ubuntu|debian|fedora|appimage)/i.test(name)) return 'Linux'
+  return null
+}
+
 const normalizeGithubRelease = (release) => {
   const version = release.tag_name || release.name || '未知版本'
   const highlights = extractReleaseHighlights(release.body)
@@ -232,7 +255,11 @@ const normalizeGithubRelease = (release) => {
     releaseUrl: release.html_url || `https://github.com/kokotao/tau-editor/releases/tag/${encodeURIComponent(version)}`,
     assets: Array.isArray(release.assets) ? release.assets
       .filter((asset) => asset?.name && asset?.browser_download_url)
-      .map((asset) => ({ name: asset.name, url: asset.browser_download_url })) : [],
+      .map((asset) => ({
+        name: asset.name,
+        url: asset.browser_download_url,
+        platform: inferAssetPlatform(asset.name),
+      })) : [],
   }
 }
 
@@ -252,10 +279,23 @@ const renderReleaseFilters = (items) => {
   return ['全部', ...categories].map((category, index) => `<button class="release-filter${index === 0 ? ' active' : ''}" data-release-filter="${escapeHtml(category)}">${escapeHtml(category)}</button>`).join('')
 }
 
+const releasePlatformOrder = ['Windows', 'macOS', 'Linux']
+
+const renderReleaseAssetTables = (assets) => {
+  const groups = releasePlatformOrder
+    .map((platform) => ({ platform, assets: assets.filter((asset) => (asset.platform || inferAssetPlatform(asset.name)) === platform) }))
+    .filter((group) => group.assets.length)
+
+  if (!groups.length) return ''
+
+  const installAssets = groups.reduce((total, group) => total + group.assets.length, 0)
+  return `<section class="release-downloads" aria-label="安装包下载"><div class="release-downloads-heading"><span>安装包</span><small>按系统整理 · ${installAssets} 个桌面安装包</small></div><div class="release-download-tables">${groups.map(({ platform, assets: platformAssets }) => `<div class="release-download-group"><div class="release-download-group-heading"><span class="platform-dot platform-${platform.toLowerCase().replace(/[^a-z]+/g, '-')}" ></span><strong>${escapeHtml(platform)}</strong><small>${platformAssets.length} 个安装包</small></div><div class="release-download-table-wrap"><table class="release-download-table"><thead><tr><th scope="col">文件名</th><th scope="col">类型</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead><tbody>${platformAssets.map((asset) => `<tr><td><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span></td><td><span class="asset-type">${escapeHtml(asset.name.split('.').pop()?.toUpperCase() || 'FILE')}</span></td><td><a class="asset-download" href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" download aria-label="下载 ${escapeHtml(asset.name)}">下载 <span aria-hidden="true">↗</span></a></td></tr>`).join('')}</tbody></table></div></div>`).join('')}</div></section>`
+}
+
 const renderReleaseCards = (items) => items.map((release) => {
   const assets = Array.isArray(release.assets) ? release.assets : []
   const highlights = Array.isArray(release.highlights) ? release.highlights : []
-  return `<article class="release-card ${release.latest ? 'latest' : ''}" data-release-category="${escapeHtml(release.category)}"><div class="release-marker"><span></span></div><div class="release-card-body"><div class="release-meta"><span class="release-version">${escapeHtml(release.version)}</span><time datetime="${escapeHtml(release.date)}">${escapeHtml(release.date)}</time><span class="release-category">${escapeHtml(release.category)}</span>${release.latest ? '<b class="release-latest">当前版本</b>' : ''}</div><div class="release-title-row"><h3>${escapeHtml(release.label)}</h3><a href="${escapeHtml(release.releaseUrl)}" target="_blank" rel="noreferrer" aria-label="查看 ${escapeHtml(release.version)} 发布详情">查看发布 ↗</a></div><p class="release-summary">${escapeHtml(release.summary)}</p><details${release.latest ? ' open' : ''}><summary>查看本版本更新 <span>＋</span></summary><ul>${highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>${assets.length ? `<div class="release-assets"><span>安装包</span>${assets.map((asset) => `<a href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" title="下载 ${escapeHtml(asset.name)}">${escapeHtml(asset.name)} ↗</a>`).join('')}</div>` : ''}</div></article>`
+  return `<article class="release-card ${release.latest ? 'latest' : ''}" data-release-category="${escapeHtml(release.category)}"><div class="release-marker"><span></span></div><div class="release-card-body"><div class="release-meta"><span class="release-version">${escapeHtml(release.version)}</span><time datetime="${escapeHtml(release.date)}">${escapeHtml(release.date)}</time><span class="release-category">${escapeHtml(release.category)}</span>${release.latest ? '<b class="release-latest">当前版本</b>' : ''}</div><div class="release-title-row"><h3>${escapeHtml(release.label)}</h3><a href="${escapeHtml(release.releaseUrl)}" target="_blank" rel="noreferrer" aria-label="查看 ${escapeHtml(release.version)} 发布详情">查看发布 ↗</a></div><p class="release-summary">${escapeHtml(release.summary)}</p><details${release.latest ? ' open' : ''}><summary>查看本版本更新 <span>＋</span></summary><ul>${highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>${assets.length ? renderReleaseAssetTables(assets) : ''}</div></article>`
 }).join('')
 
 const renderReleaseSection = (items) => {
@@ -264,7 +304,7 @@ const renderReleaseSection = (items) => {
   if (!filterRoot || !listRoot) return
   filterRoot.innerHTML = renderReleaseFilters(items)
   listRoot.innerHTML = renderReleaseCards(items)
-  document.querySelector('[data-current-version]')?.replaceChildren(items[0]?.version || 'v0.6.4')
+  document.querySelector('[data-current-version]')?.replaceChildren(items[0]?.version || releases[0].version)
   bindReleaseFilters()
 }
 
@@ -305,12 +345,12 @@ document.querySelector('#app').innerHTML = `
   <main class="site-shell">
     <header class="nav container">
       <a class="brand" href="#top" aria-label="Tau Editor 首页"><span class="mark">τ</span><span>Tau <b>Editor</b></span></a>
-      <nav><a href="#features">功能</a><a href="#preview">预览</a><a href="#releases">更新日志</a><a href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">GitHub ↗</a></nav>
+      <nav aria-label="主导航"><a href="#features">功能</a><a href="#preview">预览</a><a href="#releases">更新日志</a><a href="#contact">联系我</a><a href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">GitHub ↗</a></nav>
       <a class="nav-download" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">下载 Tau</a>
     </header>
 
     <section id="top" class="hero container">
-      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span data-current-version>v0.6.4</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
+      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span data-current-version>${releases[0].version}</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
       <div class="hero-art" aria-label="Tau Editor 编辑器概念预览"><div class="grid"></div><div class="code-window"><div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>welcome.md</span><span class="saved">● saved</span></div><div class="code-body"><span class="numbers">01<br>02<br>03<br>04<br>05<br>06<br>07<br>08</span><code><span>#</span> Make space for<br><strong>your next idea.</strong><br><br><small>A calm place to write,<br>think, and build.</small><br><em>— Tau Editor</em></code></div><div class="window-foot"><span>Markdown</span><span>Ln 8, Col 16</span></div></div><div class="note"><b>⌘</b><span><strong>Command palette</strong><small>Everything within reach</small></span></div></div>
     </section>
 
@@ -330,6 +370,8 @@ document.querySelector('#app').innerHTML = `
 
     <section class="faq container reveal"><div><p class="eyebrow">QUESTIONS, ANSWERED</p><h2>开始之前，<br><em>先了解 Tau。</em></h2></div><div class="faq-list"><details open><summary>Tau 是免费的吗？<span>+</span></summary><p>是。Tau Editor 以 MIT License 开源，你可以自由使用、修改和分发。</p></details><details><summary>支持哪些平台？<span>+</span></summary><p>当前支持 macOS、Windows 与 Linux，安装包可在 GitHub Releases 获取。</p></details><details><summary>我可以参与贡献吗？<span>+</span></summary><p>当然。欢迎通过 GitHub 提交 Issue、建议或 Pull Request。</p></details></div></section>
 
+    <section id="contact" class="contact container reveal"><div class="contact-intro"><p class="eyebrow">SAY HELLO</p><h2>联系作者，<br><em>一起把 Tau 做得更好。</em></h2><p>欢迎反馈问题、分享使用体验，或加入 QQ 群参与交流。</p></div><div class="contact-list"><a class="contact-item" href="mailto:480199976@qq.com"><span class="contact-label">作者</span><strong>Albert_Luo</strong><span class="contact-arrow" aria-hidden="true">↗</span></a><a class="contact-item" href="mailto:480199976@qq.com"><span class="contact-label">邮箱</span><strong>480199976@qq.com</strong><span class="contact-arrow" aria-hidden="true">↗</span></a><a class="contact-item" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer"><span class="contact-label">开源地址</span><strong>github.com/kokotao/tau-editor</strong><span class="contact-arrow" aria-hidden="true">↗</span></a><a class="contact-item contact-qq" href="https://qm.qq.com/cgi-bin/qm/qr?group_code=1091775563" target="_blank" rel="noreferrer" data-qq-app-link="mqqapi://card/show_pslcard?src_type=internal&version=1&uin=1091775563&card_type=group&source=qrcode" data-qq-group="1091775563"><span class="contact-label">QQ 交流群</span><strong>1091775563 <small>点击唤起 QQ 加群</small></strong><span class="contact-arrow" aria-hidden="true">↗</span></a></div></section>
+
     <section class="download container"><div><p class="eyebrow">READY WHEN YOU ARE</p><h2>从今天开始，<br><em>写得更自在。</em></h2></div><a class="button light" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">获取 Tau Editor <b>↗</b></a></section>
     <footer class="footer container"><a class="brand" href="#top"><span class="mark">τ</span><span>Tau <b>Editor</b></span></a><span>作者：Albert_Luo · <a href="mailto:480199976@qq.com">480199976@qq.com</a></span><a href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">GitHub ↗</a></footer>
   </main>
@@ -341,6 +383,19 @@ document.querySelectorAll('.feature').forEach((button) => button.addEventListene
 }))
 
 bindReleaseFilters()
+
+const qqGroupLink = document.querySelector('[data-qq-app-link]')
+qqGroupLink?.addEventListener('click', (event) => {
+  const appLink = qqGroupLink.dataset.qqAppLink
+  if (!appLink) return
+  event.preventDefault()
+  const fallbackLink = qqGroupLink.href
+  const startedAt = Date.now()
+  window.location.href = appLink
+  window.setTimeout(() => {
+    if (!document.hidden && Date.now() - startedAt < 1800) window.location.href = fallbackLink
+  }, 900)
+})
 
 fetchGithubReleases()
   .then((items) => {
@@ -380,4 +435,26 @@ pointer?.addEventListener('pointermove', (event) => {
 pointer?.addEventListener('pointerleave', () => {
   pointer.style.setProperty('--mx', '0px')
   pointer.style.setProperty('--my', '0px')
+})
+
+const qqContact = document.querySelector('.contact-qq')
+qqContact?.addEventListener('click', (event) => {
+  const appLink = qqContact.dataset.qqAppLink
+  const webLink = qqContact.href
+  if (!appLink) return
+  event.preventDefault()
+
+  const fallback = window.setTimeout(() => {
+    if (document.visibilityState === 'visible') {
+      window.open(webLink, '_blank', 'noopener,noreferrer')
+    }
+  }, 900)
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      window.clearTimeout(fallback)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.location.href = appLink
 })
