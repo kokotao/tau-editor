@@ -114,21 +114,44 @@ export async function provisionLanguageServer(serverId: string): Promise<Managed
   if (descriptor.managedRuntimeId) {
     const runtimeAsset = getManagedRuntimeAsset(descriptor.managedRuntimeId, platformKey ?? '');
     if (!runtimeAsset) throw new Error(`运行时 ${descriptor.managedRuntimeId} 尚未配置受信任资产`);
-    await lspCommands.installServer({
-      serverId: descriptor.managedRuntimeId,
-      ...runtimeAsset,
-    });
+    await installManagedAsset(
+      descriptor.managedRuntimeId,
+      runtimeAsset,
+      `准备 ${descriptor.displayName} 的运行时`,
+    );
   }
   for (const dependency of descriptor.managedDependencies ?? []) {
     const dependencyAsset = dependency.assets[platformKey ?? ''];
     if (!dependencyAsset) throw new Error(`依赖 ${dependency.id} 尚未配置当前平台资产`);
-    await lspCommands.installServer({
-      serverId: dependency.id,
-      ...dependencyAsset,
-    });
+    await installManagedAsset(dependency.id, dependencyAsset, `准备 ${descriptor.displayName} 的依赖 ${dependency.id}`);
   }
-  return lspCommands.installServer({
-    serverId: descriptor.managedId ?? descriptor.id,
-    ...asset,
-  });
+  return installManagedAsset(
+    descriptor.managedId ?? descriptor.id,
+    asset,
+    `准备 ${descriptor.displayName}`,
+  );
+}
+
+/**
+ * @description 安装托管语言服务资产并保留阶段上下文，避免用户只能看到底层网络错误。
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-10-04 00:00
+ */
+async function installManagedAsset(
+  serverId: string,
+  asset: ManagedLspAsset,
+  stage: string,
+): Promise<ManagedLspProvisionResult> {
+  try {
+    const result = await lspCommands.installServer({ serverId, ...asset });
+    if (result.state === 'failed' || result.installed === false || !result.executablePath) {
+      const detail = result.error ?? result.message ?? '安装后未生成可执行文件';
+      throw new Error(detail);
+    }
+    return result;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`${stage}失败：${detail}`);
+  }
 }
