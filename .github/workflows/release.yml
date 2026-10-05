@@ -29,14 +29,17 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: ""
-            bundlePath: frontend/src-tauri/target/release/bundle
+            args: "--target universal-apple-darwin"
+            bundlePath: frontend/src-tauri/target/universal-apple-darwin/release/bundle
+            bundleRoot: src-tauri/target/universal-apple-darwin/release/bundle
           - platform: ubuntu-22.04
             args: ""
             bundlePath: frontend/src-tauri/target/release/bundle
+            bundleRoot: src-tauri/target/release/bundle
           - platform: windows-latest
             args: ""
             bundlePath: frontend/src-tauri/target/release/bundle
+            bundleRoot: src-tauri/target/release/bundle
 
     steps:
       - name: Checkout
@@ -132,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          bundle_root="src-tauri/target/release/bundle"
+          bundle_root="${{ matrix.bundleRoot }}"
           version="$(node -p "require('./package.json').version")"
           case "${{ matrix.platform }}" in
             macos-latest)
@@ -181,7 +184,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP_PATH="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit)"
+          APP_PATH="$(find "${{ matrix.bundleRoot }}/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           if [ -z "$APP_PATH" ]; then
             echo "::error::No macOS .app bundle found to verify."
             exit 1
