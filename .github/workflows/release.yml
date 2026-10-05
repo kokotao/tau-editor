@@ -77,6 +77,10 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install macOS universal Rust target
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add x86_64-apple-darwin
+
       - name: Install Linux system libraries
         if: matrix.platform == 'ubuntu-22.04'
         run: |
