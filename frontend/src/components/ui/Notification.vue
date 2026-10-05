@@ -1,6 +1,11 @@
 <template>
   <div class="notification-container" data-testid="notification-container">
-    <TransitionGroup name="notification-fade">
+    <TransitionGroup
+      name="notification-fade"
+      enter-active-class="animate__animated animate__faster animate__fadeInRight"
+      leave-active-class="animate__animated animate__faster animate__fadeOutRight"
+      move-class="notification-move"
+    >
       <div
         v-for="notification in notifications"
         :key="notification.id"
@@ -93,7 +98,7 @@ const handleAction = (notification: any) => {
   pointer-events: auto;
   position: relative;
   overflow: hidden;
-  animation: slideIn 0.3s ease;
+  --animate-duration: 260ms;
 }
 
 .notification-success {
@@ -203,17 +208,6 @@ const handleAction = (notification: any) => {
   animation: progress linear forwards;
 }
 
-@keyframes slideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
 @keyframes progress {
   from {
     width: 100%;
@@ -223,18 +217,17 @@ const handleAction = (notification: any) => {
   }
 }
 
-.notification-fade-enter-active,
-.notification-fade-leave-active {
-  transition: all 0.3s ease;
+.notification-move {
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.notification-fade-enter-from {
-  transform: translateX(100%);
-  opacity: 0;
-}
+@media (prefers-reduced-motion: reduce) {
+  .notification.animate__animated {
+    animation: none !important;
+  }
 
-.notification-fade-leave-to {
-  transform: translateX(100%);
-  opacity: 0;
+  .notification-move {
+    transition-duration: 0.01ms;
+  }
 }
 </style>

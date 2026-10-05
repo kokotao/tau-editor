@@ -56,13 +56,18 @@
   --state-danger: #f87171;
 
   --radius-none: 0;
-  --radius-xs: 2px;
-  --radius-sm: 4px;
+  /*
+   * The settings panel owns --radius-ui/-sm/-lg. Keep the legacy aliases
+   * derived from those variables so existing components follow the selected
+   * corner-radius preset instead of retaining the old fixed 2/4/8px values.
+   */
+  --radius-xs: max(0px, calc(var(--radius-ui-sm) - 2px));
+  --radius-sm: var(--radius-ui-sm);
   --radius-ui: 6px;
   --radius-ui-sm: 4px;
   --radius-ui-lg: 8px;
   --radius-md: var(--radius-ui);
-  --radius-lg: 8px;
+  --radius-lg: var(--radius-ui-lg);
   --radius-pill: 999px;
   --radius-round: var(--radius-pill);
   --toolbar-height: 52px;

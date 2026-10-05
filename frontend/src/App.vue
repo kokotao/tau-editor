@@ -88,6 +88,7 @@ import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/ser
 import {
   getAppI18n,
   getCommandText,
+  getToolbarI18n,
   type CommandId,
   type EditorLanguageMode,
   type SystemMenuAction,
@@ -522,6 +523,7 @@ const closeImageViewer = () => {
   imageViewerState.value = null;
 };
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
+const toolbarText = computed(() => getToolbarI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
     return undefined;
@@ -3493,34 +3495,37 @@ onUnmounted(() => {
         >
           <aside
             class="sidebar"
+            id="sidebar-panel"
             data-testid="sidebar-panel"
             :style="{ width: `${sidebarWidth}px` }"
           >
-            <FileTree
-              ref="fileTreeRef"
-              v-if="workspaceStore.currentWorkspacePath"
-              :file-tree="fileTree"
-              :loading="loading"
-              :selected-path="selectedPath"
-              :workspace-label="workspaceLabel"
-              :can-reveal-current-file="canRevealCurrentFile"
-              :locating-current-file="locatingCurrentFile"
-              :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
-              @file-open="handleFileOpen"
-              @folder-toggle="handleFolderToggle"
-              @context-menu="handleFileTreeContextMenu"
-              @refresh="handleRefresh"
-              @new-file="handleFileTreeCreateFile"
-              @new-folder="handleFileTreeCreateFolder"
-              @rename="handleFileTreeRename"
-              @details="handleFileTreeDetails"
-              @delete="handleFileTreeDelete"
-              @compare-with-current="handleCompareWithCurrentFile"
-              @run-provider-action="handleProviderFileAction"
-              @reveal-current-file="handleRevealCurrentFile"
-              @copy-current-file-path="handleCopyCurrentFilePath"
-              @reveal-current-file-manager="handleRevealCurrentFileInManager"
-            />
+            <div class="sidebar-content animate__animated animate__fadeInLeft animate__faster">
+              <FileTree
+                ref="fileTreeRef"
+                v-if="workspaceStore.currentWorkspacePath"
+                :file-tree="fileTree"
+                :loading="loading"
+                :selected-path="selectedPath"
+                :workspace-label="workspaceLabel"
+                :can-reveal-current-file="canRevealCurrentFile"
+                :locating-current-file="locatingCurrentFile"
+                :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
+                @file-open="handleFileOpen"
+                @folder-toggle="handleFolderToggle"
+                @context-menu="handleFileTreeContextMenu"
+                @refresh="handleRefresh"
+                @new-file="handleFileTreeCreateFile"
+                @new-folder="handleFileTreeCreateFolder"
+                @rename="handleFileTreeRename"
+                @details="handleFileTreeDetails"
+                @delete="handleFileTreeDelete"
+                @compare-with-current="handleCompareWithCurrentFile"
+                @run-provider-action="handleProviderFileAction"
+                @reveal-current-file="handleRevealCurrentFile"
+                @copy-current-file-path="handleCopyCurrentFilePath"
+                @reveal-current-file-manager="handleRevealCurrentFileInManager"
+              />
+            </div>
           </aside>
           <div
             class="sidebar-resizer"
@@ -3533,12 +3538,18 @@ onUnmounted(() => {
 
       <div
         v-if="settingsContainer !== 'workspace'"
-        class="floating-controls"
+        class="floating-sidebar-controls"
+        :class="{ 'is-open': showFileTree }"
+        :style="{ '--sidebar-toggle-shift': showFileTree ? `${Math.min(Math.max(0, sidebarWidth - 35), Math.max(0, viewportWidth - 50))}px` : '0px' }"
         data-testid="left-bottom-controls"
       >
         <button
-          class="floating-action-btn"
+          type="button"
+          class="floating-action-btn floating-sidebar-action-btn"
           :data-testid="showFileTree ? 'btn-sidebar-collapse' : 'btn-sidebar-expand'"
+          :aria-label="showFileTree ? appText.collapseExplorer : appText.expandExplorer"
+          aria-controls="sidebar-panel"
+          :aria-expanded="showFileTree"
           :title="showFileTree ? appText.collapseExplorer : appText.expandExplorer"
           @click="showFileTree = !showFileTree"
         >
@@ -3547,6 +3558,32 @@ onUnmounted(() => {
           </svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="9,18 15,12 9,6" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        v-if="settingsContainer !== 'workspace'"
+        class="floating-context-controls"
+        :class="{ 'is-open': showContextRail }"
+        :style="{ '--context-rail-toggle-right': showContextRail ? `${Math.max(21, Math.min(contextRailWidth - 13, Math.max(0, viewportWidth - 30)))}px` : '8px' }"
+        data-testid="context-rail-floating-controls"
+      >
+        <button
+          type="button"
+          class="floating-action-btn floating-context-action-btn"
+          :data-testid="showContextRail ? 'floating-context-rail-collapse' : 'floating-context-rail-expand'"
+          :aria-label="showContextRail ? toolbarText.collapseContext : toolbarText.expandContext"
+          :title="showContextRail ? toolbarText.collapseContext : toolbarText.expandContext"
+          aria-controls="context-rail-shell"
+          :aria-expanded="showContextRail"
+          @click="showContextRail = !showContextRail"
+        >
+          <svg v-if="showContextRail" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="9,18 15,12 9,6" />
+          </svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="15,18 9,12 15,6" />
           </svg>
         </button>
       </div>
@@ -3683,6 +3720,7 @@ onUnmounted(() => {
           class="context-rail-shell"
           :class="{ resizing: isResizingContextRail }"
           :style="{ '--context-rail-width': `${contextRailWidth}px` }"
+          id="context-rail-shell"
           data-testid="context-rail-shell"
         >
           <div
@@ -3691,33 +3729,35 @@ onUnmounted(() => {
             :class="{ dragging: isResizingContextRail }"
             @mousedown.prevent="startContextRailResize"
           ></div>
-          <ContextRail
-            :outline="documentOutline"
-            :tasks="markdownContext.tasks"
-            :links="markdownContext.links"
-            :link-statuses="markdownLinkStatuses"
-            :workspace-tasks="workspaceTaskEntries"
-            :workspace-task-total="workspaceTaskTotal"
-            :workspace-tasks-loading="workspaceTasksLoading"
-            :workspace-tasks-truncated="workspaceTasksTruncated"
-            :git-branch="gitStatus?.branch"
-            :git-entries="gitStatus?.entries"
-            :external-conflict-file-name="activeExternalConflict ? activeTab?.fileName ?? null : null"
-            :language="activeTab?.language"
-            :locale="settingsStore.uiLanguage"
-            @navigate="handleContextNavigate"
-            @find="editorCoreRef?.triggerFindWidget()"
-            @go-to-line="editorCoreRef?.triggerGoToLine()"
-            @select-git="handleSelectGitEntry"
-            @reload-external="handleReloadExternalChange"
-            @keep-external="handleKeepExternalChange"
-            @show-external-details="externalConflictDialogOpen = true"
-            @insert-image="handleInsertMarkdownImage"
-            @refresh-tasks="handleWorkspaceTaskRefresh"
-            @navigate-file="handleWorkspaceTaskNavigate"
-            @export-html="handleExportMarkdownHtml"
-            @toggle-collapse="showContextRail = false"
-          />
+          <div class="context-rail-content animate__animated animate__fadeInRight animate__faster">
+            <ContextRail
+              :outline="documentOutline"
+              :tasks="markdownContext.tasks"
+              :links="markdownContext.links"
+              :link-statuses="markdownLinkStatuses"
+              :workspace-tasks="workspaceTaskEntries"
+              :workspace-task-total="workspaceTaskTotal"
+              :workspace-tasks-loading="workspaceTasksLoading"
+              :workspace-tasks-truncated="workspaceTasksTruncated"
+              :git-branch="gitStatus?.branch"
+              :git-entries="gitStatus?.entries"
+              :external-conflict-file-name="activeExternalConflict ? activeTab?.fileName ?? null : null"
+              :language="activeTab?.language"
+              :locale="settingsStore.uiLanguage"
+              @navigate="handleContextNavigate"
+              @find="editorCoreRef?.triggerFindWidget()"
+              @go-to-line="editorCoreRef?.triggerGoToLine()"
+              @select-git="handleSelectGitEntry"
+              @reload-external="handleReloadExternalChange"
+              @keep-external="handleKeepExternalChange"
+              @show-external-details="externalConflictDialogOpen = true"
+              @insert-image="handleInsertMarkdownImage"
+              @refresh-tasks="handleWorkspaceTaskRefresh"
+              @navigate-file="handleWorkspaceTaskNavigate"
+              @export-html="handleExportMarkdownHtml"
+              @toggle-collapse="showContextRail = false"
+            />
+          </div>
         </div>
       </transition>
 
@@ -3727,13 +3767,15 @@ onUnmounted(() => {
           class="settings-drawer"
           data-testid="settings-drawer"
         >
-          <SettingsPanel
-            mode="drawer"
-            :active-category="activeSettingsCategory"
-            @update:active-category="activeSettingsCategory = $event"
-            @open-workspace="toggleSettingsContainer('workspace')"
-            @close="closeTransientPanels"
-          />
+          <div class="settings-drawer-surface animate__animated animate__fadeInRight animate__faster">
+            <SettingsPanel
+              mode="drawer"
+              :active-category="activeSettingsCategory"
+              @update:active-category="activeSettingsCategory = $event"
+              @open-workspace="toggleSettingsContainer('workspace')"
+              @close="closeTransientPanels"
+            />
+          </div>
         </aside>
       </transition>
     </div>
@@ -3934,6 +3976,7 @@ textarea {
   min-height: 0;
   min-width: 0;
   width: calc(var(--sidebar-width) + 10px);
+  flex-basis: calc(var(--sidebar-width) + 10px);
   overflow: hidden;
 }
 
@@ -3946,9 +3989,15 @@ textarea {
   overflow: hidden;
   border: 1px solid var(--border-soft);
   border-radius: var(--panel-radius);
-  background: color-mix(in srgb, var(--panel-base) 82%, transparent);
+  background: color-mix(in srgb, var(--panel-base) 58%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
   box-shadow: var(--shadow-soft);
   transition: background-color .22s ease, border-color .22s ease, box-shadow .22s ease;
+}
+
+.context-rail-shell :deep(.context-rail) {
+  background: color-mix(in srgb, var(--panel-base) 58%, transparent);
+  backdrop-filter: blur(12px) saturate(115%);
 }
 
 .context-rail-resizer {
@@ -4120,17 +4169,59 @@ textarea {
 .sidebar-shell-leave-active {
   transition:
     width 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.24s ease,
-    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.24s ease;
+    flex-basis 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .sidebar-shell-enter-from,
 .sidebar-shell-leave-to {
   width: 0;
+  flex-basis: 0;
+}
+
+/* Keep the transition target authoritative inside responsive drawer overrides. */
+.sidebar-shell.sidebar-shell-enter-from,
+.sidebar-shell.sidebar-shell-leave-to {
+  width: 0;
+  flex-basis: 0;
+}
+
+.sidebar-content {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transform-origin: left center;
+  transition:
+    opacity 0.2s ease,
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.context-rail-content,
+.settings-drawer-surface {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  --animate-duration: 280ms;
+}
+
+.settings-drawer-surface {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-shell-enter-active .sidebar-content,
+.sidebar-shell-leave-active .sidebar-content {
+  pointer-events: none;
+}
+
+.sidebar-shell-enter-from .sidebar-content,
+.sidebar-shell-leave-to .sidebar-content {
   opacity: 0;
-  transform: translateX(-14px) scale(0.985);
-  filter: saturate(0.88);
+  transform: translate3d(-12px, 0, 0);
 }
 
 .context-rail-shell-enter-active,
@@ -4163,33 +4254,106 @@ textarea {
   transform: scaleX(1.08);
 }
 
-.floating-controls {
+.floating-sidebar-controls {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
-  z-index: 9;
+  top: 50%;
+  left: 20px;
+  z-index: calc(var(--z-drawer, 50) + 2);
+  transform: translate3d(var(--sidebar-toggle-shift, 0px), -50%, 0);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  pointer-events: none;
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
 .floating-action-btn {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-soft);
-  background: rgba(16, 23, 38, 0.85);
+  width: 30px;
+  min-width: 30px;
+  height: 58px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
+  background: color-mix(in srgb, var(--panel-overlay) 76%, transparent);
   color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 22px rgba(2, 8, 23, 0.2);
+  transition: width .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
 .floating-action-btn:hover {
-  border-color: rgba(125, 211, 252, 0.55);
+  border-color: color-mix(in srgb, var(--accent-blue) 68%, var(--border-soft));
   color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent-blue) 22%, var(--panel-overlay));
+  box-shadow: 0 8px 24px rgba(56, 189, 248, 0.22);
+}
+
+.floating-action-btn:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-blue) 68%, var(--border-soft));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 24%, transparent), 0 8px 24px rgba(56, 189, 248, 0.22);
+}
+
+.floating-sidebar-action-btn {
+  pointer-events: auto;
+}
+
+.floating-sidebar-controls.is-open .floating-sidebar-action-btn {
+  border-left-color: transparent;
+  border-radius: 0 999px 999px 0;
+}
+
+.floating-context-controls {
+  position: absolute;
+  top: 50%;
+  right: max(8px, min(var(--context-rail-toggle-right, 8px), calc(100vw - 30px)));
+  z-index: calc(var(--z-drawer, 50) + 2);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.floating-context-action-btn {
+  width: 26px;
+  min-width: 26px;
+  height: 56px;
+  padding: 0;
+  pointer-events: auto;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--border-soft) 76%, transparent);
+  background: color-mix(in srgb, var(--panel-overlay) 88%, transparent);
+  box-shadow: 0 8px 22px rgba(2, 8, 23, 0.2);
+  backdrop-filter: blur(10px);
+  transition: width 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.floating-context-controls.is-open .floating-context-action-btn {
+  border-right-color: transparent;
+  border-radius: 999px 0 0 999px;
+}
+
+.floating-context-action-btn:hover,
+.floating-context-action-btn:focus-visible {
+  width: 30px;
+  border-color: color-mix(in srgb, var(--accent-blue) 68%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent-blue) 22%, var(--panel-overlay));
+  box-shadow: 0 8px 24px rgba(56, 189, 248, 0.22);
+  outline: none;
+}
+
+@media (max-width: 799px) {
+  .floating-context-controls {
+    right: max(8px, min(var(--context-rail-toggle-right, 8px), calc(100vw - 34px)));
+  }
+
+  .floating-context-action-btn {
+    width: 30px;
+    min-width: 30px;
+    height: 60px;
+  }
 }
 
 .hero-empty {
@@ -4336,6 +4500,7 @@ textarea {
 
   .sidebar-shell {
     width: var(--sidebar-width);
+    flex-basis: var(--sidebar-width);
   }
 
   .sidebar,
@@ -4345,8 +4510,8 @@ textarea {
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    background: var(--panel);
-    backdrop-filter: none;
+    background: color-mix(in srgb, var(--panel-base) 62%, transparent);
+    backdrop-filter: blur(16px) saturate(120%);
   }
 
   .sidebar {
@@ -4391,6 +4556,7 @@ textarea {
 
   .sidebar-shell {
     width: var(--sidebar-width);
+    flex-basis: var(--sidebar-width);
   }
 
   .sidebar-resizer {
@@ -4423,6 +4589,7 @@ textarea {
     top: var(--panel-gap);
     left: var(--panel-gap);
     bottom: var(--panel-gap);
+    flex-basis: var(--sidebar-width);
     box-shadow: var(--shadow-overlay);
   }
 
@@ -4442,6 +4609,7 @@ textarea {
     z-index: calc(var(--z-drawer, 50) + 1);
     inset: 0 auto 0 0;
     width: min(var(--sidebar-width), 100vw);
+    flex-basis: min(var(--sidebar-width), 100vw);
     max-width: 100vw;
   }
 
@@ -4454,6 +4622,30 @@ textarea {
     border: 0;
     border-radius: 0;
     box-shadow: var(--shadow-overlay);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-shell-enter-active,
+  .sidebar-shell-leave-active,
+  .sidebar-shell .sidebar,
+  .sidebar-content,
+  .context-rail-content,
+  .settings-drawer-surface,
+  .floating-sidebar-controls {
+    transition-duration: 0.01ms !important;
+    animation: none !important;
+  }
+
+  .sidebar-content.animate__animated,
+  .context-rail-content.animate__animated,
+  .settings-drawer-surface.animate__animated {
+    animation: none !important;
+  }
+
+  .sidebar-shell-enter-from .sidebar-content,
+  .sidebar-shell-leave-to .sidebar-content {
+    transform: none;
   }
 }
 </style>

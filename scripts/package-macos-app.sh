@@ -6,6 +6,9 @@ if [[ "${RUNNER_OS:-}" != "macOS" && "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 BUNDLE_DIR="${1:-frontend/src-tauri/target/universal-apple-darwin/release/bundle}"
 PRODUCT_NAME="${2:-TauEditor}"
 VERSION="${3:-0.0.0}"
@@ -68,12 +71,31 @@ DMG_PATH="${ARTIFACT_DIR}/${DMG_NAME}"
 
 ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
 
-hdiutil create \
-  -volname "${PRODUCT_NAME}" \
-  -srcfolder "${APP_PATH}" \
-  -format UDZO \
-  -ov \
-  "${DMG_PATH}"
+DMG_BACKGROUND="${REPO_ROOT}/frontend/src-tauri/icons/dmg-background.png"
+TAURI_DMG_SCRIPT="${BUNDLE_DIR}/dmg/bundle_dmg.sh"
+DMG_SOURCE_DIR="${TMP_DIR}/dmg-source"
+mkdir -p "${DMG_SOURCE_DIR}"
+cp -R "${APP_PATH}" "${DMG_SOURCE_DIR}/$(basename "${APP_PATH}")"
+
+if [[ -x "${TAURI_DMG_SCRIPT}" && -f "${DMG_BACKGROUND}" ]]; then
+  # Reuse Tauri's create-dmg wrapper so manually packaged DMGs match CI:
+  # custom background, Finder icon positions, and the Applications drop link.
+  "${TAURI_DMG_SCRIPT}" \
+    --volname "${PRODUCT_NAME}" \
+    --background "${DMG_BACKGROUND}" \
+    --window-size 660 400 \
+    --icon "$(basename "${APP_PATH}")" 180 170 \
+    --app-drop-link 480 170 \
+    "${DMG_PATH}" "${DMG_SOURCE_DIR}"
+else
+  echo "Tauri DMG helper or background asset unavailable; creating a plain DMG." >&2
+  hdiutil create \
+    -volname "${PRODUCT_NAME}" \
+    -srcfolder "${DMG_SOURCE_DIR}" \
+    -format UDZO \
+    -ov \
+    "${DMG_PATH}"
+fi
 
 echo "Created artifacts:"
 echo "${ZIP_PATH}"
