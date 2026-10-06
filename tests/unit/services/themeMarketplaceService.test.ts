@@ -19,15 +19,15 @@ const themeJson = {
 };
 
 describe('themeMarketplaceService', () => {
-  it('validates v2 theme and rejects palette background overrides', () => {
+  it('validates v2 theme and allows palette background overrides', () => {
     expect(validateThemeMarketplacePackage(themeJson).ok).toBe(true);
     expect(
       validateThemeMarketplacePackage({
         ...themeJson,
         type: 'palette',
-        modes: { light: { bgApp: '#fff' } },
+        modes: { light: { bgApp: '#fff', panelBase: '#f5f5f5', textPrimary: '#111111' } },
       }).ok,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('loads catalog and package from GitHub raw URLs', async () => {

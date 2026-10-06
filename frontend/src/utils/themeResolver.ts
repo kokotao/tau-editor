@@ -81,10 +81,11 @@ export function resolveThemeState(input: {
   themeSkin?: ThemeSkinId | string;
   uiLanguage?: UiLanguage;
 }): ThemeResolution {
-  const resolvedTheme: ResolvedTheme =
-    input.theme === 'system'
-      ? (input.prefersDark ? 'dark' : 'light')
-      : input.theme;
+  // `system` is retained only as a storage/backward-compatibility value. Theme
+  // skins are now the source of truth and must not react to OS color-scheme
+  // changes. Legacy system values therefore resolve deterministically to dark
+  // until the settings store migrates them to an explicit skin.
+  const resolvedTheme: ResolvedTheme = input.theme === 'light' ? 'light' : 'dark';
   const skin = normalizeThemeSkin(input.themeSkin);
 
   const recommendedMonacoTheme = getRecommendedMonacoTheme(resolvedTheme);

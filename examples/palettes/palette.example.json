@@ -8,6 +8,8 @@
   "license": "MIT",
   "modes": {
     "light": {
+      "bgApp": "#eefbf4",
+      "panelBase": "#f7fffa",
       "textPrimary": "#10261b",
       "textSecondary": "#365c47",
       "accentBrand": "#16865a",
@@ -16,6 +18,8 @@
       "stateDanger": "#b91c1c"
     },
     "dark": {
+      "bgApp": "#0d1712",
+      "panelBase": "#14221a",
       "textPrimary": "#edfff4",
       "textSecondary": "#b9e3c8",
       "accentBrand": "#55d991",

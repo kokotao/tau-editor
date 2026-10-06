@@ -27,12 +27,26 @@
     "paletteMode": {
       "type": "object",
       "properties": {
+        "bgApp": { "$ref": "#/$defs/color" },
+        "panelBase": { "$ref": "#/$defs/color" },
         "textPrimary": { "$ref": "#/$defs/color" },
         "textSecondary": { "$ref": "#/$defs/color" },
         "accentBrand": { "$ref": "#/$defs/color" },
         "accentBrandStrong": { "$ref": "#/$defs/color" },
         "stateSuccess": { "$ref": "#/$defs/color" },
-        "stateDanger": { "$ref": "#/$defs/color" }
+        "stateDanger": { "$ref": "#/$defs/color" },
+        "ui": {
+          "type": "object",
+          "properties": {
+            "radius": {
+              "oneOf": [
+                { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                { "type": "object", "additionalProperties": { "type": "number", "minimum": 0, "maximum": 999, "multipleOf": 0.5 } }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     }

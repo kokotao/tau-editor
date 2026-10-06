@@ -14,9 +14,7 @@
         data-testid="notification-item"
       >
         <div class="notification-icon">
-          <svg v-if="notification.type === 'success'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="20,6 9,17 4,12" />
-          </svg>
+          <TauIcon v-if="notification.type === 'success'" name="icon-check-circle" :size="20" />
           <svg v-else-if="notification.type === 'error'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
@@ -27,11 +25,7 @@
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="16" x2="12" y2="12" />
-            <line x1="12" y1="8" x2="12.01" y2="8" />
-          </svg>
+          <TauIcon v-else name="icon-info" :size="20" />
         </div>
         <div class="notification-content">
           <div class="notification-title">{{ notification.title }}</div>
@@ -56,6 +50,7 @@
 
 <script setup lang="ts">
 import { useNotificationStore } from '@/stores/notification';
+import TauIcon from '@/components/icons/TauIcon.vue';
 
 const notificationStore = useNotificationStore();
 

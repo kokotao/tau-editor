@@ -59,13 +59,13 @@ npm run build
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon) | `Tau.Editor_0.6.4_aarch64.dmg` | 首次打开需系统放行一次，见下方说明 |
-| Windows (x64) | `Tau.Editor_0.6.4_x64-setup.exe` / `Tau.Editor_0.6.4_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.6.4_amd64.deb` / `Tau.Editor-0.6.4-1.x86_64.rpm` / `Tau.Editor_0.6.4_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS (Apple Silicon / Universal) | `Tau.Editor_0.6.10_aarch64.dmg` / `Tau.Editor_0.6.10_universal.dmg` | 首次打开需系统放行一次，见下方说明 |
+| Windows (x64) | `Tau.Editor_0.6.10_x64-setup.exe` / `Tau.Editor_0.6.10_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.6.10_amd64.deb` / `Tau.Editor-0.6.10-1.x86_64.rpm` / `Tau.Editor_0.6.10_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
 > **macOS 首次打开说明**：构建流程已在打包前对 `.app` 做 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`），
 > 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需

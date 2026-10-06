@@ -76,7 +76,7 @@ describe('settings store theme packages', () => {
     expect(store.themePackages[0]?.id).toBe(`${USER_THEME_ID_PREFIX}midnight-ink`);
     expect(store.activeThemePackageId).toBe(`${USER_THEME_ID_PREFIX}midnight-ink`);
     expect(store.activeMonacoThemeId).toBe('tau-user-midnight-ink');
-    expect(store.theme).toBe('system');
+    expect(store.theme).toBe('dark');
   });
 
   it('keeps the current theme when import fails', () => {

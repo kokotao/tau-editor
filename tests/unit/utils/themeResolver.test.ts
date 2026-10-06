@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { resolveThemeState } from '@/utils/themeResolver'
 
 describe('themeResolver', () => {
-  it('system + 浅色系统时应返回 light UI 与 light preview', () => {
+  it('legacy system 值不再跟随系统明暗变化', () => {
     expect(
       resolveThemeState({
         theme: 'system',
@@ -10,12 +10,16 @@ describe('themeResolver', () => {
         prefersDark: false,
       }),
     ).toMatchObject({
-      resolvedTheme: 'light',
-      previewTheme: 'light',
-      recommendedMonacoTheme: 'vs',
+      resolvedTheme: 'dark',
+      previewTheme: 'dark',
+      recommendedMonacoTheme: 'vs-dark',
       activeMonacoTheme: 'vs-dark',
       skin: 'deep-ocean',
     })
+  })
+
+  it('显式主题仍可决定推荐编辑器主题', () => {
+    expect(resolveThemeState({ theme: 'light', monacoTheme: 'vs-dark', prefersDark: true }).resolvedTheme).toBe('light')
   })
 
   it('dark 主题时应推荐 vs-dark', () => {

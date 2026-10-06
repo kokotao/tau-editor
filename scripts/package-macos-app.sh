@@ -88,14 +88,54 @@ if [[ -x "${TAURI_DMG_SCRIPT}" && -f "${DMG_BACKGROUND}" ]]; then
     --app-drop-link 480 170 \
     "${DMG_PATH}" "${DMG_SOURCE_DIR}"
 else
-  echo "Tauri DMG helper or background asset unavailable; creating a plain DMG." >&2
-  hdiutil create \
-    -volname "${PRODUCT_NAME}" \
-    -srcfolder "${DMG_SOURCE_DIR}" \
-    -format UDZO \
-    -ov \
-    "${DMG_PATH}"
+  echo "Tauri DMG helper or background asset unavailable; refusing to create an unverified plain DMG." >&2
+  exit 1
 fi
+
+# Verify the final DMG carries the exact background selected from the source
+# tree. This catches stale Tauri bundle helpers or accidental plain-DMG
+# fallbacks before an artifact is uploaded to a release.
+DMG_MOUNT_DIR="$(mktemp -d)"
+DMG_ATTACHED_DEVICE=""
+cleanup_dmg_mount() {
+  if [[ -n "${DMG_ATTACHED_DEVICE}" ]]; then
+    hdiutil detach "${DMG_ATTACHED_DEVICE}" >/dev/null 2>&1 || true
+  else
+    hdiutil detach "${DMG_MOUNT_DIR}" >/dev/null 2>&1 || true
+  fi
+  rmdir "${DMG_MOUNT_DIR}" 2>/dev/null || true
+}
+trap 'cleanup_dmg_mount; cleanup' EXIT
+
+DMG_ATTACH_OUTPUT="$(hdiutil attach -nobrowse -readonly -mountpoint "${DMG_MOUNT_DIR}" "${DMG_PATH}")"
+DMG_ATTACHED_DEVICE="$(printf '%s\n' "${DMG_ATTACH_OUTPUT}" | awk '$1 ~ /^\/dev\// {print $1; exit}')"
+DMG_EMBEDDED_BACKGROUND="${DMG_MOUNT_DIR}/.background/dmg-background.png"
+if [[ ! -f "${DMG_EMBEDDED_BACKGROUND}" ]]; then
+  echo "DMG is missing .background/dmg-background.png; refusing to publish a stale/plain installer." >&2
+  exit 1
+fi
+if ! cmp -s "${DMG_BACKGROUND}" "${DMG_EMBEDDED_BACKGROUND}"; then
+  echo "DMG background differs from ${DMG_BACKGROUND}; refusing to publish a stale installer." >&2
+  echo "Source:   $(shasum -a 256 "${DMG_BACKGROUND}" | awk '{print $1}')" >&2
+  echo "Embedded: $(shasum -a 256 "${DMG_EMBEDDED_BACKGROUND}" | awk '{print $1}')" >&2
+  exit 1
+fi
+echo "Verified DMG background: $(shasum -a 256 "${DMG_EMBEDDED_BACKGROUND}" | awk '{print $1}')"
+
+APP_IN_DMG="$(find "${DMG_MOUNT_DIR}" -maxdepth 1 -type d -name '*.app' -print -quit)"
+DMG_EMBEDDED_ICON="${APP_IN_DMG}/Contents/Resources/icon.icns"
+DMG_SOURCE_ICON="${REPO_ROOT}/frontend/src-tauri/icons/icon.icns"
+if [[ -z "${APP_IN_DMG}" || ! -f "${DMG_SOURCE_ICON}" || ! -f "${DMG_EMBEDDED_ICON}" ]]; then
+  echo "DMG is missing the expected Tau Editor app icon; refusing to publish a stale installer." >&2
+  exit 1
+fi
+if ! cmp -s "${DMG_SOURCE_ICON}" "${DMG_EMBEDDED_ICON}"; then
+  echo "DMG app icon differs from ${DMG_SOURCE_ICON}; refusing to publish a stale installer." >&2
+  echo "Source:   $(shasum -a 256 "${DMG_SOURCE_ICON}" | awk '{print $1}')" >&2
+  echo "Embedded: $(shasum -a 256 "${DMG_EMBEDDED_ICON}" | awk '{print $1}')" >&2
+  exit 1
+fi
+echo "Verified DMG app icon: $(shasum -a 256 "${DMG_EMBEDDED_ICON}" | awk '{print $1}')"
 
 echo "Created artifacts:"
 echo "${ZIP_PATH}"

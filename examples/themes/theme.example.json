@@ -26,6 +26,9 @@
           "editor.background": "#ffffff",
           "editor.foreground": "#162033"
         }
+      },
+      "ui": {
+        "radius": { "base": 8, "control": 7, "card": 10, "panel": 12, "tab": 8, "dialog": 16, "badge": 999 }
       }
     },
     "dark": {
@@ -46,6 +49,9 @@
           "editor.background": "#0b1020",
           "editor.foreground": "#ecf2ff"
         }
+      },
+      "ui": {
+        "radius": { "base": 8, "control": 7, "card": 10, "panel": 12, "tab": 8, "dialog": 16, "badge": 999 }
       }
     }
   }

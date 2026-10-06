@@ -3540,7 +3540,7 @@ onUnmounted(() => {
         v-if="settingsContainer !== 'workspace'"
         class="floating-sidebar-controls"
         :class="{ 'is-open': showFileTree }"
-        :style="{ '--sidebar-toggle-shift': showFileTree ? `${Math.min(Math.max(0, sidebarWidth - 35), Math.max(0, viewportWidth - 50))}px` : '0px' }"
+        :style="{ '--sidebar-toggle-shift': showFileTree ? `${Math.min(Math.max(0, sidebarWidth - 8), Math.max(0, viewportWidth - 50))}px` : '0px' }"
         data-testid="left-bottom-controls"
       >
         <button
@@ -3800,7 +3800,7 @@ onUnmounted(() => {
 :root {
   --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  --panel-radius: var(--radius-ui, 0px);
+  --panel-radius: var(--radius-panel, var(--radius-ui, 0px));
   --panel-gap: 8px;
   /* Compatibility aliases shared by the older component styles. */
   --app-bg: var(--bg-app);
@@ -3988,7 +3988,7 @@ textarea {
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border-soft);
-  border-radius: var(--panel-radius);
+  border-radius: var(--radius-panel, var(--panel-radius));
   background: color-mix(in srgb, var(--panel-base) 58%, transparent);
   backdrop-filter: blur(16px) saturate(120%);
   box-shadow: var(--shadow-soft);
@@ -4021,7 +4021,7 @@ textarea {
 .settings-drawer {
   flex-shrink: 0;
   border: 1px solid var(--border-soft);
-  border-radius: var(--panel-radius);
+  border-radius: var(--radius-panel, var(--panel-radius));
   background: color-mix(in srgb, var(--panel-base) 82%, transparent);
   backdrop-filter: blur(14px);
   min-height: 0;
@@ -4040,7 +4040,8 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--panel-overlay);
+  border-radius: var(--radius-dialog, var(--panel-radius));
+  background: var(--panel-overlay, var(--panel-base));
   box-shadow: var(--shadow-overlay);
   z-index: var(--z-drawer, 50);
 }
@@ -4257,7 +4258,7 @@ textarea {
 .floating-sidebar-controls {
   position: absolute;
   top: 50%;
-  left: 20px;
+  left: 7px;
   z-index: calc(var(--z-drawer, 50) + 2);
   transform: translate3d(var(--sidebar-toggle-shift, 0px), -50%, 0);
   display: flex;

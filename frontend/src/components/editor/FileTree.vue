@@ -47,16 +47,26 @@
           </svg>
         </button>
         <button
-          class="file-tree-action file-tree-locate-action"
+          class="file-tree-action file-tree-locate-action file-tree-copy-action"
           data-testid="btn-copy-current-file-path"
           :disabled="!canRevealCurrentFile || locatingCurrentFile"
           :title="canRevealCurrentFile ? copy.copyCurrentFilePath : copy.currentFileUnavailable"
           :aria-label="canRevealCurrentFile ? copy.copyCurrentFilePath : copy.currentFileUnavailable"
           @click="emit('copy-current-file-path')"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <rect x="8" y="8" width="11" height="11" rx="2" />
-            <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
         </button>
         <button
@@ -742,8 +752,19 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: inherit;
-  opacity: 0;
+  opacity: 0.82;
   transition: opacity 0.15s, background 0.15s;
+}
+
+/* Keep the design SVG visible even when the action is temporarily disabled. */
+.file-tree-action .tau-icon {
+  color: var(--n-text-color, #c8c8c8);
+  opacity: 1;
+}
+
+.file-tree-action .tau-icon :deep(svg) {
+  color: inherit;
+  stroke: currentColor;
 }
 
 .file-tree-locate-action {
@@ -753,6 +774,10 @@ onUnmounted(() => {
 .file-tree-action:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.file-tree-copy-action:disabled {
+  opacity: 0.82;
 }
 
 .file-tree-header:hover .file-tree-action {
@@ -892,7 +917,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   color: var(--n-muted-text-color, #7f8b96);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 400;
   letter-spacing: 0;
   line-height: 1.2;
@@ -913,8 +938,9 @@ onUnmounted(() => {
 }
 
 .file-meta-field b {
-  color: var(--n-text-color-3, #a8b3bd);
-  font-weight: 600;
+  color: var(--n-text-color-3, #c5cbd1);
+  font-weight: 300;
+  font-size: 9px;
 }
 
 .file-tree-item:hover .file-meta,

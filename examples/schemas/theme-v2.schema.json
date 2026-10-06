@@ -33,7 +33,32 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/color" }
         },
-        "monaco": { "type": "object" }
+        "monaco": { "type": "object" },
+        "ui": { "$ref": "#/$defs/ui" }
+      },
+      "additionalProperties": false
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "radius": {
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+            {
+              "type": "object",
+              "properties": {
+                "base": { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                "control": { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                "card": { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                "panel": { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                "tab": { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                "dialog": { "type": "number", "minimum": 0, "maximum": 24, "multipleOf": 0.5 },
+                "badge": { "type": "number", "minimum": 0, "maximum": 999, "multipleOf": 0.5 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
       },
       "additionalProperties": false
     }

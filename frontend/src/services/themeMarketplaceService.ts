@@ -7,8 +7,10 @@
 
 import {
   normalizeHexColor,
+  normalizeThemeUiOverrides,
   normalizeThemePackageRecord,
   type ThemePackage,
+  type ThemeRadiusOverrides,
 } from '@/utils/themePackage';
 
 export type MarketplacePackageType = 'theme' | 'palette';
@@ -26,7 +28,8 @@ export interface ThemeMarketplaceCatalogItem {
 }
 
 export interface ThemeMarketplaceCatalog {
-  schemaVersion: 1;
+  /** Current catalog is v2; v1 remains readable for older mirrors and caches. */
+  schemaVersion: 1 | 2;
   generatedAt?: string;
   items: ThemeMarketplaceCatalogItem[];
 }
@@ -53,6 +56,9 @@ export interface MarketplaceModePayload {
     rules?: Array<{ token: string; foreground?: string; fontStyle?: string }>;
     colors?: Record<string, string>;
   };
+  ui?: {
+    radius?: number | ThemeRadiusOverrides;
+  };
 }
 
 export type ThemeMarketplacePackage = ThemeMarketplaceV2Package | ThemePackage;
@@ -75,7 +81,8 @@ export type ThemeMarketplaceResult<T> =
 
 export const DEFAULT_THEME_MARKETPLACE_CATALOG_URL =
   'https://raw.githubusercontent.com/kokotao/tau-editor-themes/main/catalog/index.json';
-export const THEME_MARKETPLACE_CACHE_KEY = 'tau-editor:theme-marketplace:catalog:v1';
+export const THEME_MARKETPLACE_CACHE_KEY = 'tau-editor:theme-marketplace:catalog:v2';
+export const LEGACY_THEME_MARKETPLACE_CACHE_KEY = 'tau-editor:theme-marketplace:catalog:v1';
 export const THEME_MARKETPLACE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CATALOG_BYTES = 512 * 1024;
 const MAX_PACKAGE_BYTES = 256 * 1024;
@@ -160,8 +167,8 @@ function validText(value: unknown, maxLength: number): value is string {
 }
 
 function normalizeCatalog(raw: unknown): ThemeMarketplaceCatalog {
-  if (!isRecord(raw) || raw.schemaVersion !== 1 || !Array.isArray(raw.items)) {
-    throw new MarketplaceServiceException('MARKETPLACE_INVALID_CATALOG', 'catalog 必须是 schemaVersion 1 的对象');
+  if (!isRecord(raw) || (raw.schemaVersion !== 1 && raw.schemaVersion !== 2) || !Array.isArray(raw.items)) {
+    throw new MarketplaceServiceException('MARKETPLACE_INVALID_CATALOG', 'catalog 必须是 schemaVersion 1 或 2 的对象');
   }
 
   const items = raw.items.map((entry, index) => {
@@ -202,7 +209,7 @@ function normalizeCatalog(raw: unknown): ThemeMarketplaceCatalog {
   });
 
   return {
-    schemaVersion: 1,
+    schemaVersion: raw.schemaVersion === 2 ? 2 : 1,
     generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : undefined,
     items,
   };
@@ -215,7 +222,9 @@ function validateModePayload(value: unknown, type: MarketplacePackageType, mode:
 
   // palette v2 keeps its compact shape as modes.light/dark color keys;
   // complete themes use { colors, monaco } to leave room for Monaco settings.
-  const sourceColors = type === 'palette' && !('colors' in value) ? value : value.colors;
+  const sourceColors = type === 'palette' && !('colors' in value)
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'ui' && key !== 'monaco'))
+    : value.colors;
   if (!isRecord(sourceColors)) {
     throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', `${type}.${mode} 缺少 colors`);
   }
@@ -225,9 +234,6 @@ function validateModePayload(value: unknown, type: MarketplacePackageType, mode:
     if (!HEX_COLOR_KEY_PATTERN.test(key) || key.length > 64 || !normalizeHexColor(color)) {
       throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', `${type}.${mode}.colors 存在非法颜色`);
     }
-    if (type === 'palette' && (key === 'bgApp' || key === 'panelBase')) {
-      throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', '配色包不能覆盖应用背景或面板背景');
-    }
     colors[key] = normalizeHexColor(color) as string;
   }
 
@@ -235,7 +241,25 @@ function validateModePayload(value: unknown, type: MarketplacePackageType, mode:
     throw new MarketplaceServiceException('MARKETPLACE_INVALID_PACKAGE', '主题颜色数量超过上限');
   }
 
-  return { colors };
+  const ui = normalizeThemeUiOverrides(value.ui);
+  const rawMonaco = isRecord(value.monaco) ? value.monaco : undefined;
+  const monaco = rawMonaco
+    ? {
+        base: (rawMonaco.base === 'vs' || rawMonaco.base === 'vs-dark' || rawMonaco.base === 'hc-black'
+          ? rawMonaco.base
+          : undefined) as 'vs' | 'vs-dark' | 'hc-black' | undefined,
+        rules: Array.isArray(rawMonaco.rules)
+          ? rawMonaco.rules.slice(0, 256).filter((rule): rule is { token: string; foreground?: string; fontStyle?: string } =>
+              isRecord(rule) && typeof rule.token === 'string' && rule.token.length <= 64)
+          : undefined,
+        colors: isRecord(rawMonaco.colors)
+          ? Object.fromEntries(Object.entries(rawMonaco.colors).filter(([key, color]) =>
+              MONACO_COLOR_KEY_PATTERN.test(key) && typeof color === 'string' && Boolean(normalizeHexColor(color)))) as Record<string, string>
+          : undefined,
+      }
+    : undefined;
+
+  return { colors, ...(monaco ? { monaco } : {}), ...(ui ? { ui } : {}) };
 }
 
 function normalizeV2Package(raw: unknown): ThemeMarketplaceV2Package {
@@ -397,17 +421,24 @@ export class ThemeMarketplaceService {
   }
 
   private readCache(catalogUrl: string): ThemeMarketplaceCatalog | undefined {
-    try {
-      const raw = getStorage(this.options.storage)?.getItem(THEME_MARKETPLACE_CACHE_KEY);
-      if (!raw) return undefined;
-      const cached = JSON.parse(raw) as CachedCatalog;
-      if (cached.catalogUrl !== catalogUrl || Date.now() - cached.fetchedAt > (this.options.cacheTtlMs ?? THEME_MARKETPLACE_CACHE_TTL_MS)) {
-        return undefined;
+    const storage = getStorage(this.options.storage);
+    if (!storage) return undefined;
+    for (const cacheKey of [THEME_MARKETPLACE_CACHE_KEY, LEGACY_THEME_MARKETPLACE_CACHE_KEY]) {
+      try {
+        const raw = storage.getItem(cacheKey);
+        if (!raw) continue;
+        const cached = JSON.parse(raw) as CachedCatalog;
+        if (cached.catalogUrl !== catalogUrl || Date.now() - cached.fetchedAt > (this.options.cacheTtlMs ?? THEME_MARKETPLACE_CACHE_TTL_MS)) {
+          continue;
+        }
+        const normalized = normalizeCatalog(cached.catalog);
+        if (cacheKey !== THEME_MARKETPLACE_CACHE_KEY) this.writeCache(catalogUrl, normalized);
+        return normalized;
+      } catch {
+        // Continue to the legacy cache key when a newer cache is corrupt.
       }
-      return normalizeCatalog(cached.catalog).items ? cached.catalog : undefined;
-    } catch {
-      return undefined;
     }
+    return undefined;
   }
 }
 

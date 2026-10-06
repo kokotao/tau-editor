@@ -7,11 +7,19 @@
     >
       <div class="settings-header">
         <div class="settings-header-main">
-          <h3 class="settings-title">{{ panelTitle }}</h3>
+          <div class="settings-title-row">
+            <span v-if="isWorkspaceMode" class="settings-title-orb" aria-hidden="true"></span>
+            <h3 class="settings-title">{{ panelTitle }}</h3>
+            <span v-if="isWorkspaceMode" class="settings-title-badge">Preferences</span>
+          </div>
           <p v-if="isDrawerMode" class="settings-subtitle">{{ panelSubtitle }}</p>
         </div>
 
         <div class="settings-header-actions">
+          <div v-if="isWorkspaceMode" class="settings-save-state" data-testid="settings-save-state">
+            <TauIcon class="settings-save-state-icon" name="icon-check-circle" :size="16" />
+            <span>{{ copy.autoSaveEnabled }}</span>
+          </div>
           <button
             v-if="isDrawerMode"
             class="settings-action-btn"
@@ -31,6 +39,7 @@
 
       <div v-if="isWorkspaceMode" class="settings-workspace" data-testid="settings-workspace">
         <aside class="settings-nav" data-testid="settings-nav">
+          <div class="settings-nav-heading">系统选项</div>
           <button
             v-for="category in categories"
             :key="category.id"
@@ -40,7 +49,10 @@
             :data-testid="`settings-nav-${category.id}`"
             @click="setActiveCategory(category.id)"
           >
+            <TauIcon class="settings-nav-icon" :name="categoryIconNames[category.id]" />
             {{ category.label }}
+            <span v-if="category.id === 'themes'" class="settings-nav-count">{{ settingsStore.themePackages.length || 0 }} 款</span>
+            <span v-else-if="category.id === 'updates'" class="settings-nav-status" aria-hidden="true"></span>
           </button>
         </aside>
 
@@ -65,55 +77,61 @@
             class="settings-section animate__animated animate__fadeInUp animate__faster"
             data-testid="settings-general-section"
           >
-            <h4 class="settings-section-title">{{ copy.appearance }}</h4>
-
-            <div class="settings-item">
-              <label class="settings-label">{{ copy.language }}</label>
-              <n-select
-                class="settings-nselect"
-                data-testid="select-ui-language"
-                :value="settingsStore.uiLanguage"
-                :options="uiLanguageOptions"
-                :consistent-menu-width="false"
-                @update:value="setUiLanguage"
-              />
+            <div class="settings-section-heading">
+              <div class="settings-section-heading-main">
+                <TauIcon class="settings-section-icon" name="icon-brush" :size="21" />
+                <h4 class="settings-section-title">{{ copy.appearance }}</h4>
+              </div>
+              <span class="settings-section-meta">即时生效 · 跨窗口同步</span>
             </div>
 
-            <div class="settings-item">
-              <label class="settings-label">{{ copy.uiFont }}</label>
-              <n-select
-                class="settings-nselect"
-                data-testid="select-ui-font-family"
-                :value="settingsStore.uiFontFamily"
-                :options="uiFontFamilyOptions"
-                :consistent-menu-width="false"
-                @update:value="setUiFontFamily"
-              />
+            <div class="settings-appearance-grid">
+              <div class="settings-item">
+                <label class="settings-label settings-label-with-meta">
+                  <span>{{ copy.language }}</span>
+                  <small>默认语言</small>
+                </label>
+                <n-select
+                  class="settings-nselect"
+                  data-testid="select-ui-language"
+                  :value="settingsStore.uiLanguage"
+                  :options="uiLanguageOptions"
+                  :consistent-menu-width="false"
+                  @update:value="setUiLanguage"
+                />
+              </div>
+
+              <div class="settings-item">
+                <label class="settings-label settings-label-with-meta">
+                  <span>{{ copy.uiFont }}</span>
+                  <small class="settings-label-positive">可变字重</small>
+                </label>
+                <n-select
+                  class="settings-nselect"
+                  data-testid="select-ui-font-family"
+                  :value="settingsStore.uiFontFamily"
+                  :options="uiFontFamilyOptions"
+                  :consistent-menu-width="false"
+                  @update:value="setUiFontFamily"
+                />
+              </div>
             </div>
 
-            <div class="settings-item">
+            <div class="settings-item settings-font-size-item">
               <label class="settings-label">{{ copy.uiFontSize }}</label>
               <div class="font-size-control">
-                <button class="font-size-btn" data-testid="decrease-ui-font-btn" @click="decreaseUiFontSize">-</button>
+                <button class="font-size-btn" data-testid="decrease-ui-font-btn" @click="decreaseUiFontSize"><TauIcon name="icon-minus" :size="16" /></button>
                 <span class="font-size-value">{{ settingsStore.uiFontSize }}px</span>
-                <button class="font-size-btn" data-testid="increase-ui-font-btn" @click="increaseUiFontSize">+</button>
+                <button class="font-size-btn" data-testid="increase-ui-font-btn" @click="increaseUiFontSize"><TauIcon name="icon-plus" :size="16" /></button>
                 <button class="font-size-reset" data-testid="reset-ui-font-btn" @click="resetUiFontSize">{{ copy.reset }}</button>
               </div>
             </div>
 
-            <div class="settings-item">
-              <label class="settings-label">{{ copy.themeMode }}</label>
-              <div class="theme-selector">
-                <button class="theme-btn" data-testid="theme-btn-light" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
-                <button class="theme-btn" data-testid="theme-btn-dark" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
-                <button class="theme-btn" data-testid="theme-btn-system" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
-              </div>
-              <p class="settings-item-hint" data-testid="theme-resolved-mode">{{ resolvedThemeHint }}</p>
-            </div>
-
-            <div class="settings-item">
-              <label class="settings-label">{{ copy.themeStyle }}</label>
-              <div class="theme-swatch-grid" data-testid="theme-swatch-grid">
+            <div class="settings-theme-block">
+              <div class="settings-item settings-theme-style-item">
+                <label class="settings-label">{{ copy.themeStyle }}</label>
+                <p class="settings-item-hint" data-testid="theme-background-summary">{{ themeBackgroundSummary }}</p>
+                <div class="theme-swatch-grid" data-testid="theme-swatch-grid">
                 <button
                   v-for="swatch in visibleThemeSwatches"
                   :key="`${swatch.mode}-${swatch.skin}`"
@@ -129,33 +147,34 @@
                   </span>
                   <span class="theme-swatch-copy">
                     <strong>{{ swatch.label }}</strong>
-                    <small>{{ swatch.mode === 'light' ? copy.themeLight : copy.themeDark }}</small>
+                    <small>{{ swatch.bg }} · {{ swatch.panel }}</small>
                   </span>
                 </button>
+                </div>
+                <div class="theme-style-fallback">
+                  <span>{{ copy.themeStyleMore }}</span>
+                  <n-select
+                    class="settings-nselect"
+                    data-testid="select-theme-skin"
+                    :value="settingsStore.themeSkin"
+                    :options="themeSkinOptions"
+                    :consistent-menu-width="false"
+                    @update:value="setThemeSkin"
+                  />
+                </div>
               </div>
-              <div class="theme-style-fallback">
-                <span>{{ copy.themeStyleMore }}</span>
+
+              <div class="settings-item settings-editor-theme-item">
+                <label class="settings-label">{{ copy.editorTheme }}</label>
                 <n-select
                   class="settings-nselect"
-                  data-testid="select-theme-skin"
-                  :value="settingsStore.themeSkin"
-                  :options="themeSkinOptions"
+                  data-testid="select-monaco-theme"
+                  :value="settingsStore.monacoTheme"
+                  :options="monacoThemeOptions"
                   :consistent-menu-width="false"
-                  @update:value="setThemeSkin"
+                  @update:value="setMonacoTheme"
                 />
               </div>
-            </div>
-
-            <div class="settings-item">
-              <label class="settings-label">{{ copy.editorTheme }}</label>
-              <n-select
-                class="settings-nselect"
-                data-testid="select-monaco-theme"
-                :value="settingsStore.monacoTheme"
-                :options="monacoThemeOptions"
-                :consistent-menu-width="false"
-                @update:value="setMonacoTheme"
-              />
             </div>
 
             <div class="settings-item custom-theme-settings animate__animated animate__fadeInUp animate__fast">
@@ -345,13 +364,31 @@
                   data-testid="corner-radius-slider"
                   type="range"
                   min="0"
-                  max="12"
-                  step="1"
+                  max="24"
+                  step="0.5"
                   :value="settingsStore.cornerRadius"
                   @input="setCornerRadius(($event.target as HTMLInputElement).valueAsNumber)"
                 />
                 <output data-testid="corner-radius-value">{{ settingsStore.cornerRadius }}px</output>
               </div>
+              <details class="radius-advanced" data-testid="corner-radius-advanced">
+                <summary>高级分类细节</summary>
+                <div class="radius-detail-grid">
+                  <label v-for="field in cornerRadiusFields" :key="field.key" class="radius-detail-item">
+                    <span>{{ field.label }}</span>
+                    <input
+                      :data-testid="`corner-radius-${field.key}`"
+                      type="range"
+                      min="0"
+                      :max="field.key === 'badge' ? 999 : 24"
+                      step="0.5"
+                      :value="getCornerRadius(field.key)"
+                      @input="setCornerRadiusField(field.key, ($event.target as HTMLInputElement).valueAsNumber)"
+                    />
+                    <output>{{ formatRadius(getCornerRadius(field.key)) }}px</output>
+                  </label>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -365,9 +402,9 @@
             <div class="settings-item">
               <label class="settings-label">{{ copy.fontSize }}</label>
               <div class="font-size-control">
-                <button class="font-size-btn" data-testid="decrease-font-btn" @click="decreaseFontSize">-</button>
+                <button class="font-size-btn" data-testid="decrease-font-btn" @click="decreaseFontSize"><TauIcon name="icon-minus" :size="16" /></button>
                 <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
-                <button class="font-size-btn" data-testid="increase-font-btn" @click="increaseFontSize">+</button>
+                <button class="font-size-btn" data-testid="increase-font-btn" @click="increaseFontSize"><TauIcon name="icon-plus" :size="16" /></button>
                 <button class="font-size-reset" @click="resetFontSize">{{ copy.reset }}</button>
               </div>
             </div>
@@ -652,10 +689,15 @@
 
             <p class="settings-update-status">{{ updateStatusText }}</p>
             <p class="settings-update-message" v-if="installMessage">{{ installMessage }}</p>
-            <p class="settings-update-notes" v-if="releaseNotesPreview">
-              <span>{{ copy.releaseNotes }}</span>
-              <span>{{ releaseNotesPreview }}</span>
-            </p>
+            <div
+              v-if="releaseNotesHtml || releaseNotesPreview"
+              class="settings-update-notes"
+              data-testid="settings-release-notes"
+            >
+              <span class="settings-update-notes-label">{{ copy.releaseNotes }}</span>
+              <div v-if="releaseNotesHtml" class="settings-update-notes-content" v-html="releaseNotesHtml"></div>
+              <span v-else class="settings-update-notes-fallback">{{ releaseNotesPreview }}</span>
+            </div>
 
             <div class="settings-update-actions">
               <button
@@ -769,15 +811,6 @@
           </div>
 
           <div class="settings-item">
-            <label class="settings-label">{{ copy.themeMode }}</label>
-            <div class="theme-selector">
-              <button class="theme-btn" data-testid="drawer-theme-btn-light" :class="{ active: settingsStore.theme === 'light' }" @click="setTheme('light')">{{ copy.themeLight }}</button>
-              <button class="theme-btn" data-testid="drawer-theme-btn-dark" :class="{ active: settingsStore.theme === 'dark' }" @click="setTheme('dark')">{{ copy.themeDark }}</button>
-              <button class="theme-btn" data-testid="drawer-theme-btn-system" :class="{ active: settingsStore.theme === 'system' }" @click="setTheme('system')">{{ copy.themeSystem }}</button>
-            </div>
-          </div>
-
-          <div class="settings-item">
             <label class="settings-label">{{ copy.themeStyle }}</label>
             <n-select
               class="settings-nselect"
@@ -804,9 +837,9 @@
           <div class="settings-item">
             <label class="settings-label">{{ copy.uiFontSize }}</label>
             <div class="font-size-control">
-              <button class="font-size-btn" data-testid="drawer-decrease-ui-font-btn" @click="decreaseUiFontSize">-</button>
+              <button class="font-size-btn" data-testid="drawer-decrease-ui-font-btn" @click="decreaseUiFontSize"><TauIcon name="icon-minus" :size="16" /></button>
               <span class="font-size-value">{{ settingsStore.uiFontSize }}px</span>
-              <button class="font-size-btn" data-testid="drawer-increase-ui-font-btn" @click="increaseUiFontSize">+</button>
+              <button class="font-size-btn" data-testid="drawer-increase-ui-font-btn" @click="increaseUiFontSize"><TauIcon name="icon-plus" :size="16" /></button>
               <button class="font-size-reset" data-testid="drawer-reset-ui-font-btn" @click="resetUiFontSize">{{ copy.reset }}</button>
             </div>
           </div>
@@ -814,9 +847,9 @@
           <div class="settings-item">
             <label class="settings-label">{{ copy.fontSize }}</label>
             <div class="font-size-control">
-              <button class="font-size-btn" data-testid="drawer-decrease-font-btn" @click="decreaseFontSize">-</button>
+              <button class="font-size-btn" data-testid="drawer-decrease-font-btn" @click="decreaseFontSize"><TauIcon name="icon-minus" :size="16" /></button>
               <span class="font-size-value">{{ settingsStore.fontSize }}px</span>
-              <button class="font-size-btn" data-testid="drawer-increase-font-btn" @click="increaseFontSize">+</button>
+              <button class="font-size-btn" data-testid="drawer-increase-font-btn" @click="increaseFontSize"><TauIcon name="icon-plus" :size="16" /></button>
             </div>
           </div>
 
@@ -867,6 +900,7 @@ import { isTauriApp } from '@/lib/tauri';
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import type { ThemeSkinId } from '@/utils/themeResolver';
+import TauIcon from '@/components/icons/TauIcon.vue';
 import {
   getAuthorInfoI18n,
   getCommandText,
@@ -890,6 +924,15 @@ import type { ThemeUiOverrides } from '@/utils/themePackage';
 
 export type SettingsCategory = 'general' | 'themes' | 'editor' | 'fileAssociations' | 'updates' | 'about';
 type SettingsMode = 'workspace' | 'drawer';
+
+const categoryIconNames: Record<SettingsCategory, string> = {
+  general: 'icon-settings',
+  themes: 'icon-palette',
+  editor: 'icon-code',
+  fileAssociations: 'icon-list',
+  updates: 'icon-cloud-download',
+  about: 'icon-info',
+};
 type UpdateStatus = 'idle' | 'checking' | 'upToDate' | 'available' | 'installing' | 'installTriggered' | 'error';
 
 const props = withDefaults(defineProps<{
@@ -917,6 +960,36 @@ const naiveTheme = computed(() => (settingsStore.resolvedTheme === 'dark' ? dark
 const isWorkspaceMode = computed(() => props.mode === 'workspace');
 const isDrawerMode = computed(() => props.mode === 'drawer');
 
+/**
+ * Naive UI 的颜色解析器需要具体颜色值，不能直接接收 var()/color-mix()。
+ * 主题系统内部仍使用 CSS 变量，这里只在组件边界将当前主题解析为最终值。
+ */
+const resolveThemeColor = (variable: string, fallback: string): string => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    return fallback;
+  }
+
+  const value = window.getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  if (!value || value.includes('var(') || value.includes('color-mix(')) {
+    return fallback;
+  }
+  return value;
+};
+
+const toThemeRgba = (color: string, alpha: number, fallback: string): string => {
+  const normalized = color.trim();
+  const hex = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)?.[1];
+  if (!hex) {
+    return fallback;
+  }
+
+  const expanded = hex.length === 3 ? hex.split('').map((part) => `${part}${part}`).join('') : hex;
+  const red = Number.parseInt(expanded.slice(0, 2), 16);
+  const green = Number.parseInt(expanded.slice(2, 4), 16);
+  const blue = Number.parseInt(expanded.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+};
+
 const lspServerStateLabel = (server: {
   available: boolean;
   source: string;
@@ -932,10 +1005,12 @@ const lspServerStateLabel = (server: {
 
 const appVersionInfo = ref<AppVersionInfo | null>(null);
 const updateInfo = ref<GithubUpdateInfo | null>(null);
+const releaseNotesHtml = ref('');
 const updateStatus = ref<UpdateStatus>('idle');
 const updateError = ref('');
 const installMessage = ref('');
 const isCheckingUpdate = ref(false);
+let releaseNotesRenderToken = 0;
 const isInstallingUpdate = ref(false);
 
 const fileAssociations = ref<FileAssociationState[]>([]);
@@ -963,7 +1038,8 @@ const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() =
   return list;
 });
 
-const panelTitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsTitle));
+const workspaceTitle = computed(() => (settingsStore.uiLanguage === 'en-US' ? 'Preferences' : '偏好设置'));
+const panelTitle = computed(() => (isWorkspaceMode.value ? workspaceTitle.value : copy.value.quickSettingsTitle));
 const panelSubtitle = computed(() => (isWorkspaceMode.value ? copy.value.title : copy.value.quickSettingsDesc));
 const activeCategoryValue = computed<SettingsCategory>(() => props.activeCategory || 'general');
 const selectedAsset = computed<ReleaseAssetInfo | null>(() => updateInfo.value?.selectedAsset ?? null);
@@ -1005,6 +1081,16 @@ const cornerRadiusPresets = computed(() => [
   { value: 'round' as const, label: copy.value.cornerRadiusRound },
 ]);
 
+type CornerRadiusKey = 'base' | 'control' | 'card' | 'panel' | 'tab' | 'dialog' | 'badge';
+const cornerRadiusFields = computed<Array<{ key: Exclude<CornerRadiusKey, 'base'>; label: string }>>(() => [
+  { key: 'control', label: '控件' },
+  { key: 'card', label: '卡片' },
+  { key: 'panel', label: '面板' },
+  { key: 'tab', label: '标签页' },
+  { key: 'dialog', label: '弹窗' },
+  { key: 'badge', label: '徽标' },
+]);
+
 const associationGroups = computed(() => {
   const groups = new Map<string, FileAssociationState[]>();
   for (const item of fileAssociations.value) {
@@ -1031,29 +1117,45 @@ const associationGroups = computed(() => {
   }));
 });
 
-const naiveThemeOverrides: GlobalThemeOverrides = {
-  common: {
-    primaryColor: '#38bdf8',
-    primaryColorHover: '#7dd3fc',
-    primaryColorPressed: '#0ea5e9',
-    borderRadius: '14px',
-  },
-  Select: {
-    peers: {
-      InternalSelection: {
-        color: 'rgba(255, 255, 255, 0.04)',
-        colorActive: 'rgba(255, 255, 255, 0.08)',
-        border: '1px solid rgba(148, 163, 184, 0.18)',
-        borderActive: '1px solid rgba(56, 189, 248, 0.9)',
-        borderFocus: '1px solid rgba(56, 189, 248, 0.9)',
-        boxShadowFocus: '0 0 0 3px rgba(56, 189, 248, 0.2)',
-      },
-      InternalSelectMenu: {
-        color: '#111a2f',
+const naiveThemeOverrides = computed<GlobalThemeOverrides>(() => {
+  // 依赖主题相关状态，使切换主题风格、主题包或圆角后重新读取 root 上的最终颜色。
+  void settingsStore.resolvedTheme;
+  void settingsStore.themeSkin;
+  void settingsStore.activeThemePackageId;
+  void settingsStore.customThemeColors;
+  void settingsStore.customThemeUiOverrides;
+  void settingsStore.cornerRadius;
+  void settingsStore.cornerRadii;
+  const primaryColor = resolveThemeColor('--accent-brand', '#2563eb');
+  const primaryColorPressed = resolveThemeColor('--accent-brand-strong', '#1d4ed8');
+  const panelBase = resolveThemeColor('--panel-base', '#f7f9ff');
+  const panelElevated = resolveThemeColor('--panel-elevated', '#fbfcff');
+  const borderSoft = resolveThemeColor('--border-soft', 'rgba(51, 65, 85, 0.12)');
+
+  return {
+    common: {
+      primaryColor,
+      primaryColorHover: primaryColor,
+      primaryColorPressed,
+      borderRadius: `${Math.max(0, settingsStore.cornerRadii.control ?? settingsStore.cornerRadius)}px`,
+    },
+    Select: {
+      peers: {
+        InternalSelection: {
+          color: panelBase,
+          colorActive: panelElevated,
+          border: `1px solid ${borderSoft}`,
+          borderActive: `1px solid ${primaryColor}`,
+          borderFocus: `1px solid ${primaryColor}`,
+          boxShadowFocus: `0 0 0 3px ${toThemeRgba(primaryColor, 0.2, 'rgba(37, 99, 235, 0.2)')}`,
+        },
+        InternalSelectMenu: {
+          color: panelElevated,
+        },
       },
     },
-  },
-};
+  };
+});
 
 const uiLanguageOptions = computed<SelectOption[]>(() => [
   { label: copy.value.languageZh, value: 'zh-CN' },
@@ -1082,8 +1184,8 @@ const customThemeColorFields = computed<Array<{ key: CustomThemeColorKey; label:
 ]);
 
 type ThemeSwatch = {
-  mode: 'light' | 'dark';
   skin: ThemeSkinId;
+  mode: 'light' | 'dark';
   label: string;
   bg: string;
   panel: string;
@@ -1091,25 +1193,23 @@ type ThemeSwatch = {
 };
 
 const THEME_SWATCHES: ThemeSwatch[] = [
-  { mode: 'light', skin: 'deep-ocean', label: '雾蓝白', bg: '#eef3ff', panel: '#ffffff', accent: '#2563eb' },
-  { mode: 'light', skin: 'forest-moss', label: '森林薄荷', bg: '#edf6f0', panel: '#ffffff', accent: '#1f9d64' },
-  { mode: 'light', skin: 'solar-sand', label: '暖日象牙', bg: '#fff7eb', panel: '#ffffff', accent: '#c96b0c' },
-  { mode: 'light', skin: 'rose-dawn', label: '玫瑰晨雾', bg: '#fff1f5', panel: '#ffffff', accent: '#d94678' },
-  { mode: 'light', skin: 'graphite-ink', label: '石墨银灰', bg: '#f3f5f9', panel: '#ffffff', accent: '#4b5f83' },
-  { mode: 'dark', skin: 'deep-ocean', label: '深海蓝调', bg: '#0b1020', panel: '#101726', accent: '#7cc7ff' },
-  { mode: 'dark', skin: 'forest-moss', label: '森林苔原', bg: '#0d1511', panel: '#14221a', accent: '#4fd28e' },
-  { mode: 'dark', skin: 'solar-sand', label: '暖日砂岩', bg: '#16110a', panel: '#21180d', accent: '#f59e0b' },
-  { mode: 'dark', skin: 'graphite-ink', label: '石墨墨影', bg: '#101216', panel: '#181b22', accent: '#8ea0bf' },
-  { mode: 'dark', skin: 'rose-dawn', label: '玫瑰夜色', bg: '#171018', panel: '#241620', accent: '#ff8ab3' },
+  { skin: 'deep-ocean', mode: 'dark', label: '深海蓝调 · 深色', bg: '#0b1020', panel: '#101726', accent: '#7cc7ff' },
+  { skin: 'deep-ocean', mode: 'light', label: '深海蓝调 · 浅色', bg: '#eef3ff', panel: '#ffffff', accent: '#2563eb' },
+  { skin: 'forest-moss', mode: 'dark', label: '森林苔原 · 深色', bg: '#0d1511', panel: '#13201a', accent: '#4fd28e' },
+  { skin: 'forest-moss', mode: 'light', label: '森林苔原 · 浅色', bg: '#edf6f0', panel: '#ffffff', accent: '#1f9d64' },
+  { skin: 'solar-sand', mode: 'dark', label: '暖日砂岩 · 深色', bg: '#16110a', panel: '#241a0f', accent: '#f59e0b' },
+  { skin: 'solar-sand', mode: 'light', label: '暖日砂岩 · 浅色', bg: '#fff7eb', panel: '#ffffff', accent: '#c96b0c' },
+  { skin: 'graphite-ink', mode: 'dark', label: '石墨墨影 · 深色', bg: '#101216', panel: '#171b22', accent: '#8ea0bf' },
+  { skin: 'graphite-ink', mode: 'light', label: '石墨墨影 · 浅色', bg: '#f3f5f9', panel: '#ffffff', accent: '#4b5f83' },
+  { skin: 'rose-dawn', mode: 'dark', label: '玫瑰夜色 · 深色', bg: '#171018', panel: '#251824', accent: '#ff8ab3' },
+  { skin: 'rose-dawn', mode: 'light', label: '玫瑰晨曦 · 浅色', bg: '#fff1f5', panel: '#fffafd', accent: '#d94675' },
 ];
 
-// 同时展示两组色块，用户可以直接预览并切换到任意明暗主题；当前生效模式通过 active 状态标识。
 const visibleThemeSwatches = computed(() => THEME_SWATCHES);
-const resolvedThemeHint = computed(() => {
-  const modeLabel = settingsStore.resolvedTheme === 'light' ? copy.value.themeLight : copy.value.themeDark;
-  return settingsStore.theme === 'system'
-    ? `${copy.value.themeSystem}（${copy.value.themeCurrent}：${modeLabel}）`
-    : `${copy.value.themeCurrent}：${modeLabel}`;
+const themeBackgroundSummary = computed(() => {
+  if (typeof window === 'undefined') return '背景跟随当前主题风格';
+  const styles = window.getComputedStyle(document.documentElement);
+  return `背景 ${styles.getPropertyValue('--bg-app').trim() || '跟随主题'} · 面板 ${styles.getPropertyValue('--panel-base').trim() || '跟随主题'}`;
 });
 
 const installedMarketplaceIds = computed(() => settingsStore.themePackages.map((theme) =>
@@ -1240,6 +1340,30 @@ const releaseNotesPreview = computed(() => {
   return content.length > 180 ? `${content.slice(0, 180)}...` : content;
 });
 
+const renderReleaseNotes = async (markdown: string): Promise<void> => {
+  const token = ++releaseNotesRenderToken;
+  if (!markdown.trim()) {
+    releaseNotesHtml.value = '';
+    return;
+  }
+
+  try {
+    // Keep marked/DOMPurify out of the settings entry chunk; the renderer is
+    // only loaded after GitHub returns release notes.
+    const { renderMarkdown } = await import('@/services/markdownRenderService');
+    if (token !== releaseNotesRenderToken) {
+      return;
+    }
+    releaseNotesHtml.value = renderMarkdown(markdown);
+  } catch (error) {
+    if (token !== releaseNotesRenderToken) {
+      return;
+    }
+    releaseNotesHtml.value = '';
+    console.warn('[Settings] 更新说明 Markdown 渲染失败：', error);
+  }
+};
+
 const canInstallUpdate = computed(() => {
   return Boolean(updateInfo.value?.hasUpdate && selectedAsset.value && !isInstallingUpdate.value && !isCheckingUpdate.value);
 });
@@ -1319,21 +1443,50 @@ const copyThemeSource = async () => {
   }
 };
 
-const setTheme = (theme: 'light' | 'dark' | 'system') => {
-  settingsStore.updateSettings({ theme });
-};
-
 const setThemeSkin = (value: string | number | null) => {
   if (typeof value !== 'string') return;
   settingsStore.updateSettings({ themeSkin: value as ThemeSkinId });
 };
 
 const isThemeSwatchActive = (swatch: ThemeSwatch) =>
-  swatch.mode === settingsStore.resolvedTheme && swatch.skin === settingsStore.themeSkin;
+  swatch.skin === settingsStore.themeSkin && swatch.mode === settingsStore.theme;
 
 const selectThemeSwatch = (swatch: ThemeSwatch) => {
-  // 色块同时表达模式与风格，避免用户选中浅色配色后仍停留在深色背景。
   settingsStore.updateSettings({ theme: swatch.mode, themeSkin: swatch.skin });
+};
+
+const getCornerRadius = (key: CornerRadiusKey): number => {
+  const radii = (settingsStore as typeof settingsStore & { cornerRadii?: Partial<Record<CornerRadiusKey, number>> }).cornerRadii;
+  if (radii?.[key] !== undefined) return Number(radii[key]);
+  if (key === 'base') return Number(settingsStore.cornerRadius);
+  const base = Number(settingsStore.cornerRadius);
+  if (key === 'badge') return 999;
+  const factors: Record<Exclude<CornerRadiusKey, 'base' | 'badge'>, number> = {
+    control: 0.85,
+    card: 1.15,
+    panel: 1.3,
+    tab: 1,
+    dialog: 1.5,
+  };
+  return Math.min(24, Math.max(0, Math.round(base * factors[key] * 2) / 2));
+};
+
+const formatRadius = (value: number) => Number.isInteger(value) ? String(value) : value.toFixed(1);
+
+const setCornerRadiusField = (key: CornerRadiusKey, value: number) => {
+  const store = settingsStore as typeof settingsStore & {
+    setCornerRadiusField?: (field: CornerRadiusKey, value: number) => void;
+    setCornerRadiusDetail?: (field: CornerRadiusKey, value: number) => void;
+  };
+  if (key === 'base') {
+    settingsStore.setCornerRadius(value);
+  } else if (store.setCornerRadiusField) {
+    store.setCornerRadiusField(key, value);
+  } else if (store.setCornerRadiusDetail) {
+    store.setCornerRadiusDetail(key, value);
+  } else {
+    settingsStore.setCornerRadius(value);
+  }
 };
 
 const copyThemeExample = async (payload: string) => {
@@ -1806,6 +1959,7 @@ const checkForUpdate = async (silent: boolean) => {
       throw new Error('Invalid update response');
     }
     updateInfo.value = result;
+    void renderReleaseNotes(result.releaseNotes || '');
 
     if (result.hasUpdate) {
       updateStatus.value = 'available';
@@ -1899,7 +2053,7 @@ onMounted(async () => {
   min-height: 0;
   overflow: hidden;
   --animate-duration: 320ms;
-  background: var(--panel, #101726);
+  background: var(--bg-app, var(--panel-base, #101726));
   transition: background-color 260ms ease, color 260ms ease;
 }
 
@@ -1974,6 +2128,11 @@ onMounted(async () => {
   min-height: 0;
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.settings-detail,
+.settings-drawer-content {
+  background: var(--bg-app, var(--panel-base, #101726));
 }
 
 .settings-nav {
@@ -2482,7 +2641,7 @@ onMounted(async () => {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--panel-border, rgba(148, 163, 184, 0.3));
-  border-radius: var(--radius-ui-lg, 8px);
+  border-radius: var(--radius-dialog, var(--radius-ui-lg, 8px));
   background: var(--panel-raised, #202c43);
   color: var(--text-primary, #f8fafc);
   box-shadow: 0 24px 70px rgba(2, 6, 23, 0.45);
@@ -2508,6 +2667,12 @@ onMounted(async () => {
 .radius-slider-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .radius-slider { flex: 1; accent-color: var(--accent-brand, #38bdf8); }
 .radius-slider-row output { min-width: 42px; color: var(--text-secondary, #cbd5e1); font-size: 12px; }
+.radius-advanced { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+.radius-advanced summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; user-select: none; }
+.radius-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 12px; }
+.radius-detail-item { display: grid; grid-template-columns: minmax(48px, 1fr) minmax(90px, 1.6fr) auto; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 11px; }
+.radius-detail-item input { width: 100%; accent-color: var(--accent-brand); }
+.radius-detail-item output { min-width: 34px; color: var(--text-muted); text-align: right; }
 
 .settings-action-btn:disabled {
   cursor: default;
@@ -2695,13 +2860,70 @@ onMounted(async () => {
 }
 
 .settings-update-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   color: var(--text-secondary, #cbd5e1);
 }
 
-.settings-update-notes span:first-child {
-  display: inline-block;
-  margin-right: 8px;
+.settings-update-notes-label {
+  display: block;
   color: var(--text-muted, #94a3b8);
+}
+
+.settings-update-notes-content,
+.settings-update-notes-fallback {
+  display: block;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.settings-update-notes-content :deep(*) {
+  max-width: 100%;
+}
+
+.settings-update-notes-content :deep(:first-child) {
+  margin-top: 0;
+}
+
+.settings-update-notes-content :deep(:last-child) {
+  margin-bottom: 0;
+}
+
+.settings-update-notes-content :deep(h1),
+.settings-update-notes-content :deep(h2),
+.settings-update-notes-content :deep(h3),
+.settings-update-notes-content :deep(h4),
+.settings-update-notes-content :deep(h5),
+.settings-update-notes-content :deep(h6) {
+  margin: 8px 0 4px;
+  color: var(--text-primary, #f8fafc);
+  font-size: 1em;
+  line-height: 1.45;
+}
+
+.settings-update-notes-content :deep(p),
+.settings-update-notes-content :deep(ul),
+.settings-update-notes-content :deep(ol),
+.settings-update-notes-content :deep(pre),
+.settings-update-notes-content :deep(blockquote) {
+  margin: 4px 0;
+}
+
+.settings-update-notes-content :deep(ul),
+.settings-update-notes-content :deep(ol) {
+  padding-left: 20px;
+}
+
+.settings-update-notes-content :deep(code) {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-muted, rgba(148, 163, 184, 0.14));
+  font-size: 0.92em;
+}
+
+.settings-update-notes-content :deep(a) {
+  color: var(--accent-primary, #93c5fd);
 }
 
 .settings-update-actions {
@@ -2926,5 +3148,646 @@ onMounted(async () => {
 .font-size-reset:focus-visible {
   outline: 1px solid var(--accent-blue-strong, #4dabff);
   outline-offset: -2px;
+}
+
+/* Stitch / Nocturne Precision workspace treatment. Keep the existing controls
+ * and selectors intact while giving the full settings view a quieter IDE shell. */
+.settings-panel--workspace {
+  /* Workspace surfaces must follow the active theme instead of maintaining a
+   * second hard-coded dark palette. This prevents the detail area exposing a
+   * light/white app background below dark preference cards. */
+  --settings-bg: var(--bg-app, #101216);
+  --settings-surface-lowest: color-mix(in srgb, var(--panel-base, #171b22) 86%, var(--bg-app, #101216));
+  --settings-surface-low: color-mix(in srgb, var(--panel-base, #171b22) 94%, var(--bg-app, #101216));
+  --settings-surface: var(--panel-base, #171b22);
+  --settings-surface-high: color-mix(in srgb, var(--panel-elevated, #202631) 92%, var(--text-primary, #ecf2ff));
+  --settings-surface-highest: color-mix(in srgb, var(--panel-elevated, #202631) 80%, var(--text-primary, #ecf2ff));
+  --settings-text: var(--text-primary, #e3e1ed);
+  --settings-text-muted: var(--text-secondary, #bdc8d1);
+  --settings-outline: color-mix(in srgb, var(--text-secondary, #87929a) 78%, transparent);
+  --settings-border: var(--border-soft, rgba(135, 146, 154, 0.2));
+  --settings-primary: var(--accent-brand, #8ed5ff);
+  --settings-primary-container: var(--accent-brand-strong, #38bdf8);
+  --settings-success: var(--state-success, #56e5a9);
+  --settings-header-bg: color-mix(in srgb, var(--panel-base, #171b22) 90%, var(--bg-app, #101216));
+  --settings-nav-bg: color-mix(in srgb, var(--panel-base, #171b22) 88%, var(--bg-app, #101216));
+  --settings-nav-hover: color-mix(in srgb, var(--panel-elevated, #202631) 76%, var(--accent-brand, #8ed5ff) 24%);
+  --settings-nav-active: color-mix(in srgb, var(--accent-brand, #8ed5ff) 14%, var(--panel-base, #171b22));
+  --settings-theme-bg: color-mix(in srgb, var(--panel-base, #171b22) 92%, var(--bg-app, #101216));
+  --settings-shadow-color: color-mix(in srgb, var(--bg-app, #101216) 32%, transparent);
+  --settings-border-subtle: color-mix(in srgb, var(--border-soft, rgba(135, 146, 154, 0.2)) 86%, transparent);
+  background: var(--settings-bg);
+  color: var(--settings-text);
+  font-family: var(--font-family-ui, 'Manrope Variable', 'Manrope', system-ui, sans-serif);
+}
+
+.settings-panel--workspace .settings-header {
+  min-height: 68px;
+  padding: 16px 24px 14px 28px;
+  border-bottom-color: var(--settings-border-subtle);
+  background: var(--settings-header-bg);
+}
+
+.settings-panel--workspace .settings-workspace {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.settings-panel--workspace .settings-nav {
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.settings-panel--workspace .settings-nav-item {
+  flex: 0 0 auto;
+}
+
+.settings-panel--workspace .settings-header-main {
+  gap: 6px;
+}
+
+.settings-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+}
+
+.settings-title-orb {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 999px;
+  background: var(--settings-primary-container);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.72);
+}
+
+.settings-panel--workspace .settings-title {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--settings-text);
+}
+
+.settings-title-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--settings-primary);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.settings-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--settings-border-subtle);
+  border-radius: 9px;
+  background: var(--settings-surface);
+  color: var(--settings-text-muted);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+}
+
+.settings-save-state-icon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(86, 229, 169, 0.14);
+  color: var(--settings-success);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-panel--workspace .settings-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--settings-text-muted);
+}
+
+.settings-panel--workspace .settings-close:hover {
+  border-color: rgba(135, 146, 154, 0.18);
+  background: var(--settings-surface-highest);
+  color: var(--settings-text);
+}
+
+.settings-panel--workspace .settings-workspace {
+  grid-template-columns: minmax(228px, 290px) minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px 18px 22px;
+  background: var(--settings-bg);
+}
+
+.settings-panel--workspace .settings-nav {
+  gap: 5px;
+  padding: 12px 9px;
+  border: 1px solid var(--settings-border-subtle);
+  border-radius: 14px;
+  background: var(--settings-nav-bg);
+  box-shadow: 0 16px 34px var(--settings-shadow-color);
+  backdrop-filter: blur(12px);
+}
+
+.settings-nav-heading {
+  padding: 3px 10px 10px;
+  color: var(--settings-outline);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-panel--workspace .settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  height: auto;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--settings-text-muted);
+  font-size: 14px;
+  font-weight: 520;
+}
+
+.settings-panel--workspace .settings-nav-item:hover {
+  transform: none;
+  background: var(--settings-nav-hover);
+  color: var(--settings-text);
+}
+
+.settings-panel--workspace .settings-nav-item.active {
+  border-color: color-mix(in srgb, var(--settings-primary) 22%, transparent);
+  background: var(--settings-nav-active);
+  color: var(--settings-primary);
+  box-shadow: inset 2px 0 0 var(--settings-primary-container);
+}
+
+.settings-nav-icon {
+  position: relative;
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  place-items: center;
+  color: currentColor;
+}
+
+.settings-nav-count,
+.settings-nav-status {
+  margin-left: auto;
+}
+
+.settings-nav-count {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(86, 229, 169, 0.08);
+  color: var(--settings-success);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+}
+
+.settings-nav-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--settings-success);
+  box-shadow: 0 0 8px rgba(86, 229, 169, 0.75);
+}
+
+.settings-panel--workspace .settings-detail {
+  padding: 0;
+  background: var(--settings-bg);
+}
+
+.settings-panel--workspace .settings-overview {
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.settings-panel--workspace .settings-overview-item {
+  position: relative;
+  min-height: 76px;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 13px 14px;
+  border: 1px solid var(--settings-border-subtle);
+  border-radius: 14px;
+  background: var(--settings-surface-low);
+  box-shadow: 0 9px 24px var(--settings-shadow-color);
+}
+
+.settings-panel--workspace .settings-overview-item::after {
+  position: absolute;
+  top: -26px;
+  right: -22px;
+  width: 74px;
+  height: 74px;
+  border-radius: 999px;
+  background: rgba(142, 213, 255, 0.1);
+  content: '';
+  filter: blur(14px);
+  pointer-events: none;
+}
+
+.settings-panel--workspace .settings-overview-item:nth-child(2)::after { background: rgba(86, 229, 169, 0.1); }
+.settings-panel--workspace .settings-overview-item:nth-child(3)::after { background: rgba(192, 193, 255, 0.1); }
+
+.settings-panel--workspace .settings-overview-item span {
+  color: var(--settings-outline);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+}
+
+.settings-panel--workspace .settings-overview-item strong {
+  color: var(--settings-text);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.settings-panel--workspace .settings-overview-item:first-child strong { color: var(--settings-primary); }
+
+.settings-panel--workspace .settings-section {
+  margin-bottom: 14px;
+  padding: 20px 21px;
+  border: 1px solid var(--settings-border-subtle);
+  border-radius: 14px;
+  background: var(--settings-surface-low);
+  box-shadow: 0 12px 28px var(--settings-shadow-color);
+}
+
+.settings-panel--workspace .settings-section:hover {
+  border-color: color-mix(in srgb, var(--settings-outline) 38%, transparent);
+  box-shadow: 0 14px 32px var(--settings-shadow-color);
+  transform: none;
+}
+
+.settings-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.settings-section-heading-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-section-icon {
+  display: inline-grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  color: var(--settings-primary);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.settings-panel--workspace .settings-section-title {
+  margin: 0;
+  color: var(--settings-text);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-transform: none;
+}
+
+.settings-section-meta {
+  padding-top: 3px;
+  color: var(--settings-outline);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+}
+
+.settings-appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-panel--workspace .settings-item {
+  margin-bottom: 12px;
+}
+
+.settings-panel--workspace .settings-label {
+  margin-bottom: 7px;
+  color: var(--settings-text-muted);
+  font-size: 13px;
+  font-weight: 520;
+}
+
+.settings-label-with-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-label-with-meta small {
+  color: var(--settings-outline);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.settings-label-with-meta .settings-label-positive {
+  color: var(--settings-success);
+}
+
+.settings-panel--workspace :deep(.n-base-selection) {
+  min-height: 46px;
+  border-radius: 9px;
+  background: var(--settings-surface);
+  border-color: var(--settings-border-subtle);
+}
+
+.settings-panel--workspace :deep(.n-base-selection-label) {
+  color: var(--settings-text);
+  font-size: 13px;
+}
+
+.settings-panel--workspace :deep(.n-base-selection:hover) {
+  border-color: rgba(142, 213, 255, 0.44);
+}
+
+.settings-panel--workspace .settings-font-size-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 2px;
+  margin-bottom: 0;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--settings-surface);
+}
+
+.settings-panel--workspace .settings-font-size-item .settings-label {
+  margin: 0;
+}
+
+.settings-panel--workspace .font-size-control {
+  margin-left: auto;
+  padding: 4px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--settings-surface-high);
+}
+
+.settings-panel--workspace .font-size-btn,
+.settings-panel--workspace .font-size-reset {
+  height: 31px;
+  min-width: 31px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--settings-text-muted);
+}
+
+.settings-panel--workspace .font-size-btn:hover,
+.settings-panel--workspace .font-size-reset:hover {
+  background: var(--settings-surface-highest);
+  color: var(--settings-text);
+}
+
+.settings-panel--workspace .font-size-value {
+  min-width: 52px;
+  color: var(--settings-primary);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+}
+
+.settings-panel--workspace .settings-theme-block {
+  margin-top: 14px;
+  padding: 17px;
+  border: 1px solid var(--settings-border-subtle);
+  border-radius: 14px;
+  background: var(--settings-theme-bg);
+}
+
+.settings-theme-block-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.settings-theme-block-heading .settings-label {
+  margin-bottom: 0;
+}
+
+.settings-theme-block-heading .settings-item-hint {
+  margin-top: 4px;
+}
+
+.settings-active-theme {
+  max-width: 200px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--settings-primary);
+  font-family: var(--font-family-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-panel--workspace .settings-theme-mode-item,
+.settings-panel--workspace .settings-theme-style-item,
+.settings-panel--workspace .settings-editor-theme-item {
+  margin-bottom: 13px;
+}
+
+.settings-panel--workspace .settings-theme-mode-item .theme-selector {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 13px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--settings-surface);
+}
+
+.settings-panel--workspace .theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 46px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--settings-text-muted);
+  font-size: 13px;
+}
+
+.settings-panel--workspace .theme-btn:hover {
+  background: var(--settings-nav-hover);
+  color: var(--settings-text);
+  transform: none;
+}
+
+.settings-panel--workspace .theme-btn.active {
+  background: linear-gradient(135deg, var(--settings-primary), var(--settings-primary-container));
+  color: #00354a;
+  box-shadow: 0 2px 14px rgba(56, 189, 248, 0.3);
+}
+
+.theme-btn-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.settings-panel--workspace .settings-theme-style-item .settings-label {
+  margin-bottom: 10px;
+}
+
+.settings-panel--workspace .theme-swatch-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.settings-panel--workspace .theme-swatch {
+  min-height: 68px;
+  padding: 10px 11px;
+  border-color: var(--settings-border-subtle);
+  border-radius: 11px;
+  background: var(--settings-surface);
+}
+
+.settings-panel--workspace .theme-swatch:hover {
+  border-color: rgba(135, 146, 154, 0.38);
+  background: var(--settings-surface-high);
+  transform: none;
+}
+
+.settings-panel--workspace .theme-swatch.active {
+  border-color: rgba(56, 189, 248, 0.75);
+  background: var(--settings-surface-highest);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.22);
+}
+
+.settings-panel--workspace .theme-swatch-colors {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border: 0;
+  border-radius: 9px;
+}
+
+.settings-panel--workspace .theme-swatch-copy strong {
+  font-size: 13px;
+}
+
+.settings-panel--workspace .theme-swatch-copy small {
+  font-size: 10px;
+}
+
+.settings-panel--workspace .theme-style-fallback {
+  margin-top: 10px;
+}
+
+.settings-panel--workspace .settings-editor-theme-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding-top: 3px;
+}
+
+.settings-panel--workspace .settings-editor-theme-item .settings-label {
+  margin: 0;
+}
+
+.settings-panel--workspace .settings-theme-block + .custom-theme-settings {
+  margin-top: 18px;
+}
+
+.settings-panel--workspace .custom-theme-settings,
+.settings-panel--workspace .theme-json-examples,
+.settings-panel--workspace .theme-package-settings {
+  border-top-color: rgba(62, 72, 79, 0.32);
+}
+
+.settings-panel--workspace .settings-action-btn {
+  border-color: rgba(135, 146, 154, 0.24);
+  border-radius: 8px;
+  background: var(--settings-surface);
+  color: var(--settings-text);
+  font-family: inherit;
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.settings-panel--workspace .settings-action-btn:hover:not(:disabled) {
+  border-color: rgba(142, 213, 255, 0.52);
+  background: var(--settings-surface-high);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 960px) {
+  .settings-panel--workspace .settings-workspace {
+    padding: 12px;
+  }
+
+  .settings-panel--workspace .settings-nav {
+    padding: 8px;
+  }
+
+  .settings-nav-heading {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .settings-panel--workspace .settings-header {
+    padding-inline: 16px;
+  }
+
+  .settings-title-badge,
+  .settings-save-state {
+    display: none;
+  }
+
+  .settings-panel--workspace .settings-workspace {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .settings-appearance-grid,
+  .settings-panel--workspace .theme-swatch-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-panel--workspace .settings-font-size-item,
+  .settings-panel--workspace .settings-theme-block-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-panel--workspace .font-size-control {
+    margin-left: 0;
+    width: fit-content;
+  }
+
+  .settings-panel--workspace .settings-editor-theme-item {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

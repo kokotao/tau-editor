@@ -117,8 +117,8 @@ describe('SettingsStore', () => {
   })
 
   describe('初始状态', () => {
-    it('应初始化主题为 system', () => {
-      expect(store.theme).toBe('system')
+    it('应初始化主题为 dark', () => {
+      expect(store.theme).toBe('dark')
     })
 
     it('应初始化 Monaco 主题为 vs-dark', () => {
@@ -252,12 +252,13 @@ describe('SettingsStore', () => {
   })
 
   describe('主题解析派生值', () => {
-    it('system + 浅色系统应解析为 light 预览主题', () => {
+    it('system 兼容值应稳定解析为 dark 预览主题', () => {
       mockMatchMedia.mockReturnValue(createMediaQueryList(false))
 
-      expect(store.resolvedTheme).toBe('light')
-      expect(store.previewTheme).toBe('light')
-      expect(store.recommendedMonacoTheme).toBe('vs')
+      store.theme = 'system'
+      expect(store.resolvedTheme).toBe('dark')
+      expect(store.previewTheme).toBe('dark')
+      expect(store.recommendedMonacoTheme).toBe('vs-dark')
     })
 
     it('dark 主题应推荐 vs-dark', () => {
@@ -325,7 +326,7 @@ describe('SettingsStore', () => {
     it('updateSettings() 更新主题风格应应用对应 skin 类', async () => {
       await store.updateSettings({ themeSkin: 'forest-moss' })
 
-      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-forest-moss')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-forest-moss')
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
@@ -373,7 +374,7 @@ describe('SettingsStore', () => {
       await store.resetToDefaults()
 
       expect(store.fontSize).toBe(15)
-      expect(store.theme).toBe('system')
+      expect(store.theme).toBe('dark')
       expect(store.minimap).toBe(true)
       expect(store.maxOpenTabs).toBe(30)
       expect(store.memoryLimitMB).toBe(256)
@@ -391,7 +392,7 @@ describe('SettingsStore', () => {
       await store.resetToDefaults()
 
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
-      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
     })
 
     it('resetToDefaults() 应重置 Markdown 预览主题', async () => {
@@ -487,13 +488,13 @@ describe('SettingsStore', () => {
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
-    it('applyTheme() system 亮色模式应添加 light 类', () => {
+    it('applyTheme() system 兼容值在亮色系统下仍添加 dark 类', () => {
       store.theme = 'system'
       mockMatchMedia.mockReturnValue(createMediaQueryList(false))
 
       store.applyTheme()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
@@ -590,7 +591,7 @@ describe('SettingsStore', () => {
       expect(store.cornerRadius).toBe(12)
       expect(mockStyle.setProperty).toHaveBeenCalledWith('--radius-ui', '12px')
       store.setCornerRadius(99)
-      expect(store.cornerRadius).toBe(12)
+      expect(store.cornerRadius).toBe(24)
       store.setCornerRadius(-2)
       expect(store.cornerRadius).toBe(0)
       expect(store.cornerRadiusPreset).toBe('sharp')
@@ -608,7 +609,7 @@ describe('SettingsStore', () => {
     it('init() 应应用主题', async () => {
       await store.init()
 
-      expect(mockClassList.add).toHaveBeenCalledWith('light', 'theme-light', 'skin-deep-ocean')
+      expect(mockClassList.add).toHaveBeenCalledWith('dark', 'theme-dark', 'skin-deep-ocean')
     })
 
     it('init() 应从 Tauri 加载设置', async () => {

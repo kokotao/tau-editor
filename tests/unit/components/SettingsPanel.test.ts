@@ -77,7 +77,12 @@ vi.mock('@/lib/tauri', () => ({
   },
 }));
 
+vi.mock('@/services/markdownRenderService', () => ({
+  renderMarkdown: vi.fn(() => '<h1>新版本</h1><ul><li>支持 Markdown 更新说明</li></ul>'),
+}));
+
 import SettingsPanel from '@/components/editor/SettingsPanel.vue';
+import { settingsCommands } from '@/lib/tauri';
 import { useSettingsStore } from '@/stores/settings';
 
 describe('SettingsPanel', () => {
@@ -157,6 +162,30 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('[data-testid="settings-general-section"]').exists()).toBe(false);
   });
 
+  it('更新说明按 Markdown 渲染而不是显示原始标记', async () => {
+    vi.mocked(settingsCommands.checkGithubUpdate).mockResolvedValueOnce({
+      currentVersion: '0.2.0',
+      latestVersion: '0.3.0',
+      hasUpdate: true,
+      releaseName: 'v0.3.0',
+      releaseNotes: '# 新版本\n\n- 支持 Markdown 更新说明',
+      releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.3.0',
+      publishedAt: null,
+      selectedAsset: null,
+      device: { os: 'linux', arch: 'x86_64' },
+      repositoryUrl: 'https://github.com/kokotao/tau-editor',
+    });
+
+    const wrapper = mountPanel({ activeCategory: 'updates' });
+    await flushPromises();
+
+    const notes = wrapper.find('[data-testid="settings-release-notes"]');
+    expect(notes.exists()).toBe(true);
+    expect(notes.find('h1').text()).toBe('新版本');
+    expect(notes.find('li').text()).toBe('支持 Markdown 更新说明');
+    expect(notes.text()).not.toContain('# 新版本');
+  });
+
   it('主题市场作为独立栏目展示，并提供圆角与界面颜色配置', async () => {
     const wrapper = mountPanel({ activeCategory: 'themes' });
     await flushPromises();
@@ -207,15 +236,15 @@ describe('SettingsPanel', () => {
     expect(wrapper.emitted('close')).toHaveLength(1);
   });
 
-  it('drawer 高频项应能更新主题与自动保存', async () => {
+  it('drawer 高频项应能更新主题风格与自动保存', async () => {
     const wrapper = mountPanel({ mode: 'drawer' });
     await flushPromises();
 
-    await wrapper.findAll('.theme-btn')[0]?.trigger('click');
-    expect(settingsStore.theme).toBe('light');
-
-    const themeSkinSelect = wrapper.find('[data-testid="drawer-select-theme-skin"]');
+    const themeSkinSelect = wrapper.findComponent('[data-testid="drawer-select-theme-skin"]');
     expect(themeSkinSelect.exists()).toBe(true);
+    themeSkinSelect.vm.$emit('update:value', 'forest-moss');
+    await flushPromises();
+    expect(settingsStore.themeSkin).toBe('forest-moss');
 
     const autoSaveToggle = wrapper.find('[data-testid="drawer-toggle-auto-save"]');
     await autoSaveToggle.setValue(false);
@@ -239,12 +268,6 @@ describe('SettingsPanel', () => {
     const wrapper = mountPanel();
     await flushPromises();
 
-    const darkSwatch = wrapper.find('[data-testid="theme-swatch-dark-forest-moss"]');
-    expect(darkSwatch.exists()).toBe(true);
-    await wrapper.find('[data-testid="theme-btn-dark"]').trigger('click');
-    await flushPromises();
-
-    expect(settingsStore.theme).toBe('dark');
     const forestSwatch = wrapper.find('[data-testid="theme-swatch-dark-forest-moss"]');
     expect(forestSwatch.exists()).toBe(true);
     await forestSwatch.trigger('click');

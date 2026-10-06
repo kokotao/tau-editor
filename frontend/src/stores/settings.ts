@@ -33,6 +33,7 @@ import {
   type ThemePackage,
   type ThemePackageError,
   type ThemeUiOverrides,
+  type ThemeRadiusOverrides,
 } from '@/utils/themePackage';
 
 /** 可由用户微调的颜色；应用/面板背景始终由主题模式或完整主题包决定。 */
@@ -91,6 +92,7 @@ export interface EditorSettings {
   customThemeUiOverrides: CustomThemeUiOverrides;
   cornerRadius: number;
   cornerRadiusPreset: CornerRadiusPreset;
+  cornerRadii: ThemeRadiusOverrides;
   // v0.4.0：导入的主题包与当前生效主题包（null 表示使用内置皮肤）
   themePackages: ThemePackage[];
   activeThemePackageId: string | null;
@@ -146,6 +148,7 @@ const MIN_CONTEXT_RAIL_WIDTH = 240;
 const MAX_CONTEXT_RAIL_WIDTH = 420;
 const DEFAULT_CONTEXT_RAIL_WIDTH = 300;
 const DEFAULT_CORNER_RADIUS = 6;
+const MAX_CORNER_RADIUS = 24;
 const CORNER_RADIUS_PRESETS: Record<Exclude<CornerRadiusPreset, 'custom'>, number> = {
   sharp: 0,
   compact: 4,
@@ -230,7 +233,31 @@ function normalizeCustomThemeOverrides(value: unknown): CustomThemeOverrides {
 
 function normalizeCornerRadius(value: unknown): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.min(12, Math.max(0, Math.round(parsed))) : DEFAULT_CORNER_RADIUS;
+  return Number.isFinite(parsed) ? Math.min(MAX_CORNER_RADIUS, Math.max(0, Math.round(parsed * 2) / 2)) : DEFAULT_CORNER_RADIUS;
+}
+
+function normalizeCornerRadii(value: unknown, base: number): ThemeRadiusOverrides {
+  const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const result: ThemeRadiusOverrides = {
+    base,
+    control: Math.round(base * 0.85 * 2) / 2,
+    card: Math.round(base * 1.15 * 2) / 2,
+    panel: Math.round(base * 1.3 * 2) / 2,
+    tab: base,
+    dialog: Math.round(base * 1.5 * 2) / 2,
+    badge: 999,
+  };
+  (['base', 'control', 'card', 'panel', 'tab', 'dialog', 'badge'] as const).forEach((key) => {
+    if (source[key] !== undefined) {
+      const parsed = Number(source[key]);
+      if (Number.isFinite(parsed)) {
+        result[key] = key === 'badge'
+          ? Math.min(999, Math.max(0, Math.round(parsed * 2) / 2))
+          : normalizeCornerRadius(parsed);
+      }
+    }
+  });
+  return result;
 }
 
 function normalizeCornerRadiusPreset(value: unknown): CornerRadiusPreset {
@@ -416,7 +443,7 @@ function getThemeResolution(settings: Pick<EditorSettings, 'theme' | 'themeSkin'
 
 export const useSettingsStore = defineStore('settings', {
   state: (): EditorSettings => ({
-    theme: 'system',
+    theme: 'dark',
     themeSkin: 'deep-ocean',
     monacoTheme: 'vs-dark',
     customThemeColors: {},
@@ -424,6 +451,7 @@ export const useSettingsStore = defineStore('settings', {
     customThemeUiOverrides: {},
     cornerRadius: DEFAULT_CORNER_RADIUS,
     cornerRadiusPreset: 'standard',
+    cornerRadii: normalizeCornerRadii({}, DEFAULT_CORNER_RADIUS),
     themePackages: [],
     activeThemePackageId: null,
     keybindingOverrides: {},
@@ -504,28 +532,9 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     ensureThemeListener() {
-      if (
-        typeof window === 'undefined' ||
-        typeof window.matchMedia !== 'function' ||
-        systemThemeListenerAttached
-      ) {
-        return;
-      }
-
-      systemThemeMediaQuery = window.matchMedia(SYSTEM_THEME_QUERY);
-      const handleThemeChange = () => {
-        if (this.theme === 'system') {
-          this.applyTheme();
-        }
-      };
-
-      if (typeof systemThemeMediaQuery.addEventListener === 'function') {
-        systemThemeMediaQuery.addEventListener('change', handleThemeChange);
-      } else if (typeof systemThemeMediaQuery.addListener === 'function') {
-        systemThemeMediaQuery.addListener(handleThemeChange);
-      }
-
-      systemThemeListenerAttached = true;
+      // 主题风格是唯一的界面主题源；保留该 action 仅兼容旧调用方，
+      // 不再监听操作系统明暗变化。
+      return;
     },
 
     // 从 localStorage 加载设置
@@ -546,6 +555,7 @@ export const useSettingsStore = defineStore('settings', {
           this.customThemeColors = loadedOverrides[getThemeResolution(this).resolvedTheme] ?? {};
           this.customThemeUiOverrides = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides);
           this.cornerRadius = normalizeCornerRadius(this.cornerRadius);
+          this.cornerRadii = normalizeCornerRadii(this.cornerRadii, this.cornerRadius);
           this.cornerRadiusPreset = normalizeCornerRadiusPreset(this.cornerRadiusPreset);
           this.maxOpenTabs = normalizeOpenTabsLimit(this.maxOpenTabs);
           this.memoryLimitMB = normalizeMemoryLimitMB(this.memoryLimitMB);
@@ -583,6 +593,7 @@ export const useSettingsStore = defineStore('settings', {
           customThemeUiOverrides: this.customThemeUiOverrides,
           cornerRadius: normalizeCornerRadius(this.cornerRadius),
           cornerRadiusPreset: normalizeCornerRadiusPreset(this.cornerRadiusPreset),
+          cornerRadii: normalizeCornerRadii(this.cornerRadii, this.cornerRadius),
           themePackages: this.themePackages,
           activeThemePackageId: this.activeThemePackageId,
           keybindingOverrides: this.keybindingOverrides,
@@ -630,6 +641,7 @@ export const useSettingsStore = defineStore('settings', {
       this.themePackages = normalizeStoredThemePackages(this.themePackages);
       this.customThemeUiOverrides = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides);
       this.cornerRadius = normalizeCornerRadius(this.cornerRadius);
+      this.cornerRadii = normalizeCornerRadii(this.cornerRadii, this.cornerRadius);
       this.cornerRadiusPreset = normalizeCornerRadiusPreset(this.cornerRadiusPreset);
       if (!this.themePackages.some((theme) => theme.id === this.activeThemePackageId)) {
         this.activeThemePackageId = null;
@@ -682,6 +694,7 @@ export const useSettingsStore = defineStore('settings', {
         || partial.customThemeUiOverrides !== undefined
         || partial.cornerRadius !== undefined
         || partial.cornerRadiusPreset !== undefined
+        || partial.cornerRadii !== undefined
       ) {
         this.applyTheme();
       }
@@ -719,7 +732,8 @@ export const useSettingsStore = defineStore('settings', {
         '--bg-app', '--panel-base', '--panel-elevated', '--text-primary', '--text-secondary', '--accent-brand',
         '--accent-brand-strong', '--state-success', '--state-danger',
         ...Object.values(THEME_UI_CSS_VAR_MAP).filter((name) => name !== '--panel-base'),
-        '--radius-ui', '--radius-ui-sm', '--radius-ui-lg',
+        '--radius-ui', '--radius-ui-sm', '--radius-ui-lg', '--radius-base', '--radius-control', '--radius-card',
+        '--radius-panel', '--radius-tab', '--radius-dialog', '--radius-badge',
       ];
       allThemeVars.forEach((name) => root.style.removeProperty(name));
       // 完整主题包按当前 resolved mode 取分支；快速配色只覆盖文字/强调色。
@@ -748,9 +762,12 @@ export const useSettingsStore = defineStore('settings', {
       });
       // 用户圆角设置始终优先于主题包提供的建议值。
       const radius = normalizeCornerRadius(this.cornerRadius);
+      const radii = normalizeCornerRadii(this.cornerRadii, radius);
+      this.cornerRadii = radii;
       root.style.setProperty('--radius-ui', `${radius}px`);
       root.style.setProperty('--radius-ui-sm', `max(0px, ${radius - 2}px)`);
-      root.style.setProperty('--radius-ui-lg', `min(12px, ${radius + 2}px)`);
+      root.style.setProperty('--radius-ui-lg', `min(24px, ${radius + 2}px)`);
+      Object.entries(radii).forEach(([key, value]) => root.style.setProperty(`--radius-${key}`, `${value}px`));
     },
 
     setCustomThemeUiColor(group: keyof Omit<ThemeUiOverrides, 'radius'>, key: string, color: string) {
@@ -775,6 +792,7 @@ export const useSettingsStore = defineStore('settings', {
       this.cornerRadiusPreset = normalizedPreset;
       if (normalizedPreset !== 'custom') {
         this.cornerRadius = CORNER_RADIUS_PRESETS[normalizedPreset];
+        this.cornerRadii = normalizeCornerRadii({}, this.cornerRadius);
       }
       this.saveToStorage();
       this.applyTheme();
@@ -782,8 +800,20 @@ export const useSettingsStore = defineStore('settings', {
 
     setCornerRadius(value: number) {
       this.cornerRadius = normalizeCornerRadius(value);
+      this.cornerRadii = normalizeCornerRadii({ ...this.cornerRadii, base: this.cornerRadius }, this.cornerRadius);
       this.cornerRadiusPreset = Object.entries(CORNER_RADIUS_PRESETS)
         .find(([, radius]) => radius === this.cornerRadius)?.[0] as CornerRadiusPreset | undefined ?? 'custom';
+      this.saveToStorage();
+      this.applyTheme();
+    },
+
+    setCornerRadiusField(field: keyof ThemeRadiusOverrides, value: number) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return;
+      const normalized = field === 'badge'
+        ? Math.min(999, Math.max(0, Math.round(parsed * 2) / 2))
+        : normalizeCornerRadius(parsed);
+      this.cornerRadii = normalizeCornerRadii({ ...this.cornerRadii, [field]: normalized }, this.cornerRadius);
       this.saveToStorage();
       this.applyTheme();
     },
@@ -851,6 +881,11 @@ export const useSettingsStore = defineStore('settings', {
       this.activeThemePackageId = target ? target.id : null;
       if (target) {
         const mode = target.defaultMode ?? target.mode;
+        // A marketplace theme carries its own visual direction. Keep the
+        // legacy `theme` field in sync so the root skin, panel contrast and
+        // Monaco recommendation all switch together when a light package is
+        // applied while the editor is currently dark (and vice versa).
+        this.theme = mode;
         this.monacoTheme = themePackageToMonacoTheme(target, mode).base;
       }
       this.saveToStorage();

@@ -21,12 +21,23 @@ export type ThemeColors = Partial<Record<ThemeColorKey, string>>;
 export type ThemeMode = 'light' | 'dark';
 export type MonacoBaseTheme = 'vs' | 'vs-dark' | 'hc-black';
 
+export interface ThemeRadiusOverrides {
+  base?: number;
+  control?: number;
+  card?: number;
+  panel?: number;
+  tab?: number;
+  dialog?: number;
+  badge?: number;
+}
+
 export interface ThemeUiOverrides {
   sidebar?: { bg?: string; text?: string; activeBg?: string; activeText?: string; activeIndicator?: string };
   panel?: { bg?: string; raisedBg?: string; border?: string; heading?: string };
   tabs?: { bg?: string; text?: string; activeBg?: string; activeText?: string; activeIndicator?: string; hoverBg?: string };
   syntax?: { keyword?: string; string?: string; number?: string; comment?: string; function?: string; type?: string; variable?: string };
-  radius?: number;
+  /** Legacy numeric radius is accepted; object form enables per-component tuning. */
+  radius?: number | ThemeRadiusOverrides;
 }
 
 export interface ThemePackageModeDefinition {
@@ -119,8 +130,22 @@ export function normalizeThemeUiOverrides(value: unknown): ThemeUiOverrides | un
     if (Object.keys(colors).length) (result as Record<string, unknown>)[group] = colors;
   });
   const radius = record.radius;
-  if (typeof radius === 'number' && Number.isInteger(radius) && radius >= 0 && radius <= 12) {
-    result.radius = radius;
+  const normalizeRadius = (value: unknown): number | undefined => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 24) return undefined;
+    // Keep half-pixel precision for smooth, fine-grained controls while
+    // preventing arbitrary CSS values from entering the theme package.
+    return Math.round(value * 2) / 2;
+  };
+  const normalizedRadius = normalizeRadius(radius);
+  if (normalizedRadius !== undefined) {
+    result.radius = normalizedRadius;
+  } else if (radius && typeof radius === 'object' && !Array.isArray(radius)) {
+    const radiusResult: ThemeRadiusOverrides = {};
+    for (const key of ['base', 'control', 'card', 'panel', 'tab', 'dialog', 'badge'] as const) {
+      const value = normalizeRadius((radius as Record<string, unknown>)[key]);
+      if (value !== undefined) radiusResult[key] = value;
+    }
+    if (Object.keys(radiusResult).length) result.radius = radiusResult;
   }
   return Object.keys(result).length ? result : undefined;
 }
@@ -403,8 +428,9 @@ export function normalizeThemePackageRecord(parsed: unknown): ThemePackageParseR
 
   const legacyColors = normalizeThemeColors(record.colors);
   const legacyMonaco = normalizeMonaco(record.monaco);
+  const legacyUi = normalizeThemeUiOverrides(record.ui);
   if (!modes[defaultMode] && Object.keys(legacyColors).length > 0) {
-    modes[defaultMode] = { colors: legacyColors, monaco: legacyMonaco };
+    modes[defaultMode] = { colors: legacyColors, monaco: legacyMonaco, ui: legacyUi };
   }
 
   const defaultBranch = modes[defaultMode];

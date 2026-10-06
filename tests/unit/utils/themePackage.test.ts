@@ -181,6 +181,27 @@ describe('themePackage', () => {
     });
   });
 
+  it('supports fine-grained categorized radius overrides and legacy numeric radius', () => {
+    const result = parseThemePackage(JSON.stringify({
+      id: 'radius-pack',
+      name: 'Radius Pack',
+      colors: { bgApp: '#000000', textPrimary: '#ffffff' },
+      ui: { radius: { base: 7.25, control: 8.4, dialog: 30, ignored: 4 } },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.theme.modes?.dark?.ui?.radius).toEqual({ base: 7.5, control: 8.5 });
+
+    const legacy = parseThemePackage(JSON.stringify({
+      id: 'legacy-radius',
+      name: 'Legacy Radius',
+      colors: { bgApp: '#000000', textPrimary: '#ffffff' },
+      ui: { radius: 12 },
+    }));
+    expect(legacy.ok).toBe(true);
+    if (legacy.ok) expect(legacy.theme.modes?.dark?.ui?.radius).toBe(12);
+  });
+
   it('normalizes v2 light/dark branches and supports palette packages', () => {
     const result = parseThemePackage(JSON.stringify({
       schemaVersion: 2,

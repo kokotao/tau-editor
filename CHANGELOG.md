@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-02
-> 当前稳定版本：`v0.6.4`
+> 最后更新：2026-10-06
+> 当前稳定版本：`v0.6.10`
 
 ---
 
@@ -11,6 +11,8 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release     | 本次发布  | 更新说明 Markdown 渲染、DMG 背景/图标校验、偏好设置主题与圆角改造 |
+| [0.6.9](https://github.com/kokotao/tau-editor/releases/tag/v0.6.9) | 2026-10-05 | 公开 Release     | `a32ee3b` | 交互体验、macOS DMG 背景、三平台安装包发布                     |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
 | [0.6.2](https://github.com/kokotao/tau-editor/releases/tag/v0.6.2) | 2026-10-02 | 公开 Release     | `8712e4f` | 图片预览、代码导航、资源区与 Markdown 右键菜单稳定性修复      |
@@ -38,6 +40,37 @@
 | [0.1.3](https://github.com/kokotao/tau-editor/tree/v0.1.3)         | 2026-03-13 | 内部验证 tag     | `b49534f` | 修复 macOS 选择器权限与关闭按钮                               |
 | [0.1.2](https://github.com/kokotao/tau-editor/tree/v0.1.2)         | 2026-03-13 | 内部验证 tag     | `89c1d2b` | 首个可构建基线，命令面板与工作区根目录统一                    |
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
+
+---
+
+## [0.6.10] - 2026-10-06
+
+### 更新说明与发布流程
+
+- 更新页的 Release Notes 现在按 Markdown 渲染，支持标题、列表、代码和链接；渲染依赖按需加载，失败时回退为安全纯文本。
+- 新增更新说明回归测试，避免 GitHub Release body 再以原始 `#` / `##` 标记显示。
+- macOS DMG 构建在上传前校验背景图和 `icon.icns` 与源码资源逐字节一致；缺少 DMG helper 或背景资源时直接失败，不再生成无背景 plain DMG。
+
+### 偏好设置与主题
+
+- 偏好设置 workspace/drawer 统一为主题风格驱动，移除重复的浅色/深色/系统模式控件。
+- 主题包与 marketplace palette 支持背景、面板和分类圆角 token；旧配置与旧主题包字段保持兼容。
+- 圆角基础值扩展到 `0–24px`，支持分类细节调整，覆盖控件、卡片、面板、标签、弹窗和徽标。
+- 设置页导航、主题色板、自动保存状态、通知和工具栏图标完成一致性收口。
+
+### 验证
+
+- `pnpm --dir frontend type-check`：通过。
+- `pnpm --dir frontend build-only`：通过。
+- Markdown 更新说明回归测试：通过；MarkdownPreview `16/16` 通过。
+- DMG 背景和应用图标挂载后字节校验：通过。
+- GitHub Actions 继续负责 macOS、Windows、Linux 安装包构建及发布资产校验。
+
+### 已知限制
+
+- 本地完整 SettingsStore/SettingsPanel 套件仍有旧主题默认值断言需要后续同步；本版本保留已有主题行为迁移兼容。
+- Release 资产以本次 tag 对应的 GitHub Actions run 为准，发布完成后回读资产列表和状态。
+
 
 ---
 

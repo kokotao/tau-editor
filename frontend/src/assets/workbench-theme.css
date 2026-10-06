@@ -61,13 +61,20 @@
    * derived from those variables so existing components follow the selected
    * corner-radius preset instead of retaining the old fixed 2/4/8px values.
    */
-  --radius-xs: max(0px, calc(var(--radius-ui-sm) - 2px));
-  --radius-sm: var(--radius-ui-sm);
-  --radius-ui: 6px;
-  --radius-ui-sm: 4px;
-  --radius-ui-lg: 8px;
-  --radius-md: var(--radius-ui);
-  --radius-lg: var(--radius-ui-lg);
+  --radius-base: 6px;
+  --radius-control: 5px;
+  --radius-card: 7px;
+  --radius-panel: 8px;
+  --radius-tab: 6px;
+  --radius-dialog: 10px;
+  --radius-badge: 999px;
+  --radius-xs: max(0px, calc(var(--radius-control) - 2px));
+  --radius-sm: var(--radius-control);
+  --radius-ui: var(--radius-base);
+  --radius-ui-sm: var(--radius-control);
+  --radius-ui-lg: var(--radius-dialog);
+  --radius-md: var(--radius-base);
+  --radius-lg: var(--radius-dialog);
   --radius-pill: 999px;
   --radius-round: var(--radius-pill);
   --toolbar-height: 52px;
@@ -88,9 +95,11 @@
   --bg-app: #eef3ff;
   --bg-backdrop: rgba(214, 225, 243, 0.82);
 
-  --panel-base: #ffffff;
-  --panel-elevated: #ffffff;
-  --panel-overlay: rgba(255, 255, 255, 0.94);
+  /* Keep light workspaces layered, not stark white-on-white. Individual
+   * skins below tune these surfaces to their own background hue. */
+  --panel-base: #f7f9ff;
+  --panel-elevated: #fbfcff;
+  --panel-overlay: rgba(247, 249, 255, 0.96);
 
   --surface-muted: rgba(15, 23, 42, 0.03);
   --surface-hover: rgba(15, 23, 42, 0.06);
@@ -162,9 +171,9 @@
 :root.theme-light.skin-forest-moss {
   --bg-app: #edf6f0;
   --bg-backdrop: rgba(207, 231, 215, 0.78);
-  --panel-base: #ffffff;
-  --panel-elevated: #f7fbf8;
-  --panel-overlay: rgba(255, 255, 255, 0.94);
+  --panel-base: #f4faf6;
+  --panel-elevated: #fbfefc;
+  --panel-overlay: rgba(244, 250, 246, 0.96);
   --surface-active: rgba(34, 184, 112, 0.16);
   --text-primary: #1b2e24;
   --text-secondary: #426252;
@@ -205,9 +214,9 @@
 :root.theme-light.skin-solar-sand {
   --bg-app: #fff7eb;
   --bg-backdrop: rgba(255, 234, 202, 0.74);
-  --panel-base: #ffffff;
+  --panel-base: #fffaf2;
   --panel-elevated: #fffdf8;
-  --panel-overlay: rgba(255, 255, 255, 0.94);
+  --panel-overlay: rgba(255, 250, 242, 0.96);
   --surface-active: rgba(234, 122, 26, 0.16);
   --text-primary: #372611;
   --text-secondary: #6b4e2e;
@@ -248,9 +257,9 @@
 :root.theme-light.skin-graphite-ink {
   --bg-app: #f3f5f9;
   --bg-backdrop: rgba(223, 229, 239, 0.8);
-  --panel-base: #ffffff;
-  --panel-elevated: #f8fafd;
-  --panel-overlay: rgba(255, 255, 255, 0.94);
+  --panel-base: #f7f8fb;
+  --panel-elevated: #fcfdff;
+  --panel-overlay: rgba(247, 248, 251, 0.96);
   --surface-active: rgba(111, 132, 168, 0.14);
   --text-primary: #1f2733;
   --text-secondary: #4d5c72;
@@ -291,9 +300,9 @@
 :root.theme-light.skin-rose-dawn {
   --bg-app: #fff1f5;
   --bg-backdrop: rgba(255, 223, 233, 0.76);
-  --panel-base: #ffffff;
+  --panel-base: #fff8fb;
   --panel-elevated: #fffafd;
-  --panel-overlay: rgba(255, 255, 255, 0.94);
+  --panel-overlay: rgba(255, 248, 251, 0.96);
   --surface-active: rgba(241, 96, 143, 0.16);
   --text-primary: #3a1e2c;
   --text-secondary: #6f4256;
