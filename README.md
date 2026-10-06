@@ -63,7 +63,7 @@ npm run build
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Apple Silicon / Universal) | `Tau.Editor_0.6.10_aarch64.dmg` / `Tau.Editor_0.6.10_universal.dmg` | 首次打开需系统放行一次，见下方说明 |
+| macOS (Intel + Apple Silicon) | `Tau.Editor_0.6.10_universal.dmg` | 首次打开需系统放行一次，见下方说明 |
 | Windows (x64) | `Tau.Editor_0.6.10_x64-setup.exe` / `Tau.Editor_0.6.10_x64_zh-CN.msi` | 双击安装 |
 | Linux (x64) | `Tau.Editor_0.6.10_amd64.deb` / `Tau.Editor-0.6.10-1.x86_64.rpm` / `Tau.Editor_0.6.10_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
