@@ -65,19 +65,20 @@
 - `pnpm --dir frontend type-check`：通过。
 - `pnpm --dir frontend build-only`：通过。
 - Markdown 更新说明回归测试：通过；MarkdownPreview `16/16` 通过。
-- DMG 背景、应用图标和 Finder `.DS_Store` 挂载校验：补发 workflow 中执行。
+- DMG 背景、应用图标和 Finder `.DS_Store` 挂载校验：GitHub Actions run `37570119781` 已通过。
 - GitHub Actions 继续负责 macOS、Windows、Linux 安装包构建及发布资产校验。
 
 ### 已知限制
 
 - 本地完整 SettingsStore/SettingsPanel 套件仍有旧主题默认值断言需要后续同步；本版本保留已有主题行为迁移兼容。
-- Release 资产以补发后的 GitHub Actions run 为准；发布完成后需回读资产列表、架构信息、`.DS_Store`、背景图、应用图标和 SHA-256。
+- Release 资产已由 GitHub Actions run `37570119781` 补发并回读；两个 DMG 的架构、`.DS_Store`、背景图、应用图标和 SHA-256 均已验证。
 
 ### macOS 安装包
 
 - Apple Silicon / M 系列：`Tau.Editor_0.6.10_aarch64.dmg`
 - Intel + Apple Silicon：`Tau.Editor_0.6.10_universal.dmg`
-- 两个 DMG 的最终 SHA-256 以补发 workflow 完成后回读的 GitHub Release 资产为准，避免沿用缺少 `.DS_Store` 的旧包校验值。
+- `Tau.Editor_0.6.10_aarch64.dmg` SHA-256：`806f26bea5ce0b22d5257c6370f034467d95b6feaf7c29af4563879537a3ac32`。
+- `Tau.Editor_0.6.10_universal.dmg` SHA-256：`94c62a366e00f12723d1e446b1d8ba0410b45c19c4c860a5aa157f5e6c18dda8`。
 
 
 ---
