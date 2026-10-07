@@ -12,6 +12,15 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLE_DIR="${1:-frontend/src-tauri/target/universal-apple-darwin/release/bundle}"
 PRODUCT_NAME="${2:-TauEditor}"
 VERSION="${3:-0.0.0}"
+ARCH_LABEL="${4:-universal}"
+
+case "${ARCH_LABEL}" in
+  universal|aarch64) ;;
+  *)
+    echo "Unsupported macOS architecture label '${ARCH_LABEL}'; expected universal or aarch64." >&2
+    exit 1
+    ;;
+esac
 
 MACOS_DIR="${BUNDLE_DIR}/macos"
 ARTIFACT_DIR="${BUNDLE_DIR}/artifacts"
@@ -41,6 +50,29 @@ if [[ -z "${APP_PATH}" ]]; then
   exit 1
 fi
 
+APP_BINARY="${APP_PATH}/Contents/MacOS/text-editor"
+if [[ ! -x "${APP_BINARY}" ]]; then
+  echo "Expected app executable is missing: ${APP_BINARY}" >&2
+  exit 1
+fi
+
+actual_arches="$(lipo -archs "${APP_BINARY}" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+case "${ARCH_LABEL}" in
+  universal)
+    if [[ "${actual_arches}" != "arm64 x86_64" ]]; then
+      echo "Universal DMG requires arm64 and x86_64 app slices; found: ${actual_arches}" >&2
+      exit 1
+    fi
+    ;;
+  aarch64)
+    if [[ "${actual_arches}" != "arm64" ]]; then
+      echo "Apple Silicon DMG requires an arm64-only app; found: ${actual_arches}" >&2
+      exit 1
+    fi
+    ;;
+esac
+echo "Verified app architectures (${ARCH_LABEL}): ${actual_arches}"
+
 # Strip quarantine/provenance attributes before packaging.
 xattr -cr "${APP_PATH}"
 
@@ -64,24 +96,28 @@ fi
 
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 
-ZIP_NAME="${PRODUCT_NAME}_${VERSION}_universal-macos.zip"
-DMG_NAME="${PRODUCT_NAME}_${VERSION}_universal-macos.dmg"
+ZIP_NAME="${PRODUCT_NAME}_${VERSION}_${ARCH_LABEL}.zip"
+DMG_NAME="${PRODUCT_NAME}_${VERSION}_${ARCH_LABEL}.dmg"
 ZIP_PATH="${ARTIFACT_DIR}/${ZIP_NAME}"
 DMG_PATH="${ARTIFACT_DIR}/${DMG_NAME}"
+
+rm -f "${ZIP_PATH}" "${DMG_PATH}"
 
 ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
 
 DMG_BACKGROUND="${REPO_ROOT}/frontend/src-tauri/icons/dmg-background.png"
+DMG_SOURCE_ICON="${REPO_ROOT}/frontend/src-tauri/icons/icon.icns"
 TAURI_DMG_SCRIPT="${BUNDLE_DIR}/dmg/bundle_dmg.sh"
 DMG_SOURCE_DIR="${TMP_DIR}/dmg-source"
 mkdir -p "${DMG_SOURCE_DIR}"
 cp -R "${APP_PATH}" "${DMG_SOURCE_DIR}/$(basename "${APP_PATH}")"
 
-if [[ -x "${TAURI_DMG_SCRIPT}" && -f "${DMG_BACKGROUND}" ]]; then
+if [[ -x "${TAURI_DMG_SCRIPT}" && -f "${DMG_BACKGROUND}" && -f "${DMG_SOURCE_ICON}" ]]; then
   # Reuse Tauri's create-dmg wrapper so manually packaged DMGs match CI:
   # custom background, Finder icon positions, and the Applications drop link.
   "${TAURI_DMG_SCRIPT}" \
     --volname "${PRODUCT_NAME}" \
+    --volicon "${DMG_SOURCE_ICON}" \
     --background "${DMG_BACKGROUND}" \
     --window-size 660 400 \
     --icon "$(basename "${APP_PATH}")" 180 170 \
@@ -114,6 +150,13 @@ if [[ ! -f "${DMG_EMBEDDED_BACKGROUND}" ]]; then
   echo "DMG is missing .background/dmg-background.png; refusing to publish a stale/plain installer." >&2
   exit 1
 fi
+
+DMG_EMBEDDED_DS_STORE="${DMG_MOUNT_DIR}/.DS_Store"
+if [[ ! -s "${DMG_EMBEDDED_DS_STORE}" ]]; then
+  echo "DMG is missing Finder layout metadata .DS_Store; refusing to publish an unstyled installer." >&2
+  exit 1
+fi
+echo "Verified Finder layout metadata: ${DMG_EMBEDDED_DS_STORE} ($(stat -f '%z' "${DMG_EMBEDDED_DS_STORE}") bytes)"
 if ! cmp -s "${DMG_BACKGROUND}" "${DMG_EMBEDDED_BACKGROUND}"; then
   echo "DMG background differs from ${DMG_BACKGROUND}; refusing to publish a stale installer." >&2
   echo "Source:   $(shasum -a 256 "${DMG_BACKGROUND}" | awk '{print $1}')" >&2
@@ -124,7 +167,6 @@ echo "Verified DMG background: $(shasum -a 256 "${DMG_EMBEDDED_BACKGROUND}" | aw
 
 APP_IN_DMG="$(find "${DMG_MOUNT_DIR}" -maxdepth 1 -type d -name '*.app' -print -quit)"
 DMG_EMBEDDED_ICON="${APP_IN_DMG}/Contents/Resources/icon.icns"
-DMG_SOURCE_ICON="${REPO_ROOT}/frontend/src-tauri/icons/icon.icns"
 if [[ -z "${APP_IN_DMG}" || ! -f "${DMG_SOURCE_ICON}" || ! -f "${DMG_EMBEDDED_ICON}" ]]; then
   echo "DMG is missing the expected Tau Editor app icon; refusing to publish a stale installer." >&2
   exit 1

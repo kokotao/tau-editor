@@ -21,22 +21,38 @@ permissions:
 jobs:
   build-tauri:
     name: Build ${{ matrix.platform }}
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
     env:
       NODE_OPTIONS: --max-old-space-size=8192
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - platform: macos-universal
+            runner: macos-latest
+            os: macos
             args: "--target universal-apple-darwin"
+            architecture: universal
             bundlePath: frontend/src-tauri/target/universal-apple-darwin/release/bundle
             bundleRoot: src-tauri/target/universal-apple-darwin/release/bundle
+          - platform: macos-aarch64
+            runner: macos-latest
+            os: macos
+            args: "--target aarch64-apple-darwin"
+            architecture: aarch64
+            bundlePath: frontend/src-tauri/target/aarch64-apple-darwin/release/bundle
+            bundleRoot: src-tauri/target/aarch64-apple-darwin/release/bundle
           - platform: ubuntu-22.04
+            runner: ubuntu-22.04
+            os: linux
+            architecture: ""
             args: ""
             bundlePath: frontend/src-tauri/target/release/bundle
             bundleRoot: src-tauri/target/release/bundle
           - platform: windows-latest
+            runner: windows-latest
+            os: windows
+            architecture: ""
             args: ""
             bundlePath: frontend/src-tauri/target/release/bundle
             bundleRoot: src-tauri/target/release/bundle
@@ -77,12 +93,14 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install macOS universal Rust target
-        if: matrix.platform == 'macos-latest'
-        run: rustup target add x86_64-apple-darwin
+      - name: Install macOS Rust targets
+        if: matrix.os == 'macos'
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
 
       - name: Install Linux system libraries
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
@@ -92,7 +110,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Configure Apple code signing
-        if: matrix.platform == 'macos-latest'
+        if: matrix.os == 'macos'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -133,6 +151,27 @@ jobs:
         working-directory: frontend
         run: pnpm tauri build ${{ matrix.args }}
 
+      - name: Build custom macOS DMG artifacts
+        if: matrix.os == 'macos'
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bundle_root="${{ matrix.bundleRoot }}"
+          version="$(node -p "require('./package.json').version")"
+
+          # Tauri's default DMG does not reliably retain Finder layout metadata
+          # in headless CI. Remove it and publish only the explicitly verified
+          # DMG produced by package-macos-app.sh.
+          find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -delete 2>/dev/null || true
+
+          bash ../scripts/package-macos-app.sh \
+            "$bundle_root" \
+            "Tau.Editor" \
+            "$version" \
+            "${{ matrix.architecture }}"
+
       - name: Verify platform bundle matrix
         working-directory: frontend
         shell: bash
@@ -141,27 +180,28 @@ jobs:
 
           bundle_root="${{ matrix.bundleRoot }}"
           version="$(node -p "require('./package.json').version")"
-          case "${{ matrix.platform }}" in
-            macos-latest)
+          case "${{ matrix.os }}" in
+            macos)
               expected=(
-                "$(find "$bundle_root/dmg" -maxdepth 1 -type f -name "*${version}*.dmg" -print -quit)"
+                "$bundle_root/artifacts/Tau.Editor_${version}_${{ matrix.architecture }}.dmg"
+                "$bundle_root/artifacts/Tau.Editor_${version}_${{ matrix.architecture }}.zip"
               )
               ;;
-            ubuntu-22.04)
+            linux)
               expected=(
                 "$(find "$bundle_root/deb" -maxdepth 1 -type f -name "*${version}*.deb" -print -quit)"
                 "$(find "$bundle_root/appimage" -maxdepth 1 -type f -name "*${version}*.AppImage" -print -quit)"
                 "$(find "$bundle_root/rpm" -maxdepth 1 -type f -name "*${version}*.rpm" -print -quit)"
               )
               ;;
-            windows-latest)
+            windows)
               expected=(
                 "$(find "$bundle_root/msi" -maxdepth 1 -type f -name "*${version}*.msi" -print -quit)"
                 "$(find "$bundle_root/nsis" -maxdepth 1 -type f -name "*${version}*.exe" -print -quit)"
               )
               ;;
             *)
-              echo "::error::Unsupported release platform: ${{ matrix.platform }}"
+              echo "::error::Unsupported release OS: ${{ matrix.os }}"
               exit 1
               ;;
           esac
@@ -183,14 +223,14 @@ jobs:
           fi
 
       - name: Verify macOS DMG background asset
-        if: matrix.platform == 'macos-latest'
+        if: matrix.os == 'macos'
         working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
 
           version="$(node -p "require('./package.json').version")"
-          dmg_path="$(find "${{ matrix.bundleRoot }}/dmg" -maxdepth 1 -type f -name "*${version}*.dmg" -print -quit)"
+          dmg_path="${{ matrix.bundleRoot }}/artifacts/Tau.Editor_${version}_${{ matrix.architecture }}.dmg"
           source_background="src-tauri/icons/dmg-background.png"
 
           if [ -z "$dmg_path" ] || [ ! -f "$dmg_path" ]; then
@@ -231,6 +271,13 @@ jobs:
 
           echo "Verified DMG background: $(shasum -a 256 "$embedded_background" | awk '{print $1}')"
 
+          embedded_ds_store="$mount_dir/.DS_Store"
+          if [ ! -s "$embedded_ds_store" ]; then
+            echo "::error::DMG is missing Finder layout metadata .DS_Store"
+            exit 1
+          fi
+          echo "Verified Finder layout metadata: $(stat -f '%z' "$embedded_ds_store") bytes"
+
           app_in_dmg="$(find "$mount_dir" -maxdepth 1 -type d -name '*.app' -print -quit)"
           source_icon="src-tauri/icons/icon.icns"
           embedded_icon="$app_in_dmg/Contents/Resources/icon.icns"
@@ -247,8 +294,28 @@ jobs:
 
           echo "Verified DMG app icon: $(shasum -a 256 "$embedded_icon" | awk '{print $1}')"
 
+          app_binary="$app_in_dmg/Contents/MacOS/text-editor"
+          if [ ! -x "$app_binary" ]; then
+            echo "::error::DMG app executable is missing: $app_binary"
+            exit 1
+          fi
+          actual_arches="$(lipo -archs "$app_binary" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+          case "${{ matrix.architecture }}" in
+            universal)
+              expected_arches="arm64 x86_64"
+              ;;
+            aarch64)
+              expected_arches="arm64"
+              ;;
+          esac
+          if [ "$actual_arches" != "$expected_arches" ]; then
+            echo "::error::Expected ${{ matrix.architecture }} app architectures '$expected_arches', found '$actual_arches'"
+            exit 1
+          fi
+          echo "Verified DMG app architectures (${{ matrix.architecture }}): $actual_arches"
+
       - name: Verify macOS code signature
-        if: matrix.platform == 'macos-latest'
+        if: matrix.os == 'macos'
         working-directory: frontend
         run: |
           set -euo pipefail
@@ -274,7 +341,6 @@ jobs:
           name: bundles-${{ matrix.platform }}
           if-no-files-found: error
           path: |
-            ${{ matrix.bundlePath }}/**/*.dmg
             ${{ matrix.bundlePath }}/artifacts/*.dmg
             ${{ matrix.bundlePath }}/artifacts/*.zip
             ${{ matrix.bundlePath }}/**/*.app.tar.gz
@@ -323,7 +389,6 @@ jobs:
           declare -A required=()
           while IFS= read -r -d '' file; do
             case "$file" in
-              *.dmg) required[dmg]="$file" ;;
               *.deb) required[deb]="$file" ;;
               *.AppImage) required[appimage]="$file" ;;
               *.rpm) required[rpm]="$file" ;;
@@ -334,9 +399,31 @@ jobs:
             \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
             -print0)
 
-          for kind in dmg deb appimage rpm msi exe; do
+          for kind in deb appimage rpm msi exe; do
             if [ -z "${required[$kind]:-}" ]; then
               echo "::error::Release asset set is incomplete; missing ${kind} installer."
+              exit 1
+            fi
+          done
+
+          mapfile -t dmg_files < <(find release-assets -type f -name '*.dmg' -print | sort)
+          if [ "${#dmg_files[@]}" -ne 2 ]; then
+            echo "::error::Release asset set must contain exactly two macOS DMGs (universal and aarch64); found ${#dmg_files[@]}."
+            printf '%s\n' "${dmg_files[@]}"
+            exit 1
+          fi
+          for architecture in universal aarch64; do
+            found=0
+            for dmg_file in "${dmg_files[@]}"; do
+              case "$dmg_file" in
+                *_${architecture}.dmg)
+                  found=1
+                  break
+                  ;;
+              esac
+            done
+            if [ "$found" -ne 1 ]; then
+              echo "::error::Missing macOS ${architecture} DMG."
               exit 1
             fi
           done

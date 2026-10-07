@@ -2,7 +2,7 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-06
+> 最后更新：2026-10-07
 > 当前稳定版本：`v0.6.10`
 
 ---
@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release     | 本次发布  | 更新说明 Markdown 渲染、DMG 背景/图标校验、偏好设置主题与圆角改造 |
+| [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release（补发资产） | 本次发布  | 更新说明 Markdown 渲染、DMG Finder 布局修复、Universal/aarch64 macOS 安装包 |
 | [0.6.9](https://github.com/kokotao/tau-editor/releases/tag/v0.6.9) | 2026-10-05 | 公开 Release     | `a32ee3b` | 交互体验、macOS DMG 背景、三平台安装包发布                     |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
 | [0.6.3](https://github.com/kokotao/tau-editor/releases/tag/v0.6.3) | 2026-10-02 | 公开 Release     | `dcde9fc` | 资源区空提示与 Markdown 二级右键菜单运行态修复                |
@@ -49,7 +49,9 @@
 
 - 更新页的 Release Notes 现在按 Markdown 渲染，支持标题、列表、代码和链接；渲染依赖按需加载，失败时回退为安全纯文本。
 - 新增更新说明回归测试，避免 GitHub Release body 再以原始 `#` / `##` 标记显示。
-- macOS DMG 构建在上传前校验背景图和 `icon.icns` 与源码资源逐字节一致；缺少 DMG helper 或背景资源时直接失败，不再生成无背景 plain DMG。
+- macOS DMG 拖拽安装界面改为显式生成并校验 Finder 布局元数据 `.DS_Store`，确保最新蓝色背景图、应用图标、窗口尺寸、图标位置和 Applications 拖放位置在发布包中生效。
+- macOS DMG 构建在上传前校验 `.DS_Store`、背景图和 `icon.icns` 与源码资源；缺少 DMG helper、Finder 布局元数据或背景资源时直接失败，不再生成无背景 plain DMG。
+- 补充 Apple Silicon 原生安装包 `Tau.Editor_0.6.10_aarch64.dmg`，并保留 Intel + Apple Silicon 通用安装包 `Tau.Editor_0.6.10_universal.dmg`。
 
 ### 偏好设置与主题
 
@@ -63,13 +65,19 @@
 - `pnpm --dir frontend type-check`：通过。
 - `pnpm --dir frontend build-only`：通过。
 - Markdown 更新说明回归测试：通过；MarkdownPreview `16/16` 通过。
-- DMG 背景和应用图标挂载后字节校验：通过。
+- DMG 背景、应用图标和 Finder `.DS_Store` 挂载校验：补发 workflow 中执行。
 - GitHub Actions 继续负责 macOS、Windows、Linux 安装包构建及发布资产校验。
 
 ### 已知限制
 
 - 本地完整 SettingsStore/SettingsPanel 套件仍有旧主题默认值断言需要后续同步；本版本保留已有主题行为迁移兼容。
-- Release 资产以本次 tag 对应的 GitHub Actions run 为准，发布完成后回读资产列表和状态。
+- Release 资产以补发后的 GitHub Actions run 为准；发布完成后需回读资产列表、架构信息、`.DS_Store`、背景图、应用图标和 SHA-256。
+
+### macOS 安装包
+
+- Apple Silicon / M 系列：`Tau.Editor_0.6.10_aarch64.dmg`
+- Intel + Apple Silicon：`Tau.Editor_0.6.10_universal.dmg`
+- 两个 DMG 的最终 SHA-256 以补发 workflow 完成后回读的 GitHub Release 资产为准，避免沿用缺少 `.DS_Store` 的旧包校验值。
 
 
 ---

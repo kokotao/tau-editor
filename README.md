@@ -63,7 +63,8 @@ npm run build
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS (Intel + Apple Silicon) | `Tau.Editor_0.6.10_universal.dmg` | 首次打开需系统放行一次，见下方说明 |
+| macOS（Apple Silicon / M 系列） | `Tau.Editor_0.6.10_aarch64.dmg` | 原生 arm64 包；首次打开需系统放行一次，见下方说明 |
+| macOS（Intel + Apple Silicon） | `Tau.Editor_0.6.10_universal.dmg` | 通用包；首次打开需系统放行一次，见下方说明 |
 | Windows (x64) | `Tau.Editor_0.6.10_x64-setup.exe` / `Tau.Editor_0.6.10_x64_zh-CN.msi` | 双击安装 |
 | Linux (x64) | `Tau.Editor_0.6.10_amd64.deb` / `Tau.Editor-0.6.10-1.x86_64.rpm` / `Tau.Editor_0.6.10_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
@@ -71,6 +72,10 @@ npm run build
 > 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需
 > 在「系统设置 → 隐私与安全性」点击一次「仍要打开」（旧版 macOS 也可右键点击 App 选择「打开」）；
 > 如需完全免提示，需配置 Developer ID 签名与公证。
+
+> **macOS 拖拽安装界面**：v0.6.10 的两个 DMG 均使用当前蓝色背景图和最新应用图标，窗口内保留
+> “Tau Editor → Applications”的拖拽布局；打包流程会校验 Finder 布局元数据（`.DS_Store`）、背景图和
+> `icon.icns`，避免发布后显示旧背景、旧图标或默认空白窗口。
 >
 > `v0.4.1` 及更早的安装包如仍提示「已损坏」，把 App 拖到「应用程序」后执行一次：
 >
@@ -80,6 +85,13 @@ npm run build
 > ```
 >
 > 完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
+
+## ✨ v0.6.10 更新亮点
+
+- **更新说明 Markdown 渲染**：GitHub Release Notes 在应用内按 Markdown 渲染，并对内容进行安全清理；渲染失败时回退为纯文本摘要。
+- **macOS DMG 拖拽界面修复**：补齐 Finder `.DS_Store` 布局元数据，确保蓝色背景图、最新应用图标、窗口尺寸和 Applications 拖放位置在发布包中生效。
+- **Apple Silicon 安装包补齐**：新增 `Tau.Editor_0.6.10_aarch64.dmg`，同时保留包含 Intel 与 Apple Silicon 的 `Tau.Editor_0.6.10_universal.dmg`。
+- **偏好设置与主题收口**：主题、圆角 token、设置导航、自动保存状态、通知和工具栏图标完成一致性调整。
 
 ## ✨ v0.6.4 更新亮点
 
