@@ -17,7 +17,9 @@ use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncWriteExt;
 
 /// 自动保存间隔 (秒)
 /// 使用原子变量保证线程安全
@@ -86,6 +88,14 @@ pub struct DownloadInstallResult {
     pub downloaded_path: String,
     pub launched: bool,
     pub message: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct UpdateDownloadProgress {
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    progress: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,11 +235,12 @@ pub async fn download_and_install_update(
     app: tauri::AppHandle,
     download_url: String,
     file_name: String,
+    expected_size: Option<u64>,
 ) -> Result<DownloadInstallResult, String> {
     validate_download_url(&download_url)?;
 
     let download_path = build_download_path(&file_name)?;
-    download_file(&download_url, &download_path).await?;
+    download_file(&app, &download_url, &download_path, expected_size).await?;
 
     let launch_message = launch_installer(&app, &download_path)?;
 
@@ -725,7 +736,12 @@ fn current_unix_timestamp() -> Result<u64, String> {
         .map(|duration| duration.as_secs())
 }
 
-async fn download_file(url: &str, path: &Path) -> Result<(), String> {
+async fn download_file(
+    app: &AppHandle,
+    url: &str,
+    path: &Path,
+    expected_size: Option<u64>,
+) -> Result<(), String> {
     let client = Client::builder()
         .user_agent(HTTP_USER_AGENT)
         .build()
@@ -744,14 +760,57 @@ async fn download_file(url: &str, path: &Path) -> Result<(), String> {
         ));
     }
 
-    let bytes = response
-        .bytes()
+    let total_bytes = response.content_length().or(expected_size);
+    let mut response = response;
+    let mut file = tokio::fs::File::create(path)
         .await
-        .map_err(|error| format!("读取更新包内容失败：{error}"))?;
+        .map_err(|error| format!("创建更新包文件失败：{error}"))?;
+    let mut downloaded_bytes = 0_u64;
+    let mut last_reported = Instant::now();
 
-    tokio::fs::write(path, &bytes)
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| format!("写入更新包失败：{error}"))
+        .map_err(|error| format!("读取更新包内容失败：{error}"))?
+    {
+        file.write_all(&chunk)
+            .await
+            .map_err(|error| format!("写入更新包失败：{error}"))?;
+        downloaded_bytes += chunk.len() as u64;
+
+        if last_reported.elapsed().as_millis() >= 100 {
+            emit_update_download_progress(app, downloaded_bytes, total_bytes)?;
+            last_reported = Instant::now();
+        }
+    }
+
+    file.flush()
+        .await
+        .map_err(|error| format!("完成更新包写入失败：{error}"))?;
+    emit_update_download_progress(app, downloaded_bytes, total_bytes)?;
+    Ok(())
+}
+
+fn emit_update_download_progress(
+    app: &AppHandle,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+) -> Result<(), String> {
+    app.emit(
+        "app:update-download-progress",
+        UpdateDownloadProgress {
+            downloaded_bytes,
+            total_bytes,
+            progress: update_progress_percent(downloaded_bytes, total_bytes),
+        },
+    )
+    .map_err(|error| format!("发送更新下载进度失败：{error}"))
+}
+
+fn update_progress_percent(downloaded_bytes: u64, total_bytes: Option<u64>) -> Option<u8> {
+    total_bytes
+        .filter(|total| *total > 0)
+        .map(|total| ((u128::from(downloaded_bytes) * 100 / u128::from(total)).min(100)) as u8)
 }
 
 #[cfg(target_os = "windows")]
@@ -1065,6 +1124,15 @@ mod tests {
     use std::sync::Mutex;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn update_progress_percent_handles_known_unknown_and_overflowing_progress() {
+        assert_eq!(update_progress_percent(0, Some(100)), Some(0));
+        assert_eq!(update_progress_percent(45, Some(90)), Some(50));
+        assert_eq!(update_progress_percent(110, Some(100)), Some(100));
+        assert_eq!(update_progress_percent(100, None), None);
+        assert_eq!(update_progress_percent(100, Some(0)), None);
+    }
 
     #[test]
     fn test_auto_save_config_zero() {

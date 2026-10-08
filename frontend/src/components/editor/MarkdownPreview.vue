@@ -2,9 +2,10 @@
   <div
     ref="previewScrollRef"
     class="markdown-preview"
-    :class="previewThemeClass"
+    :class="`markdown-preview--${settingsStore.markdownPreviewTheme}`"
     data-testid="markdown-preview"
     @contextmenu.prevent="handleContextMenu"
+    @click="handlePreviewClick"
     @dblclick="handlePreviewDoubleClick"
   >
     <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
@@ -14,6 +15,7 @@
       v-if="contextMenu.visible"
       ref="menuRef"
       class="preview-context-menu"
+      :class="`markdown-preview--${settingsStore.markdownPreviewTheme}`"
       data-testid="markdown-preview-context-menu"
       :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
       @click.stop
@@ -51,7 +53,7 @@ const loadMarkdownRenderer = async () => {
 };
 import { useSettingsStore } from '@/stores/settings';
 import { getMarkdownPreviewI18n } from '@/i18n/ui';
-import { isTauriApp } from '@/lib/tauri';
+import { appCommands, isTauriApp } from '@/lib/tauri';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -77,7 +79,7 @@ interface PreviewMenuItem {
 }
 
 type PreviewThemeOption = {
-  value: 'docs-clean' | 'paper-soft' | 'editorial-warm' | 'graphite-night';
+  value: 'docs-clean' | 'paper-soft' | 'editorial-warm' | 'graphite-night' | 'mint-grove' | 'lavender-letter' | 'deep-ocean';
   label: string;
 };
 
@@ -99,7 +101,6 @@ const previewScrollRef = ref<HTMLElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 const settingsStore = useSettingsStore();
 const copy = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
-const previewThemeClass = computed(() => `markdown-preview--${settingsStore.markdownPreviewTheme}`);
 const html = ref('');
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
 let isPreviewReady = false;
@@ -370,15 +371,40 @@ const resolveContextTarget = (eventTarget: EventTarget | null): MarkdownPreviewC
   };
 };
 
-const openAddress = (address: string, openInNewWindow: boolean) => {
-  if (!address) {
+const isBrowserUrl = (address: string) => /^https?:\/\//i.test(address.trim());
+
+/**
+ * 所有 Markdown 网页链接统一交给系统默认浏览器，避免在 Tauri WebView 内导航。
+ * @author Albert_Luo
+ * @date 2026-10-07
+ */
+const openAddress = async (address: string) => {
+  const normalized = address.trim();
+  if (!isBrowserUrl(normalized)) {
     return;
   }
-  if (openInNewWindow) {
-    window.open(address, '_blank', 'noopener,noreferrer');
+
+  await appCommands.openExternalLink(normalized);
+};
+
+const handlePreviewClick = (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  if (!(target instanceof HTMLAnchorElement) || !previewRef.value?.contains(target)) {
     return;
   }
-  window.open(address, '_self');
+
+  const rawHref = target.getAttribute('href')?.trim() ?? '';
+  if (!rawHref || rawHref.startsWith('#')) {
+    return;
+  }
+
+  // 禁止 WebView 处理 Markdown 链接；仅 http/https 地址交给系统浏览器。
+  event.preventDefault();
+  event.stopPropagation();
+  const resolvedHref = resolveAddress(rawHref, props.sourceFilePath);
+  if (resolvedHref && isBrowserUrl(resolvedHref)) {
+    void openAddress(resolvedHref);
+  }
 };
 
 const requestPreviewModeChange = (mode: 'edit' | 'split' | 'preview') => {
@@ -401,6 +427,18 @@ const getPreviewThemeOptions = (): PreviewThemeOption[] => [
   {
     value: 'graphite-night',
     label: copy.value.previewThemeGraphiteNight,
+  },
+  {
+    value: 'mint-grove',
+    label: copy.value.previewThemeMintGrove,
+  },
+  {
+    value: 'lavender-letter',
+    label: copy.value.previewThemeLavenderLetter,
+  },
+  {
+    value: 'deep-ocean',
+    label: copy.value.previewThemeDeepOcean,
   },
 ];
 
@@ -458,12 +496,12 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
         id: 'open-link',
         label: copy.value.openLink,
         dividerBefore: true,
-        run: () => openAddress(target.resolvedHref!, false),
+        run: () => openAddress(target.resolvedHref!),
       },
       {
         id: 'open-link-new-tab',
         label: copy.value.openLinkNewWindow,
-        run: () => openAddress(target.resolvedHref!, true),
+        run: () => openAddress(target.resolvedHref!),
       },
       {
         id: 'copy-link',
@@ -479,12 +517,12 @@ const buildMenuItems = (target: MarkdownPreviewContextTarget): PreviewMenuItem[]
         id: 'open-image',
         label: copy.value.openImage,
         dividerBefore: true,
-        run: () => openAddress(target.resolvedSrc!, false),
+        run: () => openAddress(target.resolvedSrc!),
       },
       {
         id: 'open-image-new-tab',
         label: copy.value.openImageNewWindow,
-        run: () => openAddress(target.resolvedSrc!, true),
+        run: () => openAddress(target.resolvedSrc!),
       },
       {
         id: 'copy-image-src',
@@ -869,6 +907,117 @@ onBeforeUnmount(() => {
   --preview-menu-disabled-text: #64748b;
 }
 
+.markdown-preview--mint-grove {
+  --preview-bg: #eaf2e9;
+  --preview-surface: #f8fcf6;
+  --preview-text: #30483a;
+  --preview-heading: #193b2b;
+  --preview-heading-accent: rgba(57, 132, 91, 0.26);
+  --preview-muted: #587363;
+  --preview-border: rgba(80, 125, 91, 0.28);
+  --preview-quote-border: #4c9a69;
+  --preview-quote-bg: rgba(220, 239, 222, 0.74);
+  --preview-inline-code-bg: rgba(57, 132, 91, 0.12);
+  --preview-inline-code-text: #276440;
+  --preview-code-bg: #edf6ed;
+  --preview-code-text: #263f31;
+  --preview-code-border: rgba(80, 125, 91, 0.32);
+  --preview-link: #287347;
+  --preview-link-hover: #1b5934;
+  --preview-table-header-bg: rgba(204, 229, 207, 0.86);
+  --preview-table-row-alt: rgba(231, 243, 231, 0.82);
+  --preview-mermaid-error-bg: #fff0ed;
+  --preview-mermaid-error-border: rgba(220, 90, 75, 0.35);
+  --preview-mermaid-error-text: #923c32;
+  --preview-menu-bg: #f8fcf6;
+  --preview-menu-border: rgba(80, 125, 91, 0.38);
+  --preview-menu-shadow: 0 18px 40px rgba(35, 73, 46, 0.18);
+  --preview-menu-text: #30483a;
+  --preview-menu-hover-bg: #e2f0e3;
+  --preview-menu-hover-text: #193b2b;
+  --preview-menu-disabled-text: #758d7d;
+}
+
+.markdown-preview--mint-grove .markdown-preview-content :deep(h1),
+.markdown-preview--mint-grove .markdown-preview-content :deep(h2) {
+  padding-left: 0.65em;
+  border-left: 3px solid var(--preview-quote-border);
+}
+
+.markdown-preview--lavender-letter {
+  --preview-bg: #f0edf7;
+  --preview-surface: #fbf9ff;
+  --preview-text: #453d55;
+  --preview-heading: #302544;
+  --preview-heading-accent: rgba(123, 96, 171, 0.24);
+  --preview-muted: #716783;
+  --preview-border: rgba(117, 99, 149, 0.28);
+  --preview-quote-border: #8a70b8;
+  --preview-quote-bg: rgba(235, 228, 247, 0.78);
+  --preview-inline-code-bg: rgba(123, 96, 171, 0.12);
+  --preview-inline-code-text: #5e438e;
+  --preview-code-bg: #f3effa;
+  --preview-code-text: #413650;
+  --preview-code-border: rgba(117, 99, 149, 0.3);
+  --preview-link: #7048a3;
+  --preview-link-hover: #523278;
+  --preview-table-header-bg: rgba(223, 214, 240, 0.86);
+  --preview-table-row-alt: rgba(244, 240, 250, 0.92);
+  --preview-mermaid-error-bg: #fff0f2;
+  --preview-mermaid-error-border: rgba(210, 90, 112, 0.34);
+  --preview-mermaid-error-text: #8f3348;
+  --preview-menu-bg: #fbf9ff;
+  --preview-menu-border: rgba(117, 99, 149, 0.38);
+  --preview-menu-shadow: 0 18px 40px rgba(58, 42, 83, 0.18);
+  --preview-menu-text: #453d55;
+  --preview-menu-hover-bg: #eee8f8;
+  --preview-menu-hover-text: #302544;
+  --preview-menu-disabled-text: #817892;
+}
+
+.markdown-preview--lavender-letter .markdown-preview-content :deep(h1),
+.markdown-preview--lavender-letter .markdown-preview-content :deep(h2),
+.markdown-preview--lavender-letter .markdown-preview-content :deep(h3) {
+  font-family: Georgia, 'Noto Serif', 'Songti SC', serif;
+  letter-spacing: 0.015em;
+}
+
+.markdown-preview--deep-ocean {
+  --preview-bg: #0d1b2a;
+  --preview-surface: #122337;
+  --preview-text: #dce8f3;
+  --preview-heading: #f1f7fc;
+  --preview-heading-accent: rgba(74, 180, 218, 0.28);
+  --preview-muted: #9bb1c4;
+  --preview-border: rgba(105, 151, 180, 0.32);
+  --preview-quote-border: #4bb8d8;
+  --preview-quote-bg: rgba(31, 91, 119, 0.24);
+  --preview-inline-code-bg: rgba(75, 184, 216, 0.16);
+  --preview-inline-code-text: #8fe4f5;
+  --preview-code-bg: #0a1725;
+  --preview-code-text: #dce8f3;
+  --preview-code-border: rgba(105, 151, 180, 0.38);
+  --preview-link: #79d7ed;
+  --preview-link-hover: #b2eff8;
+  --preview-table-header-bg: rgba(30, 69, 94, 0.94);
+  --preview-table-row-alt: rgba(18, 47, 68, 0.8);
+  --preview-mermaid-error-bg: rgba(127, 29, 29, 0.38);
+  --preview-mermaid-error-border: rgba(248, 113, 113, 0.45);
+  --preview-mermaid-error-text: #fecaca;
+  --preview-menu-bg: #122337;
+  --preview-menu-border: rgba(105, 151, 180, 0.5);
+  --preview-menu-shadow: 0 20px 48px rgba(2, 10, 20, 0.55);
+  --preview-menu-text: #dce8f3;
+  --preview-menu-hover-bg: rgba(75, 184, 216, 0.18);
+  --preview-menu-hover-text: #f1f7fc;
+  --preview-menu-disabled-text: #8ba2b5;
+}
+
+.markdown-preview--deep-ocean .markdown-preview-content :deep(h1),
+.markdown-preview--deep-ocean .markdown-preview-content :deep(h2) {
+  text-shadow: 0 0 22px rgba(75, 184, 216, 0.12);
+}
+
 .markdown-preview-content {
   width: 100%;
   max-width: none;
@@ -1035,6 +1184,83 @@ onBeforeUnmount(() => {
   background: var(--preview-menu-bg);
   box-shadow: var(--preview-menu-shadow);
   backdrop-filter: blur(14px);
+}
+
+.preview-context-menu.markdown-preview--docs-clean {
+  --preview-menu-bg: #ffffff;
+  --preview-menu-border: #cbd5e1;
+  --preview-menu-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+  --preview-menu-text: #334155;
+  --preview-menu-hover-bg: #eaf1ff;
+  --preview-menu-hover-text: #0f172a;
+  --preview-menu-disabled-text: #64748b;
+  --preview-border: rgba(148, 163, 184, 0.45);
+}
+
+.preview-context-menu.markdown-preview--paper-soft {
+  --preview-menu-bg: #fffbf3;
+  --preview-menu-border: #c7b49b;
+  --preview-menu-shadow: 0 18px 38px rgba(75, 59, 45, 0.2);
+  --preview-menu-text: #5c4b3e;
+  --preview-menu-hover-bg: #f3e6cf;
+  --preview-menu-hover-text: #342a21;
+  --preview-menu-disabled-text: #817360;
+  --preview-border: rgba(145, 123, 97, 0.42);
+}
+
+.preview-context-menu.markdown-preview--editorial-warm {
+  --preview-menu-bg: #fff8f4;
+  --preview-menu-border: #c9a69d;
+  --preview-menu-shadow: 0 18px 42px rgba(78, 45, 37, 0.2);
+  --preview-menu-text: #5b433c;
+  --preview-menu-hover-bg: #f8e7df;
+  --preview-menu-hover-text: #2c1814;
+  --preview-menu-disabled-text: #88736d;
+  --preview-border: rgba(166, 120, 110, 0.42);
+}
+
+.preview-context-menu.markdown-preview--graphite-night {
+  --preview-menu-bg: #121822;
+  --preview-menu-border: #475569;
+  --preview-menu-shadow: 0 20px 45px rgba(2, 6, 23, 0.45);
+  --preview-menu-text: #d6dde8;
+  --preview-menu-hover-bg: rgba(45, 212, 191, 0.16);
+  --preview-menu-hover-text: #f8fafc;
+  --preview-menu-disabled-text: #94a3b8;
+  --preview-border: rgba(100, 116, 139, 0.48);
+}
+
+.preview-context-menu.markdown-preview--mint-grove {
+  --preview-menu-bg: #f8fcf6;
+  --preview-menu-border: rgba(80, 125, 91, 0.38);
+  --preview-menu-shadow: 0 18px 40px rgba(35, 73, 46, 0.18);
+  --preview-menu-text: #30483a;
+  --preview-menu-hover-bg: #e2f0e3;
+  --preview-menu-hover-text: #193b2b;
+  --preview-menu-disabled-text: #758d7d;
+  --preview-border: rgba(80, 125, 91, 0.42);
+}
+
+.preview-context-menu.markdown-preview--lavender-letter {
+  --preview-menu-bg: #fbf9ff;
+  --preview-menu-border: rgba(117, 99, 149, 0.38);
+  --preview-menu-shadow: 0 18px 40px rgba(58, 42, 83, 0.18);
+  --preview-menu-text: #453d55;
+  --preview-menu-hover-bg: #eee8f8;
+  --preview-menu-hover-text: #302544;
+  --preview-menu-disabled-text: #817892;
+  --preview-border: rgba(117, 99, 149, 0.42);
+}
+
+.preview-context-menu.markdown-preview--deep-ocean {
+  --preview-menu-bg: #122337;
+  --preview-menu-border: rgba(105, 151, 180, 0.5);
+  --preview-menu-shadow: 0 20px 48px rgba(2, 10, 20, 0.55);
+  --preview-menu-text: #dce8f3;
+  --preview-menu-hover-bg: rgba(75, 184, 216, 0.18);
+  --preview-menu-hover-text: #f1f7fc;
+  --preview-menu-disabled-text: #8ba2b5;
+  --preview-border: rgba(105, 151, 180, 0.48);
 }
 
 .preview-context-menu-divider {

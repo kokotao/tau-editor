@@ -95,10 +95,10 @@ describe('StatusBar.vue', () => {
 
       const select = wrapper.find('[data-testid="encoding-select"]')
       expect(select.exists()).toBe(true)
-      expect((select.element as HTMLSelectElement).value).toBe('utf-8')
+      expect(select.attributes('data-value')).toBe('utf-8')
     })
 
-    it('应支持自定义编码并大写显示', () => {
+    it('应支持自定义编码并大写显示', async () => {
       const wrapper = mount(StatusBar, {
         props: {
           cursorPosition: { line: 1, column: 1 },
@@ -108,10 +108,10 @@ describe('StatusBar.vue', () => {
       })
 
       const select = wrapper.find('[data-testid="encoding-select"]')
-      expect((select.element as HTMLSelectElement).value).toBe('gbk')
+      expect(select.attributes('data-value')).toBe('gbk')
 
-      const selectedOption = select.findAll('option').find((option) => (option.element as HTMLOptionElement).selected)
-      expect(selectedOption?.text()).toBe('GBK')
+      await select.trigger('click')
+      expect(wrapper.get('[data-testid="encoding-select-option-gbk"]').text()).toBe('GBK')
     })
 
     it('应显示行数', () => {
@@ -182,10 +182,10 @@ describe('StatusBar.vue', () => {
       const wrapper = mountLanguageBar('typescript')
 
       const select = getLanguageSelect(wrapper)
-      expect(select.element.value).toBe('typescript')
+      expect(select.attributes('data-value')).toBe('typescript')
     })
 
-    it('应支持所有预定义语言选项', () => {
+    it('应支持所有预定义语言选项', async () => {
       const wrapper = mountLanguageBar()
 
       const languages = [
@@ -211,18 +211,47 @@ describe('StatusBar.vue', () => {
       ]
 
       const select = getLanguageSelect(wrapper)
-      const options = select.findAll('option')
+      await select.trigger('click')
 
       languages.forEach((lang, index) => {
-        expect(options[index].element.value).toBe(lang)
+        expect(wrapper.find(`[data-testid="language-mode-display-option-${lang}"]`).exists()).toBe(true)
+        expect(wrapper.findAll('[role="option"]')[index].attributes('aria-selected')).toBe(
+          lang === 'plaintext' ? 'true' : 'false',
+        )
       })
+    })
+
+    it('语言列表应使用可滚动的自绘菜单并通过方向键选择', async () => {
+      const wrapper = mount(StatusBar, {
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+          language: 'plaintext',
+        },
+        attachTo: document.body,
+      })
+
+      await getLanguageSelect(wrapper).trigger('click')
+      const menu = wrapper.get('[data-testid="language-mode-display-menu"]')
+      expect(menu.attributes('style')).toContain('position: fixed')
+      expect(menu.attributes('style')).toContain('visibility: visible')
+      const selectedOption = wrapper.get('[data-testid="language-mode-display-option-plaintext"]')
+      expect(selectedOption.attributes('aria-selected')).toBe('true')
+
+      await selectedOption.trigger('keydown', { key: 'ArrowDown' })
+      const javascriptOption = wrapper.get('[data-testid="language-mode-display-option-javascript"]')
+      expect(document.activeElement).toBe(javascriptOption.element)
+
+      await javascriptOption.trigger('keydown', { key: 'Enter' })
+      expect(wrapper.emitted('language-change')?.[0]).toEqual(['javascript'])
+      expect(wrapper.find('[data-testid="language-mode-display-menu"]').exists()).toBe(false)
+      wrapper.unmount()
     })
 
     it('改变语言应发射 language-change 事件', async () => {
       const wrapper = mountLanguageBar()
 
-      const select = getLanguageSelect(wrapper)
-      await select.setValue('typescript')
+      await getLanguageSelect(wrapper).trigger('click')
+      await wrapper.get('[data-testid="language-mode-display-option-typescript"]').trigger('click')
 
       expect(wrapper.emitted('language-change')).toBeTruthy()
       expect(wrapper.emitted('language-change')![0]).toEqual(['typescript'])
@@ -231,8 +260,8 @@ describe('StatusBar.vue', () => {
     it('选择 JavaScript 应发射正确事件', async () => {
       const wrapper = mountLanguageBar()
 
-      const select = getLanguageSelect(wrapper)
-      await select.setValue('javascript')
+      await getLanguageSelect(wrapper).trigger('click')
+      await wrapper.get('[data-testid="language-mode-display-option-javascript"]').trigger('click')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['javascript'])
     })
@@ -240,8 +269,8 @@ describe('StatusBar.vue', () => {
     it('选择 Python 应发射正确事件', async () => {
       const wrapper = mountLanguageBar()
 
-      const select = getLanguageSelect(wrapper)
-      await select.setValue('python')
+      await getLanguageSelect(wrapper).trigger('click')
+      await wrapper.get('[data-testid="language-mode-display-option-python"]').trigger('click')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['python'])
     })
@@ -249,8 +278,8 @@ describe('StatusBar.vue', () => {
     it('选择 Markdown 应发射正确事件', async () => {
       const wrapper = mountLanguageBar()
 
-      const select = getLanguageSelect(wrapper)
-      await select.setValue('markdown')
+      await getLanguageSelect(wrapper).trigger('click')
+      await wrapper.get('[data-testid="language-mode-display-option-markdown"]').trigger('click')
 
       expect(wrapper.emitted('language-change')![0]).toEqual(['markdown'])
     })
@@ -273,7 +302,8 @@ describe('StatusBar.vue', () => {
     it('切换编码应发射 encoding-change 事件', async () => {
       const wrapper = mountEncodingBar()
       const select = wrapper.get('[data-testid="encoding-select"]')
-      await select.setValue('gb18030')
+      await select.trigger('click')
+      await wrapper.get('[data-testid="encoding-select-option-gb18030"]').trigger('click')
 
       expect(wrapper.emitted('encoding-change')).toBeTruthy()
       expect(wrapper.emitted('encoding-change')![0]).toEqual(['gb18030'])
@@ -493,7 +523,7 @@ describe('StatusBar.vue', () => {
       })
 
       const select = wrapper.find('[data-testid="encoding-select"]')
-      expect((select.element as HTMLSelectElement).value).toBe('utf-8')
+      expect(select.attributes('data-value')).toBe('utf-8')
     })
 
     it('应使用默认语言', () => {
@@ -502,7 +532,7 @@ describe('StatusBar.vue', () => {
       })
 
       const select = wrapper.find('[data-testid="language-mode-display"]')
-      expect(select.element.value).toBe('plaintext')
+      expect(select.attributes('data-value')).toBe('plaintext')
     })
 
     it('应默认启用自动保存', () => {
@@ -537,7 +567,7 @@ describe('StatusBar.vue', () => {
       await wrapper.setProps({ language: 'javascript' })
 
       const select = wrapper.find('[data-testid="language-mode-display"]')
-      expect(select.element.value).toBe('javascript')
+      expect(select.attributes('data-value')).toBe('javascript')
     })
 
     it('自动保存状态变化应更新显示', async () => {
@@ -611,7 +641,7 @@ describe('StatusBar.vue', () => {
       })
 
       const select = wrapper.find('[data-testid="language-mode-display"]')
-      expect(select.element.disabled).toBe(false)
+      expect(select.attributes('aria-haspopup')).toBe('listbox')
     })
   })
 })

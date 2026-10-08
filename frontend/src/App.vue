@@ -90,8 +90,6 @@ import {
   getCommandText,
   getToolbarI18n,
   type CommandId,
-  type EditorLanguageMode,
-  type SystemMenuAction,
 } from '@/i18n/ui';
 import CommandPalette from './components/editor/CommandPalette.vue';
 import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
@@ -99,6 +97,7 @@ import ReplacePreviewDialog from './components/editor/ReplacePreviewDialog.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
+import EditorBreadcrumbs, { type EditorBreadcrumbSegment } from './components/editor/EditorBreadcrumbs.vue';
 import { LazyEditorCore } from './components/editor/LazyEditorCore';
 import MarkdownPreview from './components/editor/MarkdownPreview.vue';
 import ContextRail from './components/editor/ContextRail.vue';
@@ -190,27 +189,6 @@ configureMonacoLspBridge({
 });
 // Markdown 图片粘贴可以在未打开工作区时按文档所在目录静默注册临时工作区。
 const markdownWorkspaceRuntime = createWorkspaceRuntimeService();
-const LANGUAGE_MODE_ORDER: EditorLanguageMode[] = [
-  'plaintext',
-  'javascript',
-  'typescript',
-  'python',
-  'java',
-  'c',
-  'cpp',
-  'csharp',
-  'go',
-  'rust',
-  'html',
-  'css',
-  'scss',
-  'json',
-  'xml',
-  'markdown',
-  'yaml',
-  'sql',
-  'shell',
-];
 const FILE_LANGUAGE_MAP: Record<string, string> = {
   js: 'javascript',
   ts: 'typescript',
@@ -248,6 +226,19 @@ const fileTreeDrawerOpen = ref(false);
 const contextRailDrawerOpen = ref(false);
 const paletteMode = ref<'commands' | 'quick-open' | 'workspace-symbol'>('commands');
 const navigationHistory = new NavigationHistory();
+const navigationHistoryRevision = ref(0);
+const pushNavigationHistory = (location: NavigationLocation) => {
+  navigationHistory.push(location);
+  navigationHistoryRevision.value += 1;
+};
+const canGoBack = computed(() => {
+  navigationHistoryRevision.value;
+  return navigationHistory.canGoBack;
+});
+const canGoForward = computed(() => {
+  navigationHistoryRevision.value;
+  return navigationHistory.canGoForward;
+});
 const restoringNavigation = ref(false);
 const workspaceSymbolCommands = ref<AppCommand[]>([]);
 const workspaceSymbolTargets = ref<NavigationLocation[]>([]);
@@ -300,6 +291,7 @@ const fileDetailsDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>(
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 type EditorCoreExpose = {
   getContent: () => string;
+  getPosition: () => { line: number; column: number } | null;
   focusAtStart: () => void;
   insertText: (text: string) => void;
   layout: () => void;
@@ -335,6 +327,29 @@ type EditorCoreExpose = {
 };
 type MarkdownAction = 'heading' | 'bold' | 'italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
 const editorCoreRef = ref<EditorCoreExpose | null>(null);
+type SettingsPanelExpose = {
+  installUpdate: () => Promise<{ success: boolean; error?: string }>;
+};
+const workspaceSettingsPanelRef = ref<SettingsPanelExpose | null>(null);
+type TitlebarUpdateState = {
+  available: boolean;
+  canInstall: boolean;
+  latestVersion: string;
+  releaseName: string;
+  releaseNotes: string;
+  releaseUrl: string;
+};
+type UpdateDownloadProgress = {
+  downloadedBytes: number;
+  totalBytes: number | null;
+  progress: number | null;
+};
+const titlebarUpdate = ref<TitlebarUpdateState | null>(null);
+const titlebarUpdateProgress = ref<number | null>(null);
+const titlebarUpdateProgressVisible = ref(false);
+const titlebarUpdateComplete = ref(false);
+let unlistenUpdateProgress: (() => void) | null = null;
+let titlebarProgressTimer: ReturnType<typeof setTimeout> | null = null;
 type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean };
 const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
@@ -480,6 +495,66 @@ const tabs = computed(() => tabsStore.tabs);
 const openedModelIds = computed(() => tabsStore.tabs.map((tab) => tab.id));
 const activeTab = computed(() => tabsStore.activeTab);
 const activeTabId = computed(() => tabsStore.activeTabId);
+const editorBreadcrumbBackground = computed(() => {
+  const theme = settingsStore.activeMonacoThemeDefinition;
+  const builtInBackgrounds: Record<string, string> = {
+    vs: '#fffffe',
+    'vs-dark': '#1e1e1e',
+    'hc-black': '#000000',
+  };
+  return theme?.colors['editor.background']
+    ?? builtInBackgrounds[theme?.base ?? settingsStore.monacoTheme]
+    ?? '#1e1e1e';
+});
+const editorBreadcrumbSegments = computed<EditorBreadcrumbSegment[]>(() => {
+  const tab = activeTab.value;
+  if (!tab) return [];
+  if (!tab.filePath) {
+    return [{ label: tab.fileName, path: null, kind: 'file', navigable: false }];
+  }
+
+  const workspacePath = workspaceStore.currentWorkspacePath;
+  if (!workspacePath) {
+    return [{ label: tab.fileName, path: tab.filePath, kind: 'file', navigable: false }];
+  }
+
+  const normalizedWorkspacePath = canonicalFsPath(workspacePath);
+  const normalizedFilePath = canonicalFsPath(tab.filePath);
+  const comparableWorkspacePath = comparableFsPath(normalizedWorkspacePath);
+  const comparableFilePath = comparableFsPath(normalizedFilePath);
+  const isWorkspaceRoot = comparableWorkspacePath === '/';
+  const isInsideWorkspace = comparableFilePath === comparableWorkspacePath
+    || (isWorkspaceRoot
+      ? comparableFilePath.startsWith('/')
+      : comparableFilePath.startsWith(`${comparableWorkspacePath}/`));
+
+  if (!isInsideWorkspace) {
+    return [{ label: tab.fileName, path: tab.filePath, kind: 'file', navigable: false }];
+  }
+
+  const segments: EditorBreadcrumbSegment[] = [{
+    label: workspaceStore.currentWorkspaceName ?? getBaseNameFromFsPath(workspacePath),
+    path: workspacePath,
+    kind: 'workspace',
+    navigable: true,
+  }];
+  const relativePath = normalizedFilePath.slice(normalizedWorkspacePath.length).replace(/^\/+/, '');
+  const parts = relativePath.split('/').filter(Boolean);
+  let currentPath = normalizedWorkspacePath;
+
+  parts.forEach((part, index) => {
+    currentPath = joinFsPath(currentPath, part);
+    const isFile = index === parts.length - 1;
+    segments.push({
+      label: part,
+      path: currentPath,
+      kind: isFile ? 'file' : 'folder',
+      navigable: true,
+    });
+  });
+
+  return segments;
+});
 const cursorPosition = computed(() => editorStore.cursorPosition);
 const encoding = computed(() => editorStore.encoding);
 const language = computed(() => activeTab.value?.language ?? editorStore.language);
@@ -488,7 +563,13 @@ const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
+const hasMacWindowTitlebar = computed(() => isTauriApp()
+  && typeof navigator !== 'undefined'
+  && /Macintosh|Mac OS X/.test(navigator.userAgent));
 const markdownPreviewMode = computed(() => settingsStore.markdownPreviewMode);
+const titlebarUpdateNotes = computed(() => titlebarUpdate.value?.releaseNotes.trim() || (
+  settingsStore.uiLanguage === 'en-US' ? 'No release notes provided.' : '暂无更新说明。'
+));
 const previewTheme = computed<'dark' | 'light'>(() => settingsStore.previewTheme);
 const canUndo = computed(() => editorStore.canUndo);
 const canRedo = computed(() => editorStore.canRedo);
@@ -530,13 +611,6 @@ const workspaceLabel = computed(() => {
   }
 
   return workspaceStore.currentWorkspaceName ?? appText.value.workspaceNotOpen;
-});
-const currentFileLabel = computed(() => {
-  if (!activeTab.value) {
-    return appText.value.fileNotOpen;
-  }
-
-  return activeTab.value.fileName;
 });
 const filteredCommands = computed(() => commandStore.filteredCommands);
 const flattenFileTree = (nodes: FileTreeNode[]): Array<{ path: string; name: string }> => nodes.flatMap((node) => [
@@ -691,6 +765,36 @@ watch(activeTab, (tab) => {
   void refreshLspDocumentOutline(tab);
 }, { immediate: true });
 
+watch(activeTab, (tab, previousTab) => {
+  if (restoringNavigation.value || tab?.id === previousTab?.id) {
+    return;
+  }
+
+  const previousPosition = editorCoreRef.value?.getPosition?.();
+  if (previousTab?.filePath) {
+    pushNavigationHistory({
+      filePath: previousTab.filePath,
+      line: previousPosition?.line ?? editorStore.cursorPosition.line,
+      column: previousPosition?.column ?? editorStore.cursorPosition.column,
+    });
+  }
+
+  if (tab?.filePath) {
+    const filePath = tab.filePath;
+    void nextTick(() => {
+      if (restoringNavigation.value || activeTab.value?.id !== tab.id) {
+        return;
+      }
+      const position = editorCoreRef.value?.getPosition?.();
+      pushNavigationHistory({
+        filePath,
+        line: position?.line ?? 1,
+        column: position?.column ?? 1,
+      });
+    });
+  }
+}, { immediate: true });
+
 // 内容、路径或语言变化时重新请求符号；未安装 LSP 时 computed 仍稳定使用 fallback。
 watch(
   () => [
@@ -764,7 +868,7 @@ const openMonacoCodeEditor: monaco.editor.ICodeEditorOpener['openCodeEditor'] = 
     ? selectionOrPosition.startColumn
     : selectionOrPosition?.column;
   editorCoreRef.value?.revealLine(line ?? 1, column ?? 1);
-  navigationHistory.push({
+  pushNavigationHistory({
     filePath,
     line: line ?? 1,
     column: column ?? 1,
@@ -892,6 +996,55 @@ const handleRevealCurrentFile = async () => {
     if (revealed === false) notificationStore.warning('无法定位当前文件', '文件树视图已发生变化，请重试。');
   } finally {
     if (requestId === locateRequestId) locatingCurrentFile.value = false;
+  }
+};
+
+const handleBreadcrumbNavigate = async (segment: EditorBreadcrumbSegment) => {
+  const workspacePath = workspaceStore.currentWorkspacePath;
+  if (!segment.navigable || !segment.path || !workspacePath) return;
+
+  showFileTree.value = true;
+  if (segment.kind === 'workspace') {
+    fileSystemStore.selectEntry(null);
+    return;
+  }
+
+  const targetPath = normalizeFsPath(segment.path);
+  const normalizedWorkspacePath = comparableFsPath(workspacePath);
+  const expandTarget = segment.kind === 'folder';
+  const firstFolderPath = expandTarget ? targetPath : getParentFsPath(targetPath);
+  const parentPaths: string[] = [];
+  let parentPath = firstFolderPath;
+
+  while (parentPath) {
+    const comparableParentPath = comparableFsPath(parentPath);
+    if (comparableParentPath === normalizedWorkspacePath) break;
+    const isInsideWorkspace = normalizedWorkspacePath === '/'
+      ? comparableParentPath.startsWith('/')
+      : comparableParentPath.startsWith(`${normalizedWorkspacePath}/`);
+    if (!isInsideWorkspace) break;
+    parentPaths.unshift(parentPath);
+    parentPath = getParentFsPath(parentPath);
+  }
+
+  for (const folderPath of parentPaths) {
+    const folder = findFileTreeEntryByNormalizedPath(fileSystemStore.fileTree, folderPath);
+    if (folder?.type === 'folder' && !folder.isExpanded) {
+      await fileSystemStore.toggleFolder(folder.path);
+    }
+  }
+
+  const targetEntry = findFileTreeEntryByNormalizedPath(fileSystemStore.fileTree, targetPath);
+  if (!targetEntry) {
+    notificationStore.warning('无法定位路径', '文件树未能加载该路径，请刷新资源区后重试。');
+    return;
+  }
+
+  fileSystemStore.selectEntry(targetEntry.path);
+  await nextTick();
+  const revealed = await fileTreeRef.value?.revealPath(targetEntry.path);
+  if (revealed === false) {
+    notificationStore.warning('无法定位路径', '文件树视图已发生变化，请重试。');
   }
 };
 
@@ -1333,9 +1486,12 @@ const openWorkspaceFileAtLine = async (relativePath: string, line: number) => {
     return;
   }
 
-  await openFileInEditor(joinFsPath(root, relativePath));
+  const filePath = joinFsPath(root, relativePath);
+  pushCurrentNavigation();
+  await openFileInEditor(filePath);
   await nextTick();
   editorCoreRef.value?.revealLine(line);
+  pushNavigationHistory({ filePath, line, column: 1 });
 };
 
 /** 打开 LSP 诊断对应文件，并将编辑器定位到具体行列。 */
@@ -1346,7 +1502,7 @@ const handleDiagnosticNavigate = async (diagnostic: DiagnosticRecord) => {
   if (activeTab.value?.filePath && canonicalFsPath(activeTab.value.filePath) === canonicalFsPath(filePath)) {
     pushCurrentNavigation();
     editorCoreRef.value?.revealLine(diagnostic.startLineNumber, diagnostic.startColumn);
-    navigationHistory.push({
+    pushNavigationHistory({
       filePath,
       line: diagnostic.startLineNumber,
       column: diagnostic.startColumn,
@@ -1358,7 +1514,7 @@ const handleDiagnosticNavigate = async (diagnostic: DiagnosticRecord) => {
   await openFileInEditor(filePath);
   if (await waitForEditorTarget(filePath)) {
     editorCoreRef.value?.revealLine(diagnostic.startLineNumber, diagnostic.startColumn);
-    navigationHistory.push({
+    pushNavigationHistory({
       filePath,
       line: diagnostic.startLineNumber,
       column: diagnostic.startColumn,
@@ -1540,7 +1696,10 @@ const handleFolderToggle = (folderPath: string) => {
 };
 
 const handleFileOpen = async (filePath: string) => {
+  pushCurrentNavigation();
   await openFileInEditor(filePath);
+  await nextTick();
+  pushCurrentNavigation();
 };
 
 const handleFileTreeContextMenu = (entry: FileTreeNode | null) => {
@@ -1741,7 +1900,11 @@ const handleFileTreeDelete = async (entry: FileTreeNode) => {
 };
 
 const handleTabClick = (tabId: string) => {
+  pushCurrentNavigation();
   tabService.activateTab(tabId);
+  void nextTick(() => {
+    pushCurrentNavigation();
+  });
 };
 
 const handleTabClose = (tabId: string) => {
@@ -1810,41 +1973,6 @@ const handleThemeChange = (theme: string) => {
   settingsStore.updateSettings({ monacoTheme: theme as 'vs' | 'vs-dark' | 'hc-black' });
 };
 
-const handleCycleLanguageMode = () => {
-  const currentLanguage = activeTab.value?.language ?? editorStore.language;
-  const safeCurrent = LANGUAGE_MODE_ORDER.includes(currentLanguage as EditorLanguageMode)
-    ? (currentLanguage as EditorLanguageMode)
-    : 'plaintext';
-  const currentIndex = LANGUAGE_MODE_ORDER.indexOf(safeCurrent);
-  const nextLanguage = LANGUAGE_MODE_ORDER[(currentIndex + 1) % LANGUAGE_MODE_ORDER.length] ?? 'plaintext';
-  tabService.updateActiveTabLanguage(nextLanguage);
-};
-
-const handleSystemAction = (action: SystemMenuAction) => {
-  switch (action) {
-    case 'open-command-palette':
-      void executeCommand('commandPalette.open');
-      break;
-    case 'toggle-explorer':
-      void executeCommand('view.toggleSidebar');
-      break;
-    case 'toggle-theme':
-      settingsStore.toggleTheme();
-      break;
-    case 'cycle-language-mode':
-      handleCycleLanguageMode();
-      break;
-    case 'toggle-settings':
-      void executeCommand('view.toggleSettings');
-      break;
-    case 'refresh-workspace':
-      void handleRefresh();
-      break;
-    default:
-      break;
-  }
-};
-
 const handleOpenCommandPalette = () => {
   paletteMode.value = 'commands';
   commandStore.openPalette();
@@ -1858,10 +1986,11 @@ const handleOpenQuickOpen = () => {
 const pushCurrentNavigation = () => {
   const tab = activeTab.value;
   if (!tab?.filePath) return;
-  navigationHistory.push({
+  const position = editorCoreRef.value?.getPosition?.();
+  pushNavigationHistory({
     filePath: tab.filePath,
-    line: editorStore.cursorPosition.line,
-    column: editorStore.cursorPosition.column,
+    line: position?.line ?? editorStore.cursorPosition.line,
+    column: position?.column ?? editorStore.cursorPosition.column,
   });
 };
 
@@ -1879,11 +2008,70 @@ const navigateToHistoryLocation = async (location: NavigationLocation | null) =>
 };
 
 const handleGoBack = async () => {
-  await navigateToHistoryLocation(navigationHistory.back());
+  const location = navigationHistory.back();
+  navigationHistoryRevision.value += 1;
+  await navigateToHistoryLocation(location);
 };
 
 const handleGoForward = async () => {
-  await navigateToHistoryLocation(navigationHistory.forward());
+  const location = navigationHistory.forward();
+  navigationHistoryRevision.value += 1;
+  await navigateToHistoryLocation(location);
+};
+
+const handleTitlebarUpdateAvailability = (state: Omit<TitlebarUpdateState, 'releaseUrl'> & { releaseUrl?: string }) => {
+  titlebarUpdate.value = {
+    ...state,
+    releaseUrl: state.releaseUrl ?? '',
+  };
+};
+
+const clearTitlebarProgressTimer = () => {
+  if (titlebarProgressTimer) {
+    clearTimeout(titlebarProgressTimer);
+    titlebarProgressTimer = null;
+  }
+};
+
+const handleTitlebarUpgrade = async () => {
+  const update = titlebarUpdate.value;
+  if (!update) return;
+  if (!update.canInstall) {
+    if (update.releaseUrl) {
+      try {
+        await appCommands.openExternalLink(update.releaseUrl);
+      } catch (error) {
+        notificationStore.error(
+          settingsStore.uiLanguage === 'en-US' ? 'Could not open release page' : '无法打开更新页面',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    return;
+  }
+
+  clearTitlebarProgressTimer();
+  titlebarUpdateProgress.value = 0;
+  titlebarUpdateProgressVisible.value = true;
+  titlebarUpdateComplete.value = false;
+  const result = await workspaceSettingsPanelRef.value?.installUpdate();
+  if (!result?.success) {
+    titlebarUpdateProgressVisible.value = false;
+    titlebarUpdateProgress.value = null;
+    notificationStore.error(
+      settingsStore.uiLanguage === 'en-US' ? 'Update failed' : '更新失败',
+      result?.error || (settingsStore.uiLanguage === 'en-US' ? 'Could not start the update.' : '无法启动更新。'),
+    );
+    return;
+  }
+  titlebarUpdateProgress.value = 100;
+  titlebarUpdateComplete.value = true;
+  titlebarProgressTimer = setTimeout(() => {
+    titlebarUpdateProgressVisible.value = false;
+    titlebarUpdateProgress.value = null;
+    titlebarUpdateComplete.value = false;
+    titlebarProgressTimer = null;
+  }, 3000);
 };
 
 const buildWorkspaceSymbolCommands = (symbols: Array<{ name: string; containerName?: string; location: monaco.languages.Location }>) => {
@@ -1905,7 +2093,7 @@ const buildWorkspaceSymbolCommands = (symbols: Array<{ name: string; containerNa
       if (!target) return;
       pushCurrentNavigation();
       await navigateToHistoryLocation(target);
-      navigationHistory.push(target);
+      pushNavigationHistory(target);
     },
   }));
 };
@@ -2180,7 +2368,7 @@ const handleWorkspaceSearchNavigate = async (relativePath: string, line: number)
   pushCurrentNavigation();
   await openWorkspaceFileAtLine(relativePath, line);
   if (await waitForEditorTarget(filePath)) {
-    navigationHistory.push({ filePath, line, column: 1 });
+    pushNavigationHistory({ filePath, line, column: 1 });
   }
 };
 
@@ -2278,7 +2466,7 @@ const handleReferenceNavigate = async (item: ReferenceResultItem) => {
   await openFileInEditor(path);
   if (await waitForEditorTarget(path)) {
     editorCoreRef.value?.revealLine(item.line, item.column);
-    navigationHistory.push({ filePath: path, line: item.line, column: item.column });
+    pushNavigationHistory({ filePath: path, line: item.line, column: item.column });
   }
 };
 
@@ -2347,7 +2535,7 @@ const handleHierarchyNavigate = async (row: HierarchyRow) => {
   await openFileInEditor(path);
   if (await waitForEditorTarget(path)) {
     editorCoreRef.value?.revealLine(row.line, row.column);
-    navigationHistory.push({ filePath: path, line: row.line, column: row.column });
+    pushNavigationHistory({ filePath: path, line: row.line, column: row.column });
   }
 };
 
@@ -2558,21 +2746,31 @@ const getFirstInstallGuideContent = () => {
   if (settingsStore.uiLanguage === 'en-US') {
     return `# Tau Editor Quick Start
 
-Welcome to Tau Editor.
+Welcome to Tau Editor, a focused workspace for editing text, code, and Markdown.
 
-## Core Actions
-- Create file: toolbar "New File" or \`Ctrl/Cmd + N\`
-- Open file: toolbar "Open File" or \`Ctrl/Cmd + O\`
-- Save file: \`Ctrl/Cmd + S\`
-- Save as: toolbar "Save As"
-- Command palette: \`F1\` or \`Ctrl/Cmd + Shift + P\`
+## Files and Workspaces
+- Create a blank document: toolbar "New File" or \`Ctrl/Cmd + N\`.
+- Open a file: toolbar "Open File" or \`Ctrl/Cmd + O\`.
+- Open a folder as a workspace: toolbar "Open Folder". The Explorer lets you browse files, create files and folders, rename, delete, refresh, and compare files.
+- Save: \`Ctrl/Cmd + S\`. Save As: \`Ctrl/Cmd + Shift + S\` or toolbar "Save As".
+- Work with multiple files in tabs. Right-click a tab for close and file actions.
+- Use Quick Open (\`Ctrl/Cmd + P\`) to find a workspace file, or Search Workspace (\`Ctrl/Cmd + Shift + F\`) to search and preview replacements across files.
 
-## Text Zoom
-- Zoom in: \`Ctrl/Cmd + +\`
-- Zoom out: \`Ctrl/Cmd + -\`
-- Reset zoom: \`Ctrl/Cmd + 0\`
+## Editing and Navigation
+- Find text in the current file: \`Ctrl/Cmd + F\`; go to a line: \`Ctrl/Cmd + G\`.
+- The editor supports syntax highlighting for many languages. The status bar lets you change the file's language mode, encoding, and editor theme.
+- For supported code languages, use the command palette for symbol search, definition/reference navigation, rename, and problems.
+- Zoom editor text with \`Ctrl/Cmd + =\` and \`Ctrl/Cmd + -\`; reset with \`Ctrl/Cmd + 0\`.
+- Use the Explorer and Context panels to navigate files, document outlines, Markdown tasks and links, and available workspace or Git information.
 
-## Tips
+## Markdown
+- Markdown files have a formatting toolbar for headings, emphasis, lists, links, images, tables, code blocks, Mermaid diagrams, and other common snippets.
+- Switch between editor, split, and preview modes with the preview button. The Context panel can show the outline, tasks, and links.
+- Insert or paste images into a Markdown document to import them into its \`assets/\` folder. Export a Markdown document as standalone HTML from the Context panel.
+
+## Personalize
+- Open Settings from the toolbar or \`Ctrl/Cmd + ,\` to adjust appearance, editor preferences, auto-save, and keyboard shortcuts. The theme marketplace is available in Settings.
+- Open the Command Palette with \`F1\` or \`Ctrl/Cmd + Shift + P\` to search for commands; use it whenever you are unsure where an action lives.
 - You can open external files from the OS "Open With -> Tau Editor".
 - This guide is an unsaved tab. Save it if you want to keep it.
 `;
@@ -2580,21 +2778,31 @@ Welcome to Tau Editor.
 
   return `# Tau Editor 使用说明
 
-欢迎使用 Tau Editor。
+欢迎使用 Tau Editor，一款用于编辑文本、代码与 Markdown 的轻量工作台。
 
-## 常用操作
-- 新建文件：工具栏「新建文件」或 \`Ctrl/Cmd + N\`
-- 打开文件：工具栏「打开文件」或 \`Ctrl/Cmd + O\`
-- 保存文件：\`Ctrl/Cmd + S\`
-- 另存为：工具栏「另存为」
-- 命令面板：\`F1\` 或 \`Ctrl/Cmd + Shift + P\`
+## 文件与工作区
+- 新建空白文档：工具栏「新建文件」或 \`Ctrl/Cmd + N\`。
+- 打开文件：工具栏「打开文件」或 \`Ctrl/Cmd + O\`。
+- 打开文件夹作为工作区：工具栏「打开文件夹」。资源管理器支持浏览文件、创建文件和文件夹、重命名、删除、刷新及文件对比。
+- 保存：\`Ctrl/Cmd + S\`；另存为：\`Ctrl/Cmd + Shift + S\` 或点击工具栏「另存为」。
+- 多个文件可同时在标签页中打开；右键标签页可使用关闭和文件操作。
+- 使用快速打开（\`Ctrl/Cmd + P\`）查找工作区文件；使用工作区搜索（\`Ctrl/Cmd + Shift + F\`）跨文件搜索，并在预览替换结果后应用修改。
 
-## 文字缩放
-- 放大：\`Ctrl/Cmd + +\`
-- 缩小：\`Ctrl/Cmd + -\`
-- 重置：\`Ctrl/Cmd + 0\`
+## 编辑与导航
+- 在当前文件中查找：\`Ctrl/Cmd + F\`；跳转到指定行：\`Ctrl/Cmd + G\`。
+- 编辑器支持多种语言的语法高亮；可在状态栏切换文件语言模式、编码和编辑器主题。
+- 对支持的代码语言，可通过命令面板使用符号搜索、定义/引用导航、重命名和问题列表等功能。
+- 使用 \`Ctrl/Cmd + =\` 放大文字、\`Ctrl/Cmd + -\` 缩小文字、\`Ctrl/Cmd + 0\` 重置字号。
+- 资源管理器和右侧上下文面板可用于浏览文件、文档大纲、Markdown 任务与链接，以及可用的工作区或 Git 信息。
 
-## 提示
+## Markdown
+- 打开 Markdown 文件后，可使用工具栏快速插入标题、强调、列表、链接、图片、表格、代码块、Mermaid 图等常用语法。
+- 点击预览按钮可在编辑、分栏和纯预览模式间切换；右侧上下文面板可查看大纲、任务和链接。
+- 在 Markdown 文档中插入或粘贴图片，可将图片导入文档旁的 \`assets/\` 目录；也可在右侧上下文面板将文档导出为独立 HTML。
+
+## 个性化设置
+- 点击工具栏设置按钮或按 \`Ctrl/Cmd + ,\`，可调整外观、编辑器偏好、自动保存和快捷键；设置中还提供主题市场。
+- 按 \`F1\` 或 \`Ctrl/Cmd + Shift + P\` 打开命令面板搜索操作，不确定入口时可先在这里查找。
 - 支持在系统里通过“打开方式 -> Tau Editor”直接打开外部文件。
 - 本说明是未保存标签页，如需保留请手动保存。
 `;
@@ -3272,6 +3480,17 @@ watch(
 );
 
 onMounted(async () => {
+  if (hasMacWindowTitlebar.value) {
+    const { listen } = await import('@tauri-apps/api/event');
+    unlistenUpdateProgress = await listen<UpdateDownloadProgress>(
+      'app:update-download-progress',
+      ({ payload }) => {
+        titlebarUpdateProgressVisible.value = true;
+        titlebarUpdateComplete.value = false;
+        titlebarUpdateProgress.value = payload.progress;
+      },
+    );
+  }
   window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
   await settingsStore.init();
@@ -3319,6 +3538,11 @@ onUnmounted(() => {
     unlistenExternalOpen();
     unlistenExternalOpen = null;
   }
+  if (unlistenUpdateProgress) {
+    unlistenUpdateProgress();
+    unlistenUpdateProgress = null;
+  }
+  clearTitlebarProgressTimer();
   void stopExternalFileWatch();
   void applicationLspService.dispose();
   lspDiagnosticCounts.clear();
@@ -3446,6 +3670,164 @@ onUnmounted(() => {
       @undo="handleUndoWorkspaceReplace"
     />
 
+    <div
+      v-if="hasMacWindowTitlebar"
+      class="app-native-titlebar"
+      data-testid="app-native-titlebar"
+      data-tauri-drag-region
+    >
+      <div class="native-titlebar-actions">
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-navigation-back"
+          :disabled="!canGoBack"
+          :aria-label="toolbarText.goBack"
+          :title="toolbarText.goBack"
+          @click="handleGoBack"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6M20 12H9" /></svg>
+        </button>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-navigation-forward"
+          :disabled="!canGoForward"
+          :aria-label="toolbarText.goForward"
+          :title="toolbarText.goForward"
+          @click="handleGoForward"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6M4 12h11" /></svg>
+        </button>
+        <span class="native-titlebar-divider" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-quick-open"
+          :aria-label="toolbarText.quickOpen"
+          :title="toolbarText.quickOpen"
+          @click="handleOpenQuickOpen"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 4.5 4.5M8.5 10.8h4.6M10.8 8.5v4.6" /></svg>
+        </button>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-command-palette"
+          :aria-label="toolbarText.commandPalette"
+          :title="toolbarText.commandPalette"
+          @click="handleOpenCommandPalette"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h8M5 17h14" /><circle cx="17" cy="12" r="2" /></svg>
+        </button>
+      </div>
+      <div class="native-titlebar-actions native-titlebar-actions-end">
+        <div
+          v-if="titlebarUpdateProgressVisible"
+          class="native-titlebar-progress"
+          role="status"
+          aria-live="polite"
+          data-testid="titlebar-update-progress"
+        >
+          <span class="native-titlebar-progress-label">
+            {{ titlebarUpdateComplete
+              ? (settingsStore.uiLanguage === 'en-US' ? 'Installer started' : '安装程序已启动')
+              : (settingsStore.uiLanguage === 'en-US' ? 'Downloading update' : '正在下载更新') }}
+          </span>
+          <div
+            class="native-titlebar-progress-track"
+            role="progressbar"
+            :aria-valuenow="titlebarUpdateProgress ?? undefined"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <span
+              class="native-titlebar-progress-fill"
+              :class="{ 'is-indeterminate': titlebarUpdateProgress === null }"
+              :style="titlebarUpdateProgress === null ? undefined : { width: `${titlebarUpdateProgress}%` }"
+            ></span>
+          </div>
+          <span class="native-titlebar-progress-percent">
+            {{ titlebarUpdateComplete ? '100%' : titlebarUpdateProgress === null ? '…' : `${titlebarUpdateProgress}%` }}
+          </span>
+        </div>
+        <div
+          v-else-if="titlebarUpdate?.available"
+          class="native-titlebar-update-wrap"
+          data-testid="titlebar-update-available"
+        >
+          <button
+            type="button"
+            class="native-titlebar-update"
+            data-testid="btn-titlebar-upgrade"
+            :aria-label="settingsStore.uiLanguage === 'en-US'
+              ? `Upgrade to ${titlebarUpdate.latestVersion}`
+              : `升级到 ${titlebarUpdate.latestVersion}`"
+            :aria-describedby="'titlebar-update-tooltip'"
+            @click="handleTitlebarUpgrade"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 16V4m0 0L7 9m5-5 5 5" />
+              <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5" />
+            </svg>
+          </button>
+          <div
+            id="titlebar-update-tooltip"
+            class="native-titlebar-update-tooltip"
+            role="tooltip"
+            data-testid="titlebar-update-tooltip"
+          >
+            <strong>
+              {{ settingsStore.uiLanguage === 'en-US'
+                ? `Version ${titlebarUpdate.latestVersion} is available`
+                : `发现新版本 ${titlebarUpdate.latestVersion}` }}
+            </strong>
+            <span v-if="titlebarUpdate.releaseName">{{ titlebarUpdate.releaseName }}</span>
+            <span class="native-titlebar-update-notes">{{ titlebarUpdateNotes }}</span>
+            <span v-if="!titlebarUpdate.canInstall" class="native-titlebar-update-unavailable">
+              {{ settingsStore.uiLanguage === 'en-US'
+                ? 'No installer is available for this device'
+                : '没有适用于此设备的安装包' }}
+            </span>
+          </div>
+        </div>
+        <span class="native-titlebar-divider" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-titlebar-toggle-explorer"
+          :aria-label="showFileTree ? toolbarText.collapseExplorer : toolbarText.expandExplorer"
+          :aria-pressed="showFileTree"
+          :title="showFileTree ? toolbarText.collapseExplorer : toolbarText.expandExplorer"
+          @click="showFileTree = !showFileTree"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
+        </button>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-titlebar-toggle-context"
+          :aria-label="showContextRail ? toolbarText.collapseContext : toolbarText.expandContext"
+          :aria-pressed="showContextRail"
+          :title="showContextRail ? toolbarText.collapseContext : toolbarText.expandContext"
+          @click="showContextRail = !showContextRail"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
+        </button>
+        <button
+          v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-titlebar-toggle-markdown-preview"
+          :aria-label="`${toolbarText.markdownViewPrefix}: ${toolbarText.previewModeLabels[markdownPreviewMode]}`"
+          :title="`${toolbarText.markdownViewPrefix}: ${toolbarText.previewModeLabels[markdownPreviewMode]}`"
+          @click="handleCycleMarkdownPreview"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
+        </button>
+      </div>
+    </div>
+
     <Toolbar
       :can-undo="canUndo"
       :can-redo="canRedo"
@@ -3453,8 +3835,6 @@ onUnmounted(() => {
       :can-reveal-current-file="canRevealCurrentFile"
       :locating-current-file="locatingCurrentFile"
       :app-label="appText.appLabel"
-      :workspace-label="workspaceLabel"
-      :current-file-label="currentFileLabel"
       :sidebar-visible="showFileTree"
       :context-rail-visible="showContextRail"
       :is-markdown="isMarkdownTab"
@@ -3475,7 +3855,6 @@ onUnmounted(() => {
       @markdown-heading="handleMarkdownHeading"
       @markdown-code="handleMarkdownCode"
       @markdown-image="handleInsertMarkdownImage"
-      @system-action="handleSystemAction"
     />
 
     <div class="main-layout">
@@ -3595,9 +3974,11 @@ onUnmounted(() => {
         :data-active="settingsContainer === 'workspace' ? 'true' : 'false'"
       >
         <SettingsPanel
+          ref="workspaceSettingsPanelRef"
           mode="workspace"
           :active-category="activeSettingsCategory"
           @update:active-category="activeSettingsCategory = $event"
+          @update-availability="handleTitlebarUpdateAvailability"
           @close="closeTransientPanels"
         />
       </section>
@@ -3614,6 +3995,14 @@ onUnmounted(() => {
           @tabs-reorder="handleTabsReorder"
           @cancel-large-file-load="handleCancelLargeFileLoad"
             @retry-large-file-load="handleRetryLargeFileLoad"
+        />
+
+        <EditorBreadcrumbs
+          v-if="activeTab && !diffStore.isOpen"
+          :segments="editorBreadcrumbSegments"
+          :label="settingsStore.uiLanguage === 'en-US' ? 'File path' : '文件路径'"
+          :style="{ '--breadcrumb-editor-background': editorBreadcrumbBackground }"
+          @navigate="handleBreadcrumbNavigate"
         />
 
         <DiffView
@@ -3862,6 +4251,233 @@ textarea {
   overflow: hidden;
 }
 
+.app-native-titlebar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 12px 0 82px;
+  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, .14));
+  background: color-mix(in srgb, var(--panel-elevated, var(--panel-base)) 92%, transparent);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.native-titlebar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-actions-end {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.native-titlebar-update-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-update {
+  display: grid;
+  width: 32px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-ui-sm, var(--radius-sm, 4px));
+  background: transparent;
+  color: var(--accent-brand-strong, var(--accent-brand, #4dabff));
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-update:hover {
+  border-color: color-mix(in srgb, var(--accent-brand) 38%, transparent);
+  background: color-mix(in srgb, var(--accent-brand) 16%, var(--panel-base));
+  color: var(--accent-brand, #4dabff);
+}
+
+.native-titlebar-update:focus-visible,
+.native-titlebar-update-wrap:focus-within .native-titlebar-update {
+  outline: 1px solid var(--focus-ring, var(--accent-brand-strong, #4dabff));
+  outline-offset: 1px;
+}
+
+.native-titlebar-update svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.native-titlebar-update-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: -8px;
+  z-index: 50;
+  display: flex;
+  width: min(320px, calc(100vw - 24px));
+  max-height: 220px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, .2));
+  border-radius: var(--radius-ui-md, var(--radius-md, 8px));
+  background: var(--panel-elevated, var(--panel-base));
+  color: var(--text-secondary, #b6c2d9);
+  box-shadow: var(--shadow-overlay, 0 8px 24px rgba(0, 0, 0, .24));
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+  visibility: hidden;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-update-tooltip strong {
+  color: var(--text-primary, #ecf2ff);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.native-titlebar-update-notes {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-secondary, #b6c2d9);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.native-titlebar-update-unavailable {
+  color: var(--text-muted, #75829e);
+}
+
+.native-titlebar-update-wrap:hover .native-titlebar-update-tooltip,
+.native-titlebar-update-wrap:focus-within .native-titlebar-update-tooltip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.native-titlebar-progress {
+  display: flex;
+  width: 225px;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary, #b6c2d9);
+  font-size: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-progress-label {
+  flex: 0 0 auto;
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-titlebar-progress-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted, #75829e) 26%, transparent);
+}
+
+.native-titlebar-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-brand, #4dabff);
+  transition: width 140ms linear;
+}
+
+.native-titlebar-progress-fill.is-indeterminate {
+  width: 38%;
+  animation: titlebar-update-indeterminate 1.1s ease-in-out infinite alternate;
+}
+
+.native-titlebar-progress-percent {
+  min-width: 30px;
+  color: var(--text-primary, #ecf2ff);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@keyframes titlebar-update-indeterminate {
+  from { transform: translateX(-30%); }
+  to { transform: translateX(190%); }
+}
+
+.native-titlebar-button {
+  display: grid;
+  width: 30px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-ui-sm, var(--radius-sm, 4px));
+  background: transparent;
+  color: var(--text-secondary, #b6c2d9);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-button:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(255, 255, 255, .08));
+  color: var(--text-primary, #ecf2ff);
+}
+
+.native-titlebar-button:disabled {
+  color: var(--text-muted, #75829e);
+  cursor: default;
+  opacity: .48;
+}
+
+.native-titlebar-button:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--accent-brand-strong, #4dabff));
+  outline-offset: -1px;
+}
+
+.native-titlebar-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.native-titlebar-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border-soft, rgba(148, 163, 184, .2));
+}
+
 .name-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -4064,13 +4680,18 @@ textarea {
   background: color-mix(in srgb, var(--panel-base) 88%, transparent);
 }
 
+.editor-panel :deep(.editor-tabs) {
+  border-bottom: 0;
+  background: var(--panel-base, var(--panel, #131b2c));
+}
+
 .settings-page {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--panel-base) 96%, transparent);
+  background: var(--bg-app);
 }
 
 .editor-stage {

@@ -10,28 +10,6 @@ export type EditorEncoding =
   | 'big5'
   | 'shift_jis'
   | 'iso-8859-1';
-export type SystemMenuAction =
-  | 'file-new'
-  | 'file-open'
-  | 'file-open-folder'
-  | 'file-save'
-  | 'file-save-as'
-  | 'open-command-palette'
-  | 'find-text'
-  | 'go-to-line'
-  | 'toggle-explorer'
-  | 'toggle-settings'
-  | 'refresh-workspace'
-  | 'toggle-theme'
-  | 'theme-light'
-  | 'theme-dark'
-  | 'theme-system'
-  | 'cycle-language-mode'
-  | 'language-plaintext'
-  | 'language-markdown'
-  | 'language-typescript'
-  | 'language-python'
-  | 'language-json';
 export type EditorLanguageMode =
   | 'plaintext'
   | 'javascript'
@@ -237,6 +215,9 @@ interface SettingsPanelText {
   markdownPreviewThemePaperSoft: string;
   markdownPreviewThemeEditorialWarm: string;
   markdownPreviewThemeGraphiteNight: string;
+  markdownPreviewThemeMintGrove: string;
+  markdownPreviewThemeLavenderLetter: string;
+  markdownPreviewThemeDeepOcean: string;
   autoSave: string;
   autoSaveEnabled: string;
   autoSaveInterval: string;
@@ -301,24 +282,21 @@ interface ToolbarText {
   openFolder: string;
   save: string;
   saveAs: string;
-  undo: string;
-  redo: string;
+  goBack: string;
+  goForward: string;
+  quickOpen: string;
+  commandPalette: string;
   collapseExplorer: string;
   expandExplorer: string;
   collapseContext: string;
   expandContext: string;
+  undo: string;
+  redo: string;
   locateCurrentFile: string;
   markdownViewPrefix: string;
   dirtyTip: string;
   dirtyShort: string;
   settings: string;
-  systemMenu: string;
-  systemMenuTitle: string;
-  systemMenuPlaceholder: string;
-  systemMenuSearchPlaceholder: string;
-  systemMenuNoResult: string;
-  systemMenuGroups: Record<'file' | 'view' | 'theme' | 'language', string>;
-  systemMenuOptions: Record<SystemMenuAction, string>;
   previewModeLabels: Record<'edit' | 'split' | 'preview', string>;
 }
 
@@ -394,6 +372,9 @@ interface MarkdownPreviewText {
   previewThemePaperSoft: string;
   previewThemeEditorialWarm: string;
   previewThemeGraphiteNight: string;
+  previewThemeMintGrove: string;
+  previewThemeLavenderLetter: string;
+  previewThemeDeepOcean: string;
   setPreviewModeEdit: string;
   setPreviewModeSplit: string;
   setPreviewModePreview: string;
@@ -823,6 +804,9 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownPreviewThemePaperSoft: '护眼纸张',
     markdownPreviewThemeEditorialWarm: '出版暖页',
     markdownPreviewThemeGraphiteNight: '夜读石墨',
+    markdownPreviewThemeMintGrove: '林间薄荷',
+    markdownPreviewThemeLavenderLetter: '雾紫信笺',
+    markdownPreviewThemeDeepOcean: '深海蓝调',
     autoSave: '自动保存',
     autoSaveEnabled: '启用自动保存',
     autoSaveInterval: '自动保存间隔',
@@ -977,6 +961,9 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownPreviewThemePaperSoft: 'Paper Soft',
     markdownPreviewThemeEditorialWarm: 'Editorial Warm',
     markdownPreviewThemeGraphiteNight: 'Graphite Night',
+    markdownPreviewThemeMintGrove: 'Mint Grove',
+    markdownPreviewThemeLavenderLetter: 'Lavender Letter',
+    markdownPreviewThemeDeepOcean: 'Deep Ocean',
     autoSave: 'Auto Save',
     autoSaveEnabled: 'Enable Auto Save',
     autoSaveInterval: 'Auto Save Interval',
@@ -1061,51 +1048,21 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     openFolder: '打开文件夹',
     save: '保存 (Ctrl+S)',
     saveAs: '另存为',
-    undo: '撤销',
-    redo: '重做',
+    goBack: '返回上一个位置',
+    goForward: '前进到下一个位置',
+    quickOpen: '快速打开文件 (Ctrl+P)',
+    commandPalette: '命令面板 (F1)',
     collapseExplorer: '折叠资源管理器',
     expandExplorer: '展开资源管理器',
-    collapseContext: '收起上下文栏',
+    collapseContext: '折叠上下文栏',
     expandContext: '展开上下文栏',
+    undo: '撤销',
+    redo: '重做',
     locateCurrentFile: '定位当前文件',
     markdownViewPrefix: 'Markdown 视图',
     dirtyTip: '当前标签未保存',
     dirtyShort: '未保存',
     settings: '设置',
-    systemMenu: '系统',
-    systemMenuTitle: '系统菜单',
-    systemMenuPlaceholder: '系统',
-    systemMenuSearchPlaceholder: '输入关键词过滤...',
-    systemMenuNoResult: '没有匹配的系统命令',
-    systemMenuGroups: {
-      file: '文件',
-      view: '视图',
-      theme: '主题',
-      language: '语言',
-    },
-    systemMenuOptions: {
-      'file-new': '新建文件',
-      'file-open': '打开文件',
-      'file-open-folder': '打开文件夹',
-      'file-save': '保存',
-      'file-save-as': '另存为',
-      'open-command-palette': '命令面板 (F1)',
-      'find-text': '查找文本 (Ctrl+F)',
-      'go-to-line': '跳转到行 (Ctrl+G)',
-      'toggle-explorer': '切换资源管理器',
-      'toggle-settings': '打开设置工作区',
-      'refresh-workspace': '刷新工作区',
-      'toggle-theme': '切换主题',
-      'theme-light': '主题: 浅色',
-      'theme-dark': '主题: 深色',
-      'theme-system': '主题: 跟随系统',
-      'cycle-language-mode': '切换语言模式',
-      'language-plaintext': '语言: 纯文本',
-      'language-markdown': '语言: Markdown',
-      'language-typescript': '语言: TypeScript',
-      'language-python': '语言: Python',
-      'language-json': '语言: JSON',
-    },
     previewModeLabels: {
       edit: '仅编辑',
       split: '分栏',
@@ -1118,51 +1075,21 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     openFolder: 'Open Folder',
     save: 'Save (Ctrl+S)',
     saveAs: 'Save As',
-    undo: 'Undo',
-    redo: 'Redo',
+    goBack: 'Go Back',
+    goForward: 'Go Forward',
+    quickOpen: 'Quick Open File (Ctrl+P)',
+    commandPalette: 'Command Palette (F1)',
     collapseExplorer: 'Collapse Explorer',
     expandExplorer: 'Expand Explorer',
     collapseContext: 'Collapse Context Rail',
     expandContext: 'Expand Context Rail',
+    undo: 'Undo',
+    redo: 'Redo',
     locateCurrentFile: 'Locate Current File',
     markdownViewPrefix: 'Markdown View',
     dirtyTip: 'Current tab has unsaved changes',
     dirtyShort: 'Unsaved',
     settings: 'Settings',
-    systemMenu: 'System',
-    systemMenuTitle: 'System Menu',
-    systemMenuPlaceholder: 'System',
-    systemMenuSearchPlaceholder: 'Type to filter...',
-    systemMenuNoResult: 'No matching system actions',
-    systemMenuGroups: {
-      file: 'File',
-      view: 'View',
-      theme: 'Theme',
-      language: 'Language',
-    },
-    systemMenuOptions: {
-      'file-new': 'New File',
-      'file-open': 'Open File',
-      'file-open-folder': 'Open Folder',
-      'file-save': 'Save',
-      'file-save-as': 'Save As',
-      'open-command-palette': 'Command Palette (F1)',
-      'find-text': 'Find Text (Ctrl+F)',
-      'go-to-line': 'Go To Line (Ctrl+G)',
-      'toggle-explorer': 'Toggle Explorer',
-      'toggle-settings': 'Open Settings Workspace',
-      'refresh-workspace': 'Refresh Workspace',
-      'toggle-theme': 'Toggle Theme',
-      'theme-light': 'Theme: Light',
-      'theme-dark': 'Theme: Dark',
-      'theme-system': 'Theme: System',
-      'cycle-language-mode': 'Cycle Language Mode',
-      'language-plaintext': 'Language: Plain Text',
-      'language-markdown': 'Language: Markdown',
-      'language-typescript': 'Language: TypeScript',
-      'language-python': 'Language: Python',
-      'language-json': 'Language: JSON',
-    },
     previewModeLabels: {
       edit: 'Edit Only',
       split: 'Split',
@@ -1377,6 +1304,9 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
     previewThemePaperSoft: '切换到护眼纸张',
     previewThemeEditorialWarm: '切换到出版暖页',
     previewThemeGraphiteNight: '切换到夜读石墨',
+    previewThemeMintGrove: '切换到林间薄荷',
+    previewThemeLavenderLetter: '切换到雾紫信笺',
+    previewThemeDeepOcean: '切换到深海蓝调',
     setPreviewModeEdit: '切换为仅编辑',
     setPreviewModeSplit: '切换为分栏',
     setPreviewModePreview: '切换为仅预览',
@@ -1395,6 +1325,9 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
     previewThemePaperSoft: 'Switch to Paper Soft',
     previewThemeEditorialWarm: 'Switch to Editorial Warm',
     previewThemeGraphiteNight: 'Switch to Graphite Night',
+    previewThemeMintGrove: 'Switch to Mint Grove',
+    previewThemeLavenderLetter: 'Switch to Lavender Letter',
+    previewThemeDeepOcean: 'Switch to Deep Ocean',
     setPreviewModeEdit: 'Switch to Edit Only',
     setPreviewModeSplit: 'Switch to Split',
     setPreviewModePreview: 'Switch to Preview Only',

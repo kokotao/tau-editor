@@ -1043,7 +1043,11 @@ export const settingsCommands = {
     });
   },
 
-  async downloadAndInstallUpdate(downloadUrl: string, fileName: string): Promise<DownloadInstallResult> {
+  async downloadAndInstallUpdate(
+    downloadUrl: string,
+    fileName: string,
+    expectedSize?: number,
+  ): Promise<DownloadInstallResult> {
     if (!isTauriAvailable()) {
       if (typeof window !== 'undefined') {
         window.open(downloadUrl, '_blank', 'noopener,noreferrer');
@@ -1060,6 +1064,8 @@ export const settingsCommands = {
       download_url: downloadUrl,
       fileName,
       file_name: fileName,
+      expectedSize,
+      expected_size: expectedSize,
     });
   },
 

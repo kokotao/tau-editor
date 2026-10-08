@@ -62,6 +62,10 @@ describe('ThemeMarketplacePanel', () => {
     const previews = wrapper.findAll('[data-testid="theme-marketplace-preview"]');
     expect(previews).toHaveLength(2);
     expect(previews[0]?.find('.theme-preview-fallback').exists()).toBe(true);
+    expect(previews[0]?.find('.theme-preview-titlebar').exists()).toBe(true);
+    expect(previews[0]?.find('.theme-preview-tabs').exists()).toBe(true);
+    expect(previews[0]?.find('.theme-preview-breadcrumbs').exists()).toBe(true);
+    expect(previews[0]?.find('.theme-preview-breadcrumbs').text()).toContain('workspace.md');
     expect(previews[0]?.attributes('style')).toContain('--preview-accent');
     expect(previews[1]?.find('img').attributes('src')).toBe(
       'https://raw.githubusercontent.com/kokotao/tau-editor-themes/main/previews/rose-quartz.png',

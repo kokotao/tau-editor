@@ -3,11 +3,10 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 
 const componentStubs = vi.hoisted(() => ({
   toolbar: {
-    emits: ['toggle-settings', 'toggle-file-tree', 'toggle-context-rail', 'system-action'],
+    emits: ['toggle-settings', 'toggle-file-tree', 'toggle-context-rail'],
     template: `
       <div>
         <button data-testid="btn-settings" @click="$emit('toggle-settings')">toggle settings</button>
-        <button data-testid="btn-system-toggle-settings" @click="$emit('system-action', 'toggle-settings')">system toggle settings</button>
         <button data-testid="btn-toggle-file-tree" @click="$emit('toggle-file-tree')">toggle file tree</button>
         <button data-testid="btn-toggle-context-rail" @click="$emit('toggle-context-rail')">toggle context rail</button>
       </div>
@@ -36,6 +35,7 @@ const componentStubs = vi.hoisted(() => ({
   editorCore: {
     emits: ['scroll-change'],
     methods: {
+      getPosition: vi.fn(() => null),
       revealLine: vi.fn(),
       triggerFindWidget: vi.fn(),
       triggerGoToLine: vi.fn(),
@@ -296,6 +296,7 @@ const appShellStubs = {
   ImagePreview: false,
   ImageViewer: false,
   EditorCore: false,
+  LazyEditorCore: false,
   ExternalChangeDialog: false,
   ContextRail: false,
   Transition: false,
@@ -353,19 +354,6 @@ describe('AppShell', () => {
 
     expect(wrapper.find('.sidebar-empty').exists()).toBe(false)
     expect(wrapper.find('.file-tree-empty').exists()).toBe(false)
-  })
-
-  it('系统菜单动作应打开设置工作区', async () => {
-    const wrapper = shallowMount(App, {
-      global: {
-        stubs: appShellStubs,
-      },
-    })
-
-    await wrapper.find('[data-testid="btn-system-toggle-settings"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('true')
-    expect(wrapper.find('[data-testid="settings-drawer"]').exists()).toBe(false)
   })
 
   it('快捷键应按规则切换 workspace 与 drawer，并支持 Esc 关闭', async () => {

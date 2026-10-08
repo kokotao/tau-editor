@@ -129,6 +129,15 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('[data-testid="settings-general-section"]').exists()).toBe(true);
   });
 
+  it('浅色主题下设置页应使用浅色表面和可读的下拉菜单配色', async () => {
+    settingsStore.theme = 'light';
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    const panel = wrapper.get('[data-testid="settings-panel"]');
+    expect(panel.classes()).toContain('settings-panel-theme--light');
+  });
+
   it('通用设置可调整界面字体家族与大小', async () => {
     const wrapper = mountPanel();
     await flushPromises();
@@ -184,6 +193,70 @@ describe('SettingsPanel', () => {
     expect(notes.find('h1').text()).toBe('新版本');
     expect(notes.find('li').text()).toBe('支持 Markdown 更新说明');
     expect(notes.text()).not.toContain('# 新版本');
+    expect(wrapper.emitted('update-availability')?.[0]).toEqual([{
+      available: true,
+      canInstall: false,
+      latestVersion: '0.3.0',
+      releaseName: 'v0.3.0',
+      releaseNotes: '# 新版本\n\n- 支持 Markdown 更新说明',
+      releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.3.0',
+    }]);
+  });
+
+  it('点击更新图标使用匹配设备安装包并带入预期大小', async () => {
+    vi.mocked(settingsCommands.checkGithubUpdate).mockResolvedValueOnce({
+      currentVersion: '0.2.0',
+      latestVersion: '0.3.0',
+      hasUpdate: true,
+      releaseName: 'v0.3.0',
+      releaseNotes: '',
+      releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.3.0',
+      publishedAt: null,
+      selectedAsset: {
+        name: 'TauEditor-0.3.0.dmg',
+        browserDownloadUrl: 'https://example.com/TauEditor-0.3.0.dmg',
+        size: 1024,
+        contentType: 'application/octet-stream',
+      },
+      device: { os: 'macos', arch: 'aarch64' },
+      repositoryUrl: 'https://github.com/kokotao/tau-editor',
+    });
+
+    const wrapper = mountPanel({ activeCategory: 'updates' });
+    await flushPromises();
+    await wrapper.get('[data-testid="install-update-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(settingsCommands.downloadAndInstallUpdate).toHaveBeenCalledWith(
+      'https://example.com/TauEditor-0.3.0.dmg',
+      'TauEditor-0.3.0.dmg',
+      1024,
+    );
+  });
+
+  it('更新说明中的网页链接应调用系统浏览器', async () => {
+    vi.mocked(settingsCommands.checkGithubUpdate).mockResolvedValueOnce({
+      currentVersion: '0.2.0',
+      latestVersion: '0.3.0',
+      hasUpdate: true,
+      releaseName: 'v0.3.0',
+      releaseNotes: '[发布页](https://example.com/release)',
+      releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.3.0',
+      publishedAt: null,
+      selectedAsset: null,
+      device: { os: 'linux', arch: 'x86_64' },
+      repositoryUrl: 'https://github.com/kokotao/tau-editor',
+    });
+    const { appCommands } = await import('@/lib/tauri');
+    const openExternalLink = vi.mocked(appCommands.openExternalLink);
+    const { renderMarkdown } = await import('@/services/markdownRenderService');
+    vi.mocked(renderMarkdown).mockReturnValue('<p><a href="https://example.com/release">发布页</a></p>');
+
+    const wrapper = mountPanel({ activeCategory: 'updates' });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="settings-release-notes"] a').trigger('click');
+    expect(openExternalLink).toHaveBeenCalledWith('https://example.com/release');
   });
 
   it('主题市场作为独立栏目展示，并提供圆角与界面颜色配置', async () => {
@@ -305,7 +378,6 @@ describe('SettingsPanel', () => {
     expect(markdownPreviewThemeSelect.exists()).toBe(true);
     expect(settingsStore.markdownPreviewTheme).toBe('docs-clean');
     expect(wrapper.text()).toContain('Markdown 预览主题');
-    expect(wrapper.text()).toContain('文档站清朗');
   });
 
   it('切换 Markdown 预览主题选择器后应更新 store', async () => {
@@ -313,9 +385,9 @@ describe('SettingsPanel', () => {
     await flushPromises();
 
     const markdownPreviewThemeSelect = wrapper.findComponent('[data-testid="select-markdown-preview-theme"]');
-    markdownPreviewThemeSelect.vm.$emit('update:value', 'graphite-night');
+    markdownPreviewThemeSelect.vm.$emit('update:value', 'deep-ocean');
     await flushPromises();
 
-    expect(settingsStore.markdownPreviewTheme).toBe('graphite-night');
+    expect(settingsStore.markdownPreviewTheme).toBe('deep-ocean');
   });
 });

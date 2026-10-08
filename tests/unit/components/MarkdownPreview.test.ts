@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import { useSettingsStore } from '@/stores/settings';
 import MarkdownPreview from '@/components/editor/MarkdownPreview.vue';
 import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownRenderService';
+import { appCommands } from '@/lib/tauri';
 
 vi.mock('@/services/markdownRenderService', () => ({
   renderMarkdown: vi.fn((raw: string) => `<p>${raw}</p>`),
@@ -54,7 +57,11 @@ const mockSelection = (text: string, anchorNode: Node) => {
 };
 
 describe('MarkdownPreview', () => {
+  let pinia: ReturnType<typeof createPinia>;
+
   beforeEach(() => {
+    pinia = createPinia();
+    setActivePinia(pinia);
     vi.useFakeTimers();
     renderMarkdownMock.mockImplementation((raw: string) => `<p>${raw}</p>`);
   });
@@ -289,6 +296,23 @@ describe('MarkdownPreview', () => {
     expect(getMenuElement()).toBeNull();
   });
 
+  it('点击 Markdown 网页链接应交给系统浏览器而不是 WebView 导航', async () => {
+    renderMarkdownMock.mockReturnValue('<p><a href="https://example.com/docs">Example</a></p>');
+    const openExternalLink = vi.spyOn(appCommands, 'openExternalLink').mockResolvedValue(undefined);
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'link',
+        theme: 'dark',
+      },
+    });
+
+    await flushRender();
+    await wrapper.find('a').trigger('click');
+
+    expect(openExternalLink).toHaveBeenCalledWith('https://example.com/docs');
+    openExternalLink.mockRestore();
+  });
+
   it('图片上下文应展示图片菜单并执行复制', async () => {
     renderMarkdownMock.mockReturnValue('<p><img src="https://example.com/a.png" alt="hero" /></p>');
     const clipboard = mockClipboard();
@@ -406,6 +430,9 @@ describe('MarkdownPreview', () => {
 
     expect(queryBody('[data-testid="preview-menu-theme-docs-clean"]')).not.toBeNull();
     expect(queryBody('[data-testid="preview-menu-theme-paper-soft"]')).not.toBeNull();
+    expect(queryBody('[data-testid="preview-menu-theme-mint-grove"]')).not.toBeNull();
+    expect(queryBody('[data-testid="preview-menu-theme-lavender-letter"]')).not.toBeNull();
+    expect(queryBody('[data-testid="preview-menu-theme-deep-ocean"]')).not.toBeNull();
     expect(themeTrigger).not.toBeNull();
     expect(alternateTheme).not.toBeNull();
     expect(themeTrigger?.getAttribute('disabled')).not.toBeNull();
@@ -415,7 +442,38 @@ describe('MarkdownPreview', () => {
     wrapper.unmount();
   });
 
+  it('应应用新增的深海蓝调预览风格', async () => {
+    const settingsStore = useSettingsStore();
+    const wrapper = mount(MarkdownPreview, {
+      attachTo: document.body,
+      props: {
+        content: 'ocean theme',
+        theme: 'dark',
+      },
+      global: {
+        plugins: [pinia],
+      },
+    });
+
+    await flushRender();
+    await openContextMenu(wrapper);
+    const deepOceanOption = queryBody('[data-testid="preview-menu-theme-deep-ocean"]');
+    expect(deepOceanOption).not.toBeNull();
+    deepOceanOption?.click();
+    await flushPromises();
+    await nextTick();
+
+    expect(settingsStore.markdownPreviewTheme).toBe('deep-ocean');
+    expect(wrapper.get('[data-testid="markdown-preview"]').classes()).toContain('markdown-preview--deep-ocean');
+    await openContextMenu(wrapper);
+    expect(getMenuElement()?.classList.contains('markdown-preview--deep-ocean')).toBe(true);
+    expect(queryBody('[data-testid="preview-menu-theme-deep-ocean"]')?.hasAttribute('disabled')).toBe(true);
+    wrapper.unmount();
+  });
+
   it('右键菜单应通过 body teleport 渲染以避免预览面板位移动画影响定位', async () => {
+    const settingsStore = useSettingsStore();
+    await settingsStore.updateSettings({ markdownPreviewTheme: 'paper-soft' });
     const wrapper = mount(MarkdownPreview, {
       attachTo: document.body,
       props: {
@@ -430,6 +488,7 @@ describe('MarkdownPreview', () => {
     const menu = getMenuElement();
     expect(menu).not.toBeNull();
     expect(menu?.parentElement).toBe(document.body);
+    expect(menu?.classList.contains('markdown-preview--paper-soft')).toBe(true);
     expect(getMenuStyle()).toContain('top: 185px');
     expect(getMenuStyle()).toContain('left: 135px');
     wrapper.unmount();

@@ -589,9 +589,9 @@ onUnmounted(() => {
 .tabs-container {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 0;
   height: var(--tabs-height, 44px);
-  padding: 0 8px;
+  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -605,11 +605,12 @@ onUnmounted(() => {
 .tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 160px;
-  max-width: 240px;
-  height: 36px;
-  padding: 0 9px;
+  flex: 0 1 184px;
+  gap: 6px;
+  min-width: 118px;
+  max-width: 184px;
+  height: 100%;
+  padding: 0 7px;
   border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
@@ -626,9 +627,8 @@ onUnmounted(() => {
 }
 
 .tab.active {
-  background: var(--tab-active-bg, var(--surface-raised, #1c2638));
-  border-color: var(--panel-border, var(--border-strong, rgba(148, 163, 184, 0.3)));
-  border-radius: var(--radius-ui-sm, var(--radius-sm)) var(--radius-ui-sm, var(--radius-sm)) 0 0;
+  background: var(--panel-base, var(--tab-active-bg, var(--surface-raised, #1c2638)));
+  border-color: transparent;
   box-shadow: inset 0 2px 0 var(--tab-active-indicator, var(--accent-blue, #7cc7ff));
   color: var(--tab-active-text, var(--text-primary, #f8fafc));
 }
@@ -653,7 +653,8 @@ onUnmounted(() => {
 .tab-icon {
   display: flex;
   justify-content: center;
-  width: 14px;
+  width: 12px;
+  flex: 0 0 12px;
   color: var(--accent-amber, #ffd166);
   flex-shrink: 0;
 }
@@ -740,8 +741,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);

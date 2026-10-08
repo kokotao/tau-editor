@@ -25,66 +25,42 @@
           {{ formatLastSaveTime(lastSaveTime) }}
         </span>
       </div>
-      <label class="status-pill encoding-pill">
+      <div class="status-pill encoding-pill">
         <span class="pill-prefix">{{ copy.encoding }}</span>
-        <select
-          class="status-select"
-          data-testid="encoding-select"
+        <StatusBarSelect
+          test-id="encoding-select"
           :value="normalizedEncoding"
+          :options="encodingSelectOptions"
           :title="copy.encodingTitle"
-          @change="handleEncodingChange"
-        >
-          <option
-            v-for="encodingOption in encodingOptions"
-            :key="encodingOption.value"
-            :value="encodingOption.value"
-          >
-            {{ copy.encodingOptions[encodingOption.value] }}
-          </option>
-        </select>
-      </label>
+          @change="emit('encoding-change', $event)"
+        />
+      </div>
     </div>
 
     <div class="status-section status-right">
       <div class="status-item">
-        <label class="status-pill">
+        <div class="status-pill">
           <span class="pill-prefix">{{ copy.theme }}</span>
-          <select
-            class="status-select"
-            data-testid="theme-select"
-            :value="monacoTheme"
-            @change="handleThemeChange"
+          <StatusBarSelect
+            test-id="theme-select"
+            :value="normalizedTheme"
+            :options="themeSelectOptions"
             :title="copy.editorThemeTitle"
-          >
-            <option
-              v-for="themeOption in themeOptions"
-              :key="themeOption.value"
-              :value="themeOption.value"
-            >
-              {{ copy.themeOptions[themeOption.value] }}
-            </option>
-          </select>
-        </label>
+            @change="emit('theme-change', $event)"
+          />
+        </div>
       </div>
       <div class="status-item">
-        <label class="status-pill language-pill">
+        <div class="status-pill language-pill">
           <span class="pill-prefix">{{ copy.language }}</span>
-          <select
-            class="status-select"
-            data-testid="language-mode-display"
-            :value="language"
-            @change="handleLanguageChange"
+          <StatusBarSelect
+            test-id="language-mode-display"
+            :value="normalizedLanguage"
+            :options="languageSelectOptions"
             :title="copy.languageModeTitle"
-          >
-            <option
-              v-for="languageOption in languageOptions"
-              :key="languageOption.value"
-              :value="languageOption.value"
-            >
-              {{ copy.languageOptions[languageOption.value] }}
-            </option>
-          </select>
-        </label>
+            @change="emit('language-change', $event)"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -148,6 +124,7 @@ import {
   type EditorLanguageMode,
   type MonacoThemeValue,
 } from '@/i18n/ui';
+import StatusBarSelect from '@/components/editor/StatusBarSelect.vue';
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 
@@ -244,19 +221,22 @@ const normalizedEncoding = computed<EditorEncoding>(() => {
   const matched = encodingOptions.find((item) => item.value === rawEncoding);
   return matched?.value ?? 'utf-8';
 });
+const normalizedTheme = computed<MonacoThemeValue>(
+  () => themeOptions.find((item) => item.value === props.monacoTheme)?.value ?? 'vs-dark',
+);
+const normalizedLanguage = computed<EditorLanguageMode>(
+  () => languageOptions.find((item) => item.value === props.language)?.value ?? 'plaintext',
+);
+const encodingSelectOptions = computed(() =>
+  encodingOptions.map(({ value }) => ({ value, label: copy.value.encodingOptions[value] })),
+);
+const themeSelectOptions = computed(() =>
+  themeOptions.map(({ value }) => ({ value, label: copy.value.themeOptions[value] })),
+);
+const languageSelectOptions = computed(() =>
+  languageOptions.map(({ value }) => ({ value, label: copy.value.languageOptions[value] })),
+);
 const showAuthorModal = ref(false);
-
-const handleEncodingChange = (event: Event) => {
-  emit('encoding-change', (event.target as HTMLSelectElement).value);
-};
-
-const handleLanguageChange = (event: Event) => {
-  emit('language-change', (event.target as HTMLSelectElement).value);
-};
-
-const handleThemeChange = (event: Event) => {
-  emit('theme-change', (event.target as HTMLSelectElement).value);
-};
 
 const handleOpenProjectHomepage = async () => {
   await appCommands.openProjectHomepage();
@@ -278,6 +258,8 @@ const formatLastSaveTime = (date: Date) => {
 
 <style scoped>
 .status-bar {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -513,22 +495,4 @@ const formatLastSaveTime = (date: Date) => {
   color: rgba(255, 255, 255, 0.68);
 }
 
-.status-select {
-  min-width: 72px;
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  outline: none;
-  appearance: none;
-}
-
-.status-select option {
-  background: #1b2230;
-  color: #fff;
-}
 </style>

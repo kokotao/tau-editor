@@ -46,6 +46,9 @@ export const MARKDOWN_PREVIEW_THEMES = [
   'paper-soft',
   'editorial-warm',
   'graphite-night',
+  'mint-grove',
+  'lavender-letter',
+  'deep-ocean',
 ] as const;
 
 export type CustomThemeColorKey = Exclude<ThemeColorKey, 'bgApp' | 'panelBase'>;

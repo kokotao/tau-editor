@@ -2,7 +2,7 @@
   <n-config-provider class="settings-provider" :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
     <div
       class="settings-panel animate__animated animate__fadeIn animate__faster"
-      :class="`settings-panel--${mode}`"
+      :class="[`settings-panel--${mode}`, `settings-panel-theme--${settingsStore.resolvedTheme}`]"
       data-testid="settings-panel"
     >
       <div class="settings-header">
@@ -695,7 +695,12 @@
               data-testid="settings-release-notes"
             >
               <span class="settings-update-notes-label">{{ copy.releaseNotes }}</span>
-              <div v-if="releaseNotesHtml" class="settings-update-notes-content" v-html="releaseNotesHtml"></div>
+              <div
+                v-if="releaseNotesHtml"
+                class="settings-update-notes-content"
+                v-html="releaseNotesHtml"
+                @click="handleReleaseNotesClick"
+              ></div>
               <span v-else class="settings-update-notes-fallback">{{ releaseNotesPreview }}</span>
             </div>
 
@@ -947,6 +952,14 @@ const emit = defineEmits<{
   close: [];
   'open-workspace': [];
   'update:activeCategory': [category: SettingsCategory];
+  'update-availability': [state: {
+    available: boolean;
+    canInstall: boolean;
+    latestVersion: string;
+    releaseName: string;
+    releaseNotes: string;
+    releaseUrl: string;
+  }];
 }>();
 
 const settingsStore = useSettingsStore();
@@ -1129,8 +1142,25 @@ const naiveThemeOverrides = computed<GlobalThemeOverrides>(() => {
   const primaryColor = resolveThemeColor('--accent-brand', '#2563eb');
   const primaryColorPressed = resolveThemeColor('--accent-brand-strong', '#1d4ed8');
   const panelBase = resolveThemeColor('--panel-base', '#f7f9ff');
-  const panelElevated = resolveThemeColor('--panel-elevated', '#fbfcff');
+  const isLightTheme = settingsStore.resolvedTheme === 'light';
+  const selectSurface = isLightTheme
+    ? resolveThemeColor('--bg-app', '#eef3ff')
+    : panelBase;
+  const menuSurface = isLightTheme
+    ? selectSurface
+    : resolveThemeColor('--panel-elevated', '#151d2d');
   const borderSoft = resolveThemeColor('--border-soft', 'rgba(51, 65, 85, 0.12)');
+  const textPrimary = resolveThemeColor('--text-primary', isLightTheme ? '#162033' : '#ecf2ff');
+  const textSecondary = resolveThemeColor('--text-secondary', isLightTheme ? '#49566d' : '#b6c2d9');
+  const textMuted = resolveThemeColor('--text-muted', isLightTheme ? '#7b879d' : '#75829e');
+  const surfaceHover = resolveThemeColor(
+    '--surface-hover',
+    isLightTheme ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255, 255, 255, 0.08)',
+  );
+  const surfaceActive = resolveThemeColor(
+    '--surface-active',
+    isLightTheme ? 'rgba(37, 99, 235, 0.1)' : 'rgba(124, 199, 255, 0.14)',
+  );
 
   return {
     common: {
@@ -1142,15 +1172,24 @@ const naiveThemeOverrides = computed<GlobalThemeOverrides>(() => {
     Select: {
       peers: {
         InternalSelection: {
-          color: panelBase,
-          colorActive: panelElevated,
+          color: selectSurface,
+          colorActive: selectSurface,
+          textColor: textPrimary,
+          textColorDisabled: textMuted,
           border: `1px solid ${borderSoft}`,
           borderActive: `1px solid ${primaryColor}`,
           borderFocus: `1px solid ${primaryColor}`,
           boxShadowFocus: `0 0 0 3px ${toThemeRgba(primaryColor, 0.2, 'rgba(37, 99, 235, 0.2)')}`,
         },
         InternalSelectMenu: {
-          color: panelElevated,
+          color: menuSurface,
+          optionTextColor: textSecondary,
+          optionTextColorPressed: textPrimary,
+          optionTextColorActive: textPrimary,
+          optionCheckColor: primaryColor,
+          optionColorPending: surfaceHover,
+          optionColorActive: surfaceActive,
+          optionColorActivePending: surfaceActive,
         },
       },
     },
@@ -1277,6 +1316,9 @@ const markdownPreviewThemeOptions = computed<SelectOption[]>(() => [
   { label: copy.value.markdownPreviewThemePaperSoft, value: 'paper-soft' },
   { label: copy.value.markdownPreviewThemeEditorialWarm, value: 'editorial-warm' },
   { label: copy.value.markdownPreviewThemeGraphiteNight, value: 'graphite-night' },
+  { label: copy.value.markdownPreviewThemeMintGrove, value: 'mint-grove' },
+  { label: copy.value.markdownPreviewThemeLavenderLetter, value: 'lavender-letter' },
+  { label: copy.value.markdownPreviewThemeDeepOcean, value: 'deep-ocean' },
 ]);
 const maxOpenTabsOptions = computed<SelectOption[]>(() => [
   { label: '10', value: 10 },
@@ -1362,6 +1404,27 @@ const renderReleaseNotes = async (markdown: string): Promise<void> => {
     releaseNotesHtml.value = '';
     console.warn('[Settings] 更新说明 Markdown 渲染失败：', error);
   }
+};
+
+/**
+ * 更新说明中的 Markdown 链接必须在系统默认浏览器中打开，禁止 WebView 内导航。
+ * @author Albert_Luo
+ * @date 2026-10-07
+ */
+const handleReleaseNotesClick = (event: MouseEvent) => {
+  const target = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  if (!(target instanceof HTMLAnchorElement)) {
+    return;
+  }
+
+  const href = target.href?.trim() || target.getAttribute('href')?.trim() || '';
+  if (!/^https?:\/\//i.test(href)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  void appCommands.openExternalLink(href);
 };
 
 const canInstallUpdate = computed(() => {
@@ -1960,6 +2023,14 @@ const checkForUpdate = async (silent: boolean) => {
     }
     updateInfo.value = result;
     void renderReleaseNotes(result.releaseNotes || '');
+    emit('update-availability', {
+      available: result.hasUpdate,
+      canInstall: Boolean(result.hasUpdate && result.selectedAsset),
+      latestVersion: result.latestVersion,
+      releaseName: result.releaseName,
+      releaseNotes: result.releaseNotes,
+      releaseUrl: result.releaseUrl,
+    });
 
     if (result.hasUpdate) {
       updateStatus.value = 'available';
@@ -1977,9 +2048,9 @@ const checkForUpdate = async (silent: boolean) => {
   }
 };
 
-const installUpdate = async () => {
+const installUpdate = async (): Promise<{ success: boolean; error?: string }> => {
   if (!selectedAsset.value || isInstallingUpdate.value) {
-    return;
+    return { success: false };
   }
 
   isInstallingUpdate.value = true;
@@ -1991,12 +2062,15 @@ const installUpdate = async () => {
     const result = await settingsCommands.downloadAndInstallUpdate(
       selectedAsset.value.browserDownloadUrl,
       selectedAsset.value.name,
+      selectedAsset.value.size,
     );
     installMessage.value = result.message || copy.value.statusInstallTriggered;
     updateStatus.value = 'installTriggered';
+    return { success: true };
   } catch (error) {
     updateStatus.value = 'error';
     updateError.value = error instanceof Error ? error.message : String(error);
+    return { success: false, error: updateError.value };
   } finally {
     isInstallingUpdate.value = false;
   }
@@ -2034,6 +2108,10 @@ onMounted(async () => {
     await checkForUpdate(true);
   }
 });
+
+defineExpose({
+  installUpdate: () => installUpdate(),
+});
 </script>
 
 <style scoped>
@@ -2055,6 +2133,14 @@ onMounted(async () => {
   --animate-duration: 320ms;
   background: var(--bg-app, var(--panel-base, #101726));
   transition: background-color 260ms ease, color 260ms ease;
+}
+
+.settings-panel-theme--light {
+  color-scheme: light;
+}
+
+.settings-panel-theme--dark {
+  color-scheme: dark;
 }
 
 .settings-header {
@@ -2113,7 +2199,7 @@ onMounted(async () => {
   padding: 0 12px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: var(--radius-sm);
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--surface-muted, rgba(15, 23, 42, 0.4));
   color: var(--text-primary, #f8fafc);
   cursor: pointer;
 }
@@ -2141,7 +2227,7 @@ onMounted(async () => {
   gap: 8px;
   padding: 18px 14px;
   border-right: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(15, 23, 42, 0.2);
+  background: var(--surface-muted, rgba(15, 23, 42, 0.2));
 }
 
 .settings-nav-item {
@@ -2162,9 +2248,9 @@ onMounted(async () => {
 }
 
 .settings-nav-item.active {
-  border-color: rgba(56, 189, 248, 0.45);
-  background: rgba(14, 165, 233, 0.2);
-  color: #e0f2fe;
+  border-color: color-mix(in srgb, var(--accent-brand, #38bdf8) 45%, transparent);
+  background: var(--surface-active, rgba(14, 165, 233, 0.2));
+  color: var(--text-primary, #e0f2fe);
 }
 
 .settings-detail,
@@ -2197,7 +2283,7 @@ onMounted(async () => {
   padding: 10px 12px;
   border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.35);
+  background: var(--surface-muted, rgba(15, 23, 42, 0.35));
 }
 
 .settings-overview-item span {
@@ -2739,7 +2825,7 @@ onMounted(async () => {
   padding: 0 10px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: var(--radius-sm);
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--surface-muted, rgba(15, 23, 42, 0.4));
   color: var(--text-secondary, #cbd5e1);
   font-size: var(--font-size-ui-sm, 12px);
   cursor: pointer;
@@ -2937,7 +3023,7 @@ onMounted(async () => {
   height: 36px;
   padding: 0 14px;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(15, 23, 42, 0.3);
+  background: var(--surface-muted, rgba(15, 23, 42, 0.3));
   color: var(--text-primary, #f8fafc);
   cursor: pointer;
   transition: transform 180ms ease, border-color 220ms ease, opacity 220ms ease;
@@ -3179,6 +3265,21 @@ onMounted(async () => {
   background: var(--settings-bg);
   color: var(--settings-text);
   font-family: var(--font-family-ui, 'Manrope Variable', 'Manrope', system-ui, sans-serif);
+}
+
+.settings-panel--workspace.settings-panel-theme--light {
+  --settings-bg: var(--bg-app, #eef3ff);
+  --settings-surface-lowest: color-mix(in srgb, var(--settings-bg) 97%, var(--settings-text) 3%);
+  --settings-surface-low: color-mix(in srgb, var(--settings-bg) 94%, var(--settings-text) 6%);
+  --settings-surface: color-mix(in srgb, var(--settings-bg) 90%, var(--settings-text) 10%);
+  --settings-surface-high: color-mix(in srgb, var(--settings-bg) 86%, var(--settings-text) 14%);
+  --settings-surface-highest: color-mix(in srgb, var(--settings-bg) 82%, var(--settings-text) 18%);
+  --settings-header-bg: var(--settings-bg);
+  --settings-nav-bg: var(--settings-surface-low);
+  --settings-nav-hover: color-mix(in srgb, var(--settings-bg) 90%, var(--settings-primary) 10%);
+  --settings-nav-active: color-mix(in srgb, var(--settings-bg) 86%, var(--settings-primary) 14%);
+  --settings-theme-bg: var(--settings-surface-low);
+  --settings-shadow-color: color-mix(in srgb, var(--settings-bg) 12%, transparent);
 }
 
 .settings-panel--workspace .settings-header {
@@ -3519,6 +3620,9 @@ onMounted(async () => {
 }
 
 .settings-panel--workspace :deep(.n-base-selection-label) {
+  align-self: stretch;
+  min-height: inherit;
+  box-sizing: border-box;
   color: var(--settings-text);
   font-size: 13px;
 }

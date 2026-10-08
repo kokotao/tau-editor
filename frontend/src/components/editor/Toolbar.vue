@@ -1,25 +1,36 @@
 <template>
   <div class="toolbar" data-testid="toolbar">
     <div class="toolbar-zone toolbar-zone-start">
-      <div v-if="hasIdentity" class="toolbar-identity">
-        <span
-          v-if="appLabel"
-          class="toolbar-app-label"
-          :title="appLabel"
-          :aria-label="appLabel"
-        >{{ appLabel }}</span>
-        <span
-          v-if="workspaceLabel"
-          class="toolbar-workspace-label"
-          :title="workspaceLabel"
-          :aria-label="`工作区：${workspaceLabel}`"
-        >{{ workspaceLabel }}</span>
-        <span
-          v-if="currentFileLabel"
-          class="toolbar-file-label"
-          :title="currentFileLabel"
-          :aria-label="`当前文件：${currentFileLabel}`"
-        >{{ currentFileLabel }}</span>
+      <div class="toolbar-identity">
+        <svg
+          class="toolbar-app-icon"
+          viewBox="80 190 710 620"
+          role="img"
+          :aria-label="appLabel || 'Tau Editor'"
+          :title="appLabel || 'Tau Editor'"
+          data-testid="toolbar-app-icon"
+        >
+          <defs>
+            <filter id="toolbar-app-icon-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="1.6" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <g class="toolbar-app-icon-arrows">
+            <path d="M432 468V212m0 0-43 77m43-77 43 77M250 675 100 762m0 0 94 1m-94-1 47-82m469-5 150 87m0 0-47-82m47 82-94 1" />
+          </g>
+          <path class="toolbar-app-icon-top" d="m247 462 185-107 184 107-184 100-185-100Z" />
+          <path class="toolbar-app-icon-left" d="M247 462v214l185 112V562L247 462Z" />
+          <path class="toolbar-app-icon-right" d="M432 562v226l184-112V462L432 562Z" />
+          <g class="toolbar-app-icon-cube-lines">
+            <path d="m247 462 185-107 184 107M247 462l185 100 184-100M432 562v226" />
+            <path d="m522 622 94 54" />
+          </g>
+          <path class="toolbar-app-icon-tau" d="M302 598c4-18 12-20 29-18l48 4c7 1 10-3 12-11l-5 24c-1 5-5 7-11 6l-24-3-9 63c-3 19 5 33 20 36 11 2 17-4 21-15-3 21-13 31-28 27-22-5-33-26-30-51l8-61-19-2c-7 0-11 4-14 12l2-11Z" />
+        </svg>
       </div>
     </div>
 
@@ -315,63 +326,6 @@
           <span class="dirty-indicator" aria-hidden="true">●</span>
           <span class="toolbar-save-state-label">{{ copy.dirtyShort }}</span>
         </span>
-        <div ref="systemMenuRef" class="toolbar-system-menu" data-testid="system-menu">
-          <button
-            type="button"
-            class="toolbar-system-trigger"
-            data-testid="system-menu-trigger"
-            :aria-label="copy.systemMenuTitle"
-            :aria-expanded="systemMenuOpen"
-            :title="copy.systemMenuTitle"
-            @click="toggleSystemMenu"
-          >
-            <span class="toolbar-system-label">{{ copy.systemMenu }}</span>
-          </button>
-          <div
-            v-if="systemMenuOpen"
-            class="toolbar-system-panel"
-            data-testid="system-menu-panel"
-            @click.stop
-          >
-            <input
-              ref="systemMenuSearchInputRef"
-              v-model="systemMenuQuery"
-              class="toolbar-system-search"
-              data-testid="system-menu-search"
-              :placeholder="copy.systemMenuSearchPlaceholder"
-              @keydown="handleSystemMenuKeydown"
-            />
-            <div
-              v-if="flatFilteredActions.length === 0"
-              class="toolbar-system-empty"
-              data-testid="system-menu-empty"
-            >
-              {{ copy.systemMenuNoResult }}
-            </div>
-            <div
-              v-for="group in groupedFilteredActions"
-              :key="group.group"
-              class="toolbar-system-group"
-              :data-testid="`system-menu-group-${group.group}`"
-            >
-              <div class="toolbar-system-group-title">
-                {{ copy.systemMenuGroups[group.group] }}
-              </div>
-              <button
-                v-for="action in group.actions"
-                :key="action.value"
-                type="button"
-                class="toolbar-system-item"
-                :class="{ active: flatFilteredActions[activeMenuIndex]?.value === action.value }"
-                :data-testid="`system-menu-item-${action.value}`"
-                @mouseenter="setActiveAction(action.value)"
-                @click="runSystemAction(action.value)"
-              >
-                {{ copy.systemMenuOptions[action.value] }}
-              </button>
-            </div>
-          </div>
-        </div>
         <button
           class="toolbar-btn"
           data-testid="btn-settings"
@@ -387,9 +341,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useSettingsStore } from '@/stores/settings';
-import { getToolbarI18n, type SystemMenuAction } from '@/i18n/ui';
+import { getToolbarI18n } from '@/i18n/ui';
 import TauIcon from '@/components/icons/TauIcon.vue';
 
 interface ToolbarProps {
@@ -402,8 +356,6 @@ interface ToolbarProps {
   contextRailVisible?: boolean;
   canRevealCurrentFile?: boolean;
   locatingCurrentFile?: boolean;
-  workspaceLabel?: string;
-  currentFileLabel?: string;
   appLabel?: string;
 }
 
@@ -569,68 +521,7 @@ const markdownActions: Array<{ value: MarkdownAction; label: string; glyph: stri
   { value: 'toc', label: '目录', glyph: 'TOC' },
   { value: 'timestamp', label: '时间戳', glyph: 'T' },
 ];
-type SystemMenuGroupId = 'file' | 'view' | 'theme' | 'language';
-
-const systemMenuActions: Array<{ value: SystemMenuAction; group: SystemMenuGroupId; keywords: string[] }> = [
-  { value: 'file-new', group: 'file', keywords: ['new', 'file', '新建', '文件'] },
-  { value: 'file-open', group: 'file', keywords: ['open', 'file', '打开', '文件'] },
-  { value: 'file-open-folder', group: 'file', keywords: ['open', 'folder', 'workspace', '打开', '文件夹', '工作区'] },
-  { value: 'file-save', group: 'file', keywords: ['save', '保存'] },
-  { value: 'file-save-as', group: 'file', keywords: ['save as', '另存为', '导出'] },
-  { value: 'refresh-workspace', group: 'file', keywords: ['refresh', 'workspace', '刷新', '工作区'] },
-  { value: 'find-text', group: 'view', keywords: ['find', 'search', '查找', '搜索'] },
-  { value: 'go-to-line', group: 'view', keywords: ['line', 'goto', '跳转', '行'] },
-  { value: 'open-command-palette', group: 'view', keywords: ['f1', 'palette', 'command', '命令', '面板'] },
-  { value: 'toggle-explorer', group: 'view', keywords: ['explorer', 'sidebar', '资源', '侧栏'] },
-  { value: 'toggle-settings', group: 'view', keywords: ['settings', 'preferences', '设置', '偏好'] },
-  { value: 'toggle-theme', group: 'theme', keywords: ['theme', 'dark', 'light', '主题', '深色', '浅色'] },
-  { value: 'theme-light', group: 'theme', keywords: ['theme', 'light', '浅色', '亮色'] },
-  { value: 'theme-dark', group: 'theme', keywords: ['theme', 'dark', '深色', '暗色'] },
-  { value: 'theme-system', group: 'theme', keywords: ['theme', 'system', '跟随', '系统'] },
-  { value: 'cycle-language-mode', group: 'language', keywords: ['language', 'mode', '语言', '模式'] },
-  { value: 'language-plaintext', group: 'language', keywords: ['plaintext', 'text', '纯文本'] },
-  { value: 'language-markdown', group: 'language', keywords: ['markdown', 'md'] },
-  { value: 'language-typescript', group: 'language', keywords: ['typescript', 'ts'] },
-  { value: 'language-python', group: 'language', keywords: ['python', 'py'] },
-  { value: 'language-json', group: 'language', keywords: ['json'] },
-];
-const groupOrder: SystemMenuGroupId[] = ['file', 'view', 'theme', 'language'];
-const systemMenuRef = ref<HTMLElement | null>(null);
-const systemMenuSearchInputRef = ref<HTMLInputElement | null>(null);
-const systemMenuOpen = ref(false);
-const systemMenuQuery = ref('');
-const activeMenuIndex = ref(0);
-
-const filteredActions = computed(() => {
-  const keyword = systemMenuQuery.value.trim().toLowerCase();
-  if (!keyword) {
-    return systemMenuActions;
-  }
-
-  return systemMenuActions.filter((action) => {
-    const label = copy.value.systemMenuOptions[action.value].toLowerCase();
-    if (label.includes(keyword)) return true;
-    return action.keywords.some((item) => item.toLowerCase().includes(keyword));
-  });
-});
-
-const groupedFilteredActions = computed(() =>
-  groupOrder
-    .map((group) => ({
-      group,
-      actions: filteredActions.value.filter((action) => action.group === group),
-    }))
-    .filter((entry) => entry.actions.length > 0)
-);
-
-const flatFilteredActions = computed(() =>
-  groupedFilteredActions.value.flatMap((entry) => entry.actions)
-);
-
 const previewModeLabel = computed(() => copy.value.previewModeLabels[props.markdownPreviewMode]);
-const hasIdentity = computed(
-  () => Boolean(props.appLabel?.length || props.workspaceLabel?.length || props.currentFileLabel?.length)
-);
 
 const emit = defineEmits<{
   'new-file': [];
@@ -649,77 +540,11 @@ const emit = defineEmits<{
   'markdown-heading': [level: number];
   'markdown-code': [language: string];
   'markdown-image': [];
-  'system-action': [action: SystemMenuAction];
 }>();
-
-const closeSystemMenu = () => {
-  systemMenuOpen.value = false;
-  systemMenuQuery.value = '';
-  activeMenuIndex.value = 0;
-};
-
-const runSystemAction = (action: SystemMenuAction) => {
-  emit('system-action', action);
-  closeSystemMenu();
-};
-
-const toggleSystemMenu = async () => {
-  systemMenuOpen.value = !systemMenuOpen.value;
-  if (systemMenuOpen.value) {
-    systemMenuQuery.value = '';
-    activeMenuIndex.value = 0;
-    await nextTick();
-    systemMenuSearchInputRef.value?.focus();
-  }
-};
-
-const setActiveAction = (action: SystemMenuAction) => {
-  const index = flatFilteredActions.value.findIndex((item) => item.value === action);
-  if (index >= 0) {
-    activeMenuIndex.value = index;
-  }
-};
-
-const handleSystemMenuKeydown = (event: KeyboardEvent) => {
-  const actions = flatFilteredActions.value;
-
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    closeSystemMenu();
-    return;
-  }
-
-  if (actions.length === 0) {
-    return;
-  }
-
-  if (event.key === 'ArrowDown') {
-    event.preventDefault();
-    activeMenuIndex.value = (activeMenuIndex.value + 1) % actions.length;
-    return;
-  }
-
-  if (event.key === 'ArrowUp') {
-    event.preventDefault();
-    activeMenuIndex.value = (activeMenuIndex.value - 1 + actions.length) % actions.length;
-    return;
-  }
-
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    const targetAction = actions[activeMenuIndex.value];
-    if (targetAction) {
-      runSystemAction(targetAction.value);
-    }
-  }
-};
 
 const handleDocumentPointerDown = (event: MouseEvent) => {
   const target = event.target as Node | null;
   const codeMenuElement = Array.isArray(markdownCodeRef.value) ? markdownCodeRef.value[0] : markdownCodeRef.value;
-  if (systemMenuOpen.value && (!target || !systemMenuRef.value?.contains(target))) {
-    closeSystemMenu();
-  }
   if (
     markdownHeadingOpen.value
     && (!target || (!markdownHeadingRef.value?.contains(target) && !markdownHeadingPanelRef.value?.contains(target)))
@@ -779,10 +604,6 @@ const selectMarkdownHeading = (level: number) => {
   markdownHeadingOpen.value = false;
   emit('markdown-heading', level);
 };
-
-watch(systemMenuQuery, () => {
-  activeMenuIndex.value = 0;
-});
 
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentPointerDown);
@@ -960,141 +781,72 @@ onUnmounted(() => {
   justify-self: end;
 }
 
-.toolbar-system-menu {
-  position: relative;
-}
-
-.toolbar-system-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
-  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
-  color: var(--text-secondary, #cbd5e1);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.toolbar-system-trigger:hover {
-  border-color: var(--border-strong, rgba(148, 163, 184, 0.3));
-  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
-}
-
-.toolbar-system-label {
-  font-size: var(--font-size-ui-sm, 12px);
-  color: var(--text-muted, #94a3b8);
-  white-space: nowrap;
-}
-
-.toolbar-system-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 280px;
-  max-height: 360px;
-  overflow: auto;
-  padding: 8px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
-  background: var(--surface-raised, #1b2436);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
-  z-index: 40;
-}
-
-.toolbar-system-search {
-  width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.2));
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-primary, #f8fafc);
-  outline: none;
-  font: inherit;
-  font-size: var(--font-size-ui-sm, 12px);
-}
-
-.toolbar-system-search:focus {
-  border-color: var(--accent-blue-strong, #4dabff);
-}
-
-.toolbar-system-empty {
-  padding: 12px 10px;
-  color: var(--text-muted, #94a3b8);
-  font-size: var(--font-size-ui-sm, 12px);
-}
-
-.toolbar-system-group {
-  margin-top: 8px;
-}
-
-.toolbar-system-group-title {
-  padding: 4px 8px;
-  font-size: var(--font-size-ui-xs, 11px);
-  color: var(--text-muted, #94a3b8);
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-
-.toolbar-system-item {
-  width: 100%;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary, #cbd5e1);
-  text-align: left;
-  padding: 8px 10px;
-  font-size: var(--font-size-ui-md, 13px);
-  cursor: pointer;
-}
-
-.toolbar-system-item:hover,
-.toolbar-system-item.active {
-  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
-  color: var(--text-primary, #f8fafc);
-}
-
 .toolbar-identity {
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
+  width: 100%;
 }
 
-.toolbar-identity span {
-  min-width: 0;
-  font-size: var(--font-size-ui-sm, 12px);
-  color: var(--text-muted, #94a3b8);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.toolbar-app-icon {
+  display: block;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  overflow: visible;
+  transition: filter 180ms ease;
 }
 
-.toolbar-app-label {
-  flex: 0 0 auto;
+.toolbar-app-icon-arrows,
+.toolbar-app-icon-cube-lines {
+  fill: none;
+  stroke: var(--toolbar-logo-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.8;
+}
+
+.toolbar-app-icon-top,
+.toolbar-app-icon-right {
+  fill: var(--toolbar-logo-face-light);
+}
+
+.toolbar-app-icon-left {
+  fill: var(--toolbar-logo-face-dark);
+}
+
+.toolbar-app-icon-tau {
+  fill: var(--toolbar-logo-glyph);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 20px;
+  font-style: italic;
   font-weight: 700;
-  color: var(--text-primary, #f8fafc);
 }
 
-.toolbar-workspace-label {
-  flex: 0 1 220px;
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  color: var(--text-secondary, #cbd5e1);
+.toolbar-app-icon {
+  --toolbar-logo-stroke: #64e9ff;
+  --toolbar-logo-face-light: #24384b;
+  --toolbar-logo-face-dark: #102034;
+  --toolbar-logo-glyph: #f4fbff;
+  filter: drop-shadow(0 0 3px rgba(59, 218, 255, 0.65));
 }
 
-.toolbar-file-label {
-  flex: 1 1 auto;
-  min-width: 80px;
-  color: var(--accent-cyan, #22d3ee);
-  font-weight: 600;
+.toolbar-app-icon .toolbar-app-icon-arrows,
+.toolbar-app-icon .toolbar-app-icon-cube-lines {
+  filter: url(#toolbar-app-icon-glow);
+}
+
+:global(:root.theme-light) .toolbar-app-icon {
+  --toolbar-logo-stroke: #102c43;
+  --toolbar-logo-face-light: #f8fbff;
+  --toolbar-logo-face-dark: #0b2c49;
+  --toolbar-logo-glyph: #ffffff;
+  filter: none;
+}
+
+:global(:root.theme-light) .toolbar-app-icon .toolbar-app-icon-arrows,
+:global(:root.theme-light) .toolbar-app-icon .toolbar-app-icon-cube-lines {
+  filter: none;
 }
 
 .toolbar-divider {
@@ -1138,33 +890,32 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 7px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--accent-amber, #ffd166) 42%, transparent);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent-amber, #ffd166) 11%, transparent);
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--accent-amber, #ffd166);
-  font-size: var(--font-size-ui-sm, 12px);
+  font-size: var(--font-size-ui-xs, 11px);
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
 }
 
 .toolbar-save-state-label {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-secondary, #cbd5e1);
+  font-size: inherit;
 }
 
 .dirty-indicator {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--accent-amber, #ffd166);
   color: transparent;
   font-size: 0;
   line-height: 0;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-amber, #ffd166) 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-amber, #ffd166) 16%, transparent);
 }
 
 .toolbar-btn:focus-visible,
@@ -1172,12 +923,6 @@ onUnmounted(() => {
 .toolbar-system-item:focus-visible {
   outline: 1px solid var(--accent-blue-strong, #4dabff);
   outline-offset: -2px;
-}
-
-@media (max-width: 1200px) {
-  .toolbar-workspace-label {
-    display: none;
-  }
 }
 
 @media (max-width: 960px) {

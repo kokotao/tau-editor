@@ -20,7 +20,6 @@
 
       <section class="image-viewer__panel" @click.stop>
         <header class="image-viewer__toolbar" data-testid="image-viewer-toolbar">
-          <span class="image-viewer__title" :title="alt || '图片预览'">{{ alt || '图片预览' }}</span>
           <span class="image-viewer__zoom" aria-live="polite">{{ zoomPercent }}%</span>
           <div class="image-viewer__actions" aria-label="图片预览工具栏">
             <button
@@ -294,35 +293,32 @@ onBeforeUnmount(() => {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  width: min(96vw, 1400px);
-  height: min(94vh, 1000px);
+  width: 100vw;
+  height: 100vh;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
-  background: rgba(21, 25, 35, 0.96);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .image-viewer__toolbar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
+  min-height: 40px;
   padding: 8px 12px 8px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.image-viewer__title {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(16, 20, 30, 0.58);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
 }
 
 .image-viewer__zoom {
@@ -376,6 +372,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  width: 100%;
+  height: 100%;
   padding: 24px;
   cursor: grab;
   user-select: none;
@@ -401,17 +399,13 @@ onBeforeUnmount(() => {
   .image-viewer__panel {
     width: 100vw;
     height: 100vh;
-    border: 0;
-    border-radius: 0;
   }
 
   .image-viewer__toolbar {
     gap: 4px;
+    top: 8px;
+    right: 8px;
     padding-inline: 8px;
-  }
-
-  .image-viewer__title {
-    display: none;
   }
 
   .image-viewer__viewport {

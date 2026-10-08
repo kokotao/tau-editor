@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-07
-> 当前稳定版本：`v0.6.10`
+> 最后更新：2026-10-08
+> 当前稳定版本：`v0.6.11`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.11](https://github.com/kokotao/tau-editor/releases/tag/v0.6.11) | 2026-10-08 | 待发布           | 本次发布  | 更新下载进度、macOS 标题栏导航、路径面包屑、可访问选择器与编辑器体验收口 |
 | [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release（补发资产） | 本次发布  | 更新说明 Markdown 渲染、DMG Finder 布局修复、Universal/aarch64 macOS 安装包 |
 | [0.6.9](https://github.com/kokotao/tau-editor/releases/tag/v0.6.9) | 2026-10-05 | 公开 Release     | `a32ee3b` | 交互体验、macOS DMG 背景、三平台安装包发布                     |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
@@ -40,6 +41,32 @@
 | [0.1.3](https://github.com/kokotao/tau-editor/tree/v0.1.3)         | 2026-03-13 | 内部验证 tag     | `b49534f` | 修复 macOS 选择器权限与关闭按钮                               |
 | [0.1.2](https://github.com/kokotao/tau-editor/tree/v0.1.2)         | 2026-03-13 | 内部验证 tag     | `89c1d2b` | 首个可构建基线，命令面板与工作区根目录统一                    |
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
+
+---
+
+## [0.6.11] - 2026-10-08
+
+### 更新下载与安装体验
+
+- 更新包改为流式写入，实时发出下载进度事件；支持服务端未知总大小，并将进度安全限制在 0–100%。
+- 设置页更新说明继续使用安全 Markdown 渲染，网页链接交给系统浏览器打开；标题栏可直接触发匹配设备安装包下载。
+
+### 工作台导航与 macOS 体验
+
+- macOS 原生标题栏补齐返回/前进、Quick Open、命令面板、资源区、上下文栏和 Markdown 预览入口。
+- 新增编辑器路径面包屑，可定位工作区、文件夹和当前文件，并保留文件/行列位置导航历史。
+- 工具栏、标签页、图片预览和主题市场布局收口，改善窄窗口与沉浸式编辑体验。
+
+### 可访问性与编辑器交互
+
+- 状态栏编码、语言模式和主题选择改为支持键盘导航、焦点管理、Escape 关闭和视口定位的自绘选择器。
+- Markdown 预览新增深海蓝调、林间薄荷、雾紫信笺等风格，并修复外链、右键菜单和主题同步行为。
+- 新增/更新 AppShell、MarkdownPreview、SettingsPanel、StatusBar、ThemeMarketplace、Toolbar、EditorBreadcrumbs 单元测试。
+
+### 验证与限制
+
+- 发布前执行前端类型检查、生产构建、Vitest 单元测试、Rust 测试和 `git diff --check`。
+- macOS 安装包仍采用既有 ad-hoc 签名策略；GitHub Actions 完成跨平台构建后再上传 Release 资产。
 
 ---
 

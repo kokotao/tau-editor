@@ -1174,6 +1174,10 @@ const initEditor = () => {
 
 defineExpose({
   getContent: () => editor.value?.getValue() || '',
+  getPosition: () => {
+    const position = editor.value?.getPosition();
+    return position ? { line: position.lineNumber, column: position.column } : null;
+  },
   setContent: (content: string) => {
     if (!editor.value) {
       return;

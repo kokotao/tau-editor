@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Toolbar from '@/components/editor/Toolbar.vue'
+import { useSettingsStore } from '@/stores/settings'
 
 const baseProps = {
   canUndo: false,
@@ -61,36 +62,38 @@ describe('Toolbar.vue', () => {
   })
 
   describe('身份信息区域', () => {
-    it('提供 label 时展示身份信息', () => {
-      const wrapper = mountToolbar({
-        appLabel: 'Text Studio',
-        workspaceLabel: 'Default Workspace',
-        currentFileLabel: 'README.md',
-      })
-
-      const identity = wrapper.find('.toolbar-identity')
-      expect(identity.exists()).toBe(true)
-      expect(wrapper.text()).toContain('Text Studio')
-      expect(wrapper.text()).toContain('Default Workspace')
-      expect(wrapper.text()).toContain('README.md')
-    })
-
-    it('当前文件名作为主身份信息并提供可访问名称', () => {
-      const wrapper = mountToolbar({
-        appLabel: 'Text Studio',
-        workspaceLabel: 'Default Workspace',
-        currentFileLabel: 'a-very-long-file-name.sql',
-      })
-
-      const fileLabel = wrapper.get('.toolbar-file-label')
-      expect(fileLabel.attributes('title')).toBe('a-very-long-file-name.sql')
-      expect(fileLabel.attributes('aria-label')).toBe('当前文件：a-very-long-file-name.sql')
-      expect(fileLabel.classes()).toContain('toolbar-file-label')
-    })
-
-    it('未提供任何 label 时不显示身份区域', () => {
+    it('始终展示随明暗主题切换的 SVG 应用图标', async () => {
       const wrapper = mountToolbar()
-      expect(wrapper.find('.toolbar-identity').exists()).toBe(false)
+      const icon = wrapper.get('[data-testid="toolbar-app-icon"]')
+
+      expect(icon.element.tagName.toLowerCase()).toBe('svg')
+      expect(icon.find('.toolbar-app-icon-arrows').exists()).toBe(true)
+      expect(icon.find('.toolbar-app-icon-tau').exists()).toBe(true)
+      expect(icon.attributes('aria-label')).toBe('Tau Editor')
+
+      const settingsStore = useSettingsStore(pinia)
+      await settingsStore.updateSettings({ theme: 'light' })
+      await flushPromises()
+
+      expect(document.documentElement.classList.contains('theme-light')).toBe(true)
+      expect(wrapper.get('[data-testid="toolbar-app-icon"]').exists()).toBe(true)
+
+      await settingsStore.updateSettings({ theme: 'dark' })
+      await flushPromises()
+    })
+
+    it('身份区域只显示 SVG 图标，不显示旁边文字', () => {
+      const wrapper = mountToolbar()
+      expect(wrapper.find('.toolbar-workspace-label').exists()).toBe(false)
+      expect(wrapper.find('.toolbar-file-label').exists()).toBe(false)
+      expect(wrapper.find('.toolbar-app-label').exists()).toBe(false)
+      expect(wrapper.find('.toolbar-identity').text()).toBe('')
+    })
+
+    it('未提供 label 时仍显示应用图标', () => {
+      const wrapper = mountToolbar()
+      expect(wrapper.find('.toolbar-identity').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="toolbar-app-icon"]').exists()).toBe(true)
     })
   })
 
@@ -278,46 +281,10 @@ describe('Toolbar.vue', () => {
     })
   })
 
-  describe('系统菜单', () => {
-    it('应渲染系统菜单触发器', () => {
+  describe('工具栏操作', () => {
+    it('不应显示系统菜单入口', () => {
       const wrapper = mountToolbar()
-      expect(wrapper.find('[data-testid="system-menu-trigger"]').exists()).toBe(true)
-    })
-
-    it('系统菜单点击命令应发射 system-action 事件', async () => {
-      const wrapper = mountToolbar()
-      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
-      await flushPromises()
-      await wrapper.get('[data-testid="system-menu-item-open-command-palette"]').trigger('click')
-
-      expect(wrapper.emitted('system-action')).toBeTruthy()
-      expect(wrapper.emitted('system-action')![0]).toEqual(['open-command-palette'])
-    })
-
-    it('系统菜单应支持切换主题与语言模式快捷项', async () => {
-      const wrapper = mountToolbar()
-      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
-      await flushPromises()
-      await wrapper.get('[data-testid="system-menu-item-toggle-theme"]').trigger('click')
-      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
-      await flushPromises()
-      await wrapper.get('[data-testid="system-menu-item-cycle-language-mode"]').trigger('click')
-
-      expect(wrapper.emitted('system-action')![0]).toEqual(['toggle-theme'])
-      expect(wrapper.emitted('system-action')![1]).toEqual(['cycle-language-mode'])
-    })
-
-    it('系统菜单应支持按关键字过滤并回车执行', async () => {
-      const wrapper = mountToolbar()
-      await wrapper.get('[data-testid="system-menu-trigger"]').trigger('click')
-      await flushPromises()
-
-      const search = wrapper.get('[data-testid="system-menu-search"]')
-      await search.setValue('主题')
-      await search.trigger('keydown', { key: 'Enter' })
-
-      expect(wrapper.emitted('system-action')).toBeTruthy()
-      expect(wrapper.emitted('system-action')![0]).toEqual(['toggle-theme'])
+      expect(wrapper.find('[data-testid="system-menu-trigger"]').exists()).toBe(false)
     })
   })
 
