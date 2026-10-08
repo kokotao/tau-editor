@@ -15,18 +15,18 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.8', date: '2026-10-04', label: 'PAX 与 Java 语言服务修复', category: '稳定性', latest: true,
-    summary: '完善跨平台安装包与 Java 语言服务准备流程，补齐安全解包、超时重试和分阶段错误提示。',
-    highlights: ['支持 POSIX PAX 与 GNU L/K 长路径扩展', '安全处理 tar 路径穿越、绝对路径和危险条目类型', 'Java 安装拆分为 JRE runtime 与 JDTLS 两个阶段并复用缓存', '下载器增加连接超时、总超时、指数退避和可重试 HTTP 状态处理', 'Java 准备失败显示具体阶段、URL、尝试次数与底层错误原因'],
-    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.8',
+    version: 'v0.6.11', date: '2026-10-08', label: '工作台导航与编辑器上下文', category: '编辑器体验', latest: true,
+    summary: '更新安装体验、macOS 工作台导航、编辑器路径上下文和状态栏可访问性，并收口 Markdown 预览、图片预览、主题市场、工具栏与标签页交互。',
+    highlights: ['新增编辑器路径面包屑，工作区、文件夹与文件可联动定位', 'macOS 标题栏支持返回/前进、Quick Open、命令面板、资源区、上下文栏和 Markdown 预览入口', '状态栏编码、语言模式和主题改为支持键盘导航的自绘选择器', 'Markdown 预览新增林间薄荷、雾紫信笺和深海蓝调风格并修复外链与主题同步', '更新包改为流式写入并显示下载进度，macOS 标题栏可触发匹配设备安装包下载'],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.11',
     assets: [
-      ['Tau.Editor-0.6.8-1.x86_64.rpm', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor-0.6.8-1.x86_64.rpm'],
-      ['Tau.Editor_0.6.8_aarch64.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_aarch64.dmg'],
-      ['Tau.Editor_0.6.8_amd64.AppImage', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_amd64.AppImage'],
-      ['Tau.Editor_0.6.8_amd64.deb', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_amd64.deb'],
-      ['Tau.Editor_0.6.8_universal.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_universal.dmg'],
-      ['Tau.Editor_0.6.8_x64-setup.exe', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_x64-setup.exe'],
-      ['Tau.Editor_0.6.8_x64_zh-CN.msi', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.8/Tau.Editor_0.6.8_x64_zh-CN.msi'],
+      ['Tau.Editor-0.6.11-1.x86_64.rpm', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor-0.6.11-1.x86_64.rpm'],
+      ['Tau.Editor_0.6.11_aarch64.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor_0.6.11_aarch64.dmg'],
+      ['Tau.Editor_0.6.11_amd64.AppImage', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor_0.6.11_amd64.AppImage'],
+      ['Tau.Editor_0.6.11_amd64.deb', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor_0.6.11_amd64.deb'],
+      ['Tau.Editor_0.6.11_universal.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor_0.6.11_universal.dmg'],
+      ['Tau.Editor_0.6.11_x64-setup.exe', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor_0.6.11_x64-setup.exe'],
+      ['Tau.Editor_0.6.11_x64_zh-CN.msi', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.11/Tau.Editor_0.6.11_x64_zh-CN.msi'],
     ].map(([name, url]) => ({ name, url })),
   },
   {
@@ -360,9 +360,9 @@ document.querySelector('#app').innerHTML = `
 
     <section class="capabilities container reveal"><div class="capability-intro"><p class="eyebrow">BUILT FOR THE FLOW</p><h2>每一个细节，<br><em>都在帮你前进。</em></h2><p>从第一次打开文件，到完成一次提交，Tau 把高频动作变成自然的节奏。现在，主题市场和可调节外观也加入了这条工作流。</p></div><div class="capability-grid">${capabilities.map(([icon, title, body]) => `<article class="capability"><span>${icon}</span><h3>${title}</h3><p>${body}</p></article>`).join('')}</div></section>
 
-    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>从一个纯文本文件，到一整个项目工作区。Tau 将你每天依赖的能力，收进一个轻盈而清晰的界面。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor 编辑器界面预览"><figcaption>Tau Editor · focused workspace</figcaption></figure></section>
+    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>路径面包屑、标签页和沉浸式编辑区，把工作区上下文留在视线之内；从纯文本到完整项目，都能保持专注。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor v0.6.11 路径面包屑与沉浸式编辑工作区预览"><figcaption>Tau Editor · focused workspace with breadcrumbs</figcaption></figure></section>
 
-    <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>把工作台，<br><em>带在手边。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/markdown-preview.png" alt="Markdown 分栏预览"><figcaption>Markdown preview</figcaption></figure><figure><img src="./assets/command-palette.png" alt="命令面板"><figcaption>Command palette</figcaption></figure><figure><img src="./assets/settings.png" alt="快捷键与扩展设置"><figcaption>Settings that fit</figcaption></figure></div></section>
+    <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>把工作台，<br><em>带在手边。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/markdown-preview.png" alt="Tau Editor v0.6.11 Markdown 分栏预览与文档上下文"><figcaption>Markdown preview · split editing and context</figcaption></figure><figure><img src="./assets/command-palette.png" alt="Tau Editor 命令面板与快速导航"><figcaption>Command palette · every action within reach</figcaption></figure><figure><img src="./assets/settings.png" alt="Tau Editor 主题、快捷键与语言服务设置"><figcaption>Settings · themes, keybindings and language services</figcaption></figure></div></section>
 
     <section id="releases" class="releases container reveal"><div class="release-heading"><div><p class="eyebrow">RELEASE NOTES</p><h2>每一次更新，<br><em>都值得被看见。</em></h2></div><p>更新日志自动同步 GitHub Releases，按公开 tag 排序展示；网络不可用时保留内置版本记录。</p></div><div class="release-sync-status" role="status" aria-live="polite" data-release-sync>内置版本记录 · 正在同步 GitHub Releases…</div><div class="release-filters" role="group" aria-label="筛选更新日志">${renderReleaseFilters(releases)}</div><div class="release-list">${renderReleaseCards(releases)}</div></section>
 

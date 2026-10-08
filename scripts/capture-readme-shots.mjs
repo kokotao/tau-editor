@@ -50,22 +50,22 @@ export const useEditorSession = defineStore('editor-session', () => {
 });
 `;
 
-const MARKDOWN_DOC = `# Tau Editor v0.4.3
+const MARKDOWN_DOC = `# Tau Editor v0.6.11
 
 跨平台文本编辑器，支持主题包、快捷键自定义与 Monaco Diff 对比。
 
 ## 本次更新
 
-- 工作台微圆角与结构平角体系
-- 设置页与浮层视觉层级收口
-- macOS 构建期签名修复
-- Developer ID 公证开关
+- 编辑器路径面包屑与工作区导航
+- Markdown 分栏预览主题同步
+- 状态栏语言模式键盘导航
+- macOS 标题栏更新与快捷入口
 
 | 能力 | 状态 |
 | --- | --- |
-| 微圆角体系 | 已完成 |
-| macOS 签名 | 已修复 |
-| 视觉基线 | 已支持 |
+| 路径面包屑 | 已完成 |
+| Markdown 预览主题 | 已同步 |
+| 状态栏可访问性 | 已支持 |
 
 > 提示：按 F1 打开命令面板。
 
@@ -127,6 +127,13 @@ async function renameActiveTab(page, name) {
   await page.waitForTimeout(250);
 }
 
+async function selectStatusOption(page, testId, value) {
+  const trigger = page.locator(`[data-testid="${testId}"]`);
+  await trigger.click();
+  await page.locator(`[data-testid="${testId}-option-${value}"]`).click();
+  await page.waitForTimeout(150);
+}
+
 async function openCommandPalette(page) {
   for (const keys of ['F1', 'Control+Shift+P']) {
     await page.evaluate(() => {
@@ -167,7 +174,7 @@ async function captureScreenshots(browser) {
   await pasteIntoEditor(page, HERO_CODE);
   await renameActiveTab(page, 'editor-session.ts');
   // 切到 TypeScript 语言模式，展示语法高亮
-  await page.selectOption('[data-testid="language-mode-display"]', 'typescript');
+  await selectStatusOption(page, 'language-mode-display', 'typescript');
   // 收起侧栏与上下文栏，让首屏展示完整编辑器区域
   await page.click('[data-testid="btn-toggle-file-tree"]');
   await page.click('[data-testid="btn-toggle-context-rail"]');
@@ -199,7 +206,7 @@ async function captureScreenshots(browser) {
   await renameActiveTab(page, 'release-notes.md');
   // 展开上下文栏，展示文档大纲 / 任务 / 链接
   await page.click('[data-testid="btn-toggle-context-rail"]');
-  await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+  await selectStatusOption(page, 'language-mode-display', 'markdown');
   await page.click('[data-testid="btn-markdown-preview-mode"]');
   await page.waitForSelector('[data-testid="markdown-preview"]');
   await page.waitForTimeout(900);
@@ -247,17 +254,10 @@ async function captureTour(browser) {
   await page.waitForTimeout(300);
   await page.click('[data-testid="btn-settings"]');
   await page.waitForSelector('[data-testid="settings-page"] .settings-workspace');
-  await page
-    .locator('[data-testid="settings-page"] button.theme-btn')
-    .filter({ hasText: '浅色' })
-    .first()
-    .click();
+  await page.locator('[data-testid="settings-page"] [data-testid="theme-swatch-light-deep-ocean"]').waitFor({ state: 'visible' });
+  await page.locator('[data-testid="settings-page"] [data-testid="theme-swatch-light-deep-ocean"]').click();
   await page.waitForTimeout(1100);
-  await page
-    .locator('[data-testid="settings-page"] button.theme-btn')
-    .filter({ hasText: '深色' })
-    .first()
-    .click();
+  await page.locator('[data-testid="settings-page"] [data-testid="theme-swatch-dark-deep-ocean"]').click();
   await page.waitForTimeout(1200);
 
   await context.close();
