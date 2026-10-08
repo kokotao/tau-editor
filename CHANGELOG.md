@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.11](https://github.com/kokotao/tau-editor/releases/tag/v0.6.11) | 2026-10-08 | 待发布           | 本次发布  | 更新下载进度、macOS 标题栏导航、路径面包屑、可访问选择器与编辑器体验收口 |
+| [0.6.11](https://github.com/kokotao/tau-editor/releases/tag/v0.6.11) | 2026-10-08 | 公开 Release     | `321c45b` | 更新下载进度、macOS 标题栏导航、路径面包屑、可访问选择器与编辑器体验收口 |
 | [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release（补发资产） | 本次发布  | 更新说明 Markdown 渲染、DMG Finder 布局修复、Universal/aarch64 macOS 安装包 |
 | [0.6.9](https://github.com/kokotao/tau-editor/releases/tag/v0.6.9) | 2026-10-05 | 公开 Release     | `a32ee3b` | 交互体验、macOS DMG 背景、三平台安装包发布                     |
 | [0.6.4](https://github.com/kokotao/tau-editor/releases/tag/v0.6.4) | 2026-10-02 | 公开 Release     | `0dc0021` | 三平台安装包补齐、Release 完整性门禁、官网动态版本同步         |
