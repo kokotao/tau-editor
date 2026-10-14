@@ -68,6 +68,23 @@ describe('sessionService 恢复库 v2（Web 回退后端）', () => {
     expect(drafts[0]?.recoveredAt).toBeGreaterThan(0);
   });
 
+  it('恢复 Markdown 草稿时保留独立预览布局和字号', async () => {
+    const service = new SessionService();
+    await service.initialize();
+
+    await service.saveRecoveryDrafts([makeTab({
+      markdownPreviewMode: 'preview',
+      markdownPreviewFontSize: 22,
+    })]);
+
+    const reopened = new SessionService();
+    await reopened.initialize();
+    const draft = reopened.loadRecoveryDrafts()[0];
+
+    expect(draft?.markdownPreviewMode).toBe('preview');
+    expect(draft?.markdownPreviewFontSize).toBe(22);
+  });
+
   it('v1 会话与草稿迁移到 v2 后清理旧键', async () => {
     storage.set(LEGACY_SESSION_KEY, JSON.stringify({
       version: 1,

@@ -893,6 +893,11 @@ export const fileCommands = {
     return invokeCommand<string>('read_file', { path });
   },
 
+  async readFileBytes(path: string): Promise<Uint8Array> {
+    const bytes = await invokeCommand<number[]>('read_file_bytes', { path });
+    return Uint8Array.from(bytes);
+  },
+
   async writeFile(path: string, content: string): Promise<void> {
     await invokeCommand<void>('write_file', { path, content });
   },

@@ -60,6 +60,8 @@ interface MarkdownPreviewProps {
   theme: 'dark' | 'light';
   sourceFilePath?: string | null;
   editorScrollState?: { top: number; height: number; scrollHeight: number } | null;
+  previewMode?: 'edit' | 'split' | 'preview';
+  previewFontSize?: number;
 }
 
 type MarkdownPreviewContextTarget =
@@ -90,9 +92,12 @@ const MENU_ITEM_HEIGHT = 36;
 const props = withDefaults(defineProps<MarkdownPreviewProps>(), {
   sourceFilePath: null,
   editorScrollState: null,
+  previewMode: 'split',
+  previewFontSize: 16,
 });
 const emit = defineEmits<{
   'request-preview-mode-change': [mode: 'edit' | 'split' | 'preview'];
+  'preview-font-size-change': [fontSize: number];
   'open-image': [payload: { src: string; alt?: string; resolvedSrc: string }];
 }>();
 
@@ -109,6 +114,23 @@ let renderVersion = 0;
 let activeRenderTasks = 0;
 let completedRenderVersion: number | null = null;
 const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
+const PREVIEW_FONT_SIZE_DEFAULT = 16;
+const PREVIEW_FONT_SIZE_MIN = 10;
+const PREVIEW_FONT_SIZE_MAX = 32;
+const PREVIEW_FONT_SIZE_STEP = 1;
+const normalizePreviewFontSize = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return PREVIEW_FONT_SIZE_DEFAULT;
+  }
+  return Math.min(PREVIEW_FONT_SIZE_MAX, Math.max(PREVIEW_FONT_SIZE_MIN, Math.round(value)));
+};
+const previewFontSize = ref(normalizePreviewFontSize(props.previewFontSize));
+watch(() => props.previewFontSize, (value) => {
+  previewFontSize.value = normalizePreviewFontSize(value);
+});
+const imageZoomHint = computed(() => settingsStore.uiLanguage === 'en-US'
+  ? 'Double-click to enlarge image'
+  : '双击放大查看图片');
 const contextMenu = ref({
   visible: false,
   x: 0,
@@ -292,6 +314,13 @@ const getImageInteractionPayload = (image: HTMLImageElement) => {
     alt: image.getAttribute('alt')?.trim() || undefined,
     resolvedSrc: resolvedSrc || rawSrc,
   };
+};
+
+const decorateMarkdownImages = () => {
+  previewRef.value?.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
+    image.classList.add('markdown-preview-image');
+    image.setAttribute('title', imageZoomHint.value);
+  });
 };
 
 const handlePreviewDoubleClick = (event: MouseEvent) => {
@@ -591,6 +620,23 @@ const handleGlobalKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape') {
     closeContextMenu();
   }
+
+  if (props.previewMode !== 'preview' || (!event.ctrlKey && !event.metaKey) || event.altKey) {
+    return;
+  }
+
+  const normalizedKey = event.key === '=' ? '+' : event.key;
+  if (!['+', '-', '0'].includes(normalizedKey)) {
+    return;
+  }
+
+  const nextSize = normalizedKey === '0'
+    ? PREVIEW_FONT_SIZE_DEFAULT
+    : previewFontSize.value + (normalizedKey === '+' ? PREVIEW_FONT_SIZE_STEP : -PREVIEW_FONT_SIZE_STEP);
+  const clampedSize = Math.min(PREVIEW_FONT_SIZE_MAX, Math.max(PREVIEW_FONT_SIZE_MIN, nextSize));
+  event.preventDefault();
+  previewFontSize.value = clampedSize;
+  emit('preview-font-size-change', clampedSize);
 };
 
 const runMenuItem = async (item: PreviewMenuItem) => {
@@ -666,6 +712,7 @@ const scheduleRender = () => {
       html.value = renderer.renderMarkdown(props.content || '');
       await nextTick();
       wrapMarkdownTables();
+      decorateMarkdownImages();
       await resolveLocalImageSources();
       if (previewRef.value) {
         await renderer.renderMermaidDiagrams(previewRef.value, props.theme);
@@ -1026,6 +1073,7 @@ onBeforeUnmount(() => {
   padding: 24px;
   box-sizing: border-box;
   color: var(--preview-text);
+  font-size: v-bind('`${previewFontSize}px`');
   line-height: 1.65;
   background: var(--preview-surface);
   min-height: 100%;
@@ -1122,6 +1170,10 @@ onBeforeUnmount(() => {
 
 .markdown-preview-content :deep(img) {
   object-fit: contain;
+}
+
+.markdown-preview-content :deep(.markdown-preview-image) {
+  cursor: zoom-in;
 }
 
 .markdown-preview-content :deep(.markdown-table-scroll) {

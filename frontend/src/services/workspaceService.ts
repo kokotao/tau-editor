@@ -57,7 +57,16 @@ function detectLanguage(fileName: string): string {
 
 const LARGE_FILE_CHUNK_LOAD_THRESHOLD_BYTES = 12 * 1024 * 1024;
 const LARGE_FILE_DEFAULT_CHUNK_BYTES = 2 * 1024 * 1024;
-const BINARY_PREVIEW_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
+const BINARY_PREVIEW_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'db',
+  'sqlite',
+  'sqlite3',
+]);
 
 function isBinaryPreviewPath(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';

@@ -60,7 +60,16 @@ function detectLanguage(fileName: string): string {
   return languageMap[ext] || 'plaintext';
 }
 
-const BINARY_PREVIEW_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
+const BINARY_PREVIEW_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'db',
+  'sqlite',
+  'sqlite3',
+]);
 const LARGE_FILE_PREVIEW_PREFIX = '[Large File Preview]';
 const LARGE_FILE_SAVE_CHUNK_BYTES = 1024 * 1024;
 const EDITOR_STORE_CONTENT_SYNC_MAX_CHARS = 1_000_000;

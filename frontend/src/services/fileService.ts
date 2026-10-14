@@ -29,7 +29,16 @@ export class FileService {
   private editorStore: UseEditorStoreReturn;
   private tabsStore: UseTabsStoreReturn;
   private fileSystemStore: UseFileSystemStoreReturn;
-  private readonly binaryPreviewExtensions = new Set(['pdf', 'doc', 'docx', 'db', 'sqlite', 'sqlite3']);
+  private readonly binaryPreviewExtensions = new Set([
+    'pdf',
+    'doc',
+    'docx',
+    'xls',
+    'xlsx',
+    'db',
+    'sqlite',
+    'sqlite3',
+  ]);
   
   // 防抖自动保存
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;

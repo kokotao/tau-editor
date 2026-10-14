@@ -13,6 +13,13 @@ import type { Tab } from '@/stores/tabs';
 export const WINDOW_TRANSFER_MAX_TABS = 8;
 export const WINDOW_TRANSFER_MAX_BYTES = 8 * 1024 * 1024;
 
+export interface TabDragTransfer {
+  transferId: string;
+  sourceWindowLabel: string;
+  sourceTabId: string;
+  tab: WindowTransferTab;
+}
+
 export type WindowTransferErrorCode =
   | 'WINDOW_TRANSFER_EMPTY'
   | 'WINDOW_TRANSFER_TOO_LARGE'

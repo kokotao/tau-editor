@@ -285,7 +285,7 @@
           </svg>
         </button>
         <button
-          v-if="isMarkdown"
+          v-if="isMarkdown || (isDocumentPreview && !isFullDocumentPreview)"
           class="toolbar-btn"
           data-testid="btn-markdown-preview-mode"
           @click="emit('cycle-markdown-preview')"
@@ -351,6 +351,8 @@ interface ToolbarProps {
   canRedo: boolean;
   isDirty: boolean;
   isMarkdown?: boolean;
+  isDocumentPreview?: boolean;
+  isFullDocumentPreview?: boolean;
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
   sidebarVisible?: boolean;
   contextRailVisible?: boolean;
@@ -485,6 +487,8 @@ const MarkdownActionIcon = defineComponent({
 
 const props = withDefaults(defineProps<ToolbarProps>(), {
   isMarkdown: false,
+  isDocumentPreview: false,
+  isFullDocumentPreview: false,
   markdownPreviewMode: 'split',
   sidebarVisible: true,
   contextRailVisible: true,

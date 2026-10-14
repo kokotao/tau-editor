@@ -42,6 +42,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::read_file,
+            commands::read_file_bytes,
             commands::write_file,
             commands::atomic_write_file,
             commands::list_files,

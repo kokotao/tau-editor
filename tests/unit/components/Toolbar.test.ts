@@ -59,6 +59,15 @@ describe('Toolbar.vue', () => {
       const buttons = wrapper.findAll('.toolbar-btn')
       expect(buttons.length).toBeGreaterThanOrEqual(8)
     })
+
+    it('Excel 全屏预览时隐藏预览布局切换按钮', () => {
+      const wrapper = mountToolbar({
+        isDocumentPreview: true,
+        isFullDocumentPreview: true,
+      })
+
+      expect(wrapper.find('[data-testid="btn-markdown-preview-mode"]').exists()).toBe(false)
+    })
   })
 
   describe('身份信息区域', () => {

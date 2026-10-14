@@ -7,6 +7,8 @@
       role="tablist"
       :aria-label="copy.tabsLabel"
       @wheel="handleTabsWheel"
+      @dragover="handleTabBarDragOver"
+      @drop="handleTabBarDrop"
     >
       <div
         v-for="tab in props.tabs"
@@ -17,7 +19,7 @@
           active: tab.id === props.activeTabId,
           dirty: tab.isDirty,
           dragging: tab.id === draggingTabId,
-          'drop-target': tab.id === dragOverTabId,
+          'drop-target': tab.id === dragOverTabId || tab.id === foreignDragTabId,
         }"
         role="tab"
         :aria-label="getTabTooltip(tab)"
@@ -35,7 +37,8 @@
         @dragstart="handleTabDragStart($event, tab.id)"
         @dragover.prevent="handleTabDragOver($event, tab.id)"
         @dragenter.prevent="handleTabDragOver($event, tab.id)"
-        @drop="handleTabDrop($event, tab.id)"
+        @dragleave="handleTabDragLeave(tab.id)"
+        @drop.stop="handleTabDrop($event, tab.id)"
         @dragend="handleTabDragEnd"
       >
         <span class="tab-icon" :class="{ untitled: tab.isUntitled }">
@@ -120,6 +123,9 @@
       <div class="context-menu-item" data-testid="menu-close-all" @click="handleCloseAll">
         {{ copy.closeAll }}
       </div>
+      <div class="context-menu-item" data-testid="menu-open-in-new-window" @click="handleOpenInNewWindow">
+        {{ copy.openInNewWindow }}
+      </div>
       <div class="context-menu-item" data-testid="menu-copy-file-path" :class="{ disabled: !contextMenuTabHasPath }" :title="contextMenuTabHasPath ? undefined : copy.noFilePath" @click="handleCopyFilePath">
         {{ copy.copyFilePath }}
       </div>
@@ -171,11 +177,24 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { emit as emitAppEvent, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { Tab } from '@/stores/tabs';
 import { useSettingsStore } from '@/stores/settings';
 import { getEditorTabsI18n } from '@/i18n/ui';
-import { appCommands } from '@/lib/tauri';
+import { appCommands, isTauriApp } from '@/lib/tauri';
 import { useNotificationStore } from '@/stores/notification';
+import { uriToPath } from '@/services/lsp/pathUri';
+import {
+  buildWindowTransferPayload,
+  type TabDragTransfer,
+} from '@/services/windowTransferService';
+
+const TAB_DRAG_EVENT = 'tau://tab-drag';
+const TAB_DRAG_END_EVENT = 'tau://tab-drag-end';
+const TAB_DROP_COMPLETE_EVENT = 'tau://tab-drop-complete';
+const TAB_TRANSFERRED_MIME = 'application/x-tau-editor-tab';
+const TAB_TRANSFER_ERROR_MIME = 'application/x-tau-editor-tab-error';
 
 interface EditorTabsProps {
   tabs?: Tab[];
@@ -192,6 +211,9 @@ const emit = defineEmits<{
   'tab-close': [tabId: string];
   'tab-close-others': [tabId: string];
   'tab-close-all': [];
+  'tab-open-in-new-window': [tabId: string];
+  'tab-drop-import': [tab: TabDragTransfer['tab'], targetTabId: string | null];
+  'tab-transfer-complete': [tabId: string];
   'rename-tab': [tabId: string, name: string];
   'tabs-reorder': [orderedTabIds: string[]];
   'cancel-large-file-load': [tabId: string];
@@ -227,6 +249,17 @@ const tooltip = ref({
 let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
 const draggingTabId = ref<string | null>(null);
 const dragOverTabId = ref<string | null>(null);
+const foreignDragTabId = ref<string | null>(null);
+const dragTransfers = new Map<string, TabDragTransfer>();
+const dragTransferTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const outgoingTransfers = new Map<string, string>();
+const outgoingTransferTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+let activeOutgoingTransferId: string | null = null;
+let pendingDrop: { transferId: string | null; targetTabId: string | null; timeout: ReturnType<typeof setTimeout> } | null = null;
+let tabDragUnlisten: (() => void) | null = null;
+let tabDragEndUnlisten: (() => void) | null = null;
+let tabDropCompleteUnlisten: (() => void) | null = null;
+let isUnmounted = false;
 const CONTEXT_MENU_MARGIN = 8;
 
 const clampMenuPosition = (x: number, y: number, maxWidth: number, maxHeight: number) => {
@@ -400,6 +433,22 @@ const handleCloseAll = () => {
   contextMenu.value.visible = false;
 };
 
+const handleOpenInNewWindow = () => {
+  const tabId = contextMenu.value.tabId;
+  if (tabId) {
+    emit('tab-open-in-new-window', tabId);
+  }
+  contextMenu.value.visible = false;
+};
+
+const normalizeCopiedFilePath = (filePath: string) => {
+  const uriPath = uriToPath(filePath, { platform: 'win32' });
+  const normalized = uriPath ?? filePath;
+
+  // Webview/URI representations may add a slash before a Windows drive letter.
+  return normalized.replace(/^[\\/]+(?=[a-zA-Z]:[\\/])/, '');
+};
+
 const copyFilePath = async (tab: Tab | null) => {
   const filePath = tab?.filePath?.trim();
   if (!filePath) {
@@ -407,12 +456,14 @@ const copyFilePath = async (tab: Tab | null) => {
     return;
   }
 
+  const copiedFilePath = normalizeCopiedFilePath(filePath);
+
   try {
     if (!navigator.clipboard?.writeText) {
       throw new Error(copy.value.copyPathFailed);
     }
-    await navigator.clipboard.writeText(filePath);
-    notificationStore.success(copy.value.copyPathDone, filePath);
+    await navigator.clipboard.writeText(copiedFilePath);
+    notificationStore.success(copy.value.copyPathDone, copiedFilePath);
   } catch (error) {
     notificationStore.error(
       copy.value.copyPathFailed,
@@ -533,17 +584,71 @@ const handleTabDragStart = (event: DragEvent, tabId: string) => {
   hideTabTooltip();
   draggingTabId.value = tabId;
   dragOverTabId.value = null;
+  foreignDragTabId.value = null;
 
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', tabId);
   }
-};
 
-const handleTabDragOver = (event: DragEvent, tabId: string) => {
-  if (!draggingTabId.value || draggingTabId.value === tabId) {
+  if (!isTauriApp()) return;
+  const tab = props.tabs.find((item) => item.id === tabId);
+  if (!tab) return;
+  const built = buildWindowTransferPayload([tab], tab.id, null);
+  if (!built.ok) {
+    event.dataTransfer?.setData(TAB_TRANSFER_ERROR_MIME, built.error.message);
     return;
   }
+  const transferTab = built.payload.tabs[0];
+  if (!transferTab) return;
+
+  const transfer: TabDragTransfer = {
+    transferId: typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    sourceWindowLabel: getCurrentWindow().label,
+    sourceTabId: tabId,
+    tab: transferTab,
+  };
+  activeOutgoingTransferId = transfer.transferId;
+  outgoingTransfers.set(transfer.transferId, tabId);
+  outgoingTransferTimeouts.set(transfer.transferId, setTimeout(() => {
+    outgoingTransfers.delete(transfer.transferId);
+    outgoingTransferTimeouts.delete(transfer.transferId);
+  }, 30000));
+  event.dataTransfer?.setData(TAB_TRANSFERRED_MIME, transfer.transferId);
+  void emitAppEvent(TAB_DRAG_EVENT, transfer).catch((error: unknown) => {
+    outgoingTransfers.delete(transfer.transferId);
+    const timeout = outgoingTransferTimeouts.get(transfer.transferId);
+    if (timeout) clearTimeout(timeout);
+    outgoingTransferTimeouts.delete(transfer.transferId);
+    notificationStore.error(
+      copy.value.openInNewWindowFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+};
+
+const isExternalTabDrag = (event: DragEvent) => (
+  isTauriApp()
+  && !draggingTabId.value
+  && (
+    Boolean(event.dataTransfer?.types.some((type) => (
+      type === TAB_TRANSFERRED_MIME || type === TAB_TRANSFER_ERROR_MIME
+    )))
+    || dragTransfers.size > 0
+  )
+);
+
+const handleTabDragOver = (event: DragEvent, tabId: string) => {
+  if (!draggingTabId.value) {
+    if (!isExternalTabDrag(event)) return;
+    event.preventDefault();
+    foreignDragTabId.value = tabId;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return;
+  }
+  if (draggingTabId.value === tabId) return;
 
   dragOverTabId.value = tabId;
   if (event.dataTransfer) {
@@ -552,29 +657,208 @@ const handleTabDragOver = (event: DragEvent, tabId: string) => {
 };
 
 const handleTabDrop = (event: DragEvent, tabId: string) => {
-  event.preventDefault();
-  const sourceTabId = draggingTabId.value ?? event.dataTransfer?.getData('text/plain') ?? null;
-  if (!sourceTabId) {
+  const transferId = event.dataTransfer?.getData(TAB_TRANSFERRED_MIME);
+  const transferError = event.dataTransfer?.getData(TAB_TRANSFER_ERROR_MIME);
+  if (!draggingTabId.value && transferError && isTauriApp()) {
+    event.preventDefault();
+    notificationStore.error(copy.value.openInNewWindowFailed, transferError);
+    foreignDragTabId.value = null;
+    return;
+  }
+  if (!draggingTabId.value && isExternalTabDrag(event)) {
+    event.preventDefault();
+    const transfer = (transferId ? dragTransfers.get(transferId) : null)
+      ?? getMostRecentDragTransfer();
+    if (transfer) {
+      completeForeignTabDrop(transfer, tabId);
+    } else {
+      if (pendingDrop) clearTimeout(pendingDrop.timeout);
+      const timeout = setTimeout(() => {
+        pendingDrop = null;
+      }, 5000);
+      pendingDrop = { transferId: transferId || null, targetTabId: tabId, timeout };
+    }
+    foreignDragTabId.value = null;
     return;
   }
 
-  emitTabsReorder(sourceTabId, tabId);
+  event.preventDefault();
+  if (!draggingTabId.value || draggingTabId.value === tabId) return;
+  emitTabsReorder(draggingTabId.value, tabId);
   draggingTabId.value = null;
+  dragOverTabId.value = null;
+};
+
+const getMostRecentDragTransfer = () => {
+  const transfers = [...dragTransfers.values()];
+  return transfers.length === 1 ? transfers[0] ?? null : null;
+};
+
+const handleTabBarDragOver = (event: DragEvent) => {
+  if (!isExternalTabDrag(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+};
+
+const handleTabBarDrop = (event: DragEvent) => {
+  const transferId = event.dataTransfer?.getData(TAB_TRANSFERRED_MIME);
+  const transferError = event.dataTransfer?.getData(TAB_TRANSFER_ERROR_MIME);
+  if (transferError && isTauriApp()) {
+    event.preventDefault();
+    notificationStore.error(copy.value.openInNewWindowFailed, transferError);
+    return;
+  }
+  if (!isExternalTabDrag(event)) return;
+  event.preventDefault();
+  const transfer = (transferId ? dragTransfers.get(transferId) : null)
+    ?? getMostRecentDragTransfer();
+  if (transfer) {
+    completeForeignTabDrop(transfer, null);
+  } else {
+    if (pendingDrop) clearTimeout(pendingDrop.timeout);
+    const timeout = setTimeout(() => {
+      pendingDrop = null;
+    }, 5000);
+    pendingDrop = { transferId: transferId || null, targetTabId: null, timeout };
+  }
+};
+
+const handleTabDragLeave = (tabId: string) => {
+  if (foreignDragTabId.value === tabId) foreignDragTabId.value = null;
+  if (dragOverTabId.value === tabId) dragOverTabId.value = null;
+};
+
+const completeForeignTabDrop = (transfer: TabDragTransfer, targetTabId: string | null) => {
+  const currentWindowLabel = getCurrentWindow().label;
+  if (transfer.sourceWindowLabel === currentWindowLabel) return;
+  emit('tab-drop-import', transfer.tab, targetTabId);
+  void emitAppEvent(TAB_DROP_COMPLETE_EVENT, {
+    transferId: transfer.transferId,
+    sourceWindowLabel: transfer.sourceWindowLabel,
+    receiverWindowLabel: currentWindowLabel,
+    sourceTabId: transfer.sourceTabId,
+  }).catch((error: unknown) => {
+    notificationStore.error(
+      copy.value.openInNewWindowFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  dragTransfers.delete(transfer.transferId);
+  const timeout = dragTransferTimeouts.get(transfer.transferId);
+  if (timeout) clearTimeout(timeout);
+  dragTransferTimeouts.delete(transfer.transferId);
+  foreignDragTabId.value = null;
   dragOverTabId.value = null;
 };
 
 const handleTabDragEnd = () => {
   draggingTabId.value = null;
   dragOverTabId.value = null;
+  foreignDragTabId.value = null;
+  const transferId = activeOutgoingTransferId;
+  activeOutgoingTransferId = null;
+  if (transferId) {
+    void emitAppEvent(TAB_DRAG_END_EVENT, {
+      transferId,
+      sourceWindowLabel: getCurrentWindow().label,
+    }).catch((error: unknown) => {
+      notificationStore.error(
+        copy.value.openInNewWindowFailed,
+        error instanceof Error ? error.message : String(error),
+      );
+    });
+  }
 };
 
 onMounted(() => {
   document.addEventListener('click', closeContextMenu);
+  isUnmounted = false;
+  if (!isTauriApp()) return;
+  void listen<TabDragTransfer>(TAB_DRAG_EVENT, ({ payload }) => {
+    if (payload.sourceWindowLabel === getCurrentWindow().label) return;
+    dragTransfers.set(payload.transferId, payload);
+    const previousTimeout = dragTransferTimeouts.get(payload.transferId);
+    if (previousTimeout) clearTimeout(previousTimeout);
+    dragTransferTimeouts.set(payload.transferId, setTimeout(() => {
+      dragTransfers.delete(payload.transferId);
+      dragTransferTimeouts.delete(payload.transferId);
+    }, 30000));
+    if (pendingDrop && (!pendingDrop.transferId || pendingDrop.transferId === payload.transferId)) {
+      clearTimeout(pendingDrop.timeout);
+      const targetTabId = pendingDrop.targetTabId;
+      pendingDrop = null;
+      completeForeignTabDrop(payload, targetTabId);
+    }
+  }).then((unlisten) => {
+    if (isUnmounted) unlisten();
+    else tabDragUnlisten = unlisten;
+  }).catch((error: unknown) => {
+    notificationStore.error(
+      copy.value.openInNewWindowFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  void listen<{ transferId: string; sourceWindowLabel: string }>(TAB_DRAG_END_EVENT, ({ payload }) => {
+    if (payload.sourceWindowLabel === getCurrentWindow().label) return;
+    dragTransfers.delete(payload.transferId);
+    const timeout = dragTransferTimeouts.get(payload.transferId);
+    if (timeout) clearTimeout(timeout);
+    dragTransferTimeouts.delete(payload.transferId);
+    if (pendingDrop?.transferId === payload.transferId) {
+      clearTimeout(pendingDrop.timeout);
+      pendingDrop = null;
+    }
+  }).then((unlisten) => {
+    if (isUnmounted) unlisten();
+    else tabDragEndUnlisten = unlisten;
+  }).catch((error: unknown) => {
+    notificationStore.error(
+      copy.value.openInNewWindowFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  void listen<{
+    transferId: string;
+    sourceWindowLabel: string;
+    sourceTabId: string;
+  }>(TAB_DROP_COMPLETE_EVENT, ({ payload }) => {
+    if (
+      payload.sourceWindowLabel === getCurrentWindow().label
+      && outgoingTransfers.get(payload.transferId) === payload.sourceTabId
+    ) {
+      outgoingTransfers.delete(payload.transferId);
+      const timeout = outgoingTransferTimeouts.get(payload.transferId);
+      if (timeout) clearTimeout(timeout);
+      outgoingTransferTimeouts.delete(payload.transferId);
+      emit('tab-transfer-complete', payload.sourceTabId);
+    }
+  }).then((unlisten) => {
+    if (isUnmounted) unlisten();
+    else tabDropCompleteUnlisten = unlisten;
+  }).catch((error: unknown) => {
+    notificationStore.error(
+      copy.value.openInNewWindowFailed,
+      error instanceof Error ? error.message : String(error),
+    );
+  });
 });
 
 onUnmounted(() => {
+  isUnmounted = true;
   hideTabTooltip();
   document.removeEventListener('click', closeContextMenu);
+  tabDragUnlisten?.();
+  tabDragEndUnlisten?.();
+  tabDropCompleteUnlisten?.();
+  dragTransferTimeouts.forEach((timeout) => clearTimeout(timeout));
+  dragTransferTimeouts.clear();
+  dragTransfers.clear();
+  outgoingTransferTimeouts.forEach((timeout) => clearTimeout(timeout));
+  outgoingTransferTimeouts.clear();
+  outgoingTransfers.clear();
+  activeOutgoingTransferId = null;
+  if (pendingDrop) clearTimeout(pendingDrop.timeout);
+  pendingDrop = null;
 });
 </script>
 

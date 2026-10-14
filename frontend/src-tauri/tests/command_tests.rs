@@ -25,6 +25,29 @@ async fn test_read_file_success() {
 }
 
 #[tokio::test]
+async fn test_read_file_bytes_preserves_binary_content() {
+    let temp_dir = TempDir::new().unwrap();
+    let file_path = temp_dir.path().join("sample.xlsx");
+    let binary_data = vec![0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0x10];
+    fs::write(&file_path, &binary_data).unwrap();
+
+    let result = file::read_file_bytes(file_path.to_string_lossy().to_string()).await;
+
+    assert_eq!(result.unwrap(), binary_data);
+}
+
+#[tokio::test]
+async fn test_read_file_xlsx_returns_binary_preview_marker() {
+    let temp_dir = TempDir::new().unwrap();
+    let file_path = temp_dir.path().join("sample.xlsx");
+    fs::write(&file_path, [0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF]).unwrap();
+
+    let result = file::read_file(file_path.to_string_lossy().to_string()).await.unwrap();
+
+    assert!(result.starts_with("[Binary File Preview]"));
+}
+
+#[tokio::test]
 async fn test_read_file_not_found() {
     // 尝试读取不存在的文件
     let result = file::read_file("/nonexistent/path/file.txt".to_string()).await;

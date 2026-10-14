@@ -102,6 +102,15 @@ pub async fn read_file(path: String) -> Result<String, String> {
                 return Ok(preview);
             }
         }
+        // Spreadsheet files are rendered by the frontend preview. Always expose a
+        // binary marker here so the editor's save guard cannot write preview text
+        // back into the original workbook.
+        "xls" | "xlsx" => {
+            let bytes = fs::read(&path)
+                .await
+                .map_err(|e| format!("读取文件失败：{}", e))?;
+            return Ok(render_binary_preview(&path, &bytes));
+        }
         _ => {}
     }
 
@@ -114,6 +123,21 @@ pub async fn read_file(path: String) -> Result<String, String> {
     }
 
     Ok(render_binary_preview(&path, &bytes))
+}
+
+/**
+ * @description 读取文件原始字节，供 PDF/Excel 等二进制预览使用，绕过静态 asset scope。
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-10-14 22:37
+ */
+#[tauri::command]
+pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    validate_path(&path)?;
+
+    fs::read(&path)
+        .await
+        .map_err(|e| format!("读取文件字节失败：{}", e))
 }
 
 fn render_binary_preview(path: &str, bytes: &[u8]) -> String {

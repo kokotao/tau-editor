@@ -3,12 +3,13 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 
 const componentStubs = vi.hoisted(() => ({
   toolbar: {
-    emits: ['toggle-settings', 'toggle-file-tree', 'toggle-context-rail'],
+    emits: ['toggle-settings', 'toggle-file-tree', 'toggle-context-rail', 'cycle-markdown-preview'],
     template: `
       <div>
         <button data-testid="btn-settings" @click="$emit('toggle-settings')">toggle settings</button>
         <button data-testid="btn-toggle-file-tree" @click="$emit('toggle-file-tree')">toggle file tree</button>
         <button data-testid="btn-toggle-context-rail" @click="$emit('toggle-context-rail')">toggle context rail</button>
+        <button data-testid="btn-cycle-preview" @click="$emit('cycle-markdown-preview')">cycle preview</button>
       </div>
     `,
   },
@@ -17,10 +18,10 @@ const componentStubs = vi.hoisted(() => ({
     template: '<div data-testid="settings-panel"><button data-testid="settings-panel-close" @click="$emit(\'close\')">close</button></div>',
   },
   markdownPreview: {
-    props: ['content', 'theme', 'sourceFilePath', 'editorScrollState'],
-    emits: ['request-preview-mode-change', 'open-image'],
+    props: ['content', 'theme', 'sourceFilePath', 'editorScrollState', 'previewMode', 'previewFontSize'],
+    emits: ['request-preview-mode-change', 'preview-font-size-change', 'open-image'],
     methods: { scrollToSourceLine: vi.fn() },
-    template: '<div data-testid="markdown-preview-stub" @click="$emit(\'request-preview-mode-change\', \'preview\')"></div>',
+    template: '<div data-testid="markdown-preview-stub" :data-mode="previewMode" :data-font-size="previewFontSize" @click="$emit(\'request-preview-mode-change\', \'preview\')"></div>',
   },
   imagePreview: {
     props: ['filePath', 'fileName', 'src', 'alt'],
@@ -92,6 +93,7 @@ const storeMocks = vi.hoisted(() => ({
     renameTab: vi.fn(),
     updateActiveTabContent: vi.fn(),
     updateTabContent: vi.fn(),
+    updateTab: vi.fn(),
     updateActiveTabLanguage: vi.fn(),
   },
   editor: {
@@ -386,7 +388,7 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-testid="settings-page"]').attributes('data-active')).toBe('false')
   })
 
-  it('预览菜单请求切换模式应更新设置', async () => {
+  it('预览菜单请求切换模式应更新当前 Markdown 标签而非全局设置', async () => {
     storeMocks.tabs.activeTab = {
       id: 'tab-1',
       fileName: 'README.md',
@@ -394,6 +396,8 @@ describe('AppShell', () => {
       content: '# title',
       language: 'markdown',
       isDirty: false,
+      markdownPreviewMode: 'split',
+      markdownPreviewFontSize: 19,
     }
     storeMocks.tabs.tabs = [storeMocks.tabs.activeTab]
     storeMocks.tabs.activeTabId = 'tab-1'
@@ -410,12 +414,44 @@ describe('AppShell', () => {
 
     const preview = wrapper.findComponent(MarkdownPreviewStub)
     expect(preview.exists()).toBe(true)
+    expect(preview.props('previewMode')).toBe('split')
+    expect(preview.props('previewFontSize')).toBe(19)
     preview.vm.$emit('request-preview-mode-change', 'preview')
     await flushPromises()
 
-    expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({
-      markdownPreviewMode: 'preview',
+    expect(storeMocks.tabs.updateTab).toHaveBeenCalledWith('tab-1', { markdownPreviewMode: 'preview' })
+    expect(storeMocks.settings.updateSettings).not.toHaveBeenCalledWith({ markdownPreviewMode: 'preview' })
+    preview.vm.$emit('preview-font-size-change', 20)
+    expect(storeMocks.tabs.updateTab).toHaveBeenCalledWith('tab-1', { markdownPreviewFontSize: 20 })
+  })
+
+  it('HTML 预览切换模式应只更新当前标签而不修改全局 Markdown 设置', async () => {
+    const htmlTab = {
+      id: 'tab-html',
+      fileName: 'index.html',
+      filePath: '/workspace/index.html',
+      content: '<h1>Hello</h1>',
+      language: 'html',
+      isDirty: false,
+      markdownPreviewMode: 'split' as const,
+    }
+    storeMocks.tabs.activeTab = htmlTab
+    storeMocks.tabs.tabs = [htmlTab]
+    storeMocks.tabs.activeTabId = htmlTab.id
+    storeMocks.settings.markdownPreviewEnabled = true
+    storeMocks.settings.markdownPreviewMode = 'edit'
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
     })
+
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="btn-cycle-preview"]')
+    await toggle.trigger('click')
+
+    expect(storeMocks.tabs.updateTab).toHaveBeenCalledWith('tab-html', { markdownPreviewMode: 'preview' })
+    expect(storeMocks.settings.updateSettings).not.toHaveBeenCalledWith({ markdownPreviewMode: 'preview' })
   })
 
   it('Markdown 图片双击事件应打开图片查看器，关闭时不关闭当前标签页', async () => {

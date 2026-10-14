@@ -347,6 +347,11 @@ function buildDraftTab(record: RecoveryDraftRecord): RecoveryDraft | null {
       ? metadata.lastKnownModified
       : record.baseFingerprint?.mtimeMs ?? null,
     externalModifiedAt: null,
+    markdownPreviewMode: readMarkdownPreviewMode(metadata.markdownPreviewMode),
+    markdownPreviewFontSize: typeof metadata.markdownPreviewFontSize === 'number'
+      && Number.isFinite(metadata.markdownPreviewFontSize)
+      ? metadata.markdownPreviewFontSize
+      : undefined,
     recoveredAt: record.updatedAt,
   };
 }
@@ -354,6 +359,12 @@ function buildDraftTab(record: RecoveryDraftRecord): RecoveryDraft | null {
 function readLargeFileLoadState(value: unknown): Tab['largeFileLoadState'] {
   return value === 'initial' || value === 'loading' || value === 'complete'
     || value === 'failed' || value === 'cancelled'
+    ? value
+    : undefined;
+}
+
+function readMarkdownPreviewMode(value: unknown): Tab['markdownPreviewMode'] {
+  return value === 'edit' || value === 'split' || value === 'preview'
     ? value
     : undefined;
 }

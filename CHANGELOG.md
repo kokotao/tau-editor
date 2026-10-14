@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-08
-> 当前稳定版本：`v0.6.11`
+> 最后更新：2026-10-14
+> 当前稳定版本：`v0.6.12`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.12](https://github.com/kokotao/tau-editor/releases/tag/v0.6.12) | 2026-10-14 | 待发布           | 本次发布  | Markdown 独立预览状态、HTML/PDF/Excel 分栏预览、跨窗口标签与二进制安全修复 |
 | [0.6.11](https://github.com/kokotao/tau-editor/releases/tag/v0.6.11) | 2026-10-08 | 公开 Release     | `321c45b` | 更新下载进度、macOS 标题栏导航、路径面包屑、可访问选择器与编辑器体验收口 |
 | [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release（补发资产） | 本次发布  | 更新说明 Markdown 渲染、DMG Finder 布局修复、Universal/aarch64 macOS 安装包 |
 | [0.6.9](https://github.com/kokotao/tau-editor/releases/tag/v0.6.9) | 2026-10-05 | 公开 Release     | `a32ee3b` | 交互体验、macOS DMG 背景、三平台安装包发布                     |
@@ -41,6 +42,38 @@
 | [0.1.3](https://github.com/kokotao/tau-editor/tree/v0.1.3)         | 2026-03-13 | 内部验证 tag     | `b49534f` | 修复 macOS 选择器权限与关闭按钮                               |
 | [0.1.2](https://github.com/kokotao/tau-editor/tree/v0.1.2)         | 2026-03-13 | 内部验证 tag     | `89c1d2b` | 首个可构建基线，命令面板与工作区根目录统一                    |
 | [0.1.0](https://github.com/kokotao/tau-editor/releases/tag/v0.1.0) | 2026-03-23 | 首个公开 Release | `5deca07` | 作者与捐赠入口，Tau Editor 命名统一                           |
+
+---
+
+## [0.6.12] - 2026-10-14
+
+### Markdown 与文档预览
+
+- Markdown 预览布局和字号改为按标签独立保存，切换标签时不再串用其他标签的分栏状态。
+- Markdown 仅预览支持 `Ctrl/Cmd +`、`Ctrl/Cmd -` 和 `Ctrl/Cmd 0` 调整字号。
+- Markdown 图片悬浮显示放大指针和双击提示，保留原始 `alt` 文本作为无障碍名称。
+- HTML 文件支持编辑器分栏预览；相对 CSS/图片资源使用文档目录作为基准，并通过空 sandbox 禁止脚本执行。
+- PDF、CSV、TSV、XLS 和 XLSX 文件支持分栏预览；XLS/XLSX 使用 SheetJS 渲染首个工作表。
+
+### 稳定性与安全修复
+
+- Windows 复制文件路径时移除盘符前多余斜杠。
+- 新增受控 Tauri `read_file_bytes` 命令，PDF/Excel 预览不再依赖受限的静态 asset scope。
+- XLS/XLSX 始终使用二进制预览标记，阻止预览文本覆盖原始工作簿。
+- PDF/Excel 预览增加快速切换和组件卸载后的异步请求保护，避免旧内容覆盖当前标签或泄漏 Blob URL。
+- 会话恢复保留 Markdown 标签的独立布局和字号设置。
+
+### 标签页与跨窗口操作
+
+- 支持从标签页右键菜单在新窗口打开标签。
+- 支持在多个 Tauri 窗口之间拖拽、合并和移动标签页。
+- 补充跨窗口事件权限、状态同步和相关单元测试。
+
+### 验证
+
+- `pnpm test:unit`：71 个测试文件、923 个测试通过。
+- `pnpm typecheck`、`pnpm build`、`cargo test` 和 `git diff --check` 通过。
+- GitHub Actions 将负责构建并上传 macOS Universal/aarch64、Windows x64、Linux amd64 安装包。
 
 ---
 

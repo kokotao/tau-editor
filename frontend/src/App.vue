@@ -22,7 +22,7 @@ import {
   openTabsInNewWindow,
   payloadToTabs,
 } from '@/services/windowTransferService';
-import type { WindowTransferPayload } from '@/lib/tauri';
+import type { WindowTransferPayload, WindowTransferTab } from '@/lib/tauri';
 import { providerRegistry } from '@/services/providerRegistry';
 import { registerBuiltinProviders } from '@/services/providers/builtinProviders';
 import { useProvidersStore } from '@/stores/providers';
@@ -112,6 +112,12 @@ import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
 import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
+import DocumentPreview from './components/editor/DocumentPreview.vue';
+import {
+  isDocumentPreviewFilePath,
+  isPdfFilePath,
+  isSpreadsheetFilePath,
+} from '@/utils/documentPreview';
 import * as monaco from '@/lib/monaco/editor';
 
 const fileSystemStore = useFileSystemStore();
@@ -563,10 +569,24 @@ const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
+const isPdfTab = computed(() => isPdfFilePath(activeTab.value?.filePath));
+const isSpreadsheetTab = computed(() => isSpreadsheetFilePath(activeTab.value?.filePath));
+const isFullDocumentPreviewTab = computed(() => isPdfTab.value || isSpreadsheetTab.value);
+const isDocumentPreviewTab = computed(() => isDocumentPreviewFilePath(activeTab.value?.filePath));
+const isPreviewableTab = computed(() => (
+  isDocumentPreviewTab.value
+  || (isMarkdownTab.value && settingsStore.markdownPreviewEnabled)
+));
 const hasMacWindowTitlebar = computed(() => isTauriApp()
   && typeof navigator !== 'undefined'
   && /Macintosh|Mac OS X/.test(navigator.userAgent));
-const markdownPreviewMode = computed(() => settingsStore.markdownPreviewMode);
+const markdownPreviewMode = computed(() => isFullDocumentPreviewTab.value
+  ? 'preview'
+  : activeTab.value?.markdownPreviewMode ?? settingsStore.markdownPreviewMode);
+const markdownPreviewFontSize = computed(() => {
+  const value = activeTab.value?.markdownPreviewFontSize;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 16;
+});
 const titlebarUpdateNotes = computed(() => titlebarUpdate.value?.releaseNotes.trim() || (
   settingsStore.uiLanguage === 'en-US' ? 'No release notes provided.' : '暂无更新说明。'
 ));
@@ -1228,8 +1248,10 @@ const applyWindowTransferPayload = (payload: WindowTransferPayload) => {
 };
 
 /** 在新窗口打开当前标签，源窗口保留。 */
-const handleOpenTabInNewWindow = async () => {
-  const tab = requireActiveTab();
+const handleOpenTabInNewWindow = async (tabId?: string) => {
+  const tab = tabId
+    ? tabsStore.tabs.find((candidate) => candidate.id === tabId) ?? null
+    : requireActiveTab();
   if (!tab) {
     return;
   }
@@ -1239,7 +1261,32 @@ const handleOpenTabInNewWindow = async () => {
     notificationStore.error('打开新窗口失败', result.error.message);
     return;
   }
+  tabsStore.closeTab(tab.id);
   notificationStore.info('已在新窗口打开', tab.fileName);
+};
+
+const handleImportTabFromAnotherWindow = (transferTab: WindowTransferTab, targetTabId: string | null) => {
+  const tabId = tabsStore.addTab({
+    filePath: transferTab.filePath,
+    fileName: transferTab.fileName,
+    content: transferTab.content,
+    isDirty: transferTab.isDirty,
+    isUntitled: transferTab.isUntitled,
+    language: transferTab.language ?? 'plaintext',
+  });
+  const orderedIds = tabsStore.tabs.map((tab) => tab.id);
+  const targetIndex = targetTabId ? orderedIds.indexOf(targetTabId) : -1;
+  if (targetIndex >= 0) {
+    orderedIds.splice(orderedIds.indexOf(tabId), 1);
+    orderedIds.splice(targetIndex + 1, 0, tabId);
+    tabsStore.reorderTabs(orderedIds);
+  }
+  tabsStore.activateTab(tabId);
+  notificationStore.info('标签已合并到当前窗口', transferTab.fileName);
+};
+
+const handleTransferredTabDropped = (tabId: string) => {
+  tabsStore.closeTab(tabId);
 };
 
 /** 把当前标签移动到新窗口，迁移成功后从源窗口移除。 */
@@ -1631,11 +1678,28 @@ const handleExportMarkdownHtml = async () => {
 };
 
 const setMarkdownPreviewMode = (mode: 'edit' | 'split' | 'preview') => {
-  void settingsStore.updateSettings({ markdownPreviewMode: mode });
+  if (isFullDocumentPreviewTab.value) {
+    return;
+  }
+  const tab = activeTab.value;
+  if (tab && isPreviewableTab.value && typeof tabsStore.updateTab === 'function') {
+    tabsStore.updateTab(tab.id, { markdownPreviewMode: mode });
+    return;
+  }
+  if (!tab) {
+    void settingsStore.updateSettings({ markdownPreviewMode: mode });
+  }
+};
+
+const setMarkdownPreviewFontSize = (fontSize: number) => {
+  const tab = activeTab.value;
+  if (tab?.language === 'markdown' && typeof tabsStore.updateTab === 'function') {
+    tabsStore.updateTab(tab.id, { markdownPreviewFontSize: fontSize });
+  }
 };
 
 const handleCycleMarkdownPreview = () => {
-  if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled) {
+  if (!isPreviewableTab.value || isFullDocumentPreviewTab.value) {
     return;
   }
 
@@ -3815,7 +3879,7 @@ onUnmounted(() => {
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
         </button>
         <button
-          v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
+          v-if="isPreviewableTab && !isFullDocumentPreviewTab"
           type="button"
           class="native-titlebar-button"
           data-testid="btn-titlebar-toggle-markdown-preview"
@@ -3838,6 +3902,8 @@ onUnmounted(() => {
       :sidebar-visible="showFileTree"
       :context-rail-visible="showContextRail"
       :is-markdown="isMarkdownTab"
+      :is-document-preview="isDocumentPreviewTab"
+      :is-full-document-preview="isFullDocumentPreviewTab"
       :markdown-preview-mode="markdownPreviewMode"
       @new-file="handleNewFile"
       @open-file="() => executeCommand('file.open')"
@@ -3991,6 +4057,9 @@ onUnmounted(() => {
           @tab-close="handleTabClose"
           @tab-close-others="handleCloseOthers"
           @tab-close-all="handleCloseAll"
+          @tab-open-in-new-window="handleOpenTabInNewWindow"
+          @tab-drop-import="handleImportTabFromAnotherWindow"
+          @tab-transfer-complete="handleTransferredTabDropped"
           @rename-tab="handleRenameTab"
           @tabs-reorder="handleTabsReorder"
           @cancel-large-file-load="handleCancelLargeFileLoad"
@@ -4016,8 +4085,8 @@ onUnmounted(() => {
           v-else-if="activeTab"
           class="editor-stage"
           :class="{
-            'markdown-stage': isMarkdownTab && settingsStore.markdownPreviewEnabled,
-            [`markdown-mode-${markdownPreviewMode}`]: isMarkdownTab && settingsStore.markdownPreviewEnabled,
+            'markdown-stage': isPreviewableTab,
+            [`markdown-mode-${markdownPreviewMode}`]: isPreviewableTab,
           }"
         >
           <div v-if="!isImageTab" class="editor-pane">
@@ -4047,18 +4116,28 @@ onUnmounted(() => {
             @open="openImageViewer"
           />
           <div
-            v-if="isMarkdownTab && settingsStore.markdownPreviewEnabled"
+            v-if="isPreviewableTab"
             class="preview-pane"
             data-testid="markdown-preview-pane"
           >
             <MarkdownPreview
+              v-if="isMarkdownTab"
               ref="markdownPreviewRef"
               :content="activeTab.content"
               :theme="previewTheme"
+              :preview-mode="markdownPreviewMode"
+              :preview-font-size="markdownPreviewFontSize"
               :source-file-path="activeTab.filePath"
               :editor-scroll-state="editorScrollState"
               @request-preview-mode-change="setMarkdownPreviewMode"
+              @preview-font-size-change="setMarkdownPreviewFontSize"
               @open-image="openImageViewer"
+            />
+            <DocumentPreview
+              v-else
+              :file-name="activeTab.fileName"
+              :file-path="activeTab.filePath"
+              :content="activeTab.content"
             />
           </div>
         </div>

@@ -220,6 +220,24 @@ describe('TabService.saveActiveTab 大文件 revision 事务', () => {
     );
   });
 
+  it.each(['sample.xlsx', 'sample.xls'])('Excel 二进制预览禁止覆盖原文件（%s）', async (fileName) => {
+    const tab = makeTab({
+      filePath: `/work/notes/${fileName}`,
+      fileName,
+      isLargeFile: false,
+      content: '[Binary File Preview]\nThis binary file cannot be edited as text.',
+    });
+    const { service, fileSystemStore, notificationStore } = createService(tab);
+
+    await service.saveActiveTab();
+
+    expect(fileSystemStore.writeFileContent).not.toHaveBeenCalled();
+    expect(notificationStore.warning).toHaveBeenCalledWith(
+      '当前文件为二进制预览',
+      expect.stringContaining('避免破坏原始文件'),
+    );
+  });
+
   it('Web 环境回退到分片写入', async () => {
     tauriMocks.isTauriApp.mockReturnValue(false);
     tauriMocks.writeFileChunked.mockResolvedValue(undefined);

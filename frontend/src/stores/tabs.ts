@@ -20,6 +20,10 @@ export interface Tab {
   lastKnownModified?: number | null; // 最近一次已加载或已保存的磁盘修改时间
   fileRevision?: string | null; // 最近一次与磁盘一致的 revision（mtimeNs:size）
   externalModifiedAt?: number | null; // 外部检测到但尚未合并的修改时间
+  /** Markdown 标签独立的预览布局，不随其他 Markdown 标签同步。 */
+  markdownPreviewMode?: 'edit' | 'split' | 'preview';
+  /** Markdown 仅预览字号（px），未设置时由预览组件使用默认值。 */
+  markdownPreviewFontSize?: number;
 }
 
 export interface TabsState {

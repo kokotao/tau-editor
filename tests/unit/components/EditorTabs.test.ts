@@ -139,6 +139,29 @@ describe('EditorTabs.vue', () => {
     expect(wrapper.emitted('tab-close-all')).toEqual([[]]);
   });
 
+  it('emits the context-menu tab id to open that tab in a new window', async () => {
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+
+    await wrapper.findAll('[data-testid="tab"]')[1].trigger('contextmenu');
+    await wrapper.get('[data-testid="menu-open-in-new-window"]').trigger('click');
+
+    expect(wrapper.emitted('tab-open-in-new-window')).toEqual([['second']]);
+    expect(wrapper.find('[data-testid="menu-open-in-new-window"]').exists()).toBe(false);
+  });
+
+  it('sets the tab transfer payload when dragging a tab', async () => {
+    const wrapper = mount(EditorTabs, { props: { tabs: tabs(), activeTabId: 'first' } });
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: '',
+      setData: (type: string, value: string) => data.set(type, value),
+    };
+
+    await wrapper.findAll('[data-testid="tab"]')[1].trigger('dragstart', { dataTransfer });
+
+    expect(data.get('text/plain')).toBe('second');
+  });
+
   it('copies the context-menu target file path', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
@@ -152,6 +175,29 @@ describe('EditorTabs.vue', () => {
 
     expect(writeText).toHaveBeenCalledWith('/workspace/second.txt');
     expect(useNotificationStore().notifications.at(-1)?.title).toBe('文件路径已复制');
+  });
+
+  it.each([
+    ['/C:\\Users\\Albert\\notes.md', 'C:\\Users\\Albert\\notes.md'],
+    ['///C:/Users/Albert/notes.md', 'C:/Users/Albert/notes.md'],
+    ['file:///C:/Users/Albert/notes.md', 'C:/Users/Albert/notes.md'],
+  ])('normalizes Windows paths before copying: %s', async (filePath, expectedPath) => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const wrapper = mount(EditorTabs, {
+      props: {
+        tabs: [makeTab('windows', { filePath })],
+        activeTabId: 'windows',
+      },
+    });
+
+    await wrapper.get('[data-testid="tab"]').trigger('contextmenu');
+    await wrapper.get('[data-testid="menu-copy-file-path"]').trigger('click');
+
+    expect(writeText).toHaveBeenCalledWith(expectedPath);
   });
 
   it('reveals the context-menu target file in its folder', async () => {

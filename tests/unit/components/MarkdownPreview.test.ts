@@ -378,6 +378,46 @@ describe('MarkdownPreview', () => {
     ]]);
   });
 
+  it('仅预览模式下应通过 Ctrl/Cmd +/- 调整当前预览字号并支持 0 重置', async () => {
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'font size',
+        theme: 'dark',
+        previewMode: 'preview',
+        previewFontSize: 16,
+      },
+    });
+
+    await flushRender();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '+', code: 'Equal', ctrlKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', code: 'Minus', metaKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '0', code: 'Digit0', ctrlKey: true }));
+
+    expect(wrapper.emitted('preview-font-size-change')).toEqual([[17], [16], [16]]);
+
+    await wrapper.setProps({ previewMode: 'split' });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '+', code: 'Equal', ctrlKey: true }));
+    expect(wrapper.emitted('preview-font-size-change')).toHaveLength(3);
+  });
+
+  it('图片悬浮时应提示双击放大查看并使用放大指针', async () => {
+    renderMarkdownMock.mockReturnValue('<p><img src="hero.png" alt="hero" /></p>');
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: 'image',
+        theme: 'dark',
+      },
+    });
+
+    await flushRender();
+
+    const image = wrapper.get('img');
+    expect(image.attributes('title')).toContain('双击');
+    expect(image.attributes('alt')).toBe('hero');
+    expect(image.attributes('aria-label')).toBeUndefined();
+    expect(image.classes()).toContain('markdown-preview-image');
+  });
+
   it('点击预览模式菜单项应发射模式切换事件', async () => {
     const wrapper = mount(MarkdownPreview, {
       props: {

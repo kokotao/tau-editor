@@ -307,6 +307,8 @@ interface EditorTabsText {
   close: string;
   closeOthers: string;
   closeAll: string;
+  openInNewWindow: string;
+  openInNewWindowFailed: string;
   renameTab: string;
   copyFilePath: string;
   revealInFolder: string;
@@ -1106,6 +1108,8 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     close: '关闭',
     closeOthers: '关闭其他标签',
     closeAll: '关闭所有标签',
+    openInNewWindow: '在新窗口打开',
+    openInNewWindowFailed: '跨窗口拖动标签失败',
     renameTab: '重命名标签',
     copyFilePath: '复制文件路径',
     revealInFolder: '打开文件所在位置',
@@ -1128,6 +1132,8 @@ const EDITOR_TABS_TEXTS: Record<UiLanguage, EditorTabsText> = {
     close: 'Close',
     closeOthers: 'Close Others',
     closeAll: 'Close All',
+    openInNewWindow: 'Open in New Window',
+    openInNewWindowFailed: 'Failed to transfer tab between windows',
     renameTab: 'Rename Tab',
     copyFilePath: 'Copy File Path',
     revealInFolder: 'Reveal in Folder',
