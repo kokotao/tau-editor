@@ -2,7 +2,7 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-14
+> 最后更新：2026-10-15
 > 当前稳定版本：`v0.6.12`
 
 ---
@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.12](https://github.com/kokotao/tau-editor/releases/tag/v0.6.12) | 2026-10-14 | 公开 Release     | `6ebf5b6` | Markdown 独立预览状态、HTML/PDF/Excel 分栏预览、跨窗口标签与二进制安全修复 |
+| [0.6.12](https://github.com/kokotao/tau-editor/releases/tag/v0.6.12) | 2026-10-15 | 公开 Release（修复后重发） | `5d76612` | Markdown 独立预览状态、HTML/PDF/Excel 分栏预览、Windows 标题栏与文档预览稳定性修复 |
 | [0.6.11](https://github.com/kokotao/tau-editor/releases/tag/v0.6.11) | 2026-10-08 | 公开 Release     | `321c45b` | 更新下载进度、macOS 标题栏导航、路径面包屑、可访问选择器与编辑器体验收口 |
 | [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release（补发资产） | 本次发布  | 更新说明 Markdown 渲染、DMG Finder 布局修复、Universal/aarch64 macOS 安装包 |
 | [0.6.9](https://github.com/kokotao/tau-editor/releases/tag/v0.6.9) | 2026-10-05 | 公开 Release     | `a32ee3b` | 交互体验、macOS DMG 背景、三平台安装包发布                     |
@@ -45,7 +45,9 @@
 
 ---
 
-## [0.6.12] - 2026-10-14
+## [0.6.12] - 2026-10-15（修复后重发）
+
+本次重发基于提交 `5d766122c948c4a42ae7a70c3c943969a6e2b8fa`，GitHub Actions run `38664040803` 已重新构建并覆盖 9 个正式 Release 资产。
 
 ### Markdown 与文档预览
 
@@ -69,11 +71,15 @@
 - 支持在多个 Tauri 窗口之间拖拽、合并和移动标签页。
 - 补充跨窗口事件权限、状态同步和相关单元测试。
 
+### 本次重发修复
+
+- 修复 Windows 自定义标题栏拖动区域与双击最大化事件，补齐 Tauri 窗口权限，避免标题栏交互失效。
+
 ### 验证
 
 - `pnpm test:unit`：71 个测试文件、926 个测试通过。
 - `pnpm typecheck`、`pnpm build`、`cargo test` 和 `git diff --check` 通过。
-- GitHub Actions 将负责构建并上传 macOS Universal/aarch64、Windows x64、Linux amd64 安装包。
+- GitHub Actions `38664040803`：四个平台构建及 Release 资产上传成功。
 
 ---
 
