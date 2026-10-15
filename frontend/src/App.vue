@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { useFileSystemStore, type FileTreeNode } from '@/stores/fileSystem';
 import { useWorkspaceStore } from '@/stores/workspace';
@@ -2047,6 +2048,35 @@ const handleOpenQuickOpen = () => {
   commandStore.openPalette();
 };
 
+const handleStartWindowDragging = async (event: MouseEvent) => {
+  if (event.detail > 1) return;
+
+  try {
+    await getCurrentWindow().startDragging();
+  } catch (error) {
+    notificationStore.error(
+      '无法拖动窗口',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
+const handleToggleWindowMaximized = async () => {
+  try {
+    const currentWindow = getCurrentWindow();
+    if (await currentWindow.isMaximized()) {
+      await currentWindow.unmaximize();
+    } else {
+      await currentWindow.maximize();
+    }
+  } catch (error) {
+    notificationStore.error(
+      '无法调整窗口大小',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
 const pushCurrentNavigation = () => {
   const tab = activeTab.value;
   if (!tab?.filePath) return;
@@ -3738,7 +3768,6 @@ onUnmounted(() => {
       v-if="hasMacWindowTitlebar"
       class="app-native-titlebar"
       data-testid="app-native-titlebar"
-      data-tauri-drag-region
     >
       <div class="native-titlebar-actions">
         <button
@@ -3785,6 +3814,12 @@ onUnmounted(() => {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h8M5 17h14" /><circle cx="17" cy="12" r="2" /></svg>
         </button>
       </div>
+      <div
+        class="native-titlebar-drag-region"
+        aria-hidden="true"
+        @mousedown.left="handleStartWindowDragging"
+        @dblclick.left.prevent="handleToggleWindowMaximized"
+      ></div>
       <div class="native-titlebar-actions native-titlebar-actions-end">
         <div
           v-if="titlebarUpdateProgressVisible"
@@ -4341,7 +4376,6 @@ textarea {
   padding: 0 12px 0 82px;
   border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, .14));
   background: color-mix(in srgb, var(--panel-elevated, var(--panel-base)) 92%, transparent);
-  -webkit-app-region: drag;
   user-select: none;
 }
 
@@ -4351,6 +4385,12 @@ textarea {
   align-items: center;
   gap: 3px;
   -webkit-app-region: no-drag;
+}
+
+.native-titlebar-drag-region {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 100%;
 }
 
 .native-titlebar-actions-end {
