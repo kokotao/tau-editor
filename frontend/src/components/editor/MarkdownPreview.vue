@@ -54,6 +54,7 @@ const loadMarkdownRenderer = async () => {
 import { useSettingsStore } from '@/stores/settings';
 import { getMarkdownPreviewI18n } from '@/i18n/ui';
 import { appCommands, isTauriApp } from '@/lib/tauri';
+import { useNotificationStore } from '@/stores/notification';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -105,6 +106,7 @@ const previewRef = ref<HTMLElement | null>(null);
 const previewScrollRef = ref<HTMLElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 const settingsStore = useSettingsStore();
+const notificationStore = useNotificationStore();
 const copy = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
 const html = ref('');
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
@@ -160,8 +162,11 @@ const copyToClipboard = async (text: string) => {
   textarea.style.opacity = '0';
   document.body.appendChild(textarea);
   textarea.select();
-  document.execCommand('copy');
-  document.body.removeChild(textarea);
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
 };
 
 const isAbsoluteAddress = (value: string) => /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value) || value.startsWith('//');
@@ -320,6 +325,44 @@ const decorateMarkdownImages = () => {
   previewRef.value?.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
     image.classList.add('markdown-preview-image');
     image.setAttribute('title', imageZoomHint.value);
+  });
+};
+
+const decorateCodeBlocks = () => {
+  const preview = previewRef.value;
+  if (!preview) return;
+
+  preview.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+    if (pre.dataset.copyButtonAttached) return;
+    pre.dataset.copyButtonAttached = '1';
+    pre.style.position = pre.style.position || 'relative';
+
+    const codeEl = pre.querySelector('code');
+    const codeText = codeEl?.textContent ?? pre.textContent ?? '';
+
+    const btn = document.createElement('button');
+    btn.setAttribute('type', 'button');
+    btn.className = 'markdown-code-copy-button';
+    btn.setAttribute('aria-label', copy.value.copyCode);
+    btn.title = copy.value.copyCode;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-4M16 3h4v4M21 3L13 11"/></svg>';
+
+    let busy = false;
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (busy) return;
+      busy = true;
+      try {
+        await copyToClipboard(codeText || '');
+        notificationStore.success(copy.value.copyCodeDone);
+      } catch {
+        notificationStore.error(copy.value.copyCodeDone);
+      } finally {
+        busy = false;
+      }
+    });
+
+    pre.appendChild(btn);
   });
 };
 
@@ -713,6 +756,7 @@ const scheduleRender = () => {
       await nextTick();
       wrapMarkdownTables();
       decorateMarkdownImages();
+      decorateCodeBlocks();
       await resolveLocalImageSources();
       if (previewRef.value) {
         await renderer.renderMermaidDiagrams(previewRef.value, props.theme);
@@ -788,6 +832,33 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.markdown-code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.04);
+  color: inherit;
+  border-radius: 6px;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 120ms ease, background-color 120ms ease, opacity 120ms ease;
+}
+
+.markdown-code-copy-button:hover {
+  transform: translateY(-1px);
+  background: rgba(255,255,255,0.06);
+}
+
+.markdown-preview-content :deep(pre) {
+  position: relative;
+}
+
+</style>
 .markdown-preview {
   --preview-bg: #f6f8fc;
   --preview-surface: #ffffff;

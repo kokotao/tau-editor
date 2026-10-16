@@ -369,6 +369,8 @@ interface StatusBarText {
 interface MarkdownPreviewText {
   copySelection: string;
   copyMarkdown: string;
+  copyCode: string;
+  copyCodeDone: string;
   refreshPreview: string;
   previewThemeDocsClean: string;
   previewThemePaperSoft: string;
@@ -1305,6 +1307,8 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
   'zh-CN': {
     copySelection: '复制选中文本',
     copyMarkdown: '复制全文 Markdown',
+    copyCode: '复制代码',
+    copyCodeDone: '代码已复制',
     refreshPreview: '刷新预览',
     previewThemeDocsClean: '切换到文档站清朗',
     previewThemePaperSoft: '切换到护眼纸张',
@@ -1326,6 +1330,8 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
   'en-US': {
     copySelection: 'Copy Selected Text',
     copyMarkdown: 'Copy Full Markdown',
+    copyCode: 'Copy Code',
+    copyCodeDone: 'Code copied',
     refreshPreview: 'Refresh Preview',
     previewThemeDocsClean: 'Switch to Docs Clean',
     previewThemePaperSoft: 'Switch to Paper Soft',
