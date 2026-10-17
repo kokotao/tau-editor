@@ -327,6 +327,7 @@ function buildDraftTab(record: RecoveryDraftRecord): RecoveryDraft | null {
     language: typeof metadata.language === 'string' ? metadata.language : 'plaintext',
     isDirty: true,
     isUntitled: typeof metadata.isUntitled === 'boolean' ? metadata.isUntitled : !filePath,
+    isRecoverySaved: true,
     content: record.content,
     createdAt: typeof metadata.createdAt === 'number' ? metadata.createdAt : record.updatedAt,
     isLargeFile: metadata.isLargeFile === true,
@@ -471,10 +472,10 @@ export class SessionService {
     });
   }
 
-  async saveRecoveryDrafts(tabs: Tab[]): Promise<void> {
+  async saveRecoveryDrafts(tabs: Tab[]): Promise<Set<string>> {
     const recoveredAt = Date.now();
     const records = tabs
-      .filter((tab) => tab.isDirty && !tab.isLoadingContent)
+      .filter((tab) => (tab.isDirty || (tab.isUntitled && tab.isRecoverySaved)) && !tab.isLoadingContent)
       .map((tab) => tabToDraftRecord(tab, recoveredAt))
       .filter((record) => {
         if (record.content.length <= this.limits.maxTotalBytes) return true;
@@ -487,13 +488,16 @@ export class SessionService {
       .map(draftRecordToTab)
       .filter((draft): draft is RecoveryDraft => draft !== null);
 
+    let saved = false;
     await this.enqueue(async () => {
       try {
         await this.ensureBackend().write(null, limited);
+        saved = true;
       } catch (error) {
         console.warn('[Session] 保存恢复草稿失败:', error);
       }
     });
+    return saved ? new Set(limited.map((record) => record.id)) : new Set();
   }
 
   async discardRecoveryDraft(tabId: string): Promise<void> {
@@ -533,6 +537,18 @@ export class SessionService {
         await this.ensureBackend().remove({ all: true, session: true });
       } catch (error) {
         console.warn('[Session] 清理恢复库失败:', error);
+      }
+    });
+  }
+
+  async clearSession(): Promise<void> {
+    this.session = null;
+
+    await this.enqueue(async () => {
+      try {
+        await this.ensureBackend().remove({ session: true });
+      } catch (error) {
+        console.warn('[Session] 清除会话快照失败:', error);
       }
     });
   }

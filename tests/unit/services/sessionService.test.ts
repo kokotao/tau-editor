@@ -68,6 +68,35 @@ describe('sessionService 恢复库 v2（Web 回退后端）', () => {
     expect(drafts[0]?.recoveredAt).toBeGreaterThan(0);
   });
 
+  it('保留自动保存过的未命名草稿并可单独清除会话快照', async () => {
+    const service = new SessionService();
+    await service.initialize();
+
+    const cachedDraft = makeTab({
+      id: 'untitled-1',
+      filePath: null,
+      fileName: '未命名',
+      isUntitled: true,
+      isDirty: false,
+      isRecoverySaved: true,
+    });
+    expect(await service.saveRecoveryDrafts([cachedDraft])).toEqual(new Set(['untitled-1']));
+    await service.save({
+      mode: 'single-file',
+      workspacePath: null,
+      workspaceName: null,
+      activeTabId: 'untitled-1',
+      tabs: [cachedDraft],
+    });
+
+    await service.clearSession();
+
+    const reopened = new SessionService();
+    await reopened.initialize();
+    expect(reopened.load()).toBeNull();
+    expect(reopened.loadRecoveryDrafts().map((draft) => draft.id)).toEqual(['untitled-1']);
+  });
+
   it('恢复 Markdown 草稿时保留独立预览布局和字号', async () => {
     const service = new SessionService();
     await service.initialize();

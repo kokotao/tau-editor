@@ -205,39 +205,52 @@ export class TabService {
     });
   }
 
-  async saveActiveTab() {
-    const tab = this.tabsStore.activeTab;
+  async saveActiveTab(options: { silent?: boolean } = {}): Promise<boolean> {
+    const activeTab = this.tabsStore.activeTab;
+    if (!activeTab) {
+      if (!options.silent) this.notificationStore.warning('没有可保存的文件', '请先创建文件或打开现有文件');
+      return false;
+    }
+    return this.saveTab(activeTab.id, options);
+  }
+
+  async saveTab(tabId: string, options: { silent?: boolean } = {}): Promise<boolean> {
+    const tab = this.tabsStore.tabs.find((item) => item.id === tabId);
     if (!tab) {
-      this.notificationStore.warning('没有可保存的文件', '请先创建文件或打开现有文件');
-      return;
+      return false;
     }
 
     if (isImageFilePath(tab.filePath) || (isBinaryPreviewPath(tab.filePath) && isBinaryPreviewContent(tab.content))) {
-      this.notificationStore.warning('当前文件为二进制预览', '为避免破坏原始文件，暂不支持直接保存该预览内容');
-      return;
+      if (!options.silent) this.notificationStore.warning('当前文件为二进制预览', '为避免破坏原始文件，暂不支持直接保存该预览内容');
+      return false;
     }
 
     if (isLargeFilePreviewContent(tab.content)) {
-      this.notificationStore.warning('当前文件为大文件预览', '该标签仅加载了部分内容，暂不支持保存或覆盖原文件');
-      return;
+      if (!options.silent) this.notificationStore.warning('当前文件为大文件预览', '该标签仅加载了部分内容，暂不支持保存或覆盖原文件');
+      return false;
     }
 
     if (tab.isLoadingContent) {
-      this.notificationStore.warning('文件仍在加载', '请等待大文件分段加载完成后再保存');
-      return;
+      if (!options.silent) this.notificationStore.warning('文件仍在加载', '请等待大文件分段加载完成后再保存');
+      return false;
     }
 
     if (tab.isUntitled || !tab.filePath) {
-      await this.saveActiveTabAs();
-      return;
+      if (!options.silent && this.tabsStore.activeTabId === tab.id) {
+        await this.saveActiveTabAs();
+        return !this.tabsStore.tabs.some((item) => item.id === tab.id && item.isUntitled);
+      }
+      return false;
     }
 
     if (tab.externalModifiedAt !== null && tab.externalModifiedAt !== undefined) {
-      this.notificationStore.warning(
-        '检测到外部修改',
-        '磁盘上的内容已变化，请先处理冲突（重新加载 / 保留当前内容 / 另存为）再保存。',
-      );
-      return;
+      if (!options.silent) {
+        this.notificationStore.warning(
+          '检测到外部修改',
+          '磁盘上的内容已变化，请先处理冲突（重新加载 / 保留当前内容 / 另存为）再保存。',
+        );
+      }
+      return false;
     }
 
     try {
@@ -271,35 +284,42 @@ export class TabService {
       this.tabsStore.updateTab(tab.id, {
         isDirty: !this.isTabContentUnchanged(tab.id, contentSnapshot),
         isUntitled: false,
+        isRecoverySaved: false,
         lastKnownModified,
         fileRevision,
         externalModifiedAt: null,
       });
-      if (this.isTabContentUnchanged(tab.id, contentSnapshot)) {
+      const isActiveTab = this.tabsStore.activeTabId === tab.id
+        || (!this.tabsStore.activeTabId && this.tabsStore.activeTab?.id === tab.id);
+      if (this.isTabContentUnchanged(tab.id, contentSnapshot) && isActiveTab) {
         this.editorStore.markAsSaved();
       }
-      this.workspaceStore.openSingleFile(tab.filePath);
-      this.notificationStore.success('保存成功', tab.fileName);
+      if (isActiveTab) {
+        this.workspaceStore.openSingleFile(tab.filePath);
+      }
+      if (!options.silent) this.notificationStore.success('保存成功', tab.fileName);
 
       if (this.workspaceStore.currentWorkspacePath && tab.filePath.startsWith(this.workspaceStore.currentWorkspacePath)) {
         await this.fileSystemStore.refreshFileTree();
       }
+      return true;
     } catch (error: any) {
       if (error?.code === 'FILE_CONFLICT') {
         this.notificationStore.warning(
           '保存被阻止',
           '文件已在磁盘上被修改，当前内容未写入。请先重新加载或另存为。',
         );
-        return;
+        return false;
       }
       if (error?.code === 'REVISION_BASELINE_MISSING') {
         this.notificationStore.warning(
           '保存被阻止',
           '当前标签缺少磁盘版本基线，为避免覆盖外部修改，请重新打开该文件后再保存。',
         );
-        return;
+        return false;
       }
       this.notificationStore.error('保存失败', error.message || '无法写入当前文件');
+      return false;
     }
   }
 
@@ -460,6 +480,7 @@ export class TabService {
     this.tabsStore.updateTab(tabId, {
       content,
       isDirty: nextDirty,
+      isRecoverySaved: content === tab.content ? tab.isRecoverySaved : false,
     });
 
     if (!isActiveTab) {

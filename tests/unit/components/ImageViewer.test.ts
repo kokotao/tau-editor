@@ -47,8 +47,8 @@ describe('ImageViewer', () => {
     expect(getImage().attributes('style')).toContain('scale(2)');
 
     await wrapper.get('[data-testid="image-viewer-viewport"]').trigger('wheel', { deltaY: -100 });
-    expect(getImage().attributes('style')).toContain('scale(2.25)');
-    for (let index = 0; index < 10; index += 1) {
+    expect(getImage().attributes('style')).toContain('scale(2.08)');
+    for (let index = 0; index < 20; index += 1) {
       await wrapper.get('[data-testid="image-viewer-viewport"]').trigger('wheel', { deltaY: 1000 });
     }
     expect(getImage().attributes('style')).toContain('scale(0.5)');

@@ -19,7 +19,7 @@ const componentStubs = vi.hoisted(() => ({
   },
   markdownPreview: {
     props: ['content', 'theme', 'sourceFilePath', 'editorScrollState', 'previewMode', 'previewFontSize'],
-    emits: ['request-preview-mode-change', 'preview-font-size-change', 'open-image'],
+    emits: ['request-preview-mode-change', 'preview-font-size-change', 'open-image', 'open-file'],
     methods: { scrollToSourceLine: vi.fn() },
     template: '<div data-testid="markdown-preview-stub" :data-mode="previewMode" :data-font-size="previewFontSize" @click="$emit(\'request-preview-mode-change\', \'preview\')"></div>',
   },
@@ -76,9 +76,12 @@ const storeMocks = vi.hoisted(() => ({
     mode: 'empty',
     currentWorkspacePath: null,
     currentWorkspaceName: null,
+    recentProjects: [],
     loadFromStorage: vi.fn(),
     setEmptyMode: vi.fn(),
     openWorkspace: vi.fn(),
+    openFile: vi.fn(),
+    openRecentProject: vi.fn().mockResolvedValue(undefined),
     setMode: vi.fn(),
   },
   tabs: {
@@ -227,9 +230,10 @@ vi.mock('@/services/workspaceWatcherService', () => ({
 vi.mock('@/services/workspaceService', () => ({
   createWorkspaceService: () => ({
     createUntitledFile: vi.fn(),
-    openFile: vi.fn(),
+    openFile: storeMocks.workspace.openFile,
     openFileWithPicker: vi.fn(),
     openFolderWithPicker: vi.fn().mockResolvedValue(false),
+    openRecentProject: storeMocks.workspace.openRecentProject,
     reloadFileFromDisk: vi.fn().mockResolvedValue(false),
     refreshWorkspace: vi.fn(),
   }),
@@ -309,6 +313,7 @@ describe('AppShell', () => {
     storeMocks.workspace.mode = 'empty'
     storeMocks.workspace.currentWorkspacePath = null
     storeMocks.workspace.currentWorkspaceName = null
+    storeMocks.workspace.recentProjects = []
     storeMocks.settings.sidebarCollapsed = false
     storeMocks.settings.contextRailCollapsed = false
     storeMocks.command.paletteOpen = false
@@ -320,6 +325,25 @@ describe('AppShell', () => {
     storeMocks.tabs.activeTab = null
     storeMocks.tabs.activeTabId = null
     vi.clearAllMocks()
+  })
+
+  it('无工作区时显示最近打开的文件夹并支持点击打开', async () => {
+    storeMocks.workspace.recentProjects = [
+      { path: '/workspace/project', name: 'project', openedAt: Date.now() },
+    ]
+    const wrapper = shallowMount(App, {
+      global: {
+        stubs: appShellStubs,
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="recent-workspaces"]').text()).toContain('project')
+    await wrapper.get('.recent-workspace-card').trigger('click')
+    await flushPromises()
+
+    expect(storeMocks.workspace.openRecentProject).toHaveBeenCalledWith('/workspace/project')
   })
 
   it('点击工具栏设置时应渲染独立页面模式', async () => {
@@ -524,6 +548,36 @@ describe('AppShell', () => {
     expect(viewer.props('visible')).toBe(true)
     expect(viewer.props('src')).toBe('asset:///workspace/logo.png')
     expect(viewer.props('alt')).toBe('logo')
+  })
+
+  it('MarkdownPreview open-file 应交给工作区打开服务', async () => {
+    const markdownTab = {
+      id: 'tab-md-link',
+      fileName: 'README.md',
+      filePath: '/workspace/README.md',
+      content: '[文档](serialization.md)',
+      language: 'markdown',
+      isDirty: false,
+    }
+    storeMocks.tabs.activeTab = markdownTab
+    storeMocks.tabs.tabs = [markdownTab]
+    storeMocks.tabs.activeTabId = markdownTab.id
+    storeMocks.settings.markdownPreviewEnabled = true
+    storeMocks.settings.markdownPreviewMode = 'preview'
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
+    })
+    await flushPromises()
+
+    const preview = wrapper.findComponent(MarkdownPreviewStub)
+    preview.vm.$emit('open-file', {
+      path: '/workspace/serialization.md',
+      href: 'file:///workspace/serialization.md',
+    })
+    await flushPromises()
+
+    expect(storeMocks.workspace.openFile).toHaveBeenCalledWith('/workspace/serialization.md')
   })
 
   it('左下角应显示统一控制组且仅保留侧栏按钮', async () => {

@@ -110,7 +110,7 @@
           v-for="task in workspaceTasks"
           :key="task.id"
           type="button"
-          class="context-work-item"
+          class="context-work-item context-workspace-task-item"
           :class="{ completed: task.completed }"
           :data-testid="`context-workspace-task-${task.id}`"
           @click="emit('navigate-file', task.relativePath, task.line)"
@@ -364,14 +364,19 @@ const linkStatus = (link: MarkdownLink) =>
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   margin-bottom: 8px;
 }
 
 .context-rail-section h3 {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-secondary);
   font-size: var(--font-size-ui-xs, 11px);
   letter-spacing: 0;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .context-rail-section-header span {
@@ -417,8 +422,44 @@ const linkStatus = (link: MarkdownLink) =>
 }
 
 .context-work-item small {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
   font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-workspace-task-item {
+  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-areas:
+    "state label"
+    ". meta";
+  align-items: start;
+  min-width: 0;
+  row-gap: 3px;
+}
+
+.context-workspace-task-item > :first-child {
+  grid-area: state;
+}
+
+.context-workspace-task-item > :nth-child(2) {
+  grid-area: label;
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.context-workspace-task-item > small {
+  grid-area: meta;
+  width: 100%;
+  line-height: 1.25;
 }
 
 .context-work-item.completed span:nth-child(2) {

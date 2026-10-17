@@ -58,7 +58,10 @@ pub struct WindowTransferRegistry {
 }
 
 impl WindowTransferRegistry {
-    fn with_pending<T>(&self, action: impl FnOnce(&mut HashMap<String, PendingTransfer>) -> T) -> Result<T, CommandError> {
+    fn with_pending<T>(
+        &self,
+        action: impl FnOnce(&mut HashMap<String, PendingTransfer>) -> T,
+    ) -> Result<T, CommandError> {
         let mut guard = self
             .pending
             .lock()
@@ -119,7 +122,10 @@ impl WindowTransferRegistry {
 /// 校验迁移负载：空标签、超量标签、超大内容与非法 activeIndex 直接拒绝。
 pub fn validate_window_transfer(payload: &WindowTransferPayload) -> Result<(), CommandError> {
     if payload.tabs.is_empty() {
-        return Err(CommandError::new("WINDOW_TRANSFER_EMPTY", "没有可迁移的标签"));
+        return Err(CommandError::new(
+            "WINDOW_TRANSFER_EMPTY",
+            "没有可迁移的标签",
+        ));
     }
     if payload.tabs.len() > WINDOW_TRANSFER_MAX_TABS {
         return Err(CommandError::new(
@@ -134,15 +140,14 @@ pub fn validate_window_transfer(payload: &WindowTransferPayload) -> Result<(), C
         ));
     }
 
-    let total_bytes: usize = payload
-        .tabs
-        .iter()
-        .map(|tab| tab.content.len())
-        .sum();
+    let total_bytes: usize = payload.tabs.iter().map(|tab| tab.content.len()).sum();
     if total_bytes > WINDOW_TRANSFER_MAX_BYTES {
         return Err(CommandError::new(
             "WINDOW_TRANSFER_TOO_LARGE",
-            format!("迁移内容超过 {} MB 上限", WINDOW_TRANSFER_MAX_BYTES / 1024 / 1024),
+            format!(
+                "迁移内容超过 {} MB 上限",
+                WINDOW_TRANSFER_MAX_BYTES / 1024 / 1024
+            ),
         ));
     }
 
@@ -271,12 +276,11 @@ mod tests {
         assert_eq!(taken, Some(payload));
         assert_eq!(registry.take("editor-1").unwrap(), None);
 
-        registry
-            .insert_with_age(
-                "editor-expired",
-                sample_payload(vec![sample_tab("stale")]),
-                WINDOW_TRANSFER_TTL + Duration::from_secs(1),
-            );
+        registry.insert_with_age(
+            "editor-expired",
+            sample_payload(vec![sample_tab("stale")]),
+            WINDOW_TRANSFER_TTL + Duration::from_secs(1),
+        );
         assert_eq!(registry.take("editor-expired").unwrap(), None);
     }
 }

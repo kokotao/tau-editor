@@ -23,6 +23,86 @@ export interface MarkdownContext {
   links: MarkdownLink[];
 }
 
+export interface MarkdownCodeFence {
+  languageStart: number;
+  languageEnd: number;
+  language: string;
+  code: string;
+}
+
+const normalizeFenceCode = (value: string) => value.replace(/\r\n/g, '\n').replace(/\n$/, '');
+
+export const getMarkdownCodeFences = (markdown: string): MarkdownCodeFence[] => {
+  const fences: MarkdownCodeFence[] = [];
+  const lines: Array<{ text: string; start: number; end: number }> = [];
+  let offset = 0;
+  markdown.split(/(?<=\n)/).forEach((line) => {
+    const text = line.replace(/\r?\n$/, '');
+    lines.push({ text, start: offset, end: offset + text.length });
+    offset += line.length;
+  });
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = lines[index];
+    if (!opening) continue;
+    const openingMatch = opening.text.match(/^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)(.*)$/);
+    if (!openingMatch) continue;
+
+    const marker = openingMatch[1]!;
+    const openingIndent = opening.text.match(/^ */)?.[0].length ?? 0;
+    const language = openingMatch[2]!.toLowerCase();
+    const infoPrefix = opening.text.match(/^ {0,3}(?:`{3,}|~{3,})[ \t]*/)?.[0] ?? marker;
+    const languageStart = opening.start + infoPrefix.length;
+    const languageEnd = languageStart + openingMatch[2]!.length;
+    let closingIndex = index + 1;
+    while (closingIndex < lines.length) {
+      const candidate = lines[closingIndex];
+      if (
+        candidate
+        && new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`).test(candidate.text)
+      ) {
+        break;
+      }
+      closingIndex += 1;
+    }
+    if (closingIndex >= lines.length) continue;
+
+    const bodyStart = opening.end + (markdown.slice(opening.end, opening.end + 2) === '\r\n' ? 2 : 1);
+    const closing = lines[closingIndex]!;
+    const rawCode = markdown.slice(bodyStart, closing.start);
+    const codeWithContainerIndent = rawCode
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .map((line) => line.replace(new RegExp(`^ {0,${openingIndent}}`), ''))
+      .join('\n');
+    fences.push({
+      languageStart,
+      languageEnd,
+      language,
+      code: normalizeFenceCode(codeWithContainerIndent),
+    });
+    index = closingIndex;
+  }
+  return fences;
+};
+
+export const replaceMarkdownCodeFenceLanguage = (
+  markdown: string,
+  fenceIndex: number,
+  expected: { language: string; code: string },
+  nextLanguage: string,
+) => {
+  const fence = getMarkdownCodeFences(markdown)[fenceIndex];
+  if (
+    !fence
+    || fence.language !== expected.language.toLowerCase()
+    || fence.code !== normalizeFenceCode(expected.code)
+  ) {
+    return null;
+  }
+  return `${markdown.slice(0, fence.languageStart)}${nextLanguage}${markdown.slice(fence.languageEnd)}`;
+};
+
 const isExternalMarkdownLink = (target: string) => /^(?:https?:|mailto:|#)/i.test(target);
 
 export function collectMarkdownContext(content: string): MarkdownContext {

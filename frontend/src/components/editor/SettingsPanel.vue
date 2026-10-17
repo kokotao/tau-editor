@@ -16,9 +16,19 @@
         </div>
 
         <div class="settings-header-actions">
-          <div v-if="isWorkspaceMode" class="settings-save-state" data-testid="settings-save-state">
-            <TauIcon class="settings-save-state-icon" name="icon-check-circle" :size="16" />
-            <span>{{ copy.autoSaveEnabled }}</span>
+          <div
+            v-if="isWorkspaceMode"
+            class="settings-save-state"
+            :class="{ 'settings-save-state--disabled': !autoSaveStatus }"
+            data-testid="settings-save-state"
+            role="status"
+          >
+            <TauIcon
+              class="settings-save-state-icon"
+              :name="autoSaveStatus ? 'icon-check-circle' : 'icon-minus'"
+              :size="16"
+            />
+            <span>{{ autoSaveStatus ? copy.autoSaveStatusEnabled : copy.autoSaveStatusDisabled }}</span>
           </div>
           <button
             v-if="isDrawerMode"
@@ -440,6 +450,40 @@
                 :consistent-menu-width="false"
                 @update:value="setMarkdownPreviewTheme"
               />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.markdownMermaidTheme }}</label>
+              <n-select
+                class="settings-nselect"
+                data-testid="select-markdown-mermaid-theme"
+                :value="settingsStore.markdownMermaidTheme"
+                :options="markdownMermaidThemeOptions"
+                :consistent-menu-width="false"
+                @update:value="setMarkdownMermaidTheme"
+              />
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label" for="markdown-mermaid-node-color">{{ copy.markdownMermaidNodeColor }}</label>
+              <div class="settings-inline-control">
+                <input
+                  id="markdown-mermaid-node-color"
+                  class="custom-color-input"
+                  data-testid="markdown-mermaid-node-color"
+                  type="color"
+                  :value="settingsStore.markdownMermaidNodeColor || '#dbeafe'"
+                  @input="setMarkdownMermaidNodeColor(($event.target as HTMLInputElement).value)"
+                />
+                <button
+                  class="settings-action-btn"
+                  data-testid="reset-markdown-mermaid-node-color"
+                  @click="resetMarkdownMermaidNodeColor"
+                >
+                  {{ copy.markdownMermaidNodeColorReset }}
+                </button>
+              </div>
+              <p class="settings-item-hint">{{ copy.markdownMermaidNodeColorHint }}</p>
             </div>
 
             <div class="settings-item">
@@ -887,6 +931,9 @@ import {
   CUSTOM_THEME_COLOR_FALLBACKS,
   CUSTOM_THEME_COLOR_VAR_MAP,
   DEFAULT_UI_FONT_FAMILY,
+  MARKDOWN_MERMAID_THEMES,
+  MARKDOWN_PREVIEW_THEMES,
+  type MarkdownMermaidTheme,
   type MarkdownPreviewTheme,
   type CustomThemeColorKey,
   useSettingsStore,
@@ -967,6 +1014,13 @@ const marketplaceService = new ThemeMarketplaceService();
 const providersStore = useProvidersStore();
 const lspServersStore = useLspServersStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
+const autoSaveStatus = ref(settingsStore.autoSaveEnabled);
+watch(
+  () => settingsStore.autoSaveEnabled,
+  (enabled) => {
+    autoSaveStatus.value = enabled;
+  },
+);
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
 const projectHomepageUrl = 'https://github.com/kokotao/tau-editor';
 const naiveTheme = computed(() => (settingsStore.resolvedTheme === 'dark' ? darkTheme : null));
@@ -1319,6 +1373,17 @@ const markdownPreviewThemeOptions = computed<SelectOption[]>(() => [
   { label: copy.value.markdownPreviewThemeMintGrove, value: 'mint-grove' },
   { label: copy.value.markdownPreviewThemeLavenderLetter, value: 'lavender-letter' },
   { label: copy.value.markdownPreviewThemeDeepOcean, value: 'deep-ocean' },
+]);
+const markdownMermaidThemeOptions = computed<SelectOption[]>(() => [
+  { label: copy.value.markdownMermaidThemeAuto, value: 'auto' },
+  { label: copy.value.markdownMermaidThemeDefault, value: 'default' },
+  { label: copy.value.markdownMermaidThemeDark, value: 'dark' },
+  { label: copy.value.markdownMermaidThemeForest, value: 'forest' },
+  { label: copy.value.markdownMermaidThemeNeutral, value: 'neutral' },
+  { label: copy.value.markdownMermaidThemeAurora, value: 'aurora' },
+  { label: copy.value.markdownMermaidThemeSunset, value: 'sunset' },
+  { label: copy.value.markdownMermaidThemeLavender, value: 'lavender' },
+  { label: copy.value.markdownMermaidThemeMono, value: 'mono' },
 ]);
 const maxOpenTabsOptions = computed<SelectOption[]>(() => [
   { label: '10', value: 10 },
@@ -1924,7 +1989,9 @@ const setFontFamily = (value: string | number | null) => {
 };
 
 const setAutoSave = (event: Event) => {
-  settingsStore.updateSettings({ autoSaveEnabled: (event.target as HTMLInputElement).checked });
+  const enabled = (event.target as HTMLInputElement).checked;
+  autoSaveStatus.value = enabled;
+  settingsStore.updateSettings({ autoSaveEnabled: enabled });
 };
 
 const setAutoSaveInterval = (value: string | number | null) => {
@@ -1933,8 +2000,21 @@ const setAutoSaveInterval = (value: string | number | null) => {
 };
 
 const setMarkdownPreviewTheme = (value: string | number | null) => {
-  if (typeof value !== 'string') return;
+  if (typeof value !== 'string' || !MARKDOWN_PREVIEW_THEMES.includes(value as MarkdownPreviewTheme)) return;
   settingsStore.updateSettings({ markdownPreviewTheme: value as MarkdownPreviewTheme });
+};
+
+const setMarkdownMermaidTheme = (value: string | number | null) => {
+  if (typeof value !== 'string' || !MARKDOWN_MERMAID_THEMES.includes(value as MarkdownMermaidTheme)) return;
+  settingsStore.updateSettings({ markdownMermaidTheme: value as MarkdownMermaidTheme });
+};
+
+const setMarkdownMermaidNodeColor = (value: string) => {
+  settingsStore.updateSettings({ markdownMermaidNodeColor: value });
+};
+
+const resetMarkdownMermaidNodeColor = () => {
+  settingsStore.updateSettings({ markdownMermaidNodeColor: '' });
 };
 
 const setTabSize = (value: string | number | null) => {
@@ -2326,6 +2406,12 @@ defineExpose({
 
 .settings-item {
   margin-bottom: 16px;
+}
+
+.settings-inline-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .settings-item:last-child {
@@ -3369,6 +3455,15 @@ defineExpose({
   color: var(--settings-success);
   font-size: 11px;
   font-weight: 700;
+}
+
+.settings-save-state--disabled {
+  color: var(--settings-text-muted);
+}
+
+.settings-save-state--disabled .settings-save-state-icon {
+  background: transparent;
+  color: var(--settings-text-muted);
 }
 
 .settings-panel--workspace .settings-close {

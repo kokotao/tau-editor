@@ -4475,7 +4475,7 @@ dependencies = [
 
 [[package]]
 name = "text-editor"
-version = "0.6.12"
+version = "0.6.13"
 dependencies = [
  "anyhow",
  "chardetng",
@@ -4485,6 +4485,7 @@ dependencies = [
  "log",
  "notify",
  "pdf-extract",
+ "png",
  "quick-xml",
  "regex",
  "reqwest 0.12.28",

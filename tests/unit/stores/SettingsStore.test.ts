@@ -417,6 +417,27 @@ describe('SettingsStore', () => {
       expect(saved.markdownPreviewTheme).toBe('editorial-warm')
     })
 
+    it('应保存并恢复 Mermaid 流程图渲染主题', () => {
+      store.markdownMermaidTheme = 'forest'
+      store.markdownMermaidNodeColor = '#aabbcc'
+      store.saveToStorage()
+
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.markdownMermaidTheme).toBe('forest')
+      expect(saved.markdownMermaidNodeColor).toBe('#aabbcc')
+
+      vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
+        markdownMermaidTheme: 'neutral',
+        markdownMermaidNodeColor: '#ABC',
+      }))
+      store.loadFromStorage()
+
+      expect(store.markdownMermaidTheme).toBe('neutral')
+      expect(store.markdownMermaidNodeColor).toBe('#aabbcc')
+    })
+
     it('loadFromStorage() 应恢复 Markdown 预览主题', () => {
       vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
         markdownPreviewTheme: 'paper-soft',

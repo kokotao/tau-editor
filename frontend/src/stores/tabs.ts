@@ -7,6 +7,7 @@ export interface Tab {
   language: string;             // 语言模式
   isDirty: boolean;             // 是否有未保存的更改
   isUntitled: boolean;          // 是否为未保存文件
+  isRecoverySaved?: boolean;    // 未命名草稿已写入应用恢复库
   content: string;              // 标签内容
   createdAt: number;            // 创建时间戳
   isLargeFile?: boolean;        // 是否大文件标签
@@ -141,6 +142,7 @@ export const useTabsStore = defineStore('tabs', {
       const tab = this.tabs.find(tab => tab.id === tabId);
       if (tab) {
         tab.isDirty = isDirty;
+        if (isDirty) tab.isRecoverySaved = false;
       }
     },
 

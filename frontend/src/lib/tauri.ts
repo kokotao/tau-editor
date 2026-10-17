@@ -1124,6 +1124,12 @@ function getBrowserDeviceInfo(): DeviceInfo {
 }
 
 export const appCommands = {
+  async writeImage(bytes: Uint8Array | number[]): Promise<void> {
+    await invokeCommand<void>('write_clipboard_image', {
+      bytes: Array.from(bytes),
+    });
+  },
+
   async consumePendingOpenPaths(): Promise<string[]> {
     if (!isTauriAvailable()) {
       return [];

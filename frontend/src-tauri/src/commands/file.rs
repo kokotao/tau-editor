@@ -25,7 +25,10 @@ pub struct FileEntry {
     pub modified: Option<SystemTime>,
 }
 
-fn serialize_system_time_millis<S>(value: &Option<SystemTime>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_system_time_millis<S>(
+    value: &Option<SystemTime>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {

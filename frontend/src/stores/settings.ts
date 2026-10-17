@@ -50,6 +50,17 @@ export const MARKDOWN_PREVIEW_THEMES = [
   'lavender-letter',
   'deep-ocean',
 ] as const;
+export const MARKDOWN_MERMAID_THEMES = [
+  'auto',
+  'default',
+  'dark',
+  'forest',
+  'neutral',
+  'aurora',
+  'sunset',
+  'lavender',
+  'mono',
+] as const;
 
 export type CustomThemeColorKey = Exclude<ThemeColorKey, 'bgApp' | 'panelBase'>;
 export type CustomThemeColors = Partial<Record<CustomThemeColorKey, string>>;
@@ -66,6 +77,7 @@ export interface MonacoThemeDefinition {
 }
 export type { ThemePackage };
 export type MarkdownPreviewTheme = (typeof MARKDOWN_PREVIEW_THEMES)[number];
+export type MarkdownMermaidTheme = (typeof MARKDOWN_MERMAID_THEMES)[number];
 
 export const CUSTOM_THEME_COLOR_VAR_MAP: Record<CustomThemeColorKey, string> = {
   textPrimary: '--text-primary',
@@ -131,6 +143,8 @@ export interface EditorSettings {
   markdownPreviewMode: 'edit' | 'split' | 'preview';
   markdownPreviewEnabled: boolean;
   markdownPreviewTheme: MarkdownPreviewTheme;
+  markdownMermaidTheme: MarkdownMermaidTheme;
+  markdownMermaidNodeColor: string;
 
   // 其他
   confirmBeforeClose: boolean;
@@ -390,6 +404,17 @@ function normalizeMarkdownPreviewTheme(value: unknown): MarkdownPreviewTheme {
   return 'docs-clean';
 }
 
+function normalizeMarkdownMermaidTheme(value: unknown): MarkdownMermaidTheme {
+  if (typeof value === 'string' && MARKDOWN_MERMAID_THEMES.includes(value as MarkdownMermaidTheme)) {
+    return value as MarkdownMermaidTheme;
+  }
+  return 'auto';
+}
+
+function normalizeMarkdownMermaidNodeColor(value: unknown): string {
+  return normalizeHexColor(value) ?? '';
+}
+
 /**
  * 归一化本地存储/导入的主题包：只保留合法项，并统一加用户前缀避免与内置皮肤冲突。
  */
@@ -480,6 +505,8 @@ export const useSettingsStore = defineStore('settings', {
     markdownPreviewMode: 'edit',
     markdownPreviewEnabled: true,
     markdownPreviewTheme: 'docs-clean',
+    markdownMermaidTheme: 'auto',
+    markdownMermaidNodeColor: '',
     confirmBeforeClose: true,
     restoreLastSession: true,
     uiLanguage: 'zh-CN',
@@ -565,6 +592,8 @@ export const useSettingsStore = defineStore('settings', {
           this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
           this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
           this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
+          this.markdownMermaidTheme = normalizeMarkdownMermaidTheme(this.markdownMermaidTheme);
+          this.markdownMermaidNodeColor = normalizeMarkdownMermaidNodeColor(this.markdownMermaidNodeColor);
           this.themePackages = normalizeStoredThemePackages(this.themePackages);
           if (!this.themePackages.some((theme) => theme.id === this.activeThemePackageId)) {
             this.activeThemePackageId = null;
@@ -622,6 +651,8 @@ export const useSettingsStore = defineStore('settings', {
           markdownPreviewMode: this.markdownPreviewMode,
           markdownPreviewEnabled: this.markdownPreviewEnabled,
           markdownPreviewTheme: this.markdownPreviewTheme,
+          markdownMermaidTheme: this.markdownMermaidTheme,
+          markdownMermaidNodeColor: this.markdownMermaidNodeColor,
           confirmBeforeClose: this.confirmBeforeClose,
           restoreLastSession: this.restoreLastSession,
           uiLanguage: this.uiLanguage,
@@ -641,6 +672,8 @@ export const useSettingsStore = defineStore('settings', {
       this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
       this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
       this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
+      this.markdownMermaidTheme = normalizeMarkdownMermaidTheme(this.markdownMermaidTheme);
+      this.markdownMermaidNodeColor = normalizeMarkdownMermaidNodeColor(this.markdownMermaidNodeColor);
       this.themePackages = normalizeStoredThemePackages(this.themePackages);
       this.customThemeUiOverrides = normalizeCustomThemeUiOverrides(this.customThemeUiOverrides);
       this.cornerRadius = normalizeCornerRadius(this.cornerRadius);

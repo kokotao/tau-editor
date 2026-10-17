@@ -14,13 +14,22 @@ use tokio::time::timeout;
 
 use crate::lsp::LspSupervisor;
 use crate::models::{
-    CommandError, LspNotification, LspRequest, LspResponse, LspSessionStatus, LspStartRequest,
-    LspPlatformInfo, LspProbeResponse, LspServerProbe, LspStatusRequest, LspStatusResponse,
+    CommandError, LspNotification, LspPlatformInfo, LspProbeResponse, LspRequest, LspResponse,
+    LspServerProbe, LspSessionStatus, LspStartRequest, LspStatusRequest, LspStatusResponse,
 };
 
 /// 只读探测使用的内置服务器清单。命令名是受信任的常量，不接受前端传入的任意可执行文件。
 const PROBE_SPECS: &[(&str, &[&str], &str)] = &[
-    ("typescript-language-server", &["javascript", "typescript", "javascriptreact", "typescriptreact"], "typescript-language-server"),
+    (
+        "typescript-language-server",
+        &[
+            "javascript",
+            "typescript",
+            "javascriptreact",
+            "typescriptreact",
+        ],
+        "typescript-language-server",
+    ),
     ("pyright", &["python"], "pyright-langserver"),
     ("rust-analyzer", &["rust"], "rust-analyzer"),
     ("gopls", &["go"], "gopls"),
@@ -128,7 +137,10 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
     let Some(path) = path else {
         return LspServerProbe {
             id: id.to_string(),
-            language_ids: language_ids.iter().map(|value| (*value).to_string()).collect(),
+            language_ids: language_ids
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             command: command.to_string(),
             installed: false,
             available: false,
@@ -152,7 +164,11 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
 
     match output {
         Ok(Ok(output)) => {
-            let raw = if output.stdout.is_empty() { &output.stderr } else { &output.stdout };
+            let raw = if output.stdout.is_empty() {
+                &output.stderr
+            } else {
+                &output.stdout
+            };
             let version = String::from_utf8_lossy(raw)
                 .lines()
                 .map(str::trim)
@@ -161,7 +177,10 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
             let available = output.status.success();
             LspServerProbe {
                 id: id.to_string(),
-                language_ids: language_ids.iter().map(|value| (*value).to_string()).collect(),
+                language_ids: language_ids
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
                 command: command.to_string(),
                 installed: true,
                 available,
@@ -176,7 +195,10 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
         }
         Ok(Err(error)) => LspServerProbe {
             id: id.to_string(),
-            language_ids: language_ids.iter().map(|value| (*value).to_string()).collect(),
+            language_ids: language_ids
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             command: command.to_string(),
             installed: true,
             available: false,
@@ -186,7 +208,10 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
         },
         Err(_) => LspServerProbe {
             id: id.to_string(),
-            language_ids: language_ids.iter().map(|value| (*value).to_string()).collect(),
+            language_ids: language_ids
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             command: command.to_string(),
             installed: true,
             available: false,
@@ -230,13 +255,25 @@ mod platform_tests {
 
     #[test]
     fn normalizes_rust_macos_target_names_to_registry_keys() {
-        assert_eq!(normalize_platform_arch("macos", "aarch64"), ("darwin", "arm64"));
-        assert_eq!(normalize_platform_arch("macos", "x86_64"), ("darwin", "x64"));
+        assert_eq!(
+            normalize_platform_arch("macos", "aarch64"),
+            ("darwin", "arm64")
+        );
+        assert_eq!(
+            normalize_platform_arch("macos", "x86_64"),
+            ("darwin", "x64")
+        );
     }
 
     #[test]
     fn normalizes_windows_and_linux_architecture_aliases() {
-        assert_eq!(normalize_platform_arch("windows", "x86_64"), ("windows", "x64"));
-        assert_eq!(normalize_platform_arch("linux", "aarch64"), ("linux", "arm64"));
+        assert_eq!(
+            normalize_platform_arch("windows", "x86_64"),
+            ("windows", "x64")
+        );
+        assert_eq!(
+            normalize_platform_arch("linux", "aarch64"),
+            ("linux", "arm64")
+        );
     }
 }

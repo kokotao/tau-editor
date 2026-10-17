@@ -67,6 +67,7 @@ describe('EditorCore.vue', () => {
   const mockDispose = vi.fn();
   const mockGetValue = vi.fn();
   const mockSetValue = vi.fn();
+  const mockExecuteEdits = vi.fn();
   const mockFocus = vi.fn();
   const mockLayout = vi.fn();
   const mockSetPosition = vi.fn();
@@ -136,6 +137,7 @@ describe('EditorCore.vue', () => {
     });
 
     mockGetValue.mockReturnValue('');
+    mockExecuteEdits.mockReturnValue(true);
     mockGetSelection.mockReturnValue({
       getStartPosition: vi.fn(),
       getEndPosition: vi.fn(),
@@ -150,6 +152,7 @@ describe('EditorCore.vue', () => {
       isDisposed: vi.fn().mockReturnValue(false),
       getValueLength: vi.fn().mockReturnValue(0),
       getValue: mockGetValue,
+      getPositionAt: vi.fn((offset: number) => ({ lineNumber: 1, column: offset + 1 })),
       setValue: mockSetValue,
       getLineCount: vi.fn().mockReturnValue(1),
       getLineMaxColumn: vi.fn().mockReturnValue(1),
@@ -169,6 +172,7 @@ describe('EditorCore.vue', () => {
     monacoMocks.create.mockReturnValue({
       getValue: mockGetValue,
       setValue: mockSetValue,
+      executeEdits: mockExecuteEdits,
       focus: mockFocus,
       layout: mockLayout,
       setPosition: mockSetPosition,
@@ -430,6 +434,30 @@ describe('EditorCore.vue', () => {
     expect(mockSetValue).toHaveBeenCalledWith('changed');
     expect(mockFocus).toHaveBeenCalled();
     expect(mockLayout).toHaveBeenCalled();
+  });
+
+  it('replaceContent 应通过最小范围编辑更新 Markdown 并保留撤销能力', async () => {
+    mockGetValue.mockReturnValue('```js\nconst value = 1;\n```');
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'replace-markdown-content', language: 'markdown' },
+    });
+
+    await flushPromises();
+    const result = (wrapper.vm as any).replaceContent('```python\nconst value = 1;\n```');
+
+    expect(result).toBe(true);
+    expect(mockExecuteEdits).toHaveBeenCalledWith('tau-markdown-code-language', [{
+      range: {
+        startLineNumber: 1,
+        startColumn: 4,
+        endLineNumber: 1,
+        endColumn: 6,
+      },
+      text: 'python',
+      forceMoveMarkers: true,
+    }]);
+    expect(mockSetValue).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it('revealLine 应将行列限制在模型范围内并聚焦编辑器', async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { defineComponent } from 'vue';
+import { defineComponent, nextTick } from 'vue';
 
 const NConfigProviderStub = defineComponent({
   name: 'NConfigProvider',
@@ -127,6 +127,21 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('[data-testid="settings-nav-general"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="settings-nav-editor"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="settings-general-section"]').exists()).toBe(true);
+  });
+
+  it('偏好设置顶部自动保存状态应与开关保持一致', async () => {
+    settingsStore.autoSaveEnabled = false;
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const saveState = wrapper.get('[data-testid="settings-save-state"]');
+    expect(saveState.text()).toContain('自动保存已关闭');
+    expect(saveState.classes()).toContain('settings-save-state--disabled');
+
+    await wrapper.get('[data-testid="toggle-auto-save"]').setValue(true);
+    await nextTick();
+    expect(saveState.text()).toContain('自动保存已启用');
+    expect(saveState.classes()).not.toContain('settings-save-state--disabled');
   });
 
   it('浅色主题下设置页应使用浅色表面和可读的下拉菜单配色', async () => {
@@ -378,6 +393,39 @@ describe('SettingsPanel', () => {
     expect(markdownPreviewThemeSelect.exists()).toBe(true);
     expect(settingsStore.markdownPreviewTheme).toBe('docs-clean');
     expect(wrapper.text()).toContain('Markdown 预览主题');
+  });
+
+  it('editor 分类应展示 Mermaid 流程图渲染主题设置并默认跟随预览', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="select-markdown-mermaid-theme"]').exists()).toBe(true);
+    expect(settingsStore.markdownMermaidTheme).toBe('auto');
+    expect(wrapper.text()).toContain('流程图渲染主题');
+  });
+
+  it('切换 Mermaid 流程图渲染主题后应更新 store', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    wrapper.findComponent('[data-testid="select-markdown-mermaid-theme"]').vm.$emit('update:value', 'forest');
+    await flushPromises();
+
+    expect(settingsStore.markdownMermaidTheme).toBe('forest');
+  });
+
+  it('流程图节点背景色可自定义并可恢复为主题默认', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+    const colorInput = wrapper.find('[data-testid="markdown-mermaid-node-color"]');
+
+    await colorInput.setValue('#aabbcc');
+    await flushPromises();
+    expect(settingsStore.markdownMermaidNodeColor).toBe('#aabbcc');
+
+    await wrapper.find('[data-testid="reset-markdown-mermaid-node-color"]').trigger('click');
+    await flushPromises();
+    expect(settingsStore.markdownMermaidNodeColor).toBe('');
   });
 
   it('切换 Markdown 预览主题选择器后应更新 store', async () => {

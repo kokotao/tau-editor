@@ -52,7 +52,10 @@ import {
   buildOutlineFromDocumentSymbols,
   type OutlineItem,
 } from '@/services/documentOutlineService';
-import { collectMarkdownContext } from '@/services/markdownService';
+import {
+  collectMarkdownContext,
+  replaceMarkdownCodeFenceLanguage,
+} from '@/services/markdownService';
 import {
   flattenWorkspaceTasks,
   importMarkdownAsset,
@@ -89,6 +92,7 @@ import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/ser
 import {
   getAppI18n,
   getCommandText,
+  getMarkdownPreviewI18n,
   getToolbarI18n,
   type CommandId,
 } from '@/i18n/ui';
@@ -132,6 +136,21 @@ const commandStore = useCommandStore();
 const fileConflictsStore = useFileConflictsStore();
 const diffStore = useDiffStore();
 const diagnosticsStore = useDiagnosticsStore();
+const pendingLocalWrites = new Map<string, number>();
+const markLocalWritePending = (filePath?: string | null) => {
+  if (filePath) pendingLocalWrites.set(normalizeFsPath(filePath), Date.now() + 4000);
+};
+const consumePendingLocalWrite = (filePath: string) => {
+  const key = normalizeFsPath(filePath);
+  const expiresAt = pendingLocalWrites.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt < Date.now()) {
+    pendingLocalWrites.delete(key);
+    return false;
+  }
+  pendingLocalWrites.delete(key);
+  return true;
+};
 const providersStore = useProvidersStore();
 const workspaceService = createWorkspaceService(
   fileSystemStore,
@@ -298,6 +317,7 @@ const fileDetailsDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>(
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 type EditorCoreExpose = {
   getContent: () => string;
+  replaceContent: (content: string) => boolean;
   getPosition: () => { line: number; column: number } | null;
   focusAtStart: () => void;
   insertText: (text: string) => void;
@@ -385,6 +405,8 @@ const externalConflictBusy = ref(false);
 let unlistenExternalOpen: (() => void) | null = null;
 let disposeMonacoEditorOpener: (() => void) | null = null;
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let autoSaveTimer: ReturnType<typeof setInterval> | null = null;
+let autoSaveInFlight = false;
 let externalFileSyncTimer: ReturnType<typeof setInterval> | null = null;
 let externalFileSyncInFlight = false;
 let workspaceContextRequestId = 0;
@@ -581,6 +603,7 @@ const isPreviewableTab = computed(() => (
 const hasMacWindowTitlebar = computed(() => isTauriApp()
   && typeof navigator !== 'undefined'
   && /Macintosh|Mac OS X/.test(navigator.userAgent));
+const hasDesktopWindowTitlebar = computed(() => isTauriApp());
 const markdownPreviewMode = computed(() => isFullDocumentPreviewTab.value
   ? 'preview'
   : activeTab.value?.markdownPreviewMode ?? settingsStore.markdownPreviewMode);
@@ -626,6 +649,7 @@ const closeImageViewer = () => {
 };
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
 const toolbarText = computed(() => getToolbarI18n(settingsStore.uiLanguage));
+const markdownPreviewText = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
     return undefined;
@@ -841,6 +865,13 @@ const openFileInEditor = async (filePath: string) => {
   await workspaceService.openFile(filePath);
 };
 
+const handleMarkdownOpenFile = async (payload: { path: string; href: string }) => {
+  if (!payload.path.trim()) {
+    return;
+  }
+  await openFileInEditor(payload.path);
+};
+
 /**
  * 等待目标标签和 EditorCore 完成响应式切换。openFile() 会同步激活已有标签，
  * 新标签则要等 Vue 更新一次后才会由 EditorCore 创建/绑定 Monaco model。
@@ -908,8 +939,18 @@ const handleOpenFolder = async () => {
   }
 };
 
+const handleOpenRecentFolder = async (path: string) => {
+  try {
+    await workspaceService.openRecentProject(path);
+    showFileTree.value = true;
+  } catch (error) {
+    notificationStore.error('打开文件夹失败', error instanceof Error ? error.message : '无法打开此文件夹');
+  }
+};
+
 const handleSave = async () => {
   syncActiveEditorContent();
+  markLocalWritePending(activeTab.value?.filePath);
   await tabService.saveActiveTab();
   editorCoreRef.value?.saveLspDocument();
   // 保存后任务勾选状态可能变化，静默重扫一次工作区任务。
@@ -2004,6 +2045,47 @@ const handleContentChange = (content: string, modelId: string) => {
   // 编辑器可能在上一次输入去抖后才提交，这里按模型对应的标签回写，避免串写。
   tabService.updateTabContent(modelId, content);
   scheduleSessionSave();
+};
+
+const handleEditorBlur = (modelId: string) => {
+  if (modelId !== activeTab.value?.id) return;
+  syncActiveEditorContent();
+  markLocalWritePending(activeTab.value?.filePath);
+  void tabService.saveActiveTab({ silent: true });
+};
+
+const handleMarkdownCodeLanguageChange = (payload: {
+  fenceIndex: number;
+  originalLanguage: string;
+  code: string;
+  language: string;
+}) => {
+  const editor = editorCoreRef.value;
+  const currentContent = editor?.getContent();
+  const nextContent = typeof currentContent === 'string'
+    ? replaceMarkdownCodeFenceLanguage(
+      currentContent,
+      payload.fenceIndex,
+      { language: payload.originalLanguage, code: payload.code },
+      payload.language,
+    )
+    : null;
+  if (nextContent === null || !editor?.replaceContent(nextContent)) {
+    notificationStore.error(markdownPreviewText.value.codeLanguageUpdateFailed);
+    return;
+  }
+  notificationStore.info(markdownPreviewText.value.codeLanguageChanged(payload.language));
+};
+
+const handleMarkdownPreviewChange = (content: string) => {
+  const editor = editorCoreRef.value;
+  if (editor && editor.getContent() !== content) {
+    editor.replaceContent(content);
+  }
+  tabService.updateActiveTabContent(content, { markDirty: true });
+  scheduleSessionSave();
+  markLocalWritePending(activeTab.value?.filePath);
+  void tabService.saveActiveTab({ silent: true });
 };
 
 const syncActiveEditorContent = () => {
@@ -3106,6 +3188,15 @@ const handleWorkspaceFileChanges = async (changes: WorkspaceFileChange[]) => {
       continue;
     }
 
+    if (change.kind !== 'removed' && consumePendingLocalWrite(filePath)) {
+      tabsStore.updateTab(tab.id, {
+        lastKnownModified: change.modifiedMs ?? tab.lastKnownModified ?? Date.now(),
+        externalModifiedAt: null,
+      });
+      fileConflictsStore.resolve(filePath);
+      continue;
+    }
+
     if (change.kind === 'removed') {
       const isNew = fileConflictsStore.flag({
         path: filePath,
@@ -3161,6 +3252,11 @@ const syncActiveTabExternalChanges = async () => {
   try {
     const fileInfo = await fileCommands.getFileInfo(tab.filePath);
     const observedModified = normalizeModifiedTimestamp(fileInfo.modified);
+    if (consumePendingLocalWrite(tab.filePath)) {
+      tabsStore.updateTab(tab.id, { lastKnownModified: observedModified, externalModifiedAt: null });
+      fileConflictsStore.resolve(tab.filePath);
+      return;
+    }
     const action = resolveExternalFileSyncAction({
       filePath: tab.filePath,
       isUntitled: tab.isUntitled,
@@ -3327,16 +3423,12 @@ const handleShellKeydown = (event: KeyboardEvent) => {
 };
 
 async function restoreSession() {
-  if (!settingsStore.restoreLastSession) {
-    await sessionService.clear();
-    await sessionService.clearRecoveryDrafts();
-    workspaceStore.setEmptyMode();
-    tabsStore.closeAll();
-    return;
-  }
-
-  const snapshot = sessionService.load();
-  const recoveryDrafts = sessionService.loadRecoveryDrafts() ?? [];
+  const shouldRestoreLastSession = settingsStore.restoreLastSession;
+  const snapshot = shouldRestoreLastSession ? sessionService.load() : null;
+  const allRecoveryDrafts = sessionService.loadRecoveryDrafts() ?? [];
+  const recoveryDrafts = shouldRestoreLastSession
+    ? allRecoveryDrafts
+    : allRecoveryDrafts.filter((draft) => draft.isUntitled);
   if (!snapshot && recoveryDrafts.length === 0) return;
 
   const shouldRestoreDrafts = recoveryDrafts.length > 0 && (
@@ -3344,20 +3436,27 @@ async function restoreSession() {
     || window.confirm(`检测到 ${recoveryDrafts.length} 个未保存草稿，是否恢复？`)
   );
   if (recoveryDrafts.length > 0 && !shouldRestoreDrafts) {
-    await sessionService.clearRecoveryDrafts();
+    if (shouldRestoreLastSession) {
+      await sessionService.clearRecoveryDrafts();
+    } else {
+      await Promise.all(recoveryDrafts.map((draft) => sessionService.discardRecoveryDraft(draft.id)));
+    }
   }
 
+  const restoredSnapshotTabs = snapshot?.tabs.filter(
+    (tab) => shouldRestoreDrafts || !recoveryDrafts.some((draft) => draft.id === tab.id),
+  ) ?? [];
   const restoredTabs = shouldRestoreDrafts
     ? [
-        ...(snapshot?.tabs ?? []).filter((tab) => !recoveryDrafts.some((draft) => draft.id === tab.id)),
+        ...restoredSnapshotTabs.filter((tab) => !recoveryDrafts.some((draft) => draft.id === tab.id)),
         ...recoveryDrafts,
       ]
-    : snapshot?.tabs ?? [];
+    : restoredSnapshotTabs;
   const activeTabId = snapshot?.activeTabId ?? restoredTabs[0]?.id ?? null;
 
   tabsStore.restoreSession(restoredTabs, activeTabId);
 
-  if (snapshot?.workspacePath && snapshot.mode === 'workspace') {
+  if (shouldRestoreLastSession && snapshot?.workspacePath && snapshot.mode === 'workspace') {
     workspaceStore.openWorkspace(snapshot.workspacePath);
     void fileSystemStore.syncFromWorkspace();
   } else if (restoredTabs.length > 0) {
@@ -3369,8 +3468,7 @@ async function restoreSession() {
 
 async function saveSession() {
   if (!settingsStore.restoreLastSession) {
-    await sessionService.clear();
-    await sessionService.clearRecoveryDrafts();
+    await sessionService.clearSession();
     return;
   }
 
@@ -3398,7 +3496,7 @@ function cancelScheduledSessionSave() {
 
 function scheduleSessionSave() {
   if (!settingsStore.restoreLastSession) {
-    void sessionService.clear();
+    void sessionService.clearSession();
     return;
   }
 
@@ -3408,6 +3506,82 @@ function scheduleSessionSave() {
     void saveSession();
   }, SESSION_SAVE_DEBOUNCE_MS);
 }
+
+async function runAutoSave() {
+  if (autoSaveInFlight || !settingsStore.autoSaveEnabled) return;
+  syncActiveEditorContent();
+  const candidates = tabsStore.tabs.filter((tab) => tab.isDirty && !tab.isLoadingContent);
+  if (candidates.length === 0) return;
+
+  autoSaveInFlight = true;
+  editorStore.setAutoSaveStatus('saving');
+  let hasSaved = false;
+  let hasFailure = false;
+
+  try {
+    const untitledSnapshots = new Map(
+      candidates
+        .filter((tab) => tab.isUntitled || !tab.filePath)
+        .map((tab) => [tab.id, tab.content]),
+    );
+    if (untitledSnapshots.size > 0) {
+      const savedDraftIds = await sessionService.saveRecoveryDrafts(tabsStore.tabs);
+      for (const [tabId, content] of untitledSnapshots) {
+        if (!savedDraftIds.has(tabId)) {
+          hasFailure = true;
+          continue;
+        }
+        const current = tabsStore.tabs.find((tab) => tab.id === tabId);
+        if (!current) continue;
+        const unchanged = current.content === content;
+        tabsStore.updateTab(tabId, {
+          isDirty: !unchanged,
+          isRecoverySaved: true,
+        });
+        if (unchanged && tabsStore.activeTabId === tabId) editorStore.markAsSaved();
+        hasSaved = true;
+      }
+    }
+
+    for (const tab of candidates) {
+      if (tab.isUntitled || !tab.filePath) continue;
+      const saved = await tabService.saveTab(tab.id, { silent: true });
+      if (saved) {
+        await sessionService.discardRecoveryDraft(tab.id);
+        hasSaved = true;
+      } else {
+        hasFailure = true;
+      }
+    }
+
+    if (hasSaved) editorStore.updateLastAutoSaveTime();
+    editorStore.setAutoSaveStatus(hasFailure ? 'error' : hasSaved ? 'saved' : 'error');
+  } catch (error) {
+    editorStore.setAutoSaveStatus('error');
+    notificationStore.error(
+      '自动保存失败',
+      error instanceof Error ? error.message : '无法写入自动保存内容',
+    );
+  } finally {
+    autoSaveInFlight = false;
+  }
+}
+
+function configureAutoSaveTimer() {
+  if (autoSaveTimer) {
+    clearInterval(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  if (!settingsStore.autoSaveEnabled || settingsStore.autoSaveInterval <= 0) return;
+  autoSaveTimer = setInterval(() => {
+    void runAutoSave();
+  }, settingsStore.autoSaveInterval * 1000);
+}
+
+watch(
+  () => [settingsStore.autoSaveEnabled, settingsStore.autoSaveInterval] as const,
+  configureAutoSaveTimer,
+);
 
 watch(
   () => ({
@@ -3450,8 +3624,10 @@ watch(
     }
 
     cancelScheduledSessionSave();
-    void sessionService.clear();
-    void sessionService.clearRecoveryDrafts();
+    void sessionService.clearSession();
+    const nonUntitledDrafts = sessionService.loadRecoveryDrafts()
+      .filter((draft) => !draft.isUntitled);
+    void Promise.all(nonUntitledDrafts.map((draft) => sessionService.discardRecoveryDraft(draft.id)));
   },
 );
 
@@ -3574,7 +3750,7 @@ watch(
 );
 
 onMounted(async () => {
-  if (hasMacWindowTitlebar.value) {
+  if (hasDesktopWindowTitlebar.value) {
     const { listen } = await import('@tauri-apps/api/event');
     unlistenUpdateProgress = await listen<UpdateDownloadProgress>(
       'app:update-download-progress',
@@ -3588,6 +3764,7 @@ onMounted(async () => {
   window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
   await settingsStore.init();
+  configureAutoSaveTimer();
   await bootstrapProviders();
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
@@ -3637,6 +3814,10 @@ onUnmounted(() => {
     unlistenUpdateProgress = null;
   }
   clearTitlebarProgressTimer();
+  if (autoSaveTimer) {
+    clearInterval(autoSaveTimer);
+    autoSaveTimer = null;
+  }
   void stopExternalFileWatch();
   void applicationLspService.dispose();
   lspDiagnosticCounts.clear();
@@ -3765,8 +3946,9 @@ onUnmounted(() => {
     />
 
     <div
-      v-if="hasMacWindowTitlebar"
+      v-if="hasDesktopWindowTitlebar"
       class="app-native-titlebar"
+      :class="{ 'app-native-titlebar--mac': hasMacWindowTitlebar }"
       data-testid="app-native-titlebar"
     >
       <div class="native-titlebar-actions">
@@ -3931,6 +4113,7 @@ onUnmounted(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :is-dirty="isDirty"
+      :has-active-tab="Boolean(activeTab)"
       :can-reveal-current-file="canRevealCurrentFile"
       :locating-current-file="locatingCurrentFile"
       :app-label="appText.appLabel"
@@ -4005,6 +4188,29 @@ onUnmounted(() => {
                 @copy-current-file-path="handleCopyCurrentFilePath"
                 @reveal-current-file-manager="handleRevealCurrentFileInManager"
               />
+              <section v-else class="recent-workspaces" data-testid="recent-workspaces">
+                <h2 class="recent-workspaces-title">{{ appText.recentFolders }}</h2>
+                <p v-if="(workspaceStore.recentProjects ?? []).length === 0" class="recent-workspaces-empty">
+                  {{ appText.noRecentFolders }}
+                </p>
+                <button
+                  v-for="project in workspaceStore.recentProjects ?? []"
+                  :key="project.path"
+                  type="button"
+                  class="recent-workspace-card"
+                  :title="`${appText.openRecentFolder}: ${project.path}`"
+                  @click="handleOpenRecentFolder(project.path)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
+                    <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  </svg>
+                  <span class="recent-workspace-card-copy">
+                    <strong>{{ project.name }}</strong>
+                    <small>{{ project.path }}</small>
+                  </span>
+                </button>
+              </section>
             </div>
           </aside>
           <div
@@ -4136,6 +4342,7 @@ onUnmounted(() => {
               :read-only="Boolean(activeTab.isLoadingContent)"
               :theme="settingsStore.monacoTheme"
               @content-change="handleContentChange"
+              @editor-blur="handleEditorBlur"
               @cursor-change="handleCursorChange"
               @scroll-change="handleEditorScrollChange"
               @model-save="handleSave"
@@ -4166,7 +4373,12 @@ onUnmounted(() => {
               :editor-scroll-state="editorScrollState"
               @request-preview-mode-change="setMarkdownPreviewMode"
               @preview-font-size-change="setMarkdownPreviewFontSize"
+              @code-language-change="handleMarkdownCodeLanguageChange"
+              @markdown-change="handleMarkdownPreviewChange"
+              @request-undo="handleUndo"
+              @request-redo="handleRedo"
               @open-image="openImageViewer"
+              @open-file="handleMarkdownOpenFile"
             />
             <DocumentPreview
               v-else
@@ -4373,10 +4585,14 @@ textarea {
   align-items: center;
   justify-content: space-between;
   min-width: 0;
-  padding: 0 12px 0 82px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, .14));
   background: color-mix(in srgb, var(--panel-elevated, var(--panel-base)) 92%, transparent);
   user-select: none;
+}
+
+.app-native-titlebar--mac {
+  padding-left: 82px;
 }
 
 .native-titlebar-actions {
@@ -4938,6 +5154,83 @@ textarea {
     opacity 0.2s ease,
     transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
+}
+
+.recent-workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  overflow: auto;
+  padding: 18px 12px;
+  color: var(--text-primary);
+}
+
+.recent-workspaces-title {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.recent-workspaces-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.recent-workspace-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  border-radius: 8px;
+  background: var(--bg-secondary, transparent);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recent-workspace-card:hover {
+  background: var(--bg-hover, rgba(128, 128, 128, 0.12));
+}
+
+.recent-workspace-card > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.recent-workspace-card-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+
+.recent-workspace-card-copy strong,
+.recent-workspace-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-workspace-card-copy strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.recent-workspace-card-copy small {
+  color: var(--text-secondary);
+  font-size: 10px;
 }
 
 .context-rail-content,

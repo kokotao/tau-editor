@@ -150,11 +150,15 @@ pub fn git_show_file_for_registry(
 ) -> Result<String, CommandError> {
     validate_relative_path(relative_path)?;
     if revision.is_empty()
-        || !revision
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '_' | '-' | '.' | '~' | '^' | '@' | '{' | '}'))
+        || !revision.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '/' | '_' | '-' | '.' | '~' | '^' | '@' | '{' | '}')
+        })
     {
-        return Err(CommandError::new("GIT_REVISION_INVALID", "Git revision 无效"));
+        return Err(CommandError::new(
+            "GIT_REVISION_INVALID",
+            "Git revision 无效",
+        ));
     }
 
     let root = workspace_root_for_registry(registry, workspace_id)?;

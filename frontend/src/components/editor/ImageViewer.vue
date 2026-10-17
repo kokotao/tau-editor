@@ -124,6 +124,7 @@ const emit = defineEmits<{
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 4;
 const SCALE_STEP = 0.25;
+const WHEEL_SCALE_STEP = 0.08;
 
 const viewerRef = ref<HTMLElement | null>(null);
 const viewportRef = ref<HTMLElement | null>(null);
@@ -163,7 +164,7 @@ const toggleZoom = () => {
 };
 
 const handleWheel = (event: WheelEvent) => {
-  setScale(scale.value + (event.deltaY < 0 ? SCALE_STEP : -SCALE_STEP));
+  setScale(scale.value + (event.deltaY < 0 ? WHEEL_SCALE_STEP : -WHEEL_SCALE_STEP));
 };
 
 const rotateClockwise = () => {

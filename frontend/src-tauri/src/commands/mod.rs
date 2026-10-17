@@ -1,13 +1,14 @@
+mod clipboard;
 /// Tauri 命令模块
 ///
 /// 包含所有暴露给前端的 Tauri 命令
 pub mod file;
 pub mod file_association;
 pub mod file_optimized;
-pub mod lsp;
-pub mod lsp_provision;
 mod file_transaction;
 mod git;
+pub mod lsp;
+pub mod lsp_provision;
 mod markdown;
 mod recovery;
 mod replace;
@@ -18,13 +19,14 @@ mod watcher;
 pub mod window;
 mod workspace;
 
+pub use clipboard::*;
 pub use file::*;
 pub use file_association::*;
 pub use file_optimized::*;
-pub use lsp::*;
-pub use lsp_provision::*;
 pub use file_transaction::*;
 pub use git::*;
+pub use lsp::*;
+pub use lsp_provision::*;
 pub use markdown::*;
 pub use recovery::*;
 pub use replace::*;

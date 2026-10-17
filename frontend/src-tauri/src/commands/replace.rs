@@ -111,10 +111,5 @@ pub fn undo_workspace_replace(
     workspace_id: String,
     undo_id: String,
 ) -> Result<ReplaceUndoResponse, CommandError> {
-    undo_replace(
-        previews.inner(),
-        registry.inner(),
-        &workspace_id,
-        &undo_id,
-    )
+    undo_replace(previews.inner(), registry.inner(), &workspace_id, &undo_id)
 }

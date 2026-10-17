@@ -316,15 +316,16 @@
     <div class="toolbar-zone toolbar-zone-end">
       <div class="toolbar-group toolbar-status-group">
         <span
-          v-if="isDirty"
+          v-if="hasActiveTab || isDirty"
           class="toolbar-info toolbar-save-state"
+          :class="{ 'is-saved': !isDirty }"
           data-testid="dirty-indicator"
           role="status"
-          :aria-label="copy.dirtyTip"
-          :title="copy.dirtyTip"
+          :aria-label="isDirty ? copy.dirtyTip : copy.savedTip"
+          :title="isDirty ? copy.dirtyTip : copy.savedTip"
         >
           <span class="dirty-indicator" aria-hidden="true">●</span>
-          <span class="toolbar-save-state-label">{{ copy.dirtyShort }}</span>
+          <span class="toolbar-save-state-label">{{ isDirty ? copy.dirtyShort : copy.savedShort }}</span>
         </span>
         <button
           class="toolbar-btn"
@@ -350,6 +351,7 @@ interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   isDirty: boolean;
+  hasActiveTab?: boolean;
   isMarkdown?: boolean;
   isDocumentPreview?: boolean;
   isFullDocumentPreview?: boolean;
@@ -489,6 +491,7 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
   isMarkdown: false,
   isDocumentPreview: false,
   isFullDocumentPreview: false,
+  hasActiveTab: false,
   markdownPreviewMode: 'split',
   sidebarVisible: true,
   contextRailVisible: true,
@@ -920,6 +923,11 @@ onUnmounted(() => {
   font-size: 0;
   line-height: 0;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-amber, #ffd166) 16%, transparent);
+}
+
+.toolbar-save-state.is-saved .dirty-indicator {
+  background: var(--accent-success, #4ade80);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-success, #4ade80) 16%, transparent);
 }
 
 .toolbar-btn:focus-visible,

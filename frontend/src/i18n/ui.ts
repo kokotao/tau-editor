@@ -218,8 +218,23 @@ interface SettingsPanelText {
   markdownPreviewThemeMintGrove: string;
   markdownPreviewThemeLavenderLetter: string;
   markdownPreviewThemeDeepOcean: string;
+  markdownMermaidTheme: string;
+  markdownMermaidThemeAuto: string;
+  markdownMermaidThemeDefault: string;
+  markdownMermaidThemeDark: string;
+  markdownMermaidThemeForest: string;
+  markdownMermaidThemeNeutral: string;
+  markdownMermaidThemeAurora: string;
+  markdownMermaidThemeSunset: string;
+  markdownMermaidThemeLavender: string;
+  markdownMermaidThemeMono: string;
+  markdownMermaidNodeColor: string;
+  markdownMermaidNodeColorHint: string;
+  markdownMermaidNodeColorReset: string;
   autoSave: string;
   autoSaveEnabled: string;
+  autoSaveStatusEnabled: string;
+  autoSaveStatusDisabled: string;
   autoSaveInterval: string;
   seconds10: string;
   seconds30: string;
@@ -274,6 +289,9 @@ interface AppText {
   openFolder: string;
   openFile: string;
   newFile: string;
+  recentFolders: string;
+  noRecentFolders: string;
+  openRecentFolder: string;
 }
 
 interface ToolbarText {
@@ -296,6 +314,8 @@ interface ToolbarText {
   markdownViewPrefix: string;
   dirtyTip: string;
   dirtyShort: string;
+  savedTip: string;
+  savedShort: string;
   settings: string;
   previewModeLabels: Record<'edit' | 'split' | 'preview', string>;
 }
@@ -369,8 +389,33 @@ interface StatusBarText {
 interface MarkdownPreviewText {
   copySelection: string;
   copyMarkdown: string;
+  codeLanguage: string;
+  codeLanguagePlainText: string;
+  codeLanguageChanged: (language: string) => string;
+  codeLanguageUpdateFailed: string;
+  codeHighlightFailed: string;
   copyCode: string;
   copyCodeDone: string;
+  copyCodeFailed: string;
+  diagramView: string;
+  diagramCodeView: string;
+  diagramZoomOut: string;
+  diagramZoomIn: string;
+  diagramZoomLevel: (percent: number) => string;
+  diagramDownloadPng: string;
+  diagramDownloadPngDone: string;
+  diagramDownloadSvg: string;
+  diagramDownloadSvgDone: string;
+  diagramDownloadFailed: string;
+  diagramExportMenu: string;
+  diagramCopyImage: string;
+  diagramCopyImageDone: string;
+  diagramCopySvgTextDone: string;
+  diagramCopyImageFailed: string;
+  diagramFullscreen: string;
+  diagramExitFullscreen: string;
+  diagramFullscreenUnavailable: string;
+  diagramFullscreenFailed: string;
   refreshPreview: string;
   previewThemeDocsClean: string;
   previewThemePaperSoft: string;
@@ -811,8 +856,23 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownPreviewThemeMintGrove: '林间薄荷',
     markdownPreviewThemeLavenderLetter: '雾紫信笺',
     markdownPreviewThemeDeepOcean: '深海蓝调',
+    markdownMermaidTheme: '流程图渲染主题',
+    markdownMermaidThemeAuto: '跟随预览主题',
+    markdownMermaidThemeDefault: '默认',
+    markdownMermaidThemeDark: '深色',
+    markdownMermaidThemeForest: '森林',
+    markdownMermaidThemeNeutral: '中性',
+    markdownMermaidThemeAurora: '极光青绿',
+    markdownMermaidThemeSunset: '落日暖橙',
+    markdownMermaidThemeLavender: '薰衣草紫',
+    markdownMermaidThemeMono: '极简黑白',
+    markdownMermaidNodeColor: '流程图节点背景色',
+    markdownMermaidNodeColorHint: '未设置时由流程图主题决定节点颜色。',
+    markdownMermaidNodeColorReset: '恢复主题默认',
     autoSave: '自动保存',
     autoSaveEnabled: '启用自动保存',
+    autoSaveStatusEnabled: '自动保存已启用',
+    autoSaveStatusDisabled: '自动保存已关闭',
     autoSaveInterval: '自动保存间隔',
     seconds10: '10 秒',
     seconds30: '30 秒',
@@ -968,8 +1028,23 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownPreviewThemeMintGrove: 'Mint Grove',
     markdownPreviewThemeLavenderLetter: 'Lavender Letter',
     markdownPreviewThemeDeepOcean: 'Deep Ocean',
+    markdownMermaidTheme: 'Diagram Rendering Theme',
+    markdownMermaidThemeAuto: 'Follow Preview Theme',
+    markdownMermaidThemeDefault: 'Default',
+    markdownMermaidThemeDark: 'Dark',
+    markdownMermaidThemeForest: 'Forest',
+    markdownMermaidThemeNeutral: 'Neutral',
+    markdownMermaidThemeAurora: 'Aurora',
+    markdownMermaidThemeSunset: 'Sunset',
+    markdownMermaidThemeLavender: 'Lavender',
+    markdownMermaidThemeMono: 'Monochrome',
+    markdownMermaidNodeColor: 'Diagram Node Background',
+    markdownMermaidNodeColorHint: 'When unset, node colors are determined by the diagram theme.',
+    markdownMermaidNodeColorReset: 'Use Theme Default',
     autoSave: 'Auto Save',
     autoSaveEnabled: 'Enable Auto Save',
+    autoSaveStatusEnabled: 'Auto Save Enabled',
+    autoSaveStatusDisabled: 'Auto Save Disabled',
     autoSaveInterval: 'Auto Save Interval',
     seconds10: '10 sec',
     seconds30: '30 sec',
@@ -1026,6 +1101,9 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     openFolder: '打开文件夹',
     openFile: '打开文件',
     newFile: '新建文件',
+    recentFolders: '最近打开的文件夹',
+    noRecentFolders: '暂无最近打开的文件夹',
+    openRecentFolder: '打开此文件夹',
   },
   'en-US': {
     appLabel: 'Tau Editor',
@@ -1042,6 +1120,9 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     openFolder: 'Open Folder',
     openFile: 'Open File',
     newFile: 'New File',
+    recentFolders: 'Recently opened folders',
+    noRecentFolders: 'No recently opened folders',
+    openRecentFolder: 'Open this folder',
   },
 };
 
@@ -1066,6 +1147,8 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     markdownViewPrefix: 'Markdown 视图',
     dirtyTip: '当前标签未保存',
     dirtyShort: '未保存',
+    savedTip: '当前标签已保存',
+    savedShort: '已保存',
     settings: '设置',
     previewModeLabels: {
       edit: '仅编辑',
@@ -1093,6 +1176,8 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     markdownViewPrefix: 'Markdown View',
     dirtyTip: 'Current tab has unsaved changes',
     dirtyShort: 'Unsaved',
+    savedTip: 'Current tab is saved',
+    savedShort: 'Saved',
     settings: 'Settings',
     previewModeLabels: {
       edit: 'Edit Only',
@@ -1307,8 +1392,33 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
   'zh-CN': {
     copySelection: '复制选中文本',
     copyMarkdown: '复制全文 Markdown',
+    codeLanguage: '代码块语言',
+    codeLanguagePlainText: '纯文本',
+    codeLanguageChanged: (language) => `代码块语言已切换为 ${language}，Markdown 原文已更新`,
+    codeLanguageUpdateFailed: '无法更新 Markdown 原文中的代码块语言',
+    codeHighlightFailed: '代码语法高亮失败',
     copyCode: '复制代码',
     copyCodeDone: '代码已复制',
+    copyCodeFailed: '复制代码失败',
+    diagramView: '图表',
+    diagramCodeView: '代码',
+    diagramZoomOut: '缩小图表',
+    diagramZoomIn: '放大图表',
+    diagramZoomLevel: (percent) => `${percent}%`,
+    diagramDownloadPng: '下载 PNG',
+    diagramDownloadPngDone: 'PNG 已下载',
+    diagramDownloadSvg: '下载 SVG',
+    diagramDownloadSvgDone: 'SVG 已下载',
+    diagramDownloadFailed: '下载流程图失败',
+    diagramExportMenu: '导出或复制流程图',
+    diagramCopyImage: '复制为图片',
+    diagramCopyImageDone: '流程图图片已复制',
+    diagramCopySvgTextDone: '当前环境不支持图片剪贴板，已复制 SVG 源码',
+    diagramCopyImageFailed: '复制流程图图片失败',
+    diagramFullscreen: '全屏查看',
+    diagramExitFullscreen: '退出全屏',
+    diagramFullscreenUnavailable: '当前环境不支持全屏查看',
+    diagramFullscreenFailed: '无法进入全屏查看',
     refreshPreview: '刷新预览',
     previewThemeDocsClean: '切换到文档站清朗',
     previewThemePaperSoft: '切换到护眼纸张',
@@ -1330,8 +1440,33 @@ const MARKDOWN_PREVIEW_TEXTS: Record<UiLanguage, MarkdownPreviewText> = {
   'en-US': {
     copySelection: 'Copy Selected Text',
     copyMarkdown: 'Copy Full Markdown',
+    codeLanguage: 'Code block language',
+    codeLanguagePlainText: 'Plain Text',
+    codeLanguageChanged: (language) => `Code block language changed to ${language}; Markdown source updated`,
+    codeLanguageUpdateFailed: 'Unable to update the code block language in the Markdown source',
+    codeHighlightFailed: 'Failed to highlight code syntax',
     copyCode: 'Copy Code',
     copyCodeDone: 'Code copied',
+    copyCodeFailed: 'Failed to copy code',
+    diagramView: 'Diagram',
+    diagramCodeView: 'Code',
+    diagramZoomOut: 'Zoom out diagram',
+    diagramZoomIn: 'Zoom in diagram',
+    diagramZoomLevel: (percent) => `${percent}%`,
+    diagramDownloadPng: 'Download PNG',
+    diagramDownloadPngDone: 'PNG downloaded',
+    diagramDownloadSvg: 'Download SVG',
+    diagramDownloadSvgDone: 'SVG downloaded',
+    diagramDownloadFailed: 'Failed to download diagram',
+    diagramExportMenu: 'Export or copy diagram',
+    diagramCopyImage: 'Copy as image',
+    diagramCopyImageDone: 'Diagram image copied',
+    diagramCopySvgTextDone: 'Image clipboard is unavailable; SVG source copied',
+    diagramCopyImageFailed: 'Failed to copy diagram image',
+    diagramFullscreen: 'View fullscreen',
+    diagramExitFullscreen: 'Exit fullscreen',
+    diagramFullscreenUnavailable: 'Fullscreen is not supported in this environment',
+    diagramFullscreenFailed: 'Unable to enter fullscreen',
     refreshPreview: 'Refresh Preview',
     previewThemeDocsClean: 'Switch to Docs Clean',
     previewThemePaperSoft: 'Switch to Paper Soft',

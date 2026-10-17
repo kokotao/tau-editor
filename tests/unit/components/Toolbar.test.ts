@@ -312,6 +312,13 @@ describe('Toolbar.vue', () => {
       expect(wrapper.find('.toolbar-info').exists()).toBe(false)
     })
 
+    it('活动标签已保存时应显示绿色已保存状态', () => {
+      const wrapper = mountToolbar({ hasActiveTab: true })
+
+      expect(wrapper.find('.toolbar-save-state').classes()).toContain('is-saved')
+      expect(wrapper.text()).toContain('已保存')
+    })
+
     it('脏状态指示器应显示正确图标', () => {
       const wrapper = mountToolbar({ isDirty: true })
 

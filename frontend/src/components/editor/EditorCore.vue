@@ -114,6 +114,7 @@ import {
   unregisterMonacoLspModel,
 } from '@/lib/monaco/lspModel';
 import { pathToUri, untitledUri } from '@/services/lsp/pathUri';
+import { findMarkdownTableContext, insertMarkdownTableColumn, insertMarkdownTableRow, type MarkdownTableContext } from '@/utils/markdownTable';
 
 interface EditorCoreProps {
   modelId: string;
@@ -165,6 +166,7 @@ const emit = defineEmits<{
   'cursor-change': [position: { line: number; column: number }];
   'scroll-change': [state: { top: number; height: number; scrollHeight: number }];
   'model-save': [];
+  'editor-blur': [modelId: string];
   'markdown-image-request': [];
   'markdown-image-paste': [payload: { fileName: string; bytes: Uint8Array }];
   'find-references': [];
@@ -205,6 +207,7 @@ const contextMenu = ref({
   y: 0,
 });
 const markdownSelectionToolbar = ref({ visible: false, x: 0, y: 0 });
+const markdownTableContext = ref<MarkdownTableContext | null>(null);
 const CONTEXT_MENU_MARGIN = 8;
 
 type ContextMenuDivider = {
@@ -611,6 +614,44 @@ const applyMarkdownHeading = (level: number) => {
   markdownSelectionToolbar.value.visible = false;
 };
 
+const adjustMarkdownHeading = (delta: 1 | -1) => {
+  const instance = editor.value;
+  const model = instance?.getModel();
+  const selection = instance?.getSelection();
+  if (!instance || !model || !selection || !isMarkdownEditor.value || props.readOnly) return;
+  const range = new monaco.Range(selection.startLineNumber, 1, selection.endLineNumber, model.getLineMaxColumn(selection.endLineNumber));
+  const source = model.getValueInRange(range);
+  const text = source.split('\n').map((line) => {
+    const match = line.match(/^(\s*)(#{1,6})\s+(.*)$/);
+    if (!match) return line;
+    const nextLevel = Math.max(0, Math.min(6, match[2]!.length + delta));
+    return nextLevel === 0 ? `${match[1]}${match[3]}` : `${match[1]}${'#'.repeat(nextLevel)} ${match[3]}`;
+  }).join('\n');
+  instance.executeEdits('tau-markdown-heading-adjust', [{ range, text, forceMoveMarkers: true }]);
+  instance.focus();
+};
+
+const applyMarkdownTableEdit = (type: 'row' | 'column') => {
+  const instance = editor.value;
+  const model = instance?.getModel();
+  const context = markdownTableContext.value;
+  if (!instance || !model || !context || props.readOnly) return;
+
+  const currentContent = model.getValue();
+  const nextContent = type === 'row'
+    ? insertMarkdownTableRow(currentContent, context)
+    : insertMarkdownTableColumn(currentContent, context);
+  if (nextContent === currentContent) return;
+
+  const end = model.getPositionAt(currentContent.length);
+  instance.executeEdits('tau-markdown-table', [{
+    range: { startLineNumber: 1, startColumn: 1, endLineNumber: end.lineNumber, endColumn: end.column },
+    text: nextContent,
+    forceMoveMarkers: true,
+  }]);
+  instance.focus();
+};
+
 const syncUndoRedoState = () => {
   const model = editor.value?.getModel();
   if (!model) {
@@ -934,6 +975,16 @@ const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
     },
     {
       type: 'submenu' as const,
+      key: 'markdown-table',
+      label: '表格编辑',
+      enabled: !props.readOnly && Boolean(markdownTableContext.value),
+      items: [
+        { type: 'item' as const, key: 'markdown-table-row', label: '下方新增一行', enabled: !props.readOnly && Boolean(markdownTableContext.value), action: () => applyMarkdownTableEdit('row') },
+        { type: 'item' as const, key: 'markdown-table-column', label: '右侧新增一列', enabled: !props.readOnly && Boolean(markdownTableContext.value), action: () => applyMarkdownTableEdit('column') },
+      ],
+    },
+    {
+      type: 'submenu' as const,
       key: 'markdown-tools',
       label: 'Markdown 工具',
       enabled: !props.readOnly,
@@ -1092,6 +1143,16 @@ const initEditor = () => {
     disposables.value.push(undoRedoDisposable);
     syncUndoRedoState();
 
+    const blurListener = (editor.value as monaco.editor.IStandaloneCodeEditor & {
+      onDidBlurEditorText?: (listener: () => void) => monaco.IDisposable;
+    }).onDidBlurEditorText;
+    if (blurListener) {
+      disposables.value.push(blurListener(() => {
+        flushPendingContent();
+        emit('editor-blur', activeModelId.value);
+      }));
+    }
+
     const contextMenuDisposable = editor.value.onContextMenu((event) => {
       if (!editorContainer.value) {
         return;
@@ -1103,6 +1164,14 @@ const initEditor = () => {
       const bounds = editorContainer.value.getBoundingClientRect();
       const eventX = (event.event as any).posx ?? (event.event.browserEvent?.clientX ?? bounds.left);
       const eventY = (event.event as any).posy ?? (event.event.browserEvent?.clientY ?? bounds.top);
+      const fallbackPosition = typeof editor.value?.getPosition === 'function'
+        ? editor.value.getPosition()
+        : null;
+      const targetPosition = (event as any).target?.position ?? fallbackPosition;
+      const model = editor.value?.getModel();
+      markdownTableContext.value = model && targetPosition
+        ? findMarkdownTableContext(model.getValue(), targetPosition.lineNumber - 1, targetPosition.column)
+        : null;
 
       // 菜单通过 Teleport 挂载到 body 且使用 fixed 定位，必须传入视口坐标。
       openContextMenu(eventX, eventY);
@@ -1131,26 +1200,39 @@ const initEditor = () => {
         });
       }
     }
+    const keyCode = (name: string, fallback: number) => (monaco.KeyCode as unknown as Record<string, number>)[name] ?? fallback;
+    const shift = (monaco.KeyMod as unknown as Record<string, number>).Shift ?? 1024;
+    const alt = (monaco.KeyMod as unknown as Record<string, number>).Alt ?? 512;
     const markdownShortcuts: Array<[number, () => void]> = [
-      [monaco.KeyCode.Digit1, () => applyMarkdownHeading(1)],
-      [monaco.KeyCode.Digit2, () => applyMarkdownHeading(2)],
-      [monaco.KeyCode.Digit3, () => applyMarkdownHeading(3)],
-      [monaco.KeyCode.Digit4, () => applyMarkdownHeading(4)],
-      [monaco.KeyCode.KeyB, () => applyMarkdownAction('bold')],
-      [monaco.KeyCode.KeyI, () => applyMarkdownAction('italic')],
-      [monaco.KeyCode.KeyQ, () => applyMarkdownAction('quote')],
-      [monaco.KeyCode.KeyK, () => applyMarkdownAction('code')],
-      [monaco.KeyCode.KeyO, () => applyMarkdownAction('ordered-list')],
-      [monaco.KeyCode.KeyU, () => applyMarkdownAction('bullet-list')],
-      [monaco.KeyCode.KeyG, () => emit('markdown-image-request')],
-      [monaco.KeyCode.KeyL, () => applyMarkdownAction('link')],
-      [monaco.KeyCode.KeyT, () => applyMarkdownAction('timestamp')],
+      [keyCode('Digit1', 22), () => applyMarkdownHeading(1)],
+      [keyCode('Digit2', 23), () => applyMarkdownHeading(2)],
+      [keyCode('Digit3', 24), () => applyMarkdownHeading(3)],
+      [keyCode('KeyB', 50), () => applyMarkdownAction('bold')],
+      [keyCode('KeyI', 51), () => applyMarkdownAction('italic')],
     ];
-    for (const [keyCode, handler] of markdownShortcuts) {
-      editor.value.addCommand(monaco.KeyMod.CtrlCmd | keyCode, () => {
+    for (const [key, handler] of markdownShortcuts) {
+      editor.value.addCommand(monaco.KeyMod.CtrlCmd | key, () => {
         if (isMarkdownEditor.value && !props.readOnly) handler();
       });
     }
+    const addMarkdownShortcut = (modifiers: number, name: string, fallback: number, handler: () => void) => {
+      editor.value?.addCommand(modifiers | keyCode(name, fallback), () => {
+        if (isMarkdownEditor.value && !props.readOnly) handler();
+      });
+    };
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd, 'Equal', 86, () => adjustMarkdownHeading(1));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd, 'Minus', 88, () => adjustMarkdownHeading(-1));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'KeyQ', 65, () => applyMarkdownAction('quote'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'BracketLeft', 92, () => applyMarkdownAction('ordered-list'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'BracketRight', 94, () => applyMarkdownAction('bullet-list'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'Backquote', 91, () => applyMarkdownAction('code'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'KeyK', 41, () => applyMarkdownAction('code'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'KeyI', 51, () => emit('markdown-image-request'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'Minus', 88, () => applyMarkdownAction('horizontal-rule'));
+    addMarkdownShortcut(alt | shift, 'Digit5', 26, () => applyMarkdownAction('strike'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd | shift, 'KeyS', 31, () => applyMarkdownAction('strike'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd, 'KeyK', 41, () => applyMarkdownAction('link'));
+    addMarkdownShortcut(monaco.KeyMod.CtrlCmd, 'KeyT', 20, () => applyMarkdownAction('table'));
 
     const ctrlB = monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB;
     const ctrlI = monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI;
@@ -1187,6 +1269,46 @@ defineExpose({
     if (model) {
       updateModelContent(model, content, { strictEqualityCheck: true });
     }
+  },
+  replaceContent: (content: string) => {
+    const instance = editor.value;
+    const model = instance?.getModel();
+    if (!instance || !model || props.readOnly) return false;
+
+    const currentContent = model.getValue();
+    if (currentContent === content) return true;
+
+    let prefixLength = 0;
+    const sharedLength = Math.min(currentContent.length, content.length);
+    while (prefixLength < sharedLength && currentContent[prefixLength] === content[prefixLength]) {
+      prefixLength += 1;
+    }
+
+    let suffixLength = 0;
+    while (
+      suffixLength < currentContent.length - prefixLength
+      && suffixLength < content.length - prefixLength
+      && currentContent[currentContent.length - suffixLength - 1] === content[content.length - suffixLength - 1]
+    ) {
+      suffixLength += 1;
+    }
+
+    const start = model.getPositionAt(prefixLength);
+    const end = model.getPositionAt(currentContent.length - suffixLength);
+    const pushStackElement = (model as monaco.editor.ITextModel & { pushStackElement?: () => void }).pushStackElement;
+    pushStackElement?.call(model);
+    const applied = instance.executeEdits('tau-markdown-code-language', [{
+      range: {
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: end.lineNumber,
+        endColumn: end.column,
+      },
+      text: content.slice(prefixLength, content.length - suffixLength),
+      forceMoveMarkers: true,
+    }]);
+    pushStackElement?.call(model);
+    return applied;
   },
   focus: () => editor.value?.focus(),
   insertText: (text: string) => {
@@ -1385,9 +1507,23 @@ defineExpose({
     void triggerEditorAction('editor.action.rename');
   },
   undo: () => {
+    const model = editor.value?.getModel() as (monaco.editor.ITextModel & { undo?: () => void }) | null;
+    if (model?.undo) {
+      editor.value?.focus();
+      model.undo();
+      syncUndoRedoState();
+      return;
+    }
     void triggerEditorAction('undo');
   },
   redo: () => {
+    const model = editor.value?.getModel() as (monaco.editor.ITextModel & { redo?: () => void }) | null;
+    if (model?.redo) {
+      editor.value?.focus();
+      model.redo();
+      syncUndoRedoState();
+      return;
+    }
     void triggerEditorAction('redo');
   },
   saveLspDocument: () => {
