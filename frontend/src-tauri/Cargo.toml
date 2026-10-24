@@ -33,6 +33,7 @@ pdf-extract = "0.7"
 quick-xml = "0.38"
 regex = "1.12.3"
 sha2 = "0.10"
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
 flate2 = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }

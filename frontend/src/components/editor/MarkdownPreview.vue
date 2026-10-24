@@ -9,6 +9,7 @@
     @dblclick="handlePreviewDoubleClick"
     @mouseup="updateSelectionToolbar"
     @keyup="updateSelectionToolbar"
+    @scroll="handlePreviewScroll"
   >
     <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
     <div
@@ -193,6 +194,7 @@ const emit = defineEmits<{
   'markdown-change': [content: string];
   'request-undo': [];
   'request-redo': [];
+  'scroll-sync': [state: { top: number; height: number; scrollHeight: number }];
 }>();
 
 const previewRef = ref<HTMLElement | null>(null);
@@ -220,6 +222,8 @@ let activeRenderTasks = 0;
 let completedRenderVersion: number | null = null;
 const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 const pendingPreviewScrollTop = ref(0);
+/** 程序化设置的预览滚动位置，用于识别并忽略双向同步产生的回环事件。 */
+let lastSyncedPreviewTop: number | null = null;
 const selectionToolbar = ref({ visible: false, x: 0, y: 0 });
 type PreviewSelection = {
   selection: Selection | null;
@@ -1904,7 +1908,7 @@ const syncPreviewScroll = (state: { top: number; height: number; scrollHeight: n
   }
   if (localTableScrollLock) {
     if (Date.now() < localTableScrollLock.until || localTableScrollLock.editorTop === null || state.top === localTableScrollLock.editorTop) {
-      previewContainer.scrollTop = localTableScrollLock.top;
+      applyPreviewScrollTop(localTableScrollLock.top);
       return;
     }
     localTableScrollLock = null;
@@ -1914,12 +1918,47 @@ const syncPreviewScroll = (state: { top: number; height: number; scrollHeight: n
   const previewScrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
 
   if (previewScrollable <= 0 || editorScrollable <= 0) {
-    previewContainer.scrollTop = 0;
+    applyPreviewScrollTop(0);
     return;
   }
 
   const ratio = Math.min(1, Math.max(0, state.top / editorScrollable));
-  previewContainer.scrollTop = previewScrollable * ratio;
+  applyPreviewScrollTop(previewScrollable * ratio);
+};
+
+const applyPreviewScrollTop = (top: number) => {
+  const previewContainer = previewScrollRef.value;
+  if (!previewContainer) {
+    return;
+  }
+  const scrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+  const clamped = scrollable > 0 ? Math.min(scrollable, Math.max(0, top)) : top;
+  lastSyncedPreviewTop = clamped;
+  previewContainer.scrollTop = clamped;
+};
+
+const handlePreviewScroll = () => {
+  const previewContainer = previewScrollRef.value;
+  if (!previewContainer) {
+    return;
+  }
+  if (lastSyncedPreviewTop !== null && Math.abs(previewContainer.scrollTop - lastSyncedPreviewTop) < 2) {
+    return;
+  }
+
+  const editorState = latestEditorScrollState.value ?? props.editorScrollState;
+  const previewScrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+  if (!editorState || previewScrollable <= 0) {
+    return;
+  }
+
+  const editorScrollable = Math.max(0, editorState.scrollHeight - editorState.height);
+  const ratio = Math.min(1, Math.max(0, previewContainer.scrollTop / previewScrollable));
+  emit('scroll-sync', {
+    top: editorScrollable * ratio,
+    height: editorState.height,
+    scrollHeight: editorState.scrollHeight,
+  });
 };
 
 /**
@@ -1964,7 +2003,7 @@ const refreshLocalTable = async (edit: {
   const scrollTop = edit.previewScrollTop;
   const scrollLeft = edit.tableScrollLeft;
   const restorePreviewScroll = () => {
-    if (previewScroll) previewScroll.scrollTop = scrollTop;
+    applyPreviewScrollTop(scrollTop);
     localTableScrollLock = {
       top: scrollTop,
       editorTop: latestEditorScrollState.value?.top ?? null,
@@ -2016,7 +2055,7 @@ const refreshLocalTable = async (edit: {
   if (!nextTable || !currentTable) return false;
 
   const restoreScroll = () => {
-    if (previewScroll) previewScroll.scrollTop = scrollTop;
+    applyPreviewScrollTop(scrollTop);
     wrapper.scrollLeft = scrollLeft;
   };
   currentTable.replaceWith(nextTable);
@@ -2167,7 +2206,7 @@ const scheduleRender = () => {
         syncPreviewScroll(latestEditorScrollState.value);
       }
       if (currentRenderVersion === renderVersion && previewScrollRef.value) {
-        previewScrollRef.value.scrollTop = pendingPreviewScrollTop.value;
+        applyPreviewScrollTop(pendingPreviewScrollTop.value);
       }
     } finally {
       if (currentRenderVersion !== renderVersion) {

@@ -25,6 +25,14 @@ export interface Tab {
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
   /** Markdown 仅预览字号（px），未设置时由预览组件使用默认值。 */
   markdownPreviewFontSize?: number;
+  /** 云端文档 id（最近一次同步成功后写入） */
+  cloudFileId?: number | null;
+  /** 云端文档版本号 */
+  cloudVersion?: number | null;
+  /** 最近一次与云端一致的 sha256:hex 内容哈希，用作三方合并基线 */
+  cloudContentHash?: string | null;
+  /** 最近一次云同步完成时间（毫秒时间戳） */
+  lastSyncedAt?: number | null;
 }
 
 export interface TabsState {

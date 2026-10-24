@@ -533,6 +533,32 @@ describe('MarkdownPreview', () => {
     expect(preview.scrollTop).toBe(380);
   });
 
+  it('预览滚动时应按比例向编辑器发出同步事件', async () => {
+    renderMarkdownMock.mockReturnValue('<h1>标题</h1><p>正文</p>'.repeat(60));
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: '# 标题\n\n正文'.repeat(60),
+        theme: 'dark',
+        editorScrollState: { top: 0, height: 400, scrollHeight: 2400 },
+      },
+    });
+    await flushRender();
+
+    const preview = wrapper.get('[data-testid="markdown-preview"]').element as HTMLElement;
+    Object.defineProperty(preview, 'scrollHeight', { configurable: true, value: 2400 });
+    Object.defineProperty(preview, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(preview, 'scrollTop', { configurable: true, value: 1000, writable: true });
+    await wrapper.get('[data-testid="markdown-preview"]').trigger('scroll');
+    await nextTick();
+
+    const events = wrapper.emitted('scroll-sync');
+    expect(events).toBeTruthy();
+    const state = events?.[0]?.[0] as { top: number; height: number; scrollHeight: number };
+    expect(Number(state.top.toFixed(2))).toBe(1000);
+    expect(state.height).toBe(400);
+    expect(state.scrollHeight).toBe(2400);
+  });
+
   it('取消删除整张表格时不应发出变更', async () => {
     renderMarkdownMock.mockReturnValue('<table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>');
     const wrapper = mount(MarkdownPreview, {

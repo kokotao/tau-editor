@@ -57,7 +57,10 @@ export type CommandId =
   | 'editor.goForward'
   | 'workspace.searchSymbols'
   | 'view.toggleSidebar'
-  | 'view.toggleSettings';
+  | 'view.toggleSettings'
+  | 'cloud.login'
+  | 'cloud.logout'
+  | 'cloud.syncNow';
 
 interface CommandText {
   title: string;
@@ -272,6 +275,24 @@ interface SettingsPanelText {
   statusInstalling: string;
   statusInstallTriggered: string;
   statusErrorPrefix: string;
+  settingsCloudSync: string;
+  cloudSyncDesc: string;
+  cloudSyncServerUrl: string;
+  cloudSyncUsername: string;
+  cloudSyncPassword: string;
+  cloudSyncLogin: string;
+  cloudSyncLoggingIn: string;
+  cloudSyncLogout: string;
+  cloudSyncSignedOut: string;
+  cloudSyncSignedInAs: (username: string) => string;
+  cloudSyncLoginRequired: string;
+  cloudSyncQuotaLabel: string;
+  cloudSyncSyncNow: string;
+  cloudSyncSyncing: string;
+  cloudSyncResultSynced: (version?: number) => string;
+  cloudSyncResultConflict: string;
+  cloudSyncResultFailed: (message: string) => string;
+  cloudSyncResultSkipped: (reason: string) => string;
 }
 
 interface AppText {
@@ -573,6 +594,18 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '切换设置工作区',
       keywords: ['设置', '偏好', '配置', '工作区', 'settings', 'preferences', 'workspace'],
     },
+    'cloud.login': {
+      title: '登录 lizi 云账号',
+      keywords: ['登录', '账号', '云同步', '云文档', 'lizi', 'cloud', 'login', 'sign in'],
+    },
+    'cloud.logout': {
+      title: '退出 lizi 云账号',
+      keywords: ['退出', '登出', '注销', '云同步', 'lizi', 'cloud', 'logout', 'sign out'],
+    },
+    'cloud.syncNow': {
+      title: '同步当前文档到云端',
+      keywords: ['同步', '上传', '云文档', 'sync', 'upload', 'cloud'],
+    },
   },
   'en-US': {
     'commandPalette.open': {
@@ -682,6 +715,18 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'view.toggleSettings': {
       title: 'Toggle Settings Workspace',
       keywords: ['settings', 'preferences', 'workspace', '配置', '设置'],
+    },
+    'cloud.login': {
+      title: 'Sign In to lizi Cloud',
+      keywords: ['login', 'sign in', 'account', 'cloud', 'sync', '登录', '账号'],
+    },
+    'cloud.logout': {
+      title: 'Sign Out of lizi Cloud',
+      keywords: ['logout', 'sign out', 'account', 'cloud', '退出', '登出'],
+    },
+    'cloud.syncNow': {
+      title: 'Sync Current Document to Cloud',
+      keywords: ['sync', 'upload', 'cloud document', '同步', '上传'],
     },
   },
 };
@@ -910,6 +955,24 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     statusInstalling: '正在下载并启动安装程序，请稍候...',
     statusInstallTriggered: '安装程序已启动，请按系统提示完成安装。',
     statusErrorPrefix: '更新失败',
+    settingsCloudSync: '云同步',
+    cloudSyncDesc: '登录 lizi 账号后，可把当前 Markdown 文档手动同步到云端；凭据只保存在本机。',
+    cloudSyncServerUrl: '服务器地址',
+    cloudSyncUsername: '用户名',
+    cloudSyncPassword: '密码',
+    cloudSyncLogin: '登录',
+    cloudSyncLoggingIn: '登录中…',
+    cloudSyncLogout: '退出登录',
+    cloudSyncSignedOut: '已退出 lizi 云账号。',
+    cloudSyncSignedInAs: (username) => `已登录：${username}`,
+    cloudSyncLoginRequired: '请先在设置页登录 lizi 云账号。',
+    cloudSyncQuotaLabel: '云端配额',
+    cloudSyncSyncNow: '同步当前文档',
+    cloudSyncSyncing: '同步中…',
+    cloudSyncResultSynced: (version) => (version ? `同步成功，云端版本 v${version}。` : '同步成功。'),
+    cloudSyncResultConflict: '云端与本地都已修改，请先手动比对后再同步。',
+    cloudSyncResultFailed: (message) => `同步失败：${message}`,
+    cloudSyncResultSkipped: (reason) => `当前文档未同步：${reason}`,
   },
   'en-US': {
     title: 'Settings',
@@ -1082,6 +1145,24 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     statusInstalling: 'Downloading installer and starting setup...',
     statusInstallTriggered: 'Installer launched. Please follow system prompts to finish installation.',
     statusErrorPrefix: 'Update failed',
+    settingsCloudSync: 'Cloud Sync',
+    cloudSyncDesc: 'Sign in to your lizi account to push the current Markdown document to the cloud. Credentials stay on this device.',
+    cloudSyncServerUrl: 'Server URL',
+    cloudSyncUsername: 'Username',
+    cloudSyncPassword: 'Password',
+    cloudSyncLogin: 'Sign In',
+    cloudSyncLoggingIn: 'Signing in…',
+    cloudSyncLogout: 'Sign Out',
+    cloudSyncSignedOut: 'Signed out of lizi Cloud.',
+    cloudSyncSignedInAs: (username) => `Signed in as ${username}`,
+    cloudSyncLoginRequired: 'Sign in to your lizi account in Settings first.',
+    cloudSyncQuotaLabel: 'Cloud quota',
+    cloudSyncSyncNow: 'Sync Current Document',
+    cloudSyncSyncing: 'Syncing…',
+    cloudSyncResultSynced: (version) => (version ? `Synced. Cloud version v${version}.` : 'Synced to the cloud.'),
+    cloudSyncResultConflict: 'Both the cloud copy and the local file changed. Compare them before syncing again.',
+    cloudSyncResultFailed: (message) => `Sync failed: ${message}`,
+    cloudSyncResultSkipped: (reason) => `Document not synced: ${reason}`,
   },
 };
 

@@ -1184,3 +1184,148 @@ export const appCommands = {
     });
   },
 };
+
+export interface CloudSessionInfo {
+  signedIn: boolean;
+  userId: string | null;
+  username: string | null;
+  baseUrl: string;
+}
+
+export interface CloudDocSpace {
+  userId: string;
+  usedBytes: number;
+  quotaBytes: number;
+  fileCount: number;
+  maxVersionPerFile: number;
+}
+
+export interface CloudDocItem {
+  fileId: number;
+  path: string;
+  title: string;
+  contentHash: string | null;
+  size: number;
+  version: number;
+  category: string | null;
+  categoryId: number | null;
+  tags: string | null;
+  visibility: string | null;
+  publishedArticleId: number | null;
+  updatedAt: string | null;
+}
+
+/** Rust 侧对 CloudDocItem 使用 serde(flatten)，因此详情字段与列表项同层展开。 */
+export interface CloudDocDetail extends CloudDocItem {
+  content: string | null;
+  createdAt: string | null;
+}
+
+export interface CloudDocVersion {
+  versionId: number;
+  version: number;
+  contentHash: string | null;
+  size: number;
+  remark: string | null;
+  createdAt: string | null;
+}
+
+export interface CloudDocPage {
+  records: CloudDocItem[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface CloudDocSavePayload {
+  path: string;
+  title?: string | null;
+  content?: string | null;
+  contentBase64?: string | null;
+  contentHash?: string | null;
+  baseVersion?: number | null;
+  category?: string | null;
+  categoryId?: number | null;
+  tags?: string | null;
+  visibility?: string | null;
+}
+
+export interface CloudDocSaveResult {
+  fileId: number;
+  version: number;
+  contentHash: string;
+  size: number;
+  updatedAt: string | null;
+}
+
+export interface CloudSyncSource {
+  content: string;
+  contentHash: string;
+  size: number;
+  modifiedMs: number | null;
+}
+
+/**
+ * 云文档桥接。桌面端的网络请求、JWT 与 keyring 全部在 Rust 侧完成，
+ * 前端只负责传参，不持有也不落盘任何凭据。
+ */
+export const cloudCommands = {
+  async login(
+    baseUrl: string | null,
+    username: string,
+    password: string,
+  ): Promise<CloudSessionInfo> {
+    return invokeCommand<CloudSessionInfo>('cloud_login', { baseUrl, username, password });
+  },
+
+  async logout(): Promise<void> {
+    await invokeCommand<void>('cloud_logout');
+  },
+
+  async session(): Promise<CloudSessionInfo> {
+    return invokeCommand<CloudSessionInfo>('cloud_session');
+  },
+
+  async me(): Promise<CloudDocSpace> {
+    return invokeCommand<CloudDocSpace>('cloud_docs_me');
+  },
+
+  async list(query: {
+    pathPrefix?: string | null;
+    keyword?: string | null;
+    page?: number;
+    size?: number;
+  }): Promise<CloudDocPage> {
+    return invokeCommand<CloudDocPage>('cloud_docs_list', {
+      pathPrefix: query.pathPrefix ?? null,
+      keyword: query.keyword ?? null,
+      page: query.page ?? 1,
+      size: query.size ?? 50,
+    });
+  },
+
+  async get(fileId: number): Promise<CloudDocDetail> {
+    return invokeCommand<CloudDocDetail>('cloud_docs_get', { fileId });
+  },
+
+  async save(payload: CloudDocSavePayload): Promise<CloudDocSaveResult> {
+    return invokeCommand<CloudDocSaveResult>('cloud_docs_save', { payload });
+  },
+
+  async versions(fileId: number): Promise<CloudDocVersion[]> {
+    return invokeCommand<CloudDocVersion[]>('cloud_docs_versions', { fileId });
+  },
+
+  async restore(fileId: number, versionId: number): Promise<CloudDocSaveResult> {
+    return invokeCommand<CloudDocSaveResult>('cloud_docs_restore', { fileId, versionId });
+  },
+
+  async remove(fileId: number): Promise<void> {
+    await invokeCommand<void>('cloud_docs_delete', { fileId });
+  },
+
+  /** 读取本地待同步源文件并返回内容与 sha256（Rust 计算，避免前端重复实现哈希）。 */
+  async readSyncSource(path: string, maxBytes: number): Promise<CloudSyncSource> {
+    return invokeCommand<CloudSyncSource>('cloud_read_sync_source', { path, maxBytes });
+  },
+};

@@ -37,6 +37,9 @@ export interface CommandActions {
   searchWorkspaceSymbols: () => Promise<void> | void;
   showCallHierarchy: () => Promise<void> | void;
   showTypeHierarchy: () => Promise<void> | void;
+  cloudLogin: () => Promise<void> | void;
+  cloudLogout: () => Promise<void> | void;
+  cloudSyncNow: () => Promise<void> | void;
 }
 
 function resolveCommandText(language: UiLanguage, commandId: CommandId) {
@@ -71,6 +74,9 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
   const searchWorkspaceSymbols = resolveCommandText(uiLanguage, 'workspace.searchSymbols');
   const showCallHierarchy = resolveCommandText(uiLanguage, 'editor.callHierarchy');
   const showTypeHierarchy = resolveCommandText(uiLanguage, 'editor.typeHierarchy');
+  const cloudLogin = resolveCommandText(uiLanguage, 'cloud.login');
+  const cloudLogout = resolveCommandText(uiLanguage, 'cloud.logout');
+  const cloudSyncNow = resolveCommandText(uiLanguage, 'cloud.syncNow');
 
   return [
     {
@@ -282,6 +288,27 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       shortcut: 'Ctrl+,',
       keywords: toggleSettings.keywords,
       run: actions.toggleSettings,
+    },
+    {
+      id: 'cloud.login',
+      title: cloudLogin.title,
+      category: 'workspace',
+      keywords: cloudLogin.keywords,
+      run: actions.cloudLogin,
+    },
+    {
+      id: 'cloud.logout',
+      title: cloudLogout.title,
+      category: 'workspace',
+      keywords: cloudLogout.keywords,
+      run: actions.cloudLogout,
+    },
+    {
+      id: 'cloud.syncNow',
+      title: cloudSyncNow.title,
+      category: 'workspace',
+      keywords: cloudSyncNow.keywords,
+      run: actions.cloudSyncNow,
     },
   ];
 }

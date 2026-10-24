@@ -55,9 +55,10 @@ function detectLanguage(fileName: string): string {
   return languageMap[ext] || 'plaintext';
 }
 
-const LARGE_FILE_CHUNK_LOAD_THRESHOLD_BYTES = 12 * 1024 * 1024;
+/** 超过该体积的文件走分段加载，云同步也以此作为单文件上限。 */
+export const LARGE_FILE_CHUNK_LOAD_THRESHOLD_BYTES = 12 * 1024 * 1024;
 const LARGE_FILE_DEFAULT_CHUNK_BYTES = 2 * 1024 * 1024;
-const BINARY_PREVIEW_EXTENSIONS = new Set([
+export const BINARY_PREVIEW_EXTENSIONS = new Set([
   'pdf',
   'doc',
   'docx',
@@ -68,7 +69,7 @@ const BINARY_PREVIEW_EXTENSIONS = new Set([
   'sqlite3',
 ]);
 
-function isBinaryPreviewPath(filePath: string): boolean {
+export function isBinaryPreviewPath(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   return BINARY_PREVIEW_EXTENSIONS.has(ext) || isImageFilePath(filePath);
 }

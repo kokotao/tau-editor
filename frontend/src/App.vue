@@ -13,6 +13,7 @@ import { useCommandStore } from '@/stores/commands';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useDiffStore } from '@/stores/diff';
 import { useDiagnosticsStore, type DiagnosticRecord } from '@/stores/diagnostics';
+import { useCloudSyncStore } from '@/stores/cloudSync';
 import {
   loadGitDiffSession,
   loadWorkspaceFileDiffSession,
@@ -93,6 +94,7 @@ import {
   getAppI18n,
   getCommandText,
   getMarkdownPreviewI18n,
+  getSettingsPanelI18n,
   getToolbarI18n,
   type CommandId,
 } from '@/i18n/ui';
@@ -136,6 +138,7 @@ const commandStore = useCommandStore();
 const fileConflictsStore = useFileConflictsStore();
 const diffStore = useDiffStore();
 const diagnosticsStore = useDiagnosticsStore();
+const cloudSyncStore = useCloudSyncStore();
 const pendingLocalWrites = new Map<string, number>();
 const markLocalWritePending = (filePath?: string | null) => {
   if (filePath) pendingLocalWrites.set(normalizeFsPath(filePath), Date.now() + 4000);
@@ -299,7 +302,7 @@ const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
 };
 type SettingsContainer = 'workspace' | 'drawer';
-type SettingsCategory = 'general' | 'editor' | 'themes' | 'fileAssociations' | 'updates' | 'about';
+type SettingsCategory = 'general' | 'editor' | 'themes' | 'cloudSync' | 'fileAssociations' | 'updates' | 'about';
 const settingsContainer = ref<SettingsContainer | null>(null);
 const activeSettingsCategory = ref<SettingsCategory>('general');
 const fileTreeContextEntry = ref<FileTreeNode | null>(null);
@@ -334,6 +337,7 @@ type EditorCoreExpose = {
   renameSymbol: () => void;
   requestReferences: () => Promise<monaco.languages.Location[] | null>;
   cancelReferences: () => void;
+  setScrollTop: (top: number) => void;
   triggerNativeReferences: () => void;
   requestCallHierarchy: () => Promise<{
     root: MonacoHierarchyItem | null;
@@ -650,6 +654,7 @@ const closeImageViewer = () => {
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
 const toolbarText = computed(() => getToolbarI18n(settingsStore.uiLanguage));
 const markdownPreviewText = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
+const cloudSyncCopy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
     return undefined;
@@ -1783,6 +1788,45 @@ const handleToolbarToggleSettings = () => {
   toggleSettingsContainer('workspace');
 };
 
+/** 云同步入口统一落在设置页的 cloudSync 分类，登录表单由设置页承载。 */
+const openCloudSyncSettings = () => {
+  activeSettingsCategory.value = 'cloudSync';
+  settingsContainer.value = 'workspace';
+};
+
+const handleCloudLoginCommand = () => {
+  openCloudSyncSettings();
+};
+
+const handleCloudLogoutCommand = async () => {
+  await cloudSyncStore.logout();
+  notificationStore.info(cloudSyncCopy.value.settingsCloudSync, cloudSyncCopy.value.cloudSyncSignedOut);
+};
+
+const handleCloudSyncNowCommand = async () => {
+  const copy = cloudSyncCopy.value;
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(copy.settingsCloudSync, copy.cloudSyncLoginRequired);
+    openCloudSyncSettings();
+    return;
+  }
+
+  const result = await cloudSyncStore.syncCurrentDocument();
+  if (result.status === 'synced') {
+    notificationStore.success(copy.settingsCloudSync, copy.cloudSyncResultSynced(result.version));
+    return;
+  }
+  if (result.status === 'conflict') {
+    notificationStore.warning(copy.settingsCloudSync, copy.cloudSyncResultConflict);
+    return;
+  }
+  if (result.status === 'skipped') {
+    notificationStore.info(copy.settingsCloudSync, copy.cloudSyncResultSkipped(result.message || ''));
+    return;
+  }
+  notificationStore.error(copy.settingsCloudSync, copy.cloudSyncResultFailed(result.message || ''));
+};
+
 const closeTransientPanels = () => {
   const wasWorkspaceSettingsOpen = settingsContainer.value === 'workspace';
   settingsContainer.value = null;
@@ -2106,6 +2150,13 @@ const handleEditorScrollChange = (state: { top: number; height: number; scrollHe
     return;
   }
   editorScrollState.value = state;
+};
+
+const handlePreviewScrollSync = (state: { top: number; height: number; scrollHeight: number }) => {
+  if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
+    return;
+  }
+  editorCoreRef.value?.setScrollTop(state.top);
 };
 
 const handleLanguageChange = (languageId: string) => {
@@ -2741,6 +2792,9 @@ const createLocalizedCommands = () => {
   renameSymbol: handleRenameSymbol,
   showCallHierarchy: handleCallHierarchy,
   showTypeHierarchy: handleTypeHierarchy,
+  cloudLogin: handleCloudLoginCommand,
+  cloudLogout: handleCloudLogoutCommand,
+  cloudSyncNow: handleCloudSyncNowCommand,
   toggleProblems: handleToggleProblems,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
@@ -3769,6 +3823,10 @@ onMounted(async () => {
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
   await sessionService.initialize();
+  // 桌面端在启动后异步恢复云同步会话（keyring 中的会话与配额），失败不阻塞启动。
+  if (isTauriApp()) {
+    void cloudSyncStore.initialize();
+  }
   // 新窗口优先消费一次性迁移 payload，避免再走一遍会话恢复覆盖标签。
   const pendingWindowTransfer = await consumePendingWindowTransfer();
   if (pendingWindowTransfer) {
@@ -4375,6 +4433,7 @@ onUnmounted(() => {
               @preview-font-size-change="setMarkdownPreviewFontSize"
               @code-language-change="handleMarkdownCodeLanguageChange"
               @markdown-change="handleMarkdownPreviewChange"
+              @scroll-sync="handlePreviewScrollSync"
               @request-undo="handleUndo"
               @request-redo="handleRedo"
               @open-image="openImageViewer"

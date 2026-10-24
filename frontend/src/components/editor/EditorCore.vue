@@ -191,6 +191,10 @@ let pendingContentModelId: string | null = null;
 let suppressContentEmit = false;
 let referencesCancellation: monaco.CancellationTokenSource | null = null;
 let hierarchyCancellation: monaco.CancellationTokenSource | null = null;
+/** 程序化设置滚动位置时的短时抑制，避免预览同步回环。 */
+let suppressScrollChangeEmit = false;
+let suppressScrollChangeTimer: ReturnType<typeof setTimeout> | null = null;
+const suppressScrollChangeWindowMs = 120;
 
 let contentUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let lineCountSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,7 +249,7 @@ const markdownQuickActions: Array<{ value: MarkdownAction; label: string; glyph:
 ];
 
 const emitScrollState = () => {
-  if (!editor.value) {
+  if (!editor.value || suppressScrollChangeEmit) {
     return;
   }
 
@@ -1382,6 +1386,24 @@ defineExpose({
     const model = editor.value.getModel();
     if (model) {
       monaco.editor.setModelLanguage(model, language);
+    }
+  },
+  setScrollTop: (top: number) => {
+    if (!editor.value) {
+      return;
+    }
+    const scrollable = Math.max(0, editor.value.getScrollHeight() - editor.value.getLayoutInfo().height);
+    if (scrollable > 0) {
+      suppressScrollChangeEmit = true;
+      if (suppressScrollChangeTimer) {
+        clearTimeout(suppressScrollChangeTimer);
+      }
+      suppressScrollChangeTimer = setTimeout(() => {
+        suppressScrollChangeEmit = false;
+        suppressScrollChangeTimer = null;
+        emitScrollState();
+      }, suppressScrollChangeWindowMs);
+      editor.value.setScrollTop(Math.min(scrollable, Math.max(0, top)));
     }
   },
   setTheme: (theme: string) => {

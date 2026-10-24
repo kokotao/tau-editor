@@ -25,6 +25,7 @@ pub fn run() {
         .manage(commands::PendingOpenPaths::default())
         .manage(commands::WindowTransferRegistry::default())
         .manage(commands::WorkspaceRegistry::default())
+        .manage(commands::CloudState::default())
         .manage(services::WorkspaceWatcherState::default())
         .manage(services::FileTransactionRegistry::default())
         .manage(services::SearchSessionRegistry::default())
@@ -35,6 +36,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let open_paths = commands::collect_file_paths_from_cli_args(argv.as_slice());
             commands::queue_pending_open_paths(app, open_paths);
+            // 双击文件由 Windows 通过第二实例 argv 唤起：除了把路径入队，
+            // 还要把已存在的主窗口显示并前置，否则文件被静默打开但界面不出现。
+            commands::reveal_main_window(app);
         }))
         .setup(move |app| {
             commands::queue_pending_open_paths(app.handle(), startup_open_paths.clone());
@@ -109,6 +113,17 @@ pub fn run() {
             commands::lsp_provision_status,
             commands::lsp_install_server,
             commands::lsp_workspace_data_dir,
+            commands::cloud_login,
+            commands::cloud_logout,
+            commands::cloud_session,
+            commands::cloud_docs_me,
+            commands::cloud_docs_list,
+            commands::cloud_docs_get,
+            commands::cloud_docs_save,
+            commands::cloud_docs_versions,
+            commands::cloud_docs_restore,
+            commands::cloud_docs_delete,
+            commands::cloud_read_sync_source,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -661,6 +661,130 @@
           </div>
 
           <div
+            v-if="activeCategoryValue === 'cloudSync'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-cloud-sync"
+          >
+            <div class="settings-section-heading">
+              <div class="settings-section-heading-main">
+                <TauIcon class="settings-section-icon" name="icon-cloud-sync" :size="21" />
+                <h4 class="settings-section-title">{{ copy.settingsCloudSync }}</h4>
+              </div>
+            </div>
+
+            <p class="settings-item-hint">{{ copy.cloudSyncDesc }}</p>
+
+            <div v-if="!cloudSyncStore.signedIn" class="cloud-sync-form">
+              <label class="settings-item">
+                <span class="settings-label">{{ copy.cloudSyncServerUrl }}</span>
+                <input
+                  v-model="cloudSyncForm.baseUrl"
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-base-url"
+                  type="url"
+                  autocomplete="off"
+                  spellcheck="false"
+                  :placeholder="DEFAULT_CLOUD_BASE_URL"
+                  :disabled="cloudLoginPending"
+                />
+              </label>
+
+              <label class="settings-item">
+                <span class="settings-label">{{ copy.cloudSyncUsername }}</span>
+                <input
+                  v-model="cloudSyncForm.username"
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-username"
+                  type="text"
+                  autocomplete="username"
+                  spellcheck="false"
+                  :disabled="cloudLoginPending"
+                />
+              </label>
+
+              <label class="settings-item">
+                <span class="settings-label">{{ copy.cloudSyncPassword }}</span>
+                <input
+                  v-model="cloudSyncForm.password"
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-password"
+                  type="password"
+                  autocomplete="current-password"
+                  :disabled="cloudLoginPending"
+                  @keydown.enter.prevent="handleCloudLogin"
+                />
+              </label>
+
+              <div class="cloud-sync-actions">
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-login-btn"
+                  :disabled="cloudLoginPending || !cloudSyncLoginReady"
+                  @click="handleCloudLogin"
+                >
+                  {{ cloudLoginPending ? copy.cloudSyncLoggingIn : copy.cloudSyncLogin }}
+                </button>
+              </div>
+            </div>
+
+            <div v-else class="cloud-sync-account" data-testid="cloud-sync-account">
+              <div class="cloud-sync-account-main">
+                <span class="cloud-sync-account-name">{{ cloudSyncSignedInLabel }}</span>
+                <span class="cloud-sync-account-id">{{ cloudSyncAccountDetail }}</span>
+              </div>
+              <button
+                class="settings-action-btn"
+                data-testid="cloud-sync-logout-btn"
+                :disabled="cloudSyncStore.isBusy"
+                @click="handleCloudLogout"
+              >
+                {{ copy.cloudSyncLogout }}
+              </button>
+            </div>
+
+            <div
+              v-if="cloudSyncStore.signedIn"
+              class="cloud-sync-quota"
+              data-testid="cloud-sync-quota"
+            >
+              <div class="cloud-sync-quota-head">
+                <span>{{ copy.cloudSyncQuotaLabel }}</span>
+                <span data-testid="cloud-sync-quota-label">{{ cloudSyncStore.quotaLabel }}</span>
+              </div>
+              <div
+                class="cloud-sync-quota-bar"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="cloudSyncQuotaPercent"
+              >
+                <span class="cloud-sync-quota-fill" :style="{ width: `${cloudSyncQuotaPercent}%` }"></span>
+              </div>
+            </div>
+
+            <div class="cloud-sync-actions">
+              <button
+                class="settings-action-btn"
+                data-testid="cloud-sync-now-btn"
+                :disabled="!cloudSyncStore.signedIn || cloudSyncStore.isBusy || cloudSyncSyncing"
+                @click="handleCloudSyncNow"
+              >
+                {{ cloudSyncStore.isBusy || cloudSyncSyncing ? copy.cloudSyncSyncing : copy.cloudSyncSyncNow }}
+              </button>
+            </div>
+
+            <p
+              v-if="cloudSyncResultLine.text"
+              class="cloud-sync-result"
+              :class="`cloud-sync-result--${cloudSyncResultLine.tone}`"
+              data-testid="cloud-sync-last-result"
+              role="status"
+            >
+              {{ cloudSyncResultLine.text }}
+            </p>
+          </div>
+
+          <div
             v-if="activeCategoryValue === 'fileAssociations'"
             class="settings-section animate__animated animate__fadeInUp animate__faster"
             data-testid="settings-file-associations-section"
@@ -940,6 +1064,10 @@ import {
 } from '@/stores/settings';
 import { useProvidersStore } from '@/stores/providers';
 import { useLspServersStore } from '@/stores/lspServers';
+import { useNotificationStore } from '@/stores/notification';
+import { useCloudSyncStore } from '@/stores/cloudSync';
+import { DEFAULT_CLOUD_BASE_URL } from '@/services/cloudAuthService';
+import type { CloudSyncResult } from '@/services/cloudSyncService';
 import {
   appCommands,
   settingsCommands,
@@ -974,13 +1102,14 @@ import ThemeMarketplacePanel from './ThemeMarketplacePanel.vue';
 import { ThemeMarketplaceService, type ThemeMarketplaceCatalogItem, type ThemeMarketplacePackage } from '@/services/themeMarketplaceService';
 import type { ThemeUiOverrides } from '@/utils/themePackage';
 
-export type SettingsCategory = 'general' | 'themes' | 'editor' | 'fileAssociations' | 'updates' | 'about';
+export type SettingsCategory = 'general' | 'themes' | 'editor' | 'cloudSync' | 'fileAssociations' | 'updates' | 'about';
 type SettingsMode = 'workspace' | 'drawer';
 
 const categoryIconNames: Record<SettingsCategory, string> = {
   general: 'icon-settings',
   themes: 'icon-palette',
   editor: 'icon-code',
+  cloudSync: 'icon-cloud-sync',
   fileAssociations: 'icon-list',
   updates: 'icon-cloud-download',
   about: 'icon-info',
@@ -1013,6 +1142,8 @@ const settingsStore = useSettingsStore();
 const marketplaceService = new ThemeMarketplaceService();
 const providersStore = useProvidersStore();
 const lspServersStore = useLspServersStore();
+const notificationStore = useNotificationStore();
+const cloudSyncStore = useCloudSyncStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const autoSaveStatus = ref(settingsStore.autoSaveEnabled);
 watch(
@@ -1070,6 +1201,133 @@ const lspServerStateLabel = (server: {
   return english ? 'Not prepared' : '尚未准备';
 };
 
+type CloudSyncResultTone = 'success' | 'warning' | 'info' | 'error';
+const cloudSyncForm = ref({
+  baseUrl: DEFAULT_CLOUD_BASE_URL,
+  username: '',
+  password: '',
+});
+const cloudLoginPending = ref(false);
+const cloudSyncSyncing = ref(false);
+const cloudSyncLastResult = ref<CloudSyncResult | null>(null);
+const cloudSyncLoginReady = computed(() => Boolean(cloudSyncForm.value.username.trim() && cloudSyncForm.value.password));
+const cloudSyncSignedInLabel = computed(() =>
+  copy.value.cloudSyncSignedInAs(cloudSyncStore.username || cloudSyncStore.userId || ''),
+);
+const cloudSyncAccountDetail = computed(() => cloudSyncStore.userId || cloudSyncStore.baseUrl || '');
+const cloudSyncQuotaPercent = computed(() => {
+  const ratio = Number(cloudSyncStore.usedRatio);
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, Math.round(ratio * 100)));
+});
+/** 最近一次同步结果行：成功显示版本，冲突/失败/跳过显示对应原因。 */
+const cloudSyncResultLine = computed<{ text: string; tone: CloudSyncResultTone }>(() => {
+  const result = cloudSyncLastResult.value;
+  if (result) {
+    if (result.status === 'synced') {
+      return { text: copy.value.cloudSyncResultSynced(result.version), tone: 'success' };
+    }
+    if (result.status === 'conflict') {
+      return { text: copy.value.cloudSyncResultConflict, tone: 'warning' };
+    }
+    if (result.status === 'skipped') {
+      return { text: copy.value.cloudSyncResultSkipped(result.message || ''), tone: 'info' };
+    }
+    return { text: copy.value.cloudSyncResultFailed(result.message || ''), tone: 'error' };
+  }
+  if (cloudSyncStore.lastError) {
+    return { text: copy.value.cloudSyncResultFailed(cloudSyncStore.lastError), tone: 'error' };
+  }
+  return { text: '', tone: 'info' };
+});
+
+const notifyCloudSyncResult = (tone: CloudSyncResultTone, message: string) => {
+  const title = copy.value.settingsCloudSync;
+  if (tone === 'success') {
+    notificationStore.success(title, message);
+    return;
+  }
+  if (tone === 'warning') {
+    notificationStore.warning(title, message);
+    return;
+  }
+  if (tone === 'info') {
+    notificationStore.info(title, message);
+    return;
+  }
+  notificationStore.error(title, message);
+};
+
+const handleCloudLogin = async () => {
+  if (cloudLoginPending.value || !cloudSyncLoginReady.value) {
+    return;
+  }
+  cloudLoginPending.value = true;
+  try {
+    const outcome = await cloudSyncStore.login({
+      baseUrl: cloudSyncForm.value.baseUrl.trim() || null,
+      username: cloudSyncForm.value.username.trim(),
+      password: cloudSyncForm.value.password,
+    });
+    if (!outcome.ok) {
+      notificationStore.error(copy.value.cloudSyncLogin, outcome.message);
+      return;
+    }
+    cloudSyncForm.value.password = '';
+    cloudSyncLastResult.value = null;
+    notificationStore.success(
+      copy.value.settingsCloudSync,
+      copy.value.cloudSyncSignedInAs(outcome.data.username || outcome.data.userId || ''),
+    );
+  } finally {
+    cloudLoginPending.value = false;
+  }
+};
+
+const handleCloudLogout = async () => {
+  cloudSyncLastResult.value = null;
+  await cloudSyncStore.logout();
+  cloudSyncForm.value.password = '';
+  notificationStore.info(copy.value.settingsCloudSync, copy.value.cloudSyncSignedOut);
+};
+
+const handleCloudSyncNow = async () => {
+  if (cloudSyncSyncing.value || !cloudSyncStore.signedIn) {
+    return;
+  }
+  cloudSyncSyncing.value = true;
+  try {
+    cloudSyncLastResult.value = await cloudSyncStore.syncCurrentDocument();
+    const line = cloudSyncResultLine.value;
+    if (line.text) {
+      notifyCloudSyncResult(line.tone, line.text);
+    }
+  } finally {
+    cloudSyncSyncing.value = false;
+  }
+};
+
+watch(
+  () => cloudSyncStore.baseUrl,
+  (value) => {
+    if (value) {
+      cloudSyncForm.value.baseUrl = value;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => cloudSyncStore.signedIn,
+  (signedIn) => {
+    if (!signedIn) {
+      cloudSyncForm.value.password = '';
+    }
+  },
+);
+
 const appVersionInfo = ref<AppVersionInfo | null>(null);
 const updateInfo = ref<GithubUpdateInfo | null>(null);
 const releaseNotesHtml = ref('');
@@ -1094,6 +1352,7 @@ const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() =
     { id: 'general', label: copy.value.settingsGeneral },
     { id: 'themes', label: copy.value.themeMarketplace },
     { id: 'editor', label: copy.value.settingsEditor },
+    { id: 'cloudSync', label: copy.value.settingsCloudSync },
   ];
   if (isWindows.value) {
     list.push({ id: 'fileAssociations', label: copy.value.fileAssociations });
@@ -2184,6 +2443,11 @@ watch(
 onMounted(async () => {
   await loadVersionInfo();
   void lspServersStore.refresh();
+  // 桌面端启动时恢复云同步会话；Web 版没有凭据来源，initialize 内部会直接返回未登录。
+  // typeof 守卫兼容只对 @/lib/tauri 做部分 mock 的测试环境。
+  if (typeof isTauriApp === 'function' && isTauriApp()) {
+    void cloudSyncStore.initialize();
+  }
   if (isWorkspaceMode.value) {
     await checkForUpdate(true);
   }
@@ -3988,5 +4252,121 @@ defineExpose({
   .settings-panel--workspace .settings-editor-theme-item {
     grid-template-columns: 1fr;
   }
+}
+
+/* 云同步（lizi 账号）区块 */
+.cloud-sync-form {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.cloud-sync-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #f8fafc);
+  font-size: var(--font-size-ui-sm, 12px);
+}
+
+.cloud-sync-input:focus {
+  outline: none;
+  border-color: var(--accent-brand, #38bdf8);
+}
+
+.cloud-sync-input:disabled {
+  opacity: 0.6;
+}
+
+.cloud-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cloud-sync-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.cloud-sync-account-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cloud-sync-account-name {
+  color: var(--text-primary, #f8fafc);
+  font-size: var(--font-size-ui-md, 13px);
+  font-weight: 600;
+}
+
+.cloud-sync-account-id {
+  color: var(--text-muted, #94a3b8);
+  font-size: var(--font-size-ui-sm, 12px);
+  word-break: break-all;
+}
+
+.cloud-sync-quota {
+  margin-top: 12px;
+}
+
+.cloud-sync-quota-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: var(--font-size-ui-sm, 12px);
+}
+
+.cloud-sync-quota-bar {
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.06));
+}
+
+.cloud-sync-quota-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-brand, #38bdf8);
+  transition: width 240ms ease;
+}
+
+.cloud-sync-result {
+  margin: 12px 0 0;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: var(--font-size-ui-sm, 12px);
+  line-height: 1.45;
+}
+
+.cloud-sync-result--success {
+  color: var(--state-success, #34d399);
+}
+
+.cloud-sync-result--warning {
+  color: var(--state-warning, #fbbf24);
+}
+
+.cloud-sync-result--info {
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.cloud-sync-result--error {
+  color: var(--state-danger, #f87171);
 }
 </style>
