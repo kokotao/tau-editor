@@ -81,6 +81,32 @@ describe('ShareStatsDialog', () => {
     expect(recent.text()).toContain('新访客');
   });
 
+  it('柱宽随统计天数自适应：days>30 时柱子不互相覆盖', async () => {
+    const wrapper = mountDialog({ days: 90 });
+    await flushPromises();
+
+    const bars = wrapper.get('[data-testid="share-stats-chart"]').findAll('rect');
+    expect(bars).toHaveLength(90);
+    const step = 300 / 90;
+    const width = Number.parseFloat(bars[0]!.attributes('width') ?? '0');
+    expect(width).toBeGreaterThan(0);
+    expect(width).toBeLessThanOrEqual(step);
+    // 后一根柱子的 x 必须在上一次之后（不重叠）
+    const xs = bars.map((bar) => Number.parseFloat(bar.attributes('x') ?? '0'));
+    for (let index = 1; index < xs.length; index += 1) {
+      expect(xs[index]!).toBeGreaterThan(xs[index - 1]!);
+    }
+    // 7 天窗口也不会把柱子压成 8px 窄条
+    const weekly = mountDialog({ days: 7 });
+    await flushPromises();
+    const weeklyWidth = Number.parseFloat(
+      weekly.get('[data-testid="share-stats-chart"]').findAll('rect')[0]!.attributes('width') ?? '0',
+    );
+    expect(weeklyWidth).toBeGreaterThan(8);
+    wrapper.unmount();
+    weekly.unmount();
+  });
+
   it('空数据给出可读状态', async () => {
     mocks.fetchStats.mockResolvedValue({
       ok: true,

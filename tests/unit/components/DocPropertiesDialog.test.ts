@@ -121,6 +121,34 @@ describe('DocPropertiesDialog', () => {
     expect(shared.text()).toContain('已分享');
     expect(shared.text()).toContain('https://note.lizipro.cn/s/');
   });
+
+  it('雪花分类 id 按字符串提交（不能被 Number 截断）', async () => {
+    const snowflake = '2114279859393396737';
+    mocks.fetchCategories.mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          id: '1001',
+          name: '笔记',
+          parentId: null,
+          children: [{ id: snowflake, name: '雪花分类', parentId: '1001', children: [] }],
+        },
+      ],
+    });
+    const wrapper = mount(DocPropertiesDialog, {
+      global: { stubs: { teleport: true } },
+      props: { visible: true, doc: { ...DOC, categoryId: '1001' } },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="doc-properties-category"]').setValue(snowflake);
+    await wrapper.get('[data-testid="doc-properties-save"]').trigger('click');
+    await flushPromises();
+
+    const payload = mocks.saveDoc.mock.calls[0]?.[0] as { categoryId?: unknown };
+    expect(payload.categoryId).toBe(snowflake);
+    expect(payload.categoryId).not.toBe(Number(snowflake));
+  });
 });
 
 

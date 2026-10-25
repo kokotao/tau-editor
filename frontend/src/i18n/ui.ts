@@ -2072,6 +2072,7 @@ interface CloudShareText {
   passwordPlaceholder: string;
   passwordState: string;
   passwordOn: string;
+  clearPasswordLabel: string;
   expiryLabel: string;
   expiryPermanent: string;
   expiryDays: (days: number) => string;
@@ -2129,6 +2130,7 @@ const CLOUD_SHARE_TEXTS: Record<UiLanguage, CloudShareText> = {
     passwordPlaceholder: '留空表示无密码',
     passwordState: '访问密码',
     passwordOn: '已设置',
+    clearPasswordLabel: '重新生成时移除访问密码',
     expiryLabel: '有效期',
     expiryPermanent: '永久',
     expiryDays: (days) => `${days} 天`,
@@ -2184,6 +2186,7 @@ const CLOUD_SHARE_TEXTS: Record<UiLanguage, CloudShareText> = {
     passwordPlaceholder: 'Leave empty for no password',
     passwordState: 'Password',
     passwordOn: 'Enabled',
+    clearPasswordLabel: 'Remove the access password when regenerating',
     expiryLabel: 'Expiry',
     expiryPermanent: 'Permanent',
     expiryDays: (days) => `${days} day${days === 1 ? '' : 's'}`,

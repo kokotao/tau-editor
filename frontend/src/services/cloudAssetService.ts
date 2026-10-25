@@ -184,6 +184,18 @@ export interface AssetUploadPlan {
 }
 
 /**
+ * 归一化 contentHash 成小写 `sha256:<hex>`：
+ * 服务端可能返回裸 hex，本地探测固定带前缀，不统一就永远匹配不上（「只传变更」失效）。
+ */
+export function normalizeAssetHash(raw: string | null | undefined): string | null {
+  const trimmed = (raw ?? '').trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.startsWith('sha256:') ? trimmed : `sha256:${trimmed}`;
+}
+
+/**
  * 只传变更：按 relPath 匹配服务端 assets，contentHash 相同即跳过。
  */
 export function planAssetUploads(
@@ -210,7 +222,9 @@ export function planAssetUploads(
       continue;
     }
     const remote = remoteByRel.get(ref.relPath);
-    if (remote && local.contentHash && remote.contentHash === local.contentHash) {
+    const localHash = normalizeAssetHash(local.contentHash);
+    const remoteHash = normalizeAssetHash(remote?.contentHash);
+    if (remote && localHash && remoteHash === localHash) {
       plan.unchanged.push(ref);
       continue;
     }

@@ -278,6 +278,38 @@ describe('cloudSyncStore 文档属性（P3）', () => {
     expect(outcome.ok).toBe(true);
   });
 
+  it('持久化的雪花分类 id 按字符串恢复，旧 number 数据仍可读', async () => {
+    const snowflake = '2114279859393396737';
+    localStorage.setItem(CLOUD_SYNC_STORAGE_KEY, JSON.stringify({
+      baseUrl: 'https://note.lizipro.cn/lizi',
+      docMap: {
+        'tau/ws/notes.md': {
+          fileId: 42,
+          version: 7,
+          contentHash: 'sha256:x',
+          updatedAt: null,
+          category: '笔记',
+          categoryId: snowflake,
+        },
+        'tau/ws/legacy.md': {
+          fileId: 43,
+          version: 1,
+          contentHash: 'sha256:y',
+          updatedAt: null,
+          category: '旧分类',
+          categoryId: 1001,
+        },
+      },
+    }));
+
+    const store = useCloudSyncStore();
+    await store.initialize();
+
+    expect(store.docMap['tau/ws/notes.md']?.categoryId).toBe(snowflake);
+    // 旧版本写入的是 number：不能因为类型变了就当成「没有分类」
+    expect(store.docMap['tau/ws/legacy.md']?.categoryId).toBe(1001);
+  });
+
   it('loadDocMeta 在没有云端映射时应返回失败而不是抛错', async () => {
     const store = useCloudSyncStore();
 

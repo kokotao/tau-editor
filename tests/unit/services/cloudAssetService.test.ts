@@ -179,6 +179,16 @@ describe('planAssetUploads 只传变更与边界', () => {
     const exact = planAssetUploads(refs.slice(0, 1), [sourceInfo({ size: CLOUD_ASSET_MAX_BYTES })], []);
     expect(exact.uploads).toHaveLength(1);
   });
+
+  it('服务端 hash 缺 sha256: 前缀时仍按「无变化」跳过', () => {
+    const plan = planAssetUploads(
+      refs.slice(0, 1),
+      [sourceInfo({ path: '/ws/notes/images/a.png', contentHash: 'sha256:aaa' })],
+      [remoteAsset({ relPath: 'images/a.png', contentHash: 'aaa' })],
+    );
+    expect(plan.uploads).toHaveLength(0);
+    expect(plan.unchanged.map((ref) => ref.relPath)).toEqual(['images/a.png']);
+  });
 });
 
 describe('syncMarkdownAssets 编排', () => {

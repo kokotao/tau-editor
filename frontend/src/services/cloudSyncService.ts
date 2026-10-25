@@ -530,7 +530,8 @@ export interface CloudDocSyncByPathInput {
   filePath: string;
   /** 叶子分类名（自由文本；「新建分类」就写这里，不调管理端接口） */
   category?: string | null;
-  categoryId?: number | null;
+  /** 分类节点 id：雪花 id 按字符串透传（number 仅兼容旧调用方） */
+  categoryId?: string | number | null;
   tags?: string | null;
   visibility?: 'PRIVATE' | 'PUBLIC';
   /** 用户已确认「覆盖云端」时置 true（冲突/需拉取的分支才需要） */

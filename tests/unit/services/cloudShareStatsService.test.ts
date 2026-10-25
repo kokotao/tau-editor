@@ -128,12 +128,12 @@ describe('fetchShareStats', () => {
     }
   });
 
-  it('无权限返回 unauthorized（供 UI 展示专用文案）', async () => {
+  it('无权限返回 forbidden（供 UI 展示专用文案，不触发登出）', async () => {
     mocks.shareStats.mockRejectedValue(Object.assign(new Error('没有权限'), { code: 'FORBIDDEN' }));
     const outcome = await fetchShareStats(42);
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
-      expect(outcome.kind).toBe('unauthorized');
+      expect(outcome.kind).toBe('forbidden');
     }
   });
 

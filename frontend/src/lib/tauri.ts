@@ -1208,7 +1208,8 @@ export interface CloudDocItem {
   size: number;
   version: number;
   category: string | null;
-  categoryId: number | null;
+  /** 分类 id：雪花 id，Rust 侧统一按字符串下发（> 2^53，不能过 JS number） */
+  categoryId: string | null;
   tags: string | null;
   visibility: string | null;
   publishedArticleId: number | null;
@@ -1245,7 +1246,8 @@ export interface CloudDocSavePayload {
   contentHash?: string | null;
   baseVersion?: number | null;
   category?: string | null;
-  categoryId?: number | null;
+  /** 分类 id：雪花 id 按字符串透传；number 仅为兼容旧调用方与旧持久化数据（Rust 侧两种都收） */
+  categoryId?: string | number | null;
   tags?: string | null;
   visibility?: string | null;
 }
@@ -1393,7 +1395,10 @@ export interface CloudShareConfig {
 export interface CloudShareCreatePayload {
   regenerate?: boolean;
   expiresInDays?: number | null;
+  /** null / 缺省 = 不修改（已有密码则保留） */
   password?: string | null;
+  /** 显式清除密码（契约：不能用 password: null 表达清除） */
+  clearPassword?: boolean | null;
 }
 
 /**
@@ -1505,7 +1510,9 @@ export const cloudCommands = {
       fileId,
       regenerate: payload.regenerate ?? false,
       expiresInDays: payload.expiresInDays ?? null,
+      // password=null 表示「不修改」；清除密码必须用 clearPassword=true
       password: payload.password ?? null,
+      clearPassword: payload.clearPassword === true ? true : null,
     });
   },
 

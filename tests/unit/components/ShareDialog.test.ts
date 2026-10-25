@@ -255,6 +255,7 @@ describe('ShareDialog 一键分享', () => {
       regenerate: false,
       expiresInDays: null,
       password: null,
+      clearPassword: null,
     });
     const urlInput = wrapper.get('[data-testid="share-dialog-url"]').element as HTMLInputElement;
     expect(urlInput.value).toBe(`${SHARE_BASE}/s/abcdefgh12345678`);
@@ -278,6 +279,7 @@ describe('ShareDialog 一键分享', () => {
       regenerate: false,
       expiresInDays: 45,
       password: '1234',
+      clearPassword: null,
     });
   });
 
@@ -308,7 +310,6 @@ describe('ShareDialog 一键分享', () => {
     });
     const wrapper = mountDialog();
     await settle();
-
     await wrapper.get('[data-testid="share-dialog-regenerate"]').trigger('click');
     await settle();
     expect(mocks.shareCreate).toHaveBeenCalledWith(
@@ -439,5 +440,52 @@ describe('ShareDialog 分享统计（0.6.24）', () => {
 
     expect(wrapper.find('[data-testid="share-dialog-stats"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="share-dialog-url"]').exists()).toBe(true);
+  });
+});
+
+describe('ShareDialog 重新生成的密码语义（0.6.25）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    useWorkspaceStore().currentWorkspacePath = '/ws';
+    useWorkspaceStore().currentWorkspaceName = 'ws';
+    useSettingsStore().syncDocumentImages = true;
+    useCloudSyncStore().signedIn = true;
+    mocks.shareConfig.mockResolvedValue({ shareBaseUrl: SHARE_BASE, defaultCategory: '分享', maxExpireDays: 365 });
+    mocks.syncByPath.mockResolvedValue({ status: 'synced', fileId: 42, version: 3 });
+    mocks.readSyncSource.mockResolvedValue({ content: '正文', contentHash: 'sha256:x', size: 10, modifiedMs: 1 });
+    mocks.assetsList.mockResolvedValue([]);
+    mocks.inspectAssetSources.mockResolvedValue([]);
+    mocks.shareStatus.mockResolvedValue({ shared: true, token: 'abcdefgh12345678', hasPassword: true });
+    mocks.shareCreate.mockResolvedValue({ token: 'newtoken12345678' });
+    mocks.fetchStats.mockResolvedValue({ ok: true, data: { totalViews: 0, uniqueVisitors: 0, daily: [], recent: [] } });
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('重新生成且未改密码：password 为 null（表示不修改）且不带 clearPassword', async () => {
+    const wrapper = mountDialog();
+    await settle();
+
+    await wrapper.get('[data-testid="share-dialog-regenerate"]').trigger('click');
+    await settle();
+
+    const payload = mocks.shareCreate.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(mocks.shareCreate.mock.calls.at(-1)?.[0]).toBe(42);
+    expect(payload.regenerate).toBe(true);
+    expect(payload.password ?? null).toBeNull();
+    expect(payload.clearPassword ?? null).toBeNull();
+  });
+
+  it('勾选「移除密码」时传 clearPassword: true（不是 password: null）', async () => {
+    const wrapper = mountDialog();
+    await settle();
+
+    const checkbox = wrapper.get('[data-testid="share-dialog-clear-password"]');
+    await checkbox.setValue(true);
+    await wrapper.get('[data-testid="share-dialog-regenerate"]').trigger('click');
+    await settle();
+
+    const payload = mocks.shareCreate.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(payload.clearPassword).toBe(true);
+    expect(payload.password ?? null).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 [package]
 name = "text-editor"
-version = "0.6.24"
+version = "0.6.25"
 description = "A cross-platform text editor built with Tauri"
 authors = ["罗小纯"]
 edition = "2021"
@@ -22,6 +22,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 png = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+bytes = "1"
 encoding_rs = "0.8"
 chardetng = "0.1"
 notify = "6"

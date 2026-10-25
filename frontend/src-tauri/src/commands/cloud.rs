@@ -75,8 +75,10 @@ pub struct CloudDocItem {
     pub version: i32,
     #[serde(default)]
     pub category: Option<String>,
-    #[serde(default)]
-    pub category_id: Option<i64>,
+    /// 分类 id：雪花 id > 2^53，必须按字符串下发前端（否则 JS number 会截断）。
+    /// 服务端可能给 JSON number 也可能给字符串，`deserialize_opt_stringish` 两种都收。
+    #[serde(default, deserialize_with = "deserialize_opt_stringish")]
+    pub category_id: Option<String>,
     #[serde(default)]
     pub tags: Option<String>,
     #[serde(default)]
@@ -154,7 +156,8 @@ pub struct CloudDocSavePayload {
     pub base_version: Option<i32>,
     #[serde(default)]
     pub category: Option<String>,
-    #[serde(default)]
+    /// 分类 id：前端把雪花 id 按字符串透传（> 2^53 不能过 JS number），这里两种形态都收。
+    #[serde(default, deserialize_with = "deserialize_opt_i64ish")]
     pub category_id: Option<i64>,
     #[serde(default)]
     pub tags: Option<String>,
@@ -599,10 +602,6 @@ pub async fn cloud_docs_delete(
 }
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // 分享统计（查看次数 / 独立访客 / 近 N 天明细 / 最近访问）
 // ---------------------------------------------------------------------------
 
@@ -925,8 +924,16 @@ pub async fn cloud_docs_binary_upload(
     validate_binary_doc(&local_path, metadata.len())
         .map_err(|reason| CommandError::new(binary_reason_code(&local_path), reason))?;
 
-    let bytes = fs::read(&local_path)
-        .map_err(|error| CommandError::new("IO_ERROR", format!("读取待上传文件失败：{error}")))?;
+    // 阻塞读取放到线程池；Bytes 让「401 重放」只克隆引用而不是整块复制
+    let raw_bytes = {
+        let path = local_path.clone();
+        tauri::async_runtime::spawn_blocking(move || fs::read(&path))
+            .await
+            .map_err(|_| CommandError::new("IO_ERROR", "读取待上传文件失败"))?
+            .map_err(|error| CommandError::new("IO_ERROR", format!("读取待上传文件失败：{error}")))?
+    };
+    let bytes = bytes::Bytes::from(raw_bytes);
+    let byte_len = bytes.len() as u64;
     let file_name = std::path::Path::new(&local_path)
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
@@ -938,12 +945,19 @@ pub async fn cloud_docs_binary_upload(
 
     // 401 续期会重放请求：每次重建 form（bytes 克隆一次即可）
     let build_form = || {
-        let part = reqwest::multipart::Part::bytes(bytes.clone())
+        let part = reqwest::multipart::Part::stream_with_length(
+            reqwest::Body::from(bytes.clone()),
+            byte_len,
+        )
+        .file_name(file_name.clone())
+        .mime_str(mime)
+        .unwrap_or_else(|_| {
+            reqwest::multipart::Part::stream_with_length(
+                reqwest::Body::from(bytes.clone()),
+                byte_len,
+            )
             .file_name(file_name.clone())
-            .mime_str(mime)
-            .unwrap_or_else(|_| {
-                reqwest::multipart::Part::bytes(bytes.clone()).file_name(file_name.clone())
-            });
+        });
         let mut form = reqwest::multipart::Form::new()
             .text("path", cloud_path.clone())
             .part("file", part);
@@ -1118,7 +1132,16 @@ pub struct CloudAssetSourceInfo {
 
 /// 探测一批本地图片：存在性、大小、sha256、扩展名与魔数校验（不读整文件以外的额外 IO）。
 #[tauri::command]
-pub fn cloud_inspect_asset_sources(
+pub async fn cloud_inspect_asset_sources(
+    paths: Vec<String>,
+) -> Result<Vec<CloudAssetSourceInfo>, CommandError> {
+    // 读文件 + 算 sha256 是阻塞 IO（单张可达 20MB）：放到阻塞线程池，别占 async 运行时
+    tauri::async_runtime::spawn_blocking(move || inspect_asset_sources_blocking(paths))
+        .await
+        .map_err(|_| CommandError::new("IO_ERROR", "探测图片失败"))?
+}
+
+fn inspect_asset_sources_blocking(
     paths: Vec<String>,
 ) -> Result<Vec<CloudAssetSourceInfo>, CommandError> {
     let mut results = Vec::with_capacity(paths.len());
@@ -1285,8 +1308,16 @@ pub async fn cloud_docs_asset_upload_file(
             ),
         ));
     }
-    let bytes = fs::read(&local_path)
-        .map_err(|error| CommandError::new("IO_ERROR", format!("读取图片失败：{error}")))?;
+    // 阻塞读取放到线程池；读到的 Vec 直接转成 refcount 的 Bytes，重放请求时只克隆句柄
+    let raw_bytes = {
+        let path = local_path.clone();
+        tauri::async_runtime::spawn_blocking(move || fs::read(&path))
+            .await
+            .map_err(|_| CommandError::new("IO_ERROR", "读取图片失败"))?
+            .map_err(|error| CommandError::new("IO_ERROR", format!("读取图片失败：{error}")))?
+    };
+    let bytes = bytes::Bytes::from(raw_bytes);
+    let byte_len = bytes.len() as u64;
     match detect_image_magic(&bytes) {
         Some(magic) if image_magic_matches_ext(magic, &local_path) => {}
         Some(_) => {
@@ -1311,12 +1342,20 @@ pub async fn cloud_docs_asset_upload_file(
     // 后端是 multipart/form-data（@RequestParam relPath/fileName/mime + MultipartFile file）：
     // 401 续期会重放请求，因此每次重建 form（bytes 克隆一次）。
     let build_form = || {
-        let part = reqwest::multipart::Part::bytes(bytes.clone())
+        // Bytes 克隆只加引用计数，不再复制整块上传缓冲
+        let part = reqwest::multipart::Part::stream_with_length(
+            reqwest::Body::from(bytes.clone()),
+            byte_len,
+        )
+        .file_name(file_name.clone())
+        .mime_str(mime)
+        .unwrap_or_else(|_| {
+            reqwest::multipart::Part::stream_with_length(
+                reqwest::Body::from(bytes.clone()),
+                byte_len,
+            )
             .file_name(file_name.clone())
-            .mime_str(mime)
-            .unwrap_or_else(|_| {
-                reqwest::multipart::Part::bytes(bytes.clone()).file_name(file_name.clone())
-            });
+        });
         reqwest::multipart::Form::new()
             .text("relPath", rel_path.clone())
             .text("fileName", file_name.clone())
@@ -1428,10 +1467,14 @@ pub async fn cloud_docs_asset_download(
 #[serde(rename_all = "camelCase")]
 pub struct CloudShareCreatePayload {
     pub regenerate: bool,
+    /// null / 缺省 = 不修改（已有密码则保留）
     #[serde(default)]
     pub expires_in_days: Option<i32>,
     #[serde(default)]
     pub password: Option<String>,
+    /// 显式清除密码（契约：`clearPassword: true`；不能用 password: null 表达“清除”）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear_password: Option<bool>,
 }
 
 /// 分享信息（创建/查询共用；查询时大部分字段可能为空）。
@@ -1509,13 +1552,21 @@ pub async fn cloud_docs_share_create(
     regenerate: Option<bool>,
     expires_in_days: Option<i32>,
     password: Option<String>,
+    clear_password: Option<bool>,
 ) -> Result<CloudShareInfo, CommandError> {
+    let clear = clear_password.unwrap_or(false);
     let payload = CloudShareCreatePayload {
         regenerate: regenerate.unwrap_or(false),
         expires_in_days: expires_in_days.filter(|days| *days > 0),
-        password: password
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty()),
+        // 清除密码时不再带 password；未改动时 password=None（契约：不改动）
+        password: if clear {
+            None
+        } else {
+            password
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        },
+        clear_password: if clear { Some(true) } else { None },
     };
     let response = send_authed(&state, "生成分享链接", |client, session| {
         authed(
@@ -1632,7 +1683,17 @@ pub async fn cloud_blog_tags(state: State<'_, CloudState>) -> Result<Vec<String>
 }
 
 #[tauri::command]
-pub fn cloud_read_sync_source(
+pub async fn cloud_read_sync_source(
+    path: String,
+    max_bytes: u64,
+) -> Result<CloudSyncSource, CommandError> {
+    // 12MB 上限的整文件读取 + 哈希：走阻塞线程池
+    tauri::async_runtime::spawn_blocking(move || read_sync_source_blocking(path, max_bytes))
+        .await
+        .map_err(|_| CommandError::new("IO_ERROR", "读取待同步文件失败"))?
+}
+
+fn read_sync_source_blocking(
     path: String,
     max_bytes: u64,
 ) -> Result<CloudSyncSource, CommandError> {
@@ -2114,6 +2175,36 @@ pub fn cloud_path_to_workspace_relative(
     Ok(relative.to_string())
 }
 
+/// 不属于当前工作区的云文档（`tau/{别的 workspace}/...`）的打开目标。
+///
+/// 这类文档不能落到本地工作区，但也不该让命令失败：返回 `rejected` +
+/// `CLOUD_PATH_NOT_IN_WORKSPACE`，前端据此提供「只读预览 / 另存为 / 取消」。
+/// 不满足跨工作区条件（同一 workspace 或路径本身非法）时返回 None。
+pub fn cross_workspace_open_target(
+    cloud_path: &str,
+    workspace_name: &str,
+) -> Option<CloudDocOpenTarget> {
+    let normalized = validate_cloud_doc_path(cloud_path).ok()?;
+    if !matches!(
+        cloud_path_to_workspace_relative(cloud_path, workspace_name),
+        Err(CloudPathIssue::NotUnderWorkspace)
+    ) {
+        return None;
+    }
+    Some(CloudDocOpenTarget {
+        // 没有本地落点：relative/absolute 保持空串，前端只用 action + reasonCode 分支。
+        openable: is_openable_text_path(&normalized),
+        cloud_path: normalized,
+        relative_path: String::new(),
+        absolute_path: String::new(),
+        exists: false,
+        same_content: false,
+        action: CloudOpenAction::Rejected.as_str().to_string(),
+        reason_code: Some(CloudPathIssue::NotUnderWorkspace.code().to_string()),
+        reason: Some(CloudPathIssue::NotUnderWorkspace.message().to_string()),
+    })
+}
+
 /// 云端文档是否是可安全打开的文本文件：扩展名白名单与后端 `CloudDocPathValidator` 一致。
 pub fn is_openable_text_path(path: &str) -> bool {
     let file_name = path
@@ -2218,9 +2309,19 @@ pub async fn cloud_doc_open_target(
         ));
     }
 
-    let relative = cloud_path_to_workspace_relative(&cloud_path, &workspace_name).map_err(|issue| {
-        CommandError::new(issue.code(), issue.message())
-    })?;
+    let relative = match cloud_path_to_workspace_relative(&cloud_path, &workspace_name) {
+        Ok(relative) => relative,
+        // 别的 workspace / 前缀不匹配不是「命令失败」：前端据此弹「只读预览 / 另存为」，
+        // 若这里返 Err，前端只有一个 catch 分支，跨工作区文档就永远打不开（0.6.23 功能失效）。
+        Err(CloudPathIssue::NotUnderWorkspace) => {
+            return cross_workspace_open_target(&cloud_path, &workspace_name)
+                .ok_or_else(|| CommandError::new(
+                    CloudPathIssue::NotUnderWorkspace.code(),
+                    CloudPathIssue::NotUnderWorkspace.message(),
+                ));
+        }
+        Err(issue) => return Err(CommandError::new(issue.code(), issue.message())),
+    };
     let absolute = std::path::Path::new(&workspace_root)
         .join(relative.replace('/', std::path::MAIN_SEPARATOR_STR))
         .to_string_lossy()
@@ -2237,38 +2338,31 @@ pub async fn cloud_doc_open_target(
         reason = Some("该云端文档不是白名单内的文本文件，暂不支持在 Tau 中打开".to_string());
     }
 
-    let metadata = fs::metadata(&absolute).ok();
-    let exists = metadata.as_ref().map(|item| item.is_file()).unwrap_or(false);
+    // 本地探测（metadata + 读文件算哈希，最大 12MB）放到阻塞线程池
+    let probe = {
+        let absolute = absolute.clone();
+        let remote_hash = remote_hash.clone();
+        let mut openable = openable;
+        let mut reason_code = reason_code.clone();
+        let mut reason = reason.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let same_content = probe_local_document(
+                &absolute,
+                remote_hash.as_deref(),
+                &mut openable,
+                &mut reason_code,
+                &mut reason,
+            );
+            let exists = fs::metadata(&absolute)
+                .map(|item| item.is_file())
+                .unwrap_or(false);
+            (exists, same_content, openable, reason_code, reason)
+        })
+        .await
+        .map_err(|_| CommandError::new("IO_ERROR", "本地探测云文档落点失败"))?
+    };
+    let (exists, same_content, openable, mut reason_code, mut reason) = probe;
 
-    let mut same_content = false;
-    if exists && openable {
-        let size = metadata.as_ref().map(|item| item.len()).unwrap_or(0);
-        if size > CLOUD_OPEN_MAX_BYTES {
-            openable = false;
-            reason_code = Some("FILE_TOO_LARGE".to_string());
-            reason = Some(format!(
-                "本地同名文件超过 {} MB，暂不支持在 Tau 中打开",
-                CLOUD_OPEN_MAX_BYTES / (1024 * 1024)
-            ));
-        } else {
-            match fs::read(&absolute) {
-                Ok(bytes) => match String::from_utf8(bytes) {
-                    // 只有拿到云端哈希且算出的一致才算「已同步」；哈希缺失时按不一致处理，走确认流程。
-                    Ok(text) => {
-                        same_content = match normalize_remote_hash(remote_hash.as_deref()) {
-                            Some(expected) => {
-                                format!("sha256:{}", sha256_hex(text.as_bytes())) == expected
-                            }
-                            None => false,
-                        };
-                    }
-                    // 本地同名文件不是 UTF-8：不能按「一致」处理，走确认流程
-                    Err(_) => same_content = false,
-                },
-                Err(_) => same_content = false,
-            }
-        }
-    }
 
     let action = decide_cloud_open_action(openable, exists, same_content);
     if action == CloudOpenAction::Rejected && reason_code.is_none() {
@@ -2287,6 +2381,46 @@ pub async fn cloud_doc_open_target(
         reason_code,
         reason,
     })
+}
+
+
+/// 本地探测：同名文件是否存在、内容是否与云端一致；超限/不可预览时回填原因。
+fn probe_local_document(
+    absolute: &str,
+    remote_hash: Option<&str>,
+    openable: &mut bool,
+    reason_code: &mut Option<String>,
+    reason: &mut Option<String>,
+) -> bool {
+    let metadata = fs::metadata(absolute).ok();
+    let exists = metadata.as_ref().map(|item| item.is_file()).unwrap_or(false);
+    if !exists || !*openable {
+        return false;
+    }
+    let size = metadata.as_ref().map(|item| item.len()).unwrap_or(0);
+    if size > CLOUD_OPEN_MAX_BYTES {
+        *openable = false;
+        *reason_code = Some("FILE_TOO_LARGE".to_string());
+        *reason = Some(format!(
+                "本地同名文件超过 {} MB，暂不支持在 Tau 中打开",
+            CLOUD_OPEN_MAX_BYTES / (1024 * 1024)
+        ));
+        return false;
+    }
+    match fs::read(absolute) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            // 只有拿到云端哈希且算出的一致才算「已同步」；哈希缺失时按不一致处理，走确认流程。
+            Ok(text) => match normalize_remote_hash(remote_hash) {
+                Some(expected) => {
+                    format!("sha256:{}", sha256_hex(text.as_bytes())) == expected
+                }
+                None => false,
+            },
+            // 本地同名文件不是 UTF-8：不能按「一致」处理，走确认流程
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
 }
 
 /// 云端返回的 contentHash 可能带也可能不带 `sha256:` 前缀，统一成小写带前缀形式。
@@ -2616,6 +2750,31 @@ where
     }
 }
 
+/// 分类 id 这类「数字 or 数字字符串」的整数字段：按十进制原样解析成 i64。
+///
+/// 前端把雪花 id 当字符串传（> 2^53 过 JS number 会丢精度），这里既兼容字符串也兼容 JSON number；
+/// 空串/非法值一律当成 None（视为「不修改分类」），不让一个越界字段把整次保存打挂。
+fn deserialize_opt_i64ish<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    let parsed = match value {
+        Value::Number(number) => number.as_i64(),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                trimmed.parse::<i64>().ok()
+            }
+        }
+        _ => None,
+    };
+    // 0 / 负数没有意义（分类 id 从 1 开始），统一按「未设置」处理。
+    Ok(parsed.filter(|id| *id > 0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2760,6 +2919,35 @@ mod tests {
             now,
             REFRESH_FAILURE_COOLDOWN
         ));
+    }
+
+    // ---------------- 分享重新生成：password 语义 ----------------
+
+    #[test]
+    fn 分享请求体_password_为_none_时表示不修改() {
+        let payload = super::CloudShareCreatePayload {
+            regenerate: true,
+            expires_in_days: None,
+            password: None,
+            clear_password: None,
+        };
+        let json = serde_json::to_value(&payload).expect("序列化失败");
+        assert_eq!(json.get("password"), Some(&serde_json::Value::Null));
+        // 未显式清除时不应出现 clearPassword 字段
+        assert!(json.get("clearPassword").is_none());
+    }
+
+    #[test]
+    fn 分享请求体_清除密码必须带_clearPassword_true() {
+        let payload = super::CloudShareCreatePayload {
+            regenerate: true,
+            expires_in_days: None,
+            password: None,
+            clear_password: Some(true),
+        };
+        let json = serde_json::to_value(&payload).expect("序列化失败");
+        assert_eq!(json.get("clearPassword"), Some(&serde_json::Value::Bool(true)));
+        assert_eq!(json.get("password"), Some(&serde_json::Value::Null));
     }
 
     // ---------------- 二进制文档上传前校验 ----------------
@@ -2979,5 +3167,118 @@ mod tests {
         assert_eq!(CloudOpenAction::OpenExisting.as_str(), "openExisting");
         assert_eq!(CloudOpenAction::ConfirmOverwrite.as_str(), "confirmOverwrite");
         assert_eq!(CloudOpenAction::WriteAndOpen.as_str(), "writeAndOpen");
+    }
+
+    // ---------------- 跨工作区打开目标（0.6.23 预览/另存为入口） ----------------
+
+    use super::{cross_workspace_open_target, CloudDocItem, CloudDocOpenTarget, CloudDocSavePayload};
+    use serde_json::json;
+
+    #[test]
+    fn 跨工作区路径应映射成拒绝目标而不是错误() {
+        let target = cross_workspace_open_target("tau/other-ws/a.md", "ws")
+            .expect("别的 workspace 的文档应给出 rejected 目标");
+        assert_eq!(target.action, "rejected");
+        assert_eq!(
+            target.reason_code.as_deref(),
+            Some("CLOUD_PATH_NOT_IN_WORKSPACE")
+        );
+        // 没有本地落点，不能暗示前端往工作区写文件
+        assert!(target.relative_path.is_empty());
+        assert!(target.absolute_path.is_empty());
+        assert!(target.openable);
+        assert_eq!(target.cloud_path, "tau/other-ws/a.md");
+    }
+
+    #[test]
+    fn 同工作区或非法路径不算跨工作区() {
+        assert!(cross_workspace_open_target("tau/ws/a.md", "ws").is_none());
+        // 目录本身不是文件
+        assert!(cross_workspace_open_target("tau/ws/", "ws").is_none());
+        // 越界/非法路径仍按错误上报，不能走「预览」白名单
+        assert!(cross_workspace_open_target("../secret.md", "ws").is_none());
+        assert!(cross_workspace_open_target("C:/Users/a.md", "ws").is_none());
+    }
+
+    #[tokio::test]
+    async fn 跨工作区的打开命令返回目标而不是_err() {
+        // 回归：命令若把 NotUnderWorkspace 当错误抛给前端，跨工作区文档只能看到一行报错，
+        // 「只读预览 / 另存为」永远弹不出来。
+        let target: CloudDocOpenTarget = super::cloud_doc_open_target(
+            "D:/ws".to_string(),
+            "ws".to_string(),
+            "tau/other-ws/a.md".to_string(),
+            None,
+        )
+        .await
+        .expect("跨工作区不应是命令错误");
+        assert_eq!(target.action, "rejected");
+        assert_eq!(
+            target.reason_code.as_deref(),
+            Some("CLOUD_PATH_NOT_IN_WORKSPACE")
+        );
+    }
+
+    // ---------------- 分类 id：字符串雪花 id 全链路 ----------------
+
+    #[test]
+    fn 保存请求的分类id接受字符串雪花id() {
+        let snowflake = "2114279859393396737";
+        let payload: CloudDocSavePayload = serde_json::from_value(json!({
+            "path": "tau/ws/a.md",
+            "categoryId": snowflake,
+        }))
+        .expect("字符串 categoryId 必须能反序列化（前端按字符串透传雪花 id）");
+        // i64 原样保留，不能出现 2^53 截断
+        assert_eq!(payload.category_id, Some(2_114_279_859_393_396_737));
+        // 旧的数字形态仍然兼容
+        let numeric: CloudDocSavePayload = serde_json::from_value(json!({
+            "path": "tau/ws/a.md",
+            "categoryId": 1001,
+        }))
+        .unwrap();
+        assert_eq!(numeric.category_id, Some(1001));
+    }
+
+    #[test]
+    fn 分类id的空值与非法值都按不修改处理() {
+        for value in [json!(null), json!(""), json!("  "), json!("abc"), json!(0), json!(-1)] {
+            let payload: CloudDocSavePayload = serde_json::from_value(json!({
+                "path": "tau/ws/a.md",
+                "categoryId": value,
+            }))
+            .expect("非法 categoryId 不能让整次保存失败");
+            assert_eq!(payload.category_id, None, "categoryId={value} 应视为不修改");
+        }
+    }
+
+    #[test]
+    fn 文档列表的分类id统一按字符串下发() {
+        let stringy: CloudDocItem = serde_json::from_value(json!({
+            "fileId": 1,
+            "path": "tau/ws/a.md",
+            "title": "a.md",
+            "size": 1,
+            "version": 1,
+            "categoryId": "2114279859393396737",
+        }))
+        .expect("服务端把雪花 id 序列化成字符串时，列表不能整页解析失败");
+        assert_eq!(stringy.category_id.as_deref(), Some("2114279859393396737"));
+
+        // 服务端给 JSON number 时也要转成字符串出口，前端拿到的仍然是精确值
+        let numeric: CloudDocItem = serde_json::from_value(json!({
+            "fileId": 1,
+            "path": "tau/ws/a.md",
+            "title": "a.md",
+            "size": 1,
+            "version": 1,
+            "categoryId": 2114279859393396737_i64,
+        }))
+        .unwrap();
+        assert_eq!(numeric.category_id.as_deref(), Some("2114279859393396737"));
+
+        // 序列化出口必须是 JSON 字符串（否则 JS 侧 number 会丢精度）
+        let wire = serde_json::to_value(&numeric).unwrap();
+        assert_eq!(wire["categoryId"], json!("2114279859393396737"));
     }
 }

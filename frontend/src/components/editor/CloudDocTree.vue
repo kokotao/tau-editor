@@ -98,6 +98,8 @@
       v-if="rowMenu.visible && rowMenu.node"
       class="cloud-doc-tree__menu"
       :style="{ left: `${rowMenu.x}px`, top: `${rowMenu.y}px` }"
+      :data-flip-x="rowMenu.flipX ? 'left' : 'right'"
+      :data-flip-y="rowMenu.flipY ? 'up' : 'down'"
       data-testid="cloud-doc-tree-menu"
       @mousedown.stop
       @click.stop
@@ -608,7 +610,11 @@ function menuOpenHistory(): void {
 }
 
 async function menuOpenMove(): Promise<void> {
-  moveTarget.value = rowMenu.value.node;
+  // 只保留坐标、先收起右键菜单：两层浮层同坐标叠着时，Teleport 到 body 的右键菜单
+  // 会盖住「移动到分类」列表（点击热区也归它），表现为点了没反应。
+  const node = rowMenu.value.node;
+  rowMenu.value.visible = false;
+  moveTarget.value = node;
   moveMenuVisible.value = true;
   await refreshCategoryTree();
 }

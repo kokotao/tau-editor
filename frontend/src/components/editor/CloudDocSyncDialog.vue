@@ -174,7 +174,6 @@ import { syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncSe
 import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import { getCloudDocSyncI18n } from '@/i18n/ui';
 import { useCloudSyncStore } from '@/stores/cloudSync';
-import { useCenterToastStore } from '@/stores/centerToast';
 import { useWorkspaceStore } from '@/stores/workspace';
 import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
 import StatusNotice, { type StatusNoticeTone } from '@/components/ui/StatusNotice.vue';
@@ -194,7 +193,6 @@ const emit = defineEmits<{
 
 const settingsStore = useSettingsStore();
 const cloudSyncStore = useCloudSyncStore();
-const centerToast = useCenterToastStore();
 const workspaceStore = useWorkspaceStore();
 const copy = computed(() => getCloudDocSyncI18n(settingsStore.uiLanguage));
 
@@ -345,7 +343,7 @@ function applyInitialCategory(): void {
     workspaceStore.currentWorkspaceName,
     workspaceStore.currentWorkspacePath,
   );
-  const docMap = cloudSyncStore.docMap as Record<string, { category?: string | null; categoryId?: number | null }>;
+  const docMap = cloudSyncStore.docMap as Record<string, { category?: string | null; categoryId?: string | number | null }>;
   let record = docMap[cloudPath];
   if (!record) {
     // 工作区名不一致时按相对路径后缀兜底匹配
@@ -377,12 +375,23 @@ function closeCategoryPanel(): void {
 }
 
 function handleOutsideClick(event: MouseEvent): void {
+  if (!categoryOpen.value) {
+    return;
+  }
   const target = event.target;
   if (target instanceof Element && target.closest('.cloud-sync-dialog__panel, .cloud-sync-dialog__trigger')) {
     return;
   }
   closeCategoryPanel();
 }
+
+// 分类面板展开后点空白处收起（弹窗本身不关闭）；卸载时解绑，避免残留监听。
+onMounted(() => {
+  document.addEventListener('mousedown', handleOutsideClick);
+});
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleOutsideClick);
+});
 
 function clearCategory(): void {
   if (busy.value) {
@@ -394,7 +403,7 @@ function clearCategory(): void {
 }
 
 /** 分类选择与「新建分类」互斥：填了名称就忽略选中项。 */
-const resolveCategory = (): { category: string | null; categoryId: number | null } => {
+const resolveCategory = (): { category: string | null; categoryId: string | null } => {
   const typed = newCategory.value.trim();
   if (typed) {
     return { category: typed, categoryId: null };
@@ -403,10 +412,10 @@ const resolveCategory = (): { category: string | null; categoryId: number | null
   if (!selected) {
     return { category: null, categoryId: null };
   }
-  const numericId = Number(selected.id);
+  // 分类 id 是雪花 id（> 2^53）：按字符串原样下发，绝不能再转 number
   return {
     category: selected.name,
-    categoryId: Number.isFinite(numericId) ? numericId : null,
+    categoryId: selected.id,
   };
 };
 
@@ -445,8 +454,7 @@ async function confirm(overwrite: boolean): Promise<void> {
       return;
     }
     noticeTone.value = 'success';
-    // 成功后：关闭弹窗 + 屏幕中央 toast（3 秒），弹窗内不再显示状态行
-    centerToast.show(result.version ? `已同步到云端（v${result.version}）` : '已同步到云端', 'success', 3000);
+    // 成功后关闭弹窗；居中 toast 由 App 用 i18n 统一弹（避免两处各弹一次）
     emit('synced', result);
     emit('close');
   } catch (syncError) {

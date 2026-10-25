@@ -133,11 +133,16 @@ const maxViews = computed(() => seriesMax(series.value, 'views'));
 const everyZero = computed(() => series.value.every((point) => point.views === 0));
 const empty = computed(() => !loading.value && !errorText.value && isEmptyStats(stats.value));
 
-const barWidth = 300 / 30 - 2;
+const barWidth = computed(() => {
+  // 柱宽跟着实际天数走：固定 8 在 days>30 时会让柱子互相覆盖，days=7 时又过窄。
+  const step = 300 / Math.max(1, series.value.length);
+  return Math.max(1, Math.min(12, step - 2));
+});
 
 function barX(index: number): number {
   const step = 300 / Math.max(1, series.value.length);
-  return index * step + 1;
+  // 柱体在自己的槽位居中，避免右侧留白不均
+  return index * step + Math.max(0, (step - barWidth.value) / 2);
 }
 
 function barY(views: number): number {

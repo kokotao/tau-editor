@@ -43,6 +43,8 @@ const CATEGORY_TREE = [
     children: [{ id: '2002', name: '子分类', parentId: '1001', children: [] }],
   },
   { id: '1003', name: '随笔', parentId: null, children: [] },
+  // 真实雪花 id：> 2^53，经 Number() 会被截断
+  { id: '2114279859393396737', name: '雪花分类', parentId: null, children: [] },
 ];
 
 const mountDialog = () =>
@@ -66,7 +68,7 @@ describe('CloudDocSyncDialog 右键同步', () => {
     vi.clearAllMocks();
   });
 
-  it('选择已有分类后 payload 带 category 与数字 categoryId', async () => {
+  it('选择已有分类后 payload 带 category 与字符串 categoryId', async () => {
     const wrapper = mountDialog();
     await settle();
     await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
@@ -80,10 +82,27 @@ describe('CloudDocSyncDialog 右键同步', () => {
       expect.objectContaining({
         filePath: '/ws/notes/a.md',
         category: '子分类',
-        categoryId: 2002,
+        categoryId: '2002',
         overwrite: false,
       }),
     );
+  });
+
+  it('雪花分类 id 按字符串原样下发（不能被 Number 截断）', async () => {
+    const snowflake = '2114279859393396737';
+    const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
+
+    await wrapper.get(`[data-testid="cloud-sync-dialog-category-${snowflake}"]`).trigger('click');
+    await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
+    await settle();
+
+    const payload = mocks.syncByPath.mock.calls[0]?.[0] as { categoryId?: unknown };
+    expect(payload.categoryId).toBe(snowflake);
+    // 明确挡住精度回归：Number(雪花 id) ≠ 原值
+    expect(payload.categoryId).not.toBe(Number(snowflake));
   });
 
   it('新建分类与选择互斥：填名称后忽略已选分类', async () => {
@@ -272,7 +291,28 @@ describe('CloudDocSyncDialog 分类下拉与成功提示（0.6.23）', () => {
     expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('笔记');
   });
 
-  it('同步成功：关闭弹窗并弹居中标示 toast', async () => {
+  it('展开分类后点面板外空白处收起，点面板内部不收', async () => {
+    const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-panel"]').exists()).toBe(true);
+
+    // 面板内部点击（搜索框）不收起
+    wrapper.get('[data-testid="cloud-sync-dialog-category-search"]').element.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true }),
+    );
+    await settle();
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-panel"]').exists()).toBe(true);
+
+    // 面板外（document 上）mousedown → 收起分类面板（弹窗本身不关闭）
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await settle();
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-panel"]').exists()).toBe(false);
+    expect(wrapper.emitted('close')).toBeUndefined();
+  });
+
+  it('同步成功：只关闭弹窗并上抛 synced（toast 由 App 统一弹，避免重复）', async () => {
     mocks.syncByPath.mockResolvedValue({
       status: 'synced',
       fileId: 42,
@@ -289,8 +329,7 @@ describe('CloudDocSyncDialog 分类下拉与成功提示（0.6.23）', () => {
 
     expect(wrapper.emitted('close')).toBeTruthy();
     expect(wrapper.emitted('synced')).toBeTruthy();
-    const toast = useCenterToastStore();
-    expect(toast.visible).toBe(true);
-    expect(toast.message).toContain('v7');
+    // 弹窗内不再自己弹 toast：否则 App 会再弹一次（重复）
+    expect(useCenterToastStore().visible).toBe(false);
   });
 });

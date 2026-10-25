@@ -204,14 +204,14 @@ async function save(): Promise<void> {
     return;
   }
   const changed: {
-    categoryId?: number | null;
+    categoryId?: string | null;
     category?: string | null;
     tags?: string | null;
     visibility?: 'PRIVATE' | 'PUBLIC';
   } = {};
   if (categorySelection.value !== initial.value.categoryId) {
-    const numeric = Number(categorySelection.value);
-    changed.categoryId = categorySelection.value && Number.isFinite(numeric) ? numeric : null;
+    // 分类 id 是雪花 id（> 2^53）：按字符串原样下发，绝不能再转 number
+    changed.categoryId = categorySelection.value || null;
     changed.category = categorySelection.value
       ? categories.value.find((item) => item.id === categorySelection.value)?.name ?? null
       : null;

@@ -63,8 +63,11 @@ export interface CloudDocSyncMeta {
   updatedAt: string | null;
   /** 云端分类名称（属性面板回显用，不是凭据） */
   category?: string | null;
-  /** 云端分类 id（雪花 id 在 TS 侧统一按 number 处理） */
-  categoryId?: number | null;
+  /**
+   * 云端分类 id：雪花 id 一律按字符串保存（> 2^53，经 number 会丢精度）。
+   * `number` 仅为兼容旧版本持久化数据（localStorage）。
+   */
+  categoryId?: string | number | null;
   /** 逗号分隔的标签串 */
   tags?: string | null;
   /** 可见性 */
@@ -74,7 +77,7 @@ export interface CloudDocSyncMeta {
 /** 属性面板提交给 forcePushCurrentDocument 的可选元信息。 */
 export interface CloudDocMetaInput {
   category?: string | null;
-  categoryId?: number | null;
+  categoryId?: string | number | null;
   tags?: string | null;
   visibility?: CloudDocVisibility;
 }
@@ -82,7 +85,7 @@ export interface CloudDocMetaInput {
 /** loadDocMeta 返回的属性面板初值。 */
 export interface CloudDocMetaSnapshot {
   category: string | null;
-  categoryId: number | null;
+  categoryId: string | number | null;
   tags: string | null;
   visibility: CloudDocVisibility | null;
 }
@@ -142,7 +145,10 @@ function normalizeDocSyncMeta(value: unknown): CloudDocSyncMeta | null {
   if (typeof record.category === 'string') {
     meta.category = record.category;
   }
-  if (typeof record.categoryId === 'number' && Number.isFinite(record.categoryId)) {
+  // 分类 id：新数据是字符串雪花 id，旧数据可能是 number（一次性兼容，不再做 number 转换）
+  if (typeof record.categoryId === 'string' && record.categoryId.trim()) {
+    meta.categoryId = record.categoryId.trim();
+  } else if (typeof record.categoryId === 'number' && Number.isFinite(record.categoryId)) {
     meta.categoryId = record.categoryId;
   }
   if (typeof record.tags === 'string') {

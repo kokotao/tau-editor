@@ -1847,7 +1847,7 @@ const handleCloudSyncVisibilityChange = (event: Event) => {
   cloudSyncVisibilityPublic.value = Boolean(target?.checked);
 };
 
-/** 表单 → forcePush 的 meta；下拉选择时把雪花 id 字符串转成 number。 */
+/** 表单 → forcePush 的 meta；分类 id 是雪花 id，按字符串原样下发（不转 number）。 */
 const buildCloudSyncMetaInput = (): CloudDocMetaInput => {
   const visibility = cloudSyncVisibilityPublic.value ? 'PUBLIC' : 'PRIVATE';
   const tags = cloudSyncTagsText.value.trim() || null;
@@ -1863,10 +1863,9 @@ const buildCloudSyncMetaInput = (): CloudDocMetaInput => {
 
   const selectedId = cloudSyncCategorySelection.value;
   const option = cloudSyncCategoryOptions.value.find((item) => item.id === selectedId) ?? null;
-  const parsedCategoryId = option ? Number(option.id) : Number.NaN;
   return {
     category: option ? option.name : null,
-    categoryId: Number.isFinite(parsedCategoryId) && parsedCategoryId > 0 ? parsedCategoryId : null,
+    categoryId: option ? option.id : null,
     tags,
     visibility,
   };

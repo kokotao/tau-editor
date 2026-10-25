@@ -113,14 +113,14 @@ describe('分类写操作', () => {
     }
   });
 
-  it('无权限 403 归类为 unauthorized', async () => {
+  it('无权限 403 归类为 forbidden（不能当登录失效）', async () => {
     mocks.categoryDelete.mockRejectedValue(
       Object.assign(new Error('没有权限'), { code: 'FORBIDDEN' }),
     );
     const outcome = await deleteCategory('3');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
-      expect(outcome.kind).toBe('unauthorized');
+      expect(outcome.kind).toBe('forbidden');
     }
   });
 

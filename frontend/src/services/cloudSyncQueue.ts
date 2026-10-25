@@ -210,7 +210,7 @@ export function createCloudSyncQueue(deps: CloudSyncQueueDeps): CloudSyncQueue {
     const attempts = item.attempts + 1;
     if (attempts >= CLOUD_QUEUE_MAX_ATTEMPTS) {
       // 超过最大尝试次数：放弃；先回调让 store 把最后错误展示给用户，再由队列移除。
-      deps.onGiveUp?.(item.tabId, item.filePath, item.lastError ?? message);
+      deps.onGiveUp?.(item.tabId, item.filePath, message);
       removeItem(item.id);
       return;
     }

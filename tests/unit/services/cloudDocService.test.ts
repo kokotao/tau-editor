@@ -213,3 +213,23 @@ describe('cloudDocService 命令包装', () => {
     expect(cloudMocks.me).not.toHaveBeenCalled();
   });
 });
+
+
+describe('403 归类为 forbidden（0.6.25，不能误登出）', () => {
+  it('FORBIDDEN / 403 都归 forbidden 而不是 unauthorized', () => {
+    expect(normalizeCloudError({ code: 'FORBIDDEN', message: '没有权限' }).kind).toBe('forbidden');
+    expect(normalizeCloudError({ code: 403, message: '当前账号无作者权限' }).kind).toBe('forbidden');
+    expect(normalizeCloudError({ code: 'PERMISSION_DENIED', message: '' }).kind).toBe('forbidden');
+  });
+
+  it('只有 401 / 未登录文案才算登录失效', () => {
+    expect(normalizeCloudError({ code: 401, message: '未登录' }).kind).toBe('unauthorized');
+    expect(normalizeCloudError({ code: 'UNAUTHORIZED', message: '' }).kind).toBe('unauthorized');
+  });
+
+  it('无权限但没有 message 时给可读兜底文案', () => {
+    const normalized = normalizeCloudError({ code: 'FORBIDDEN' });
+    expect(normalized.kind).toBe('forbidden');
+    expect(normalized.message).toContain('无权限');
+  });
+});

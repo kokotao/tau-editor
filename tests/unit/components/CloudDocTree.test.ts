@@ -259,6 +259,21 @@ describe('CloudDocTree 右键菜单', () => {
     expect(mocks.categoriesList).toHaveBeenCalled();
   });
 
+  it('展开「移动到…」时收起右键菜单（同坐标叠层会挡住分类列表）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file', { clientX: 120, clientY: 90 });
+    expect(q('cloud-doc-tree-menu')).not.toBeNull();
+
+    clickEl('cloud-doc-menu-move');
+    await flushPromises();
+
+    expect(q('cloud-doc-tree-menu')).toBeNull();
+    const moveMenu = wrapper.get('[data-testid="cloud-doc-move-menu"]');
+    // 固定在同一个鼠标坐标，但不能被右键菜单盖住
+    expect(Number.parseFloat(moveMenu.element.style.left)).toBe(120);
+    expect(Number.parseFloat(moveMenu.element.style.top)).toBe(90);
+  });
+
   it('点击「删除云端文档」二次确认后调用删除', async () => {
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-file');

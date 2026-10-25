@@ -18,6 +18,8 @@ import {
 
 export type CloudErrorKind =
   | 'unauthorized'
+  /** 已登录但无权限（如单文档非 owner 的 403）：不能当成登录失效去登出 */
+  | 'forbidden'
   | 'conflict'
   | 'quota'
   | 'network'
@@ -37,6 +39,8 @@ const CLOUD_DOC_PAGE_SIZE = 100;
 /** 路径查找的最多翻页次数，避免异常数据导致死循环。 */
 const CLOUD_DOC_MAX_PAGES = 10;
 
+const CLOUD_FALLBACK_MESSAGE = '云端操作失败，请稍后重试。';
+
 const WEB_UNSUPPORTED_MESSAGE = '当前是 Web 构建，云文档功能仅在 Tauri 桌面端可用。';
 
 /**
@@ -53,8 +57,10 @@ const CLOUD_ERROR_KIND_MAP: Record<string, CloudErrorKind> = {
   TOKEN_EXPIRED: 'unauthorized',
   TOKEN_INVALID: 'unauthorized',
   '401': 'unauthorized',
-  '403': 'unauthorized',
-  FORBIDDEN: 'unauthorized',
+  // 403 是「无权限」，不是登录失效：单独归类，避免 store 误登出
+  '403': 'forbidden',
+  FORBIDDEN: 'forbidden',
+  PERMISSION_DENIED: 'forbidden',
   // 版本 / 路径冲突
   CONFLICT: 'conflict',
   VERSION_CONFLICT: 'conflict',
@@ -81,6 +87,7 @@ const CLOUD_ERROR_KIND_MAP: Record<string, CloudErrorKind> = {
 
 const NETWORK_MESSAGE_PATTERN = /network|timeout|timed out|dns|fetch|连接|网络|超时/i;
 const UNAUTHORIZED_MESSAGE_PATTERN = /未登录|登录已过期|请先登录|unauthorized/i;
+const FORBIDDEN_MESSAGE_PATTERN = /无权限|没有权限|不属于你|owner|forbidden/i;
 const QUOTA_MESSAGE_PATTERN = /空间不足|配额|quota|too large|超过.*上限/i;
 
 function readErrorCode(error: unknown): string {
@@ -108,13 +115,15 @@ function readErrorMessage(error: unknown): string {
     if (typeof candidate === 'string' && candidate.trim()) {
       return candidate.trim();
     }
-  }
-
-  if (error === undefined || error === null) {
+    // 对象没有可用 message 时不要 String(error)（会得到 "[object Object]"）
     return '';
   }
 
-  return String(error);
+  if (typeof error === 'number' || typeof error === 'boolean') {
+    return String(error);
+  }
+
+  return '';
 }
 
 /**
@@ -124,11 +133,16 @@ function readErrorMessage(error: unknown): string {
  */
 export function normalizeCloudError(error: unknown): { kind: CloudErrorKind; message: string } {
   const code = readErrorCode(error);
-  const message = readErrorMessage(error) || '云端操作失败，请稍后重试。';
+  const message = readErrorMessage(error) || CLOUD_FALLBACK_MESSAGE;
 
   if (code) {
     // 未知 code（SERVER_ERROR 密码错误、KEYRING_ERROR、INVALID_ARGUMENT 等）一律保留原 message。
-    return { kind: CLOUD_ERROR_KIND_MAP[code] ?? 'unknown', message };
+    const kind = CLOUD_ERROR_KIND_MAP[code] ?? 'unknown';
+    // 403 但服务端没给 message 时补一句可读的「无权限」，而不是笼统的「云端操作失败」
+    if (kind === 'forbidden' && message === CLOUD_FALLBACK_MESSAGE) {
+      return { kind, message: '无权限，请确认文档归属' };
+    }
+    return { kind, message };
   }
 
   if (NETWORK_MESSAGE_PATTERN.test(message)) {
@@ -136,6 +150,9 @@ export function normalizeCloudError(error: unknown): { kind: CloudErrorKind; mes
   }
   if (UNAUTHORIZED_MESSAGE_PATTERN.test(message)) {
     return { kind: 'unauthorized', message };
+  }
+  if (FORBIDDEN_MESSAGE_PATTERN.test(message)) {
+    return { kind: 'forbidden', message: message || '无权限，请确认文档归属' };
   }
   if (QUOTA_MESSAGE_PATTERN.test(message)) {
     return { kind: 'quota', message };

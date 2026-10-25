@@ -142,6 +142,15 @@
             </dl>
 
             <div class="share-dialog__actions">
+              <label v-if="hasPassword" class="share-dialog__check" data-testid="share-dialog-clear-password-label">
+                <input
+                  v-model="clearPasswordMode"
+                  type="checkbox"
+                  data-testid="share-dialog-clear-password"
+                  :disabled="busy"
+                />
+                {{ copy.clearPasswordLabel }}
+              </label>
               <button type="button" class="share-dialog__button" data-testid="share-dialog-regenerate" :disabled="busy" @click="generate(true)">
                 {{ copy.regenerate }}
               </button>
@@ -218,10 +227,9 @@ import {
   getShareStatus,
   normalizeExpiresInDays,
   revokeShare,
-  SHARE_EXPIRY_PRESET_DAYS,
 } from '@/services/cloudShareService';
 import { isMarkdownPath, resolveCloudDocPathForFile, syncDocumentByPath } from '@/services/cloudSyncService';
-import { parseMarkdownImageRefs } from '@/services/cloudAssetService';
+import { parseMarkdownImageRefs, normalizeAssetHash } from '@/services/cloudAssetService';
 import {
   binaryDocKind,
   ensureBinaryDocumentUploaded,
@@ -304,6 +312,8 @@ const expiryChoice = ref<ExpiryChoice>(null);
 const customDays = ref('30');
 const passwordEnabled = ref(false);
 const password = ref('');
+/** 重新生成时主动移除已有密码（契约：clearPassword=true，而不是 password:null） */
+const clearPasswordMode = ref(false);
 
 const isCustomExpiry = computed(() => expiryChoice.value === 'custom');
 
@@ -375,6 +385,7 @@ function resetState(): void {
   customDays.value = '30';
   passwordEnabled.value = false;
   password.value = '';
+  clearPasswordMode.value = false;
 }
 
 function cloudPathFor(filePath: string): string {
@@ -490,9 +501,11 @@ async function loadImageStatus(filePath: string, docFileId: number): Promise<voi
     for (const ref of refs) {
       const local = localByPath.get(ref.localPath.replace(/\\/g, '/'));
       const remote = remoteByRel.get(ref.relPath);
-      if (remote && local?.contentHash && remote.contentHash === local.contentHash) {
+      const localHash = normalizeAssetHash(local?.contentHash);
+      // 服务端 hash 可能没有 sha256: 前缀，先归一化再比，否则会误报「未同步」
+      if (remote && localHash && normalizeAssetHash(remote.contentHash) === localHash) {
         synced += 1;
-      } else if (remote && !local?.contentHash) {
+      } else if (remote && !localHash) {
         // 本地无法算哈希但云端已有同 relPath：按已同步计
         synced += 1;
       }
@@ -559,6 +572,7 @@ async function generate(regenerate: boolean): Promise<void> {
   try {
     const outcome = await createShare(id, {
       regenerate,
+      clearPassword: regenerate && clearPasswordMode.value ? true : null,
       expiresInDays: resolvedExpiresInDays(),
       password: regenerate ? null : resolvedPassword(),
     });
