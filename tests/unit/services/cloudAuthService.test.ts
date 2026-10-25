@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildRegisterUrl, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cloudMocks = vi.hoisted(() => ({
   isTauri: { value: false },
@@ -21,8 +22,10 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
   };
 });
 
-import { TauriError } from '@/lib/tauri';
 import {
+  buildRegisterUrl, TauriError } from '@/lib/tauri';
+import {
+  buildRegisterUrl,
   DEFAULT_CLOUD_BASE_URL,
   loginToLizi,
   logoutFromLizi,
@@ -316,5 +319,24 @@ describe('cloudAuthService 桌面端分支', () => {
     });
 
     expect(await restoreCloudSession()).toEqual({ ok: true, data: null });
+  });
+});
+
+describe('buildRegisterUrl 注册入口', () => {
+  it('用服务器地址的 origin 拼注册页并带 source=tau', () => {
+    expect(buildRegisterUrl('https://note.lizipro.cn/lizi')).toBe(
+      'https://note.lizipro.cn/lizi/newUser/register?source=tau',
+    );
+    expect(buildRegisterUrl('https://note.lizipro.cn/lizi/some/path')).toBe(
+      'https://note.lizipro.cn/lizi/newUser/register?source=tau',
+    );
+  });
+
+  it('地址缺失或非法时回落到默认站点', () => {
+    expect(buildRegisterUrl('')).toBe('https://note.lizipro.cn/lizi/newUser/register?source=tau');
+    expect(buildRegisterUrl(null)).toBe('https://note.lizipro.cn/lizi/newUser/register?source=tau');
+    expect(buildRegisterUrl('note.lizipro.cn/lizi')).toBe(
+      'https://note.lizipro.cn/lizi/newUser/register?source=tau',
+    );
   });
 });

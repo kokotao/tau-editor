@@ -98,6 +98,16 @@ describe('cloudSyncService 三方决策', () => {
     ).toBe('pull');
   });
 
+  it('本地已改动而云端未变时应上传更新（不能误判成冲突）', () => {
+    expect(
+      resolveCloudSyncDecision({
+        localHash: 'sha256:cc',
+        remoteHash: 'sha256:aa',
+        baseHash: 'sha256:aa',
+      }),
+    ).toBe('update');
+  });
+
   it('本地与云端都改动过时应判定冲突', () => {
     expect(
       resolveCloudSyncDecision({

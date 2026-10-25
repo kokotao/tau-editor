@@ -48,6 +48,7 @@ describe('StatusBar.vue', () => {
   describe('渲染测试', () => {
     it('应正确渲染状态栏', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -60,6 +61,7 @@ describe('StatusBar.vue', () => {
 
     it('应渲染左右两个区域', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -74,6 +76,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 5, column: 10 },
           encoding: 'utf-8',
@@ -86,6 +89,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示编码', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -100,6 +104,7 @@ describe('StatusBar.vue', () => {
 
     it('应支持自定义编码并大写显示', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'gbk',
@@ -116,6 +121,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示行数', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -131,6 +137,7 @@ describe('StatusBar.vue', () => {
   describe('光标位置显示', () => {
     it('应显示默认光标位置 (1, 1)', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -141,6 +148,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示自定义光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 100, column: 50 },
         },
@@ -151,6 +159,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示大数值光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 9999, column: 999 },
         },
@@ -163,6 +172,7 @@ describe('StatusBar.vue', () => {
   describe('语言模式选择', () => {
     const mountLanguageBar = (language = 'plaintext') =>
       mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           language,
@@ -223,6 +233,7 @@ describe('StatusBar.vue', () => {
 
     it('语言列表应使用可滚动的自绘菜单并通过方向键选择', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           language: 'plaintext',
@@ -288,6 +299,7 @@ describe('StatusBar.vue', () => {
   describe('编码选择', () => {
     const mountEncodingBar = (encoding = 'utf-8') =>
       mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding,
@@ -313,6 +325,7 @@ describe('StatusBar.vue', () => {
   describe('自动保存状态', () => {
     it('autoSaveEnabled=true 时应显示自动保存图标', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -325,6 +338,7 @@ describe('StatusBar.vue', () => {
 
     it('autoSaveEnabled=true 时应显示自动保存文本', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -336,6 +350,7 @@ describe('StatusBar.vue', () => {
 
     it('autoSaveEnabled=false 时应隐藏自动保存状态', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: false,
@@ -349,6 +364,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（刚刚）', () => {
       const now = new Date()
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -362,6 +378,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（分钟前）', () => {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -375,6 +392,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（小时前）', () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -388,6 +406,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（时间格式）', () => {
       const yesterday = new Date(Date.now() - 25 * 60 * 60 * 1000)
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -402,6 +421,7 @@ describe('StatusBar.vue', () => {
 
     it('无 lastSaveTime 时应隐藏时间', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -420,6 +440,7 @@ describe('StatusBar.vue', () => {
       editorStore.setContent('line1\nline2\nline3')
       
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -432,6 +453,7 @@ describe('StatusBar.vue', () => {
       editorStore.setContent('')
       
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -444,6 +466,7 @@ describe('StatusBar.vue', () => {
       editorStore.setContent('line1\nline2\nline3\nline4\nline5')
       
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -456,6 +479,7 @@ describe('StatusBar.vue', () => {
   describe('样式类', () => {
     it('状态栏应有正确的类名', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -467,6 +491,7 @@ describe('StatusBar.vue', () => {
 
     it('状态项应有 status-item 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -478,6 +503,7 @@ describe('StatusBar.vue', () => {
 
     it('状态标签应有 status-label 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -488,6 +514,7 @@ describe('StatusBar.vue', () => {
 
     it('语言选择框应有 status-select 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -498,6 +525,7 @@ describe('StatusBar.vue', () => {
 
     it('自动保存图标应有 status-icon 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -511,6 +539,7 @@ describe('StatusBar.vue', () => {
   describe('默认 Props', () => {
     it('应使用默认光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -519,6 +548,7 @@ describe('StatusBar.vue', () => {
 
     it('应使用默认编码', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -528,6 +558,7 @@ describe('StatusBar.vue', () => {
 
     it('应使用默认语言', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -537,6 +568,7 @@ describe('StatusBar.vue', () => {
 
     it('应默认启用自动保存', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -547,6 +579,7 @@ describe('StatusBar.vue', () => {
   describe('响应式更新', () => {
     it('光标位置变化应更新显示', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -559,6 +592,7 @@ describe('StatusBar.vue', () => {
 
     it('语言变化应更新选择框', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           language: 'plaintext',
         },
@@ -572,6 +606,7 @@ describe('StatusBar.vue', () => {
 
     it('自动保存状态变化应更新显示', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           autoSaveEnabled: true,
         },
@@ -588,6 +623,7 @@ describe('StatusBar.vue', () => {
   describe('作者信息弹窗', () => {
     it('点击作者入口应打开弹窗并展示 GitHub 链接', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -607,6 +643,7 @@ describe('StatusBar.vue', () => {
 
     it('点击遮罩应关闭作者弹窗', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -622,6 +659,7 @@ describe('StatusBar.vue', () => {
   describe('可点击性', () => {
     it('状态项应可点击', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -635,6 +673,7 @@ describe('StatusBar.vue', () => {
 
     it('语言选择框应可交互', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           language: 'plaintext',
         },

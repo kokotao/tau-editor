@@ -499,6 +499,42 @@ describe('SettingsStore', () => {
       expect(mockClassList.remove).toHaveBeenCalledWith(...themeResetClassArgs)
     })
 
+    it('syncDocumentImages 默认开启（图片附件同步）', () => {
+      expect(store.syncDocumentImages).toBe(true)
+      store.updateSettings({ syncDocumentImages: false })
+      expect(store.syncDocumentImages).toBe(false)
+      store.saveToStorage()
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.syncDocumentImages).toBe(false)
+    })
+
+    it('setSidebarPanel 记住侧栏面板选择并持久化', () => {
+      store.setSidebarPanel('cloud')
+      expect(store.sidebarPanel).toBe('cloud')
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.sidebarPanel).toBe('cloud')
+
+      // 非法值回落到工作区
+      store.setSidebarPanel('nope' as never)
+      expect(store.sidebarPanel).toBe('workspace')
+    })
+
+    it('applyTheme() 同步原生控件配色 color-scheme（自定义主题包也能拿到可读下拉框）', () => {
+      const styleWithScheme = mockStyle as unknown as { colorScheme?: string }
+
+      store.theme = 'dark'
+      store.applyTheme()
+      expect(styleWithScheme.colorScheme).toBe('dark')
+
+      store.theme = 'light'
+      store.applyTheme()
+      expect(styleWithScheme.colorScheme).toBe('light')
+    })
+
     it('applyTheme() system 暗色模式应添加 dark 类', () => {
       store.theme = 'system'
       mockMatchMedia.mockReturnValue(createMediaQueryList(true))

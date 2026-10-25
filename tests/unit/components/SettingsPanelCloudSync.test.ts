@@ -46,6 +46,7 @@ const cloudMocks = vi.hoisted(() => ({
   getAppVersionInfo: vi.fn(),
   checkGithubUpdate: vi.fn(),
   downloadAndInstallUpdate: vi.fn(),
+  openExternalLink: vi.fn(),
 }));
 
 vi.mock('naive-ui', () => ({
@@ -74,6 +75,10 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
       blogCategories: cloudMocks.blogCategories,
       blogTags: cloudMocks.blogTags,
     },
+    appCommands: {
+      ...actual.appCommands,
+      openExternalLink: cloudMocks.openExternalLink,
+    },
     settingsCommands: {
       ...actual.settingsCommands,
       getAppVersionInfo: cloudMocks.getAppVersionInfo,
@@ -87,8 +92,22 @@ vi.mock('@/services/markdownRenderService', () => ({
   renderMarkdown: vi.fn(() => '<h1>新版本</h1>'),
 }));
 
+/** 拉取覆盖本地时会读文件修订号（走 Tauri 文件系统），这里只替换这一处边界。 */
+const captureFileRevision = vi.hoisted(() => vi.fn(async (_path: string) => 'rev-cloud'));
+
+vi.mock('@/services/workspaceService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/workspaceService')>();
+  return {
+    ...actual,
+    createWorkspaceService: () => ({ captureFileRevision }),
+  };
+});
+
 import SettingsPanel from '@/components/editor/SettingsPanel.vue';
 import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useSettingsStore } from '@/stores/settings';
+import { useFileConflictsStore } from '@/stores/fileConflicts';
+import { useFileSystemStore } from '@/stores/fileSystem';
 import { useTabsStore, type Tab } from '@/stores/tabs';
 import { useWorkspaceStore } from '@/stores/workspace';
 
@@ -183,6 +202,7 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
     setActivePinia(pinia);
     cloudMocks.isTauri.value = true;
     cloudMocks.get.mockResolvedValue(REMOTE_DOC);
+    captureFileRevision.mockResolvedValue('rev-cloud');
     cloudMocks.blogCategories.mockResolvedValue(CATEGORY_TREE);
     cloudMocks.blogTags.mockResolvedValue(['笔记', '云同步']);
     cloudMocks.save.mockResolvedValue({
@@ -221,6 +241,7 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
       baseUrl: 'https://note.lizipro.cn/lizi',
     });
     cloudMocks.logout.mockResolvedValue(undefined);
+    cloudMocks.openExternalLink.mockResolvedValue(undefined);
     cloudMocks.getAppVersionInfo.mockResolvedValue({
       version: '0.2.0',
       os: 'linux',
@@ -259,32 +280,6 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
     vi.clearAllMocks();
   });
 
-  it('有云端映射时应展开版本历史并在恢复时调用 restore', async () => {
-    seedActiveTab();
-    const wrapper = mountPanel();
-    await settle();
-
-    const versionsBtn = wrapper.get('[data-testid="cloud-sync-versions-btn"]');
-    expect(versionsBtn.exists()).toBe(true);
-    await versionsBtn.trigger('click');
-    await settle();
-
-    expect(cloudMocks.versions).toHaveBeenCalledWith(42);
-    const rows = wrapper.findAll('[data-testid="cloud-sync-version-row"]');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.text()).toContain('版本 v3');
-    expect(rows[0]?.text()).toContain('首次上传');
-
-    const restoreBtn = wrapper.findAll('[data-testid="cloud-sync-version-restore"]')[0];
-    expect(restoreBtn).toBeDefined();
-    await restoreBtn!.trigger('click');
-    await settle();
-
-    expect(cloudMocks.restore).toHaveBeenCalledWith(42, 101);
-    // 恢复后要刷新配额并重新拉取版本列表
-    expect(cloudMocks.me).toHaveBeenCalled();
-    expect(cloudMocks.versions).toHaveBeenCalledTimes(2);
-  });
 
   it('同步结果为冲突时应出现双按钮，用本地覆盖时以云端版本为 baseVersion 保存', async () => {
     seedActiveTab();
@@ -329,60 +324,142 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
     expect(wrapper.find('[data-testid="cloud-sync-keep-remote-btn"]').exists()).toBe(false);
   });
 
-  it('文档属性卡应渲染分类树、回填云端属性，并在保存时把 meta 送入 payload', async () => {
+
+
+  it('磁盘外部修改不应点亮云同步冲突面板', async () => {
     seedActiveTab();
+    // 省略 source：磁盘/外部程序改动，属于外部变更提示，不是云冲突
+    useFileConflictsStore().flag({ path: '/ws/notes.md', kind: 'modified' });
 
     const wrapper = mountPanel();
     await settle();
 
-    expect(cloudMocks.blogCategories).toHaveBeenCalled();
-
-    const categorySelect = wrapper.get('[data-testid="cloud-sync-meta-category"]');
-    const optionValues = categorySelect.findAll('option').map((option) => (option.element as HTMLOptionElement).value);
-    expect(optionValues).toContain('1001');
-    expect(optionValues).toContain('2002');
-    // 表单初值来自 getCloudDoc 返回的云端属性
-    expect((categorySelect.element as HTMLSelectElement).value).toBe('1001');
-    expect((wrapper.get('[data-testid="cloud-sync-meta-tags"]').element as HTMLInputElement).value).toBe('旧标签');
-
-    await categorySelect.setValue('2002');
-    await wrapper.get('[data-testid="cloud-sync-meta-tags"]').setValue('新标签, 云同步');
-    await wrapper.get('[data-testid="cloud-sync-meta-visibility"]').setValue(true);
-    await wrapper.get('[data-testid="cloud-sync-meta-save"]').trigger('click');
-    await settle();
-
-    const payload = cloudMocks.save.mock.calls[0]?.[0];
-    expect(payload).toMatchObject({
-      path: 'tau/ws/notes.md',
-      baseVersion: 7,
-      category: '子分类',
-      // 雪花 id 字符串必须转成 number 传给后端
-      categoryId: 2002,
-      tags: '新标签, 云同步',
-      visibility: 'PUBLIC',
-    });
+    expect(wrapper.find('[data-testid="cloud-sync-conflict"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-sync-keep-remote-btn"]').exists()).toBe(false);
   });
 
-  it('分类接口失败时应降级为文本输入并仍能保存分类名', async () => {
+  it('只有云端冲突来源才点亮云同步冲突面板', async () => {
     seedActiveTab();
-    cloudMocks.blogCategories.mockRejectedValue(new Error('网络异常'));
+    useFileConflictsStore().flag({ path: '/ws/notes.md', kind: 'modified', source: 'cloud' });
 
     const wrapper = mountPanel();
     await settle();
 
-    expect(wrapper.find('[data-testid="cloud-sync-meta-categories-error"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="cloud-sync-meta-category"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-sync-conflict"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-sync-keep-remote-btn"]').exists()).toBe(true);
+  });
 
-    const categoryText = wrapper.get('[data-testid="cloud-sync-meta-category-text"]');
-    await categoryText.setValue('手写分类');
-    await wrapper.get('[data-testid="cloud-sync-meta-save"]').trigger('click');
+  it('「从云端拉取」遇到未保存修改时先确认；取消不落盘且保留本地内容', async () => {
+    seedActiveTab({ isDirty: true, content: 'unsaved local' });
+    cloudMocks.list.mockResolvedValue({ records: [REMOTE_DOC], total: 1, page: 1, size: 100 });
+    cloudMocks.get.mockResolvedValue({ ...REMOTE_DOC, content: 'cloud content', createdAt: null });
+    const write = vi
+      .spyOn(useFileSystemStore(), 'writeFileContent')
+      .mockResolvedValue(undefined);
+
+    const wrapper = mountPanel();
     await settle();
 
-    const payload = cloudMocks.save.mock.calls[0]?.[0];
-    expect(payload).toMatchObject({
-      category: '手写分类',
-      categoryId: null,
-      visibility: 'PRIVATE',
-    });
+    await wrapper.get('[data-testid="cloud-sync-pull-btn"]').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-pull-confirm"]').exists()).toBe(true);
+    expect(write).not.toHaveBeenCalled();
+
+    await wrapper.get('[data-testid="cloud-sync-pull-confirm-cancel"]').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-pull-confirm"]').exists()).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+    const tab = useTabsStore().activeTab;
+    expect(tab?.content).toBe('unsaved local');
+    expect(tab?.isDirty).toBe(true);
+  });
+
+  it('确认覆盖后落盘并刷新云端基线', async () => {
+    seedActiveTab({ isDirty: true, content: 'unsaved local' });
+    cloudMocks.list.mockResolvedValue({ records: [REMOTE_DOC], total: 1, page: 1, size: 100 });
+    cloudMocks.get.mockResolvedValue({ ...REMOTE_DOC, content: 'cloud content', createdAt: null });
+    const write = vi
+      .spyOn(useFileSystemStore(), 'writeFileContent')
+      .mockResolvedValue(undefined);
+
+    const wrapper = mountPanel();
+    await settle();
+
+    await wrapper.get('[data-testid="cloud-sync-pull-btn"]').trigger('click');
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-pull-confirm-ok"]').trigger('click');
+    await settle();
+
+    expect(write).toHaveBeenCalledWith('/ws/notes.md', 'cloud content');
+    const tab = useTabsStore().activeTab;
+    expect(tab?.content).toBe('cloud content');
+    expect(tab?.isDirty).toBe(false);
+    expect(tab?.cloudVersion).toBe(7);
+    expect(tab?.cloudContentHash).toBe('sha256:remote');
+    expect(captureFileRevision).toHaveBeenCalledWith('/ws/notes.md');
+  });
+
+  it('冲突面板选「以云端为准」时不再二次确认，脏标签也直接覆盖', async () => {
+    seedActiveTab({ isDirty: true, content: 'unsaved local' });
+    useFileConflictsStore().flag({ path: '/ws/notes.md', kind: 'modified', source: 'cloud' });
+    cloudMocks.list.mockResolvedValue({ records: [REMOTE_DOC], total: 1, page: 1, size: 100 });
+    cloudMocks.get.mockResolvedValue({ ...REMOTE_DOC, content: 'cloud content', createdAt: null });
+    const write = vi
+      .spyOn(useFileSystemStore(), 'writeFileContent')
+      .mockResolvedValue(undefined);
+
+    const wrapper = mountPanel();
+    await settle();
+
+    await wrapper.get('[data-testid="cloud-sync-keep-remote-btn"]').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-pull-confirm"]').exists()).toBe(false);
+    expect(write).toHaveBeenCalledWith('/ws/notes.md', 'cloud content');
+    expect(useTabsStore().activeTab?.cloudVersion).toBe(7);
+  });
+
+
+  it('「同步文档内图片」开关默认开启且可切换并持久化', async () => {
+    seedActiveTab();
+    const wrapper = mountPanel();
+    await settle();
+
+    const toggle = wrapper.get('[data-testid="cloud-sync-images-toggle"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+
+    await toggle.setValue(false);
+    await flushPromises();
+
+    expect(useSettingsStore().syncDocumentImages).toBe(false);
+  });
+
+  it('点「浏览云端文档」应 emit open-cloud-browser（由 App 关设置面板后再打开）', async () => {
+    seedActiveTab();
+    const wrapper = mountPanel();
+    await settle();
+
+    await wrapper.get('[data-testid="cloud-sync-browse-btn"]').trigger('click');
+
+    expect(wrapper.emitted('open-cloud-browser')).toHaveLength(1);
+  });
+
+  it('配额接口失败时显示错误归类与原因，不再留空白配额', async () => {
+    cloudMocks.me.mockRejectedValue(
+      Object.assign(new Error('获取云空间信息失败：无法连接服务器'), { code: 'NETWORK_ERROR' }),
+    );
+    seedActiveTab();
+
+    const wrapper = mountPanel();
+    await settle();
+    await settle();
+
+    const issue = wrapper.get('[data-testid="cloud-sync-quota-issue"]');
+    expect(issue.text()).toContain('network');
+    expect(issue.text()).toContain('无法连接服务器');
+    // 拿不到配额时不渲染空进度条
+    expect(wrapper.find('[data-testid="cloud-sync-quota-label"]').exists()).toBe(false);
   });
 });

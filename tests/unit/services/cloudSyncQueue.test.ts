@@ -19,10 +19,12 @@ import {
 } from '@/services/cloudSyncQueue';
 import { CLOUD_SYNC_STORAGE_KEY, useCloudSyncStore } from '@/stores/cloudSync';
 import { useTabsStore } from '@/stores/tabs';
+import type { CloudErrorKind } from '@/services/cloudDocService';
 
 type QueueRunResultStub = {
   status: 'synced' | 'skipped' | 'conflict' | 'failed';
   message?: string;
+  kind?: CloudErrorKind;
 };
 
 /**
@@ -191,6 +193,30 @@ describe('createCloudSyncQueue', () => {
 
     // 第 5 次失败后放弃（移出队列）
     await queue.flush();
+    expect(queue.pendingCount()).toBe(0);
+    queue.dispose();
+  });
+
+  it('达到最大次数放弃时通过 onGiveUp 透出最后错误，不让文档静默漏同步', async () => {
+    const onGiveUp = vi.fn();
+    const runSync = vi.fn(async () => ({ status: 'failed' as const, message: '离线' }));
+    const queue = createCloudSyncQueue({
+      runSync,
+      onGiveUp,
+      setTimeoutFn: NOOP_TIMER,
+      clearTimeoutFn: NOOP_CLEAR_TIMER,
+    });
+    queue.enqueue('t1', '/a.md');
+
+    for (let attempt = 1; attempt < CLOUD_QUEUE_MAX_ATTEMPTS; attempt += 1) {
+      await queue.flush();
+      vi.setSystemTime(Date.now() + computeRetryDelayMs(attempt));
+    }
+    expect(onGiveUp).not.toHaveBeenCalled();
+
+    await queue.flush();
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+    expect(onGiveUp).toHaveBeenCalledWith('t1', '/a.md', '离线');
     expect(queue.pendingCount()).toBe(0);
     queue.dispose();
   });
@@ -405,6 +431,201 @@ describe('cloudSyncStore 自动同步', () => {
     ]);
     expect(raw).not.toContain('token');
     expect(raw).not.toContain('password');
+  });
+
+  it('防抖窗口内多个标签各自入队，不会丢掉先触发的标签', async () => {
+    const tabA = seedTab('/ws/a.md');
+    const tabB = seedTab('/ws/b.md');
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.setAutoSyncEnabled(true);
+
+    store.scheduleAutoSync(tabA);
+    await vi.advanceTimersByTimeAsync(1_000);
+    store.scheduleAutoSync(tabB);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(runSyncMock.fn).toHaveBeenCalledTimes(2);
+    expect(runSyncMock.fn.mock.calls.map((call) => call[0]).sort())
+      .toEqual([tabA, tabB].sort());
+  });
+
+  it('登出时清空队列并取消未触发的自动同步防抖', async () => {
+    const tabId = seedTab();
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.setAutoSyncEnabled(true);
+
+    // 先落一条失败项在队列里（attempts>0，是重试候选）
+    store.scheduleAutoSync(tabId);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(store.pendingSyncCount).toBe(1);
+
+    // 再排一次防抖，随后立刻登出：这次不应再入队
+    store.scheduleAutoSync(tabId);
+    await store.logout();
+
+    expect(store.signedIn).toBe(false);
+    expect(store.pendingSyncCount).toBe(0);
+    expect(store.queueItems).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(store.pendingSyncCount).toBe(0);
+  });
+
+  it('静默续期成功后同步继续，登录态与队列都不被打断', async () => {
+    const tabA = seedTab('/ws/a.md');
+    const tabB = seedTab('/ws/b.md');
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.setAutoSyncEnabled(true);
+    // Rust 侧 401 已静默续期并重试成功：前端只看到 synced
+    runSyncMock.fn.mockResolvedValue({ status: 'synced' });
+
+    store.scheduleAutoSync(tabA);
+    await vi.advanceTimersByTimeAsync(1_000);
+    store.scheduleAutoSync(tabB);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    // 两项都同步完成，第二项没有被第一项的续期打断
+    expect(runSyncMock.fn).toHaveBeenCalledTimes(2);
+    expect(store.signedIn).toBe(true);
+    expect(store.lastError).toBeNull();
+    expect(store.pendingSyncCount).toBe(0);
+  });
+
+  it('续期被拒时清掉登录态，并把「请重新登录」提示透出到结果', async () => {
+    runSyncMock.fn.mockResolvedValue({
+      status: 'failed',
+      kind: 'unauthorized',
+      message: '获取云空间信息失败：登录状态已失效，请重新登录 lizi 账号',
+    });
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.username = 'alice';
+
+    const result = await store.syncCurrentDocument();
+
+    expect(result.status).toBe('failed');
+    expect(store.signedIn).toBe(false);
+    expect(store.username).toBeNull();
+    expect(store.space).toBeNull();
+    expect(store.lastError).toContain('请重新登录 lizi 账号');
+  });
+
+  it('续期遇到网络故障时保留登录态（按可重试错误处理）', async () => {
+    runSyncMock.fn.mockResolvedValue({
+      status: 'failed',
+      kind: 'network',
+      message: '刷新登录状态失败：无法连接服务器',
+    });
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.username = 'alice';
+
+    const result = await store.syncCurrentDocument();
+
+    expect(result.status).toBe('failed');
+    // 网络抖动不等于登录态失效：不能把用户踢下线
+    expect(store.signedIn).toBe(true);
+    expect(store.username).toBe('alice');
+    expect(store.lastError).toContain('无法连接服务器');
+  });
+
+  it('配额接口失败时把归类与原因记到 spaceError（设置页不再留空白配额）', async () => {
+    sessionMock.space.mockResolvedValue({
+      ok: false,
+      kind: 'network',
+      message: '获取云空间信息失败：无法连接服务器',
+    });
+    const store = useCloudSyncStore();
+
+    await store.initialize();
+
+    expect(store.space).toBeNull();
+    expect(store.spaceError).toEqual({
+      kind: 'network',
+      message: '获取云空间信息失败：无法连接服务器',
+    });
+    // 网络失败不踢下线
+    expect(store.signedIn).toBe(true);
+  });
+
+  it('配额读取成功后清掉 spaceError', async () => {
+    sessionMock.space.mockResolvedValue({
+      ok: false,
+      kind: 'network',
+      message: '无法连接服务器',
+    });
+    const store = useCloudSyncStore();
+    await store.initialize();
+    expect(store.spaceError?.kind).toBe('network');
+
+    sessionMock.space.mockResolvedValue({
+      ok: true,
+      data: {
+        userId: 'u1',
+        usedBytes: 10,
+        quotaBytes: 100,
+        fileCount: 1,
+        maxVersionPerFile: 30,
+      },
+    });
+    await store.refreshSpace();
+
+    expect(store.space?.quotaBytes).toBe(100);
+    expect(store.spaceError).toBeNull();
+  });
+
+  it('同步返回未授权时清掉登录态，不再用失效令牌继续重试', async () => {
+    runSyncMock.fn.mockResolvedValue({
+      status: 'failed',
+      kind: 'unauthorized',
+      message: '登录状态已失效，请重新登录 lizi 账号',
+    });
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.username = 'alice';
+
+    const result = await store.syncCurrentDocument();
+
+    expect(result.status).toBe('failed');
+    expect(store.signedIn).toBe(false);
+    expect(store.username).toBeNull();
+    expect(store.lastError).toContain('登录状态已失效');
+  });
+
+  it('initialize 访问过云空间但配额返回未授权时清掉登录态', async () => {
+    sessionMock.space.mockResolvedValue({
+      ok: false,
+      kind: 'unauthorized',
+      message: '登录状态已失效',
+    });
+    const store = useCloudSyncStore();
+
+    await store.initialize();
+
+    expect(store.signedIn).toBe(false);
+    expect(store.lastError).toContain('登录状态已失效');
+  });
+
+  it('自动同步队列遇到未授权也清掉登录态（不只手动同步路径）', async () => {
+    const tabId = seedTab();
+    const store = useCloudSyncStore();
+    store.signedIn = true;
+    store.setAutoSyncEnabled(true);
+    runSyncMock.fn.mockResolvedValue({
+      status: 'failed',
+      kind: 'unauthorized',
+      message: '登录状态已失效',
+    });
+
+    store.scheduleAutoSync(tabId);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(runSyncMock.fn).toHaveBeenCalledWith(tabId);
+    expect(store.signedIn).toBe(false);
+    expect(store.username).toBeNull();
   });
 
   it('initializeQueue 幂等，并把持久化断点恢复成队列快照', () => {

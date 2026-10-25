@@ -462,6 +462,90 @@ describe('FileTree.vue', () => {
       expect(teleportedMenu()).not.toBeNull()
     })
 
+    it('文件右键应出现「同步至云端」与「一键分享」，点击后 emit 对应事件', async () => {
+      const tree = [
+        { name: 'notes.md', path: '/project/notes.md', type: 'file' as const },
+    ]
+      const wrapper = mount(FileTree, { props: { fileTree: tree } })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const syncItem = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]')
+      const shareItem = document.body.querySelector('[data-testid="file-tree-share"]')
+      expect(syncItem).not.toBeNull()
+      expect(shareItem).not.toBeNull()
+      expect(shareItem?.textContent).toContain('一键分享')
+
+      syncItem?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('sync-to-cloud')?.[0]?.[0]).toMatchObject({ path: '/project/notes.md' })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+      document.body.querySelector('[data-testid="file-tree-share"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('share')?.[0]?.[0]).toMatchObject({ path: '/project/notes.md' })
+    })
+
+    it('二进制文件禁用同步/分享并给出原因', async () => {
+      const tree = [{ name: 'pic.png', path: '/project/pic.png', type: 'file' as const }]
+      const wrapper = mount(FileTree, { props: { fileTree: tree } })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const syncItem = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]') as HTMLElement
+      const shareItem = document.body.querySelector('[data-testid="file-tree-share"]') as HTMLElement
+      expect(syncItem.className).toContain('disabled')
+      expect(shareItem.className).toContain('disabled')
+      expect(syncItem.getAttribute('title')).toContain('二进制')
+
+      syncItem.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('sync-to-cloud')).toBeUndefined()
+      expect(wrapper.emitted('share')).toBeUndefined()
+    })
+
+    it('pdf 等二进制文档允许同步/分享，已同步后显示「已同步」', async () => {
+      const tree = [{ name: 'report.pdf', path: '/project/report.pdf', type: 'file' as const }]
+      const wrapper = mount(FileTree, {
+        props: { fileTree: tree, syncedPaths: ['/project/report.pdf'] },
+      })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const sync = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]') as HTMLElement
+      const share = document.body.querySelector('[data-testid="file-tree-share"]') as HTMLElement
+      expect(sync.className).not.toContain('disabled')
+      expect(sync.textContent).toContain('已同步')
+      expect(share.className).not.toContain('disabled')
+
+      sync.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('sync-to-cloud')?.[0]?.[0]).toMatchObject({ path: '/project/report.pdf' })
+    })
+
+    it('宏格式 docm 禁用同步/分享并给出宏原因', async () => {
+      const tree = [{ name: 'report.docm', path: '/project/report.docm', type: 'file' as const }]
+      const wrapper = mount(FileTree, { props: { fileTree: tree } })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const sync = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]') as HTMLElement
+      expect(sync.className).toContain('disabled')
+      expect(sync.getAttribute('title')).toContain('宏')
+    })
+
+    it('已分享过的文件显示「分享（已分享）」', async () => {
+      const tree = [{ name: 'notes.md', path: '/project/notes.md', type: 'file' as const }]
+      const wrapper = mount(FileTree, {
+        props: { fileTree: tree, sharedPaths: ['/project/notes.md'] },
+      })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      expect(document.body.querySelector('[data-testid="file-tree-share"]')?.textContent).toContain('已分享')
+    })
+
     it('空工作区右键应显示创建菜单并隐藏无目标操作', async () => {
       const wrapper = mount(FileTree, {
         props: {
