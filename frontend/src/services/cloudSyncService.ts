@@ -11,6 +11,7 @@ import {
   getCloudDoc,
   normalizeCloudError,
   saveCloudDoc,
+  type CloudErrorKind,
 } from '@/services/cloudDocService';
 import { createTabService } from '@/services/tabService';
 import {
@@ -23,6 +24,7 @@ import {
   isPathInsideRoot,
   toRelativeWorkspacePath,
 } from '@/services/workspaceRuntimeService';
+import { syncMarkdownAssets, pullMarkdownAssets, describeAssetSync, type CloudAssetSyncSummary, type CloudAssetPullSummary } from '@/services/cloudAssetService';
 import { useEditorStore } from '@/stores/editor';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useFileSystemStore } from '@/stores/fileSystem';
@@ -49,6 +51,65 @@ export interface CloudSyncResult {
   fileId?: number;
   version?: number;
   message?: string;
+  /** 失败归类（仅 failed 时有值）：store 用它判断是否需要清掉已失效的登录态。 */
+  kind?: CloudErrorKind;
+  /** 拉取会覆盖未保存修改：需要 UI 先确认，确认后带 overwriteDirty 重试。 */
+  needsDirtyConfirm?: boolean;
+  /** 本次同步的图片附件汇总（md 相对图片） */
+  assets?: CloudAssetSyncSummary;
+  /** 本次拉取时补齐图片的汇总 */
+  assetPull?: CloudAssetPullSummary;
+}
+
+const MARKDOWN_EXTENSIONS = ['.md', '.markdown', '.mdx'];
+
+/** 是否是 markdown（只有 md 才扫描相对图片）。 */
+export function isMarkdownPath(filePath: string | null | undefined): boolean {
+  const lower = (filePath ?? '').toLowerCase();
+  return MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * 正文同步成功（或已是最新）后同步 md 引用的图片。
+ * 设置项关闭时返回 disabled 汇总；图片失败只汇总，不影响正文结果。
+ */
+async function syncAssetsAfterSave(input: {
+  filePath: string;
+  fileId: number;
+  content: string;
+}): Promise<CloudAssetSyncSummary | undefined> {
+  if (!isMarkdownPath(input.filePath)) {
+    return undefined;
+  }
+  const settings = useSettingsStore();
+  const enabled = settings.syncDocumentImages !== false;
+  return syncMarkdownAssets({
+    filePath: input.filePath,
+    fileId: input.fileId,
+    content: input.content,
+    enabled,
+  });
+}
+
+/** 把图片汇总拼到结果文案后面（只在有上传或失败时补充，避免噪声）。 */
+function withAssetMessage(message: string | undefined, summary: CloudAssetSyncSummary | undefined): string | undefined {
+  if (!summary || summary.total === 0) {
+    return message;
+  }
+  if (summary.uploaded === 0 && summary.failed === 0) {
+    return message;
+  }
+  const suffix = describeAssetSync(summary);
+  return message ? `${message}；${suffix}` : suffix;
+}
+
+/** 拉取云端的可选行为。 */
+export interface PullCloudDocumentOptions {
+  /**
+   * 调用方已确认「可以丢弃本地未保存修改」。
+   * 冲突面板里用户显式选择「以云端为准」时置 true，避免二次弹窗。
+   */
+  overwriteDirty?: boolean;
 }
 
 function formatMegabytes(bytes: number): string {
@@ -141,6 +202,7 @@ export function resolveCloudDocPathForFile(
  * - 云端没有文档 → create
  * - 本地与云端哈希一致 → skip
  * - 本地未动、云端变了 → pull
+ * - 本地动了、云端没动 → update（可安全覆盖，baseVersion 由调用方取云端当前版本）
  * - 双方都动了（或缺少基线且不一致）→ conflict
  */
 export function resolveCloudSyncDecision(input: {
@@ -160,6 +222,12 @@ export function resolveCloudSyncDecision(input: {
 
   if (baseHash !== null && localHash === baseHash && remoteHash !== baseHash) {
     return 'pull';
+  }
+
+  // 云端仍是上次同步的版本、只有本地变化：正常上传，不能判成冲突，
+  // 否则每次本地编辑都会弹冲突、自动同步永远传不上去。
+  if (baseHash !== null && localHash !== baseHash && remoteHash === baseHash) {
+    return 'update';
   }
 
   if (baseHash !== null && remoteHash !== baseHash && localHash !== baseHash) {
@@ -225,6 +293,8 @@ function flagCloudConflict(tab: Tab): void {
   conflictsStore.flag({
     path: tab.filePath,
     kind: 'modified',
+    // 显式标记来源：云冲突只点亮云同步面板，不复用磁盘外部变更的提示入口。
+    source: 'cloud',
     diskModifiedMs: tab.lastKnownModified ?? null,
     diskSize: tab.largeFileSize ?? null,
     baselineModifiedMs: tab.lastKnownModified ?? null,
@@ -259,6 +329,7 @@ async function pullRemoteDocument(
   if (!detailOutcome.ok) {
     return {
       status: 'failed',
+      kind: detailOutcome.kind,
       fileId: remote.fileId,
       version: remote.version,
       message: detailOutcome.message,
@@ -289,11 +360,25 @@ async function pullRemoteDocument(
     lastSyncedAt: Date.now(),
   });
 
+  // md 拉取后补齐图片：缺失的下载写入，冲突的不覆盖
+  let assetPull: CloudAssetPullSummary | undefined;
+  if (isMarkdownPath(filePath)) {
+    const workspaceRoot = context.workspaceStore.currentWorkspacePath ?? '';
+    if (workspaceRoot) {
+      assetPull = await pullMarkdownAssets({
+        filePath,
+        fileId: detail.fileId,
+        workspaceRoot,
+      });
+    }
+  }
+
   return {
     status: 'synced',
     fileId: detail.fileId,
     version: detail.version,
     message: '已从云端拉取最新内容',
+    assetPull,
   };
 }
 
@@ -376,11 +461,17 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
         version: remote.version,
         contentHash: remote.contentHash,
       });
+      const skipAssets = await syncAssetsAfterSave({
+        filePath,
+        fileId: remote.fileId,
+        content: source.content,
+      });
       return {
         status: 'skipped',
         fileId: remote.fileId,
         version: remote.version,
-        message: '本地内容与云端一致',
+        message: withAssetMessage('本地内容与云端一致', skipAssets),
+        assets: skipAssets,
       };
     }
 
@@ -400,6 +491,7 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
       }
       return {
         status: savedOutcome.kind === 'conflict' ? 'conflict' : 'failed',
+        kind: savedOutcome.kind,
         fileId: remote?.fileId,
         version: remote?.version,
         message: savedOutcome.message,
@@ -412,26 +504,207 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
       contentHash: savedOutcome.data.contentHash,
     });
 
+    const savedAssets = await syncAssetsAfterSave({
+      filePath,
+      fileId: savedOutcome.data.fileId,
+      content: source.content,
+    });
     return {
       status: 'synced',
       fileId: savedOutcome.data.fileId,
       version: savedOutcome.data.version,
-      message: remote ? '已更新云端文档' : '已创建云端文档',
+      message: withAssetMessage(remote ? '已更新云端文档' : '已创建云端文档', savedAssets),
+      assets: savedAssets,
     };
   } catch (error) {
     const normalized = normalizeCloudError(error);
     // 二进制/超限文件由 Rust 用 unsupported 类错误返回，按「跳过」而不是「失败」上报。
     return normalized.kind === 'unsupported'
       ? { status: 'skipped', message: normalized.message }
-      : { status: 'failed', message: normalized.message };
+      : { status: 'failed', kind: normalized.kind, message: normalized.message };
+  }
+}
+
+/** 右键「同步至云端」的入参：文件可能没在标签里打开。 */
+export interface CloudDocSyncByPathInput {
+  filePath: string;
+  /** 叶子分类名（自由文本；「新建分类」就写这里，不调管理端接口） */
+  category?: string | null;
+  categoryId?: number | null;
+  tags?: string | null;
+  visibility?: 'PRIVATE' | 'PUBLIC';
+  /** 用户已确认「覆盖云端」时置 true（冲突/需拉取的分支才需要） */
+  overwrite?: boolean;
+}
+
+/**
+ * 按文件路径把文档同步到云端（不要求标签已打开）：
+ * 复用三方决策——同哈希视为「已同步」；云端有差异先返回 conflict 让 UI 确认，
+ * 确认后再带 overwrite 覆盖（baseVersion 始终取云端最新版本）。
+ * 标签正好打开且是脏的会先静默保存，避免把旧内容推上去。
+ */
+export async function syncDocumentByPath(
+  input: CloudDocSyncByPathInput,
+): Promise<CloudSyncResult> {
+  if (!isTauriApp()) {
+    return { status: 'skipped', message: '当前是 Web 构建，云文档同步仅在 Tauri 桌面端可用。' };
+  }
+
+  const filePath = input.filePath;
+  const eligibility = isCloudSyncEligibleFile(filePath, null);
+  if (!eligibility.eligible) {
+    return { status: 'skipped', message: eligibility.reason ?? '当前文档不支持云同步' };
+  }
+
+  const context = createSyncContext();
+  const openTab = context.tabsStore.tabs.find((item) => item.filePath === filePath) ?? null;
+  // 动态引入：cloudSync store 反过来依赖本模块，静态 import 会形成循环。
+  const { useCloudSyncStore } = await import('@/stores/cloudSync');
+  const cloudSyncStore = useCloudSyncStore();
+
+  try {
+    if (openTab?.isDirty) {
+      const saved = await context.tabService.saveTab(openTab.id, { silent: true });
+      if (!saved) {
+        return { status: 'failed', message: '当前文档尚未保存到磁盘，无法同步到云端' };
+      }
+    }
+
+    const source = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
+    const cloudPath = resolveCloudDocPathForFile(
+      filePath,
+      context.workspaceStore.currentWorkspaceName,
+      context.workspaceStore.currentWorkspacePath,
+    );
+
+    const remoteOutcome = await findCloudDocByPath(cloudPath);
+    if (!remoteOutcome.ok) {
+      return { status: 'failed', message: remoteOutcome.message };
+    }
+    const remote = remoteOutcome.data;
+
+    // 基线优先取标签，其次取 docMap（文件没打开时仍然有上次同步的哈希）
+    const baseHash = openTab?.cloudContentHash
+      ?? cloudSyncStore.docMap[cloudPath]?.contentHash
+      ?? null;
+
+    const decision = resolveCloudSyncDecision({
+      localHash: source.contentHash,
+      remoteHash: remote?.contentHash ?? null,
+      baseHash,
+    });
+
+    if (decision === 'skip' && remote) {
+      if (openTab) {
+        applySyncedMeta(context, openTab.id, {
+          fileId: remote.fileId,
+          version: remote.version,
+          contentHash: remote.contentHash,
+        });
+      }
+      const skipAssets = await syncAssetsAfterSave({
+        filePath,
+        fileId: remote.fileId,
+        content: source.content,
+      });
+      return {
+        status: 'skipped',
+        fileId: remote.fileId,
+        version: remote.version,
+        message: withAssetMessage('已是同步状态（内容与云端一致），无需重复上传', skipAssets),
+        assets: skipAssets,
+      };
+    }
+
+    // 云端已有文档但内容不同（pull/conflict）：先让用户确认覆盖
+    if ((decision === 'conflict' || decision === 'pull') && !input.overwrite) {
+      return {
+        status: 'conflict',
+        fileId: remote?.fileId,
+        version: remote?.version,
+        message: '云端已有该文档且内容不同，确认后会覆盖云端',
+      };
+    }
+
+    const payload: CloudDocSavePayload = {
+      path: cloudPath,
+      title: getFileName(filePath),
+      content: source.content,
+      contentHash: source.contentHash,
+      baseVersion: remote ? remote.version : null,
+    };
+    if (input.category !== undefined) {
+      payload.category = input.category;
+    }
+    if (input.categoryId !== undefined) {
+      payload.categoryId = input.categoryId;
+    }
+    if (input.tags !== undefined) {
+      payload.tags = input.tags;
+    }
+    if (input.visibility !== undefined) {
+      payload.visibility = input.visibility;
+    }
+
+    const savedOutcome = await saveCloudDoc(payload);
+    if (!savedOutcome.ok) {
+      return {
+        status: savedOutcome.kind === 'conflict' ? 'conflict' : 'failed',
+        kind: savedOutcome.kind,
+        fileId: remote?.fileId,
+        version: remote?.version,
+        message: savedOutcome.message,
+      };
+    }
+
+    if (openTab) {
+      applySyncedMeta(context, openTab.id, {
+        fileId: savedOutcome.data.fileId,
+        version: savedOutcome.data.version,
+        contentHash: savedOutcome.data.contentHash,
+      });
+    }
+    cloudSyncStore.rememberDoc(cloudPath, {
+      fileId: savedOutcome.data.fileId,
+      version: savedOutcome.data.version,
+      contentHash: savedOutcome.data.contentHash,
+      updatedAt: savedOutcome.data.updatedAt ?? null,
+      category: input.category ?? null,
+      categoryId: input.categoryId ?? null,
+      tags: input.tags ?? null,
+      visibility: input.visibility ?? null,
+    });
+    cloudSyncStore.lastSyncAt = Date.now();
+
+    const savedAssets = await syncAssetsAfterSave({
+      filePath,
+      fileId: savedOutcome.data.fileId,
+      content: source.content,
+    });
+    return {
+      status: 'synced',
+      fileId: savedOutcome.data.fileId,
+      version: savedOutcome.data.version,
+      message: withAssetMessage(remote ? '已更新云端文档' : '已创建云端文档', savedAssets),
+      assets: savedAssets,
+    };
+  } catch (error) {
+    const normalized = normalizeCloudError(error);
+    return normalized.kind === 'unsupported'
+      ? { status: 'skipped', message: normalized.message }
+      : { status: 'failed', kind: normalized.kind, message: normalized.message };
   }
 }
 
 /**
- * 强制用云端内容覆盖本地标签（用户显式选择“拉取云端”时使用）。
+ * 用云端内容覆盖本地标签（用户显式选择“拉取云端”时使用）。
  * 仍要求标签对应实体文件，且不触碰二进制预览与大文件标签。
+ * 标签有未保存修改时必须先由调用方确认（overwriteDirty），否则不落盘。
  */
-export async function pullCloudDocumentIntoLocal(tabId: string): Promise<CloudSyncResult> {
+export async function pullCloudDocumentIntoLocal(
+  tabId: string,
+  options?: PullCloudDocumentOptions,
+): Promise<CloudSyncResult> {
   if (!isTauriApp()) {
     return { status: 'skipped', message: '当前是 Web 构建，云文档同步仅在 Tauri 桌面端可用。' };
   }
@@ -454,6 +727,15 @@ export async function pullCloudDocumentIntoLocal(tabId: string): Promise<CloudSy
   const filePath = tab.filePath;
   if (!filePath) {
     return { status: 'failed', message: '当前标签没有对应的磁盘文件' };
+  }
+
+  // 未落盘的修改一旦被云端内容覆盖就找不回来：先要求 UI 确认，确认后才会带 overwriteDirty 重试。
+  if (tab.isDirty && options?.overwriteDirty !== true) {
+    return {
+      status: 'skipped',
+      needsDirtyConfirm: true,
+      message: '当前文档有未保存的修改，用云端内容覆盖会丢弃这些修改',
+    };
   }
 
   try {
@@ -479,6 +761,6 @@ export async function pullCloudDocumentIntoLocal(tabId: string): Promise<CloudSy
     // 二进制/超限文件由 Rust 用 unsupported 类错误返回，按「跳过」而不是「失败」上报。
     return normalized.kind === 'unsupported'
       ? { status: 'skipped', message: normalized.message }
-      : { status: 'failed', message: normalized.message };
+      : { status: 'failed', kind: normalized.kind, message: normalized.message };
   }
 }

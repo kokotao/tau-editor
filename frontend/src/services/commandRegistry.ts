@@ -40,6 +40,7 @@ export interface CommandActions {
   cloudLogin: () => Promise<void> | void;
   cloudLogout: () => Promise<void> | void;
   cloudSyncNow: () => Promise<void> | void;
+  cloudBrowse: () => Promise<void> | void;
 }
 
 function resolveCommandText(language: UiLanguage, commandId: CommandId) {
@@ -77,6 +78,7 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
   const cloudLogin = resolveCommandText(uiLanguage, 'cloud.login');
   const cloudLogout = resolveCommandText(uiLanguage, 'cloud.logout');
   const cloudSyncNow = resolveCommandText(uiLanguage, 'cloud.syncNow');
+  const cloudBrowse = resolveCommandText(uiLanguage, 'cloud.browse');
 
   return [
     {
@@ -309,6 +311,13 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       category: 'workspace',
       keywords: cloudSyncNow.keywords,
       run: actions.cloudSyncNow,
+    },
+    {
+      id: 'cloud.browse',
+      title: cloudBrowse.title,
+      category: 'workspace',
+      keywords: cloudBrowse.keywords,
+      run: actions.cloudBrowse,
     },
   ];
 }

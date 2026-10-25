@@ -55,6 +55,7 @@
           type="button"
           class="editor-context-item"
           :data-testid="`editor-context-item-${entry.key}`"
+          :title="entry.hint ?? entry.label"
           :disabled="!entry.enabled"
           @click="handleContextMenuEntryClick(entry)"
         >
@@ -104,6 +105,8 @@ import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notification';
 import { getEditorCoreI18n } from '@/i18n/ui';
+import { isCloudSyncEligibleFile } from '@/services/cloudSyncService';
+import { isMacroDocPath, validateBinaryDocLocal } from '@/services/cloudBinaryService';
 import { appCommands } from '@/lib/tauri';
 import { ensureMonacoSetup } from '@/lib/monaco/setupMonaco';
 import { getMonacoLspBridge, type MonacoHierarchyItem } from '@/services/lsp/monacoLspBridge';
@@ -170,6 +173,8 @@ const emit = defineEmits<{
   'markdown-image-request': [];
   'markdown-image-paste': [payload: { fileName: string; bytes: Uint8Array }];
   'find-references': [];
+  'sync-to-cloud': [];
+  'share': [];
   'error': [error: Error];
 }>();
 
@@ -225,6 +230,8 @@ type ContextMenuItem = {
   label: string;
   enabled: boolean;
   action: () => Promise<void> | void;
+  /** 禁用原因等提示，渲染为 title */
+  hint?: string;
 };
 
 type ContextMenuSubmenu = {
@@ -831,6 +838,31 @@ const handleRevealInFolder = async () => {
 
 const hasFilePath = computed(() => Boolean(props.filePath && props.filePath.trim().length > 0));
 
+/**
+ * 云操作菜单项可用性：没有磁盘文件 / 宏格式 / 既非文本也非可上传二进制时禁用并给原因。
+ */
+const cloudActionState = computed<{ disabled: boolean; hint: string; mode: 'text' | 'binary' | 'none' }>(() => {
+  const filePath = props.filePath?.trim() ?? '';
+  if (!filePath) {
+    return { disabled: true, hint: '当前文档没有磁盘文件（先保存后再上传）', mode: 'none' };
+  }
+  if (isMacroDocPath(filePath)) {
+    return {
+      disabled: true,
+      hint: '不支持含宏的 Office 文件（docm/xlsm/pptm），请另存为普通格式后再上传',
+      mode: 'none',
+    };
+  }
+  const binary = validateBinaryDocLocal(filePath, null);
+  if (binary.eligible) {
+    return { disabled: false, hint: '', mode: 'binary' };
+  }
+  const eligibility = isCloudSyncEligibleFile(filePath, null);
+  return eligibility.eligible
+    ? { disabled: false, hint: '', mode: 'text' }
+    : { disabled: true, hint: eligibility.reason ?? binary.reason ?? '', mode: 'none' };
+});
+
 const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
   {
     type: 'item',
@@ -1013,6 +1045,23 @@ const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
     label: i18n.value.contextRevealInFolder,
     enabled: hasFilePath.value,
     action: handleRevealInFolder,
+  },
+  { type: 'divider', key: 'divider-cloud' },
+  {
+    type: 'item',
+    key: 'sync-to-cloud',
+    label: '同步至云端',
+    enabled: !cloudActionState.value.disabled,
+    hint: cloudActionState.value.hint,
+    action: () => emit('sync-to-cloud'),
+  },
+  {
+    type: 'item',
+    key: 'share',
+    label: '一键分享',
+    enabled: !cloudActionState.value.disabled,
+    hint: cloudActionState.value.hint,
+    action: () => emit('share'),
   },
 ]);
 

@@ -103,6 +103,7 @@ import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
 import ReplacePreviewDialog from './components/editor/ReplacePreviewDialog.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
+import CloudDocSidebar from './components/editor/CloudDocSidebar.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
 import EditorBreadcrumbs, { type EditorBreadcrumbSegment } from './components/editor/EditorBreadcrumbs.vue';
 import { LazyEditorCore } from './components/editor/LazyEditorCore';
@@ -113,6 +114,13 @@ import ExternalChangeDialog from './components/editor/ExternalChangeDialog.vue';
 import ProblemsPanel from './components/editor/ProblemsPanel.vue';
 import ReferenceResultsPanel, { type ReferenceResultGroup, type ReferenceResultItem } from './components/editor/ReferenceResultsPanel.vue';
 import HierarchyPanel, { type HierarchyMode, type HierarchyRow } from './components/editor/HierarchyPanel.vue';
+import CloudDocBrowser from './components/editor/CloudDocBrowser.vue';
+import CloudDocSyncDialog from './components/editor/CloudDocSyncDialog.vue';
+import ShareDialog from './components/editor/ShareDialog.vue';
+import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
+import type { CloudSyncResult } from '@/services/cloudSyncService';
+import { getShareStatus } from '@/services/cloudShareService';
+import { isBinaryDocPath, uploadBinaryDocument, validateBinaryDocLocal } from '@/services/cloudBinaryService';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
@@ -183,6 +191,8 @@ const applicationLspService = createApplicationLspService(undefined, {
 });
 const lspDiagnosticCounts = new Map<string, number>();
 const problemsPanelVisible = ref(false);
+/** 云端文档浏览器（命令面板 / 设置页「浏览云端文档」打开） */
+const cloudBrowserVisible = ref(false);
 const referencePanelVisible = ref(false);
 const referencePanelLoading = ref(false);
 const referencePanelError = ref<string | null>(null);
@@ -1803,6 +1813,42 @@ const handleCloudLogoutCommand = async () => {
   notificationStore.info(cloudSyncCopy.value.settingsCloudSync, cloudSyncCopy.value.cloudSyncSignedOut);
 };
 
+/** 从设置面板打开浏览面板时记下宿主，返回时再恢复（设置面板是整页层，叠着会互相遮挡）。 */
+const pendingSettingsReturn = ref<{ container: SettingsContainer; category: SettingsCategory } | null>(null);
+
+/** 云端文档浏览面板：未登录时先把用户带到设置页登录。 */
+const openCloudDocBrowser = () => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(cloudSyncCopy.value.settingsCloudSync, cloudSyncCopy.value.cloudSyncLoginRequired);
+    openCloudSyncSettings();
+    return;
+  }
+  // 先关设置面板：两者都是整屏层，同时开着按 z-index 谁压谁都不稳
+  if (settingsContainer.value !== null) {
+    pendingSettingsReturn.value = {
+      container: settingsContainer.value,
+      category: activeSettingsCategory.value,
+    };
+    settingsContainer.value = null;
+  }
+  cloudBrowserVisible.value = true;
+};
+
+const closeCloudDocBrowser = () => {
+  cloudBrowserVisible.value = false;
+  const restore = pendingSettingsReturn.value;
+  pendingSettingsReturn.value = null;
+  if (restore) {
+    activeSettingsCategory.value = restore.category;
+    settingsContainer.value = restore.container;
+  }
+};
+
+const handleCloudDocBrowserOpenFile = async (path: string) => {
+  await openFileInEditor(path);
+  cloudBrowserVisible.value = false;
+};
+
 const handleCloudSyncNowCommand = async () => {
   const copy = cloudSyncCopy.value;
   if (!cloudSyncStore.signedIn) {
@@ -1841,6 +1887,213 @@ const handleRefresh = async () => {
   await workspaceService.refreshWorkspace();
 };
 
+/** 左侧边栏面板：工作区文件树 / 云端文档，互斥显示并记住上次选择。 */
+const sidebarPanel = computed(() => settingsStore.sidebarPanel);
+const selectSidebarPanel = (panel: 'workspace' | 'cloud') => {
+  settingsStore.setSidebarPanel(panel);
+};
+
+/**
+ * 云端文档被写到本地磁盘后刷新工作区文件树，
+ * 让用户不用手动点刷新才看到新落盘的文件。
+ */
+const handleCloudFileSaved = async () => {
+  await workspaceService.refreshWorkspace();
+};
+
+/** 云端文档树需要重新拉取的信号（同步成功后自增）。 */
+const cloudTreeRefreshToken = ref(0);
+
+/** 右键「同步至云端」：未登录先引导登录，登录了才弹分类弹窗。 */
+const cloudSyncDialog = ref<{ visible: boolean; filePath: string; fileName: string }>({
+  visible: false,
+  filePath: '',
+  fileName: '',
+});
+
+const handleFileTreeSyncToCloud = (entry: FileTreeNode) => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      cloudSyncCopy.value.cloudSyncLoginRequired,
+    );
+    openCloudSyncSettings();
+    return;
+  }
+  // pdf/doc/docx/xls/xlsx/ppt/pptx 走二进制上传（无分类弹窗，V1 不支持覆盖更新）
+  if (isBinaryDocPath(entry.path)) {
+    void syncBinaryDocument(entry);
+    return;
+  }
+  cloudSyncDialog.value = { visible: true, filePath: entry.path, fileName: entry.name };
+};
+
+const handleCloudDocSynced = (result: CloudSyncResult) => {
+  cloudSyncDialog.value = { visible: false, filePath: '', fileName: '' };
+  cloudTreeRefreshToken.value += 1;
+  notificationStore.success(
+    cloudSyncCopy.value.settingsCloudSync,
+    cloudSyncCopy.value.cloudSyncResultSynced(result.version),
+  );
+};
+
+/** 一键分享弹窗（先自动同步，再生成/复用分享链接）。 */
+const shareDialog = ref<{ visible: boolean; filePath: string; fileName: string }>({
+  visible: false,
+  filePath: '',
+  fileName: '',
+});
+
+/** 已分享过的本地路径（右键菜单据此显示「分享（已分享）」）。 */
+const sharedFilePaths = ref<string[]>([]);
+
+/** 已完成二进制上传的本地路径（右键菜单据此显示「已同步」）。 */
+const syncedBinaryPaths = ref<string[]>([]);
+
+const markBinarySynced = (filePath: string, synced: boolean) => {
+  const next = new Set(syncedBinaryPaths.value);
+  if (synced) {
+    next.add(filePath);
+  } else {
+    next.delete(filePath);
+  }
+  syncedBinaryPaths.value = [...next];
+};
+
+/** 二进制文档（pdf/doc/xls/ppt）走 multipart 上传；文本走原有同步弹窗。 */
+const syncBinaryDocument = async (entry: FileTreeNode) => {
+  const eligibility = validateBinaryDocLocal(entry.path, entry.size ?? null);
+  if (!eligibility.eligible) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      eligibility.reason ?? '该文件不支持上传到云端',
+    );
+    return;
+  }
+  const cloudPath = resolveCloudDocPathForFile(
+    entry.path,
+    workspaceStore.currentWorkspaceName,
+    workspaceStore.currentWorkspacePath,
+  );
+  const outcome = await uploadBinaryDocument(
+    { cloudPath, localPath: entry.path, title: entry.name },
+    { fileSize: entry.size ?? null },
+  );
+  if (!outcome.ok) {
+    notificationStore.error(cloudSyncCopy.value.settingsCloudSync, outcome.message);
+    return;
+  }
+  markBinarySynced(entry.path, true);
+  cloudTreeRefreshToken.value += 1;
+  notificationStore.success(
+    cloudSyncCopy.value.settingsCloudSync,
+    cloudSyncCopy.value.cloudSyncResultSynced(outcome.data.version),
+  );
+};
+
+const refreshShareHintFor = async (filePath: string) => {
+  if (!cloudSyncStore.signedIn) {
+    return;
+  }
+  const cloudPath = resolveCloudDocPathForFile(
+    filePath,
+    workspaceStore.currentWorkspaceName,
+    workspaceStore.currentWorkspacePath,
+  );
+  const fileId = cloudSyncStore.docMap[cloudPath]?.fileId;
+  if (fileId === null || fileId === undefined) {
+    return;
+  }
+  const outcome = await getShareStatus(fileId);
+  if (!outcome.ok) {
+    return;
+  }
+  const next = new Set(sharedFilePaths.value);
+  if (outcome.data.shared) {
+    next.add(filePath);
+  } else {
+    next.delete(filePath);
+  }
+  sharedFilePaths.value = [...next];
+};
+
+/** 编辑器右键：把当前标签包装成文件树节点，复用同一套同步/分享逻辑。 */
+const activeTabAsFileEntry = (): FileTreeNode | null => {
+  const tab = tabsStore.activeTab;
+  if (!tab?.filePath) {
+    return null;
+  }
+  return { name: tab.fileName, path: tab.filePath, type: 'file' } as FileTreeNode;
+};
+
+const handleActiveTabSyncToCloud = () => {
+  const entry = activeTabAsFileEntry();
+  if (!entry) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      '当前文档还没有磁盘文件，请先保存后再同步。',
+    );
+    return;
+  }
+  handleFileTreeSyncToCloud(entry);
+};
+
+const handleActiveTabShare = () => {
+  const entry = activeTabAsFileEntry();
+  if (!entry) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      '当前文档还没有磁盘文件，请先保存后再分享。',
+    );
+    return;
+  }
+  handleFileTreeShare(entry);
+};
+
+const handleFileTreeShare = (entry: FileTreeNode) => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      cloudSyncCopy.value.cloudSyncLoginRequired,
+    );
+    openCloudSyncSettings();
+    return;
+  }
+  shareDialog.value = { visible: true, filePath: entry.path, fileName: entry.name };
+};
+
+const handleShareStateChanged = () => {
+  cloudTreeRefreshToken.value += 1;
+};
+
+/** 云文档树右键的「同步/分享」：把云端 path 反解成本地绝对路径再复用现有流程。 */
+const handleCloudDocAction = (
+  action: 'sync' | 'share',
+  node: { path: string; name: string },
+) => {
+  const workspaceName = workspaceStore.currentWorkspaceName ?? '';
+  const prefix = workspaceName ? `tau/${workspaceName}/` : 'tau/';
+  const root = workspaceStore.currentWorkspacePath ?? '';
+  const relative = node.path.startsWith(prefix) ? node.path.slice(prefix.length) : '';
+  if (!root || !relative || relative.includes('..')) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      '本地没有对应文件，请先在云端文档树里打开它',
+    );
+    return;
+  }
+  const localPath = `${root}/${relative}`;
+  if (action === 'sync') {
+    if (isBinaryDocPath(localPath)) {
+      void syncBinaryDocument({ path: localPath, name: node.name } as FileTreeNode);
+      return;
+    }
+    cloudSyncDialog.value = { visible: true, filePath: localPath, fileName: node.name };
+    return;
+  }
+  shareDialog.value = { visible: true, filePath: localPath, fileName: node.name };
+};
+
 const handleFolderToggle = (folderPath: string) => {
   fileSystemStore.toggleFolder(folderPath);
 };
@@ -1854,6 +2107,10 @@ const handleFileOpen = async (filePath: string) => {
 
 const handleFileTreeContextMenu = (entry: FileTreeNode | null) => {
   fileTreeContextEntry.value = entry;
+  // 右键文件时顺手刷新「是否已分享」标记，菜单里据此显示「分享（已分享）」
+  if (entry?.type === 'file') {
+    void refreshShareHintFor(entry.path);
+  }
 };
 
 const formatFileDetailsDate = (value: string | number | null | undefined) => {
@@ -2795,6 +3052,7 @@ const createLocalizedCommands = () => {
   cloudLogin: handleCloudLoginCommand,
   cloudLogout: handleCloudLogoutCommand,
   cloudSyncNow: handleCloudSyncNowCommand,
+  cloudBrowse: openCloudDocBrowser,
   toggleProblems: handleToggleProblems,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
@@ -4225,54 +4483,104 @@ onUnmounted(() => {
             :style="{ width: `${sidebarWidth}px` }"
           >
             <div class="sidebar-content animate__animated animate__fadeInLeft animate__faster">
-              <FileTree
-                ref="fileTreeRef"
-                v-if="workspaceStore.currentWorkspacePath"
-                :file-tree="fileTree"
-                :loading="loading"
-                :selected-path="selectedPath"
-                :workspace-label="workspaceLabel"
-                :can-reveal-current-file="canRevealCurrentFile"
-                :locating-current-file="locatingCurrentFile"
-                :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
-                @file-open="handleFileOpen"
-                @folder-toggle="handleFolderToggle"
-                @context-menu="handleFileTreeContextMenu"
-                @refresh="handleRefresh"
-                @new-file="handleFileTreeCreateFile"
-                @new-folder="handleFileTreeCreateFolder"
-                @rename="handleFileTreeRename"
-                @details="handleFileTreeDetails"
-                @delete="handleFileTreeDelete"
-                @compare-with-current="handleCompareWithCurrentFile"
-                @run-provider-action="handleProviderFileAction"
-                @reveal-current-file="handleRevealCurrentFile"
-                @copy-current-file-path="handleCopyCurrentFilePath"
-                @reveal-current-file-manager="handleRevealCurrentFileInManager"
-              />
-              <section v-else class="recent-workspaces" data-testid="recent-workspaces">
-                <h2 class="recent-workspaces-title">{{ appText.recentFolders }}</h2>
-                <p v-if="(workspaceStore.recentProjects ?? []).length === 0" class="recent-workspaces-empty">
-                  {{ appText.noRecentFolders }}
-                </p>
+              <div class="sidebar-tabs" role="tablist" data-testid="sidebar-tabs">
                 <button
-                  v-for="project in workspaceStore.recentProjects ?? []"
-                  :key="project.path"
                   type="button"
-                  class="recent-workspace-card"
-                  :title="`${appText.openRecentFolder}: ${project.path}`"
-                  @click="handleOpenRecentFolder(project.path)"
+                  role="tab"
+                  class="sidebar-tab"
+                  :class="{ 'sidebar-tab--active': sidebarPanel === 'workspace' }"
+                  :aria-selected="sidebarPanel === 'workspace'"
+                  data-testid="sidebar-tab-workspace"
+                  @click="selectSidebarPanel('workspace')"
                 >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
-                    <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  </svg>
-                  <span class="recent-workspace-card-copy">
-                    <strong>{{ project.name }}</strong>
-                    <small>{{ project.path }}</small>
-                  </span>
+                  {{ appText.sidebarTabWorkspace }}
                 </button>
-              </section>
+                <button
+                  type="button"
+                  role="tab"
+                  class="sidebar-tab"
+                  :class="{ 'sidebar-tab--active': sidebarPanel === 'cloud' }"
+                  :aria-selected="sidebarPanel === 'cloud'"
+                  data-testid="sidebar-tab-cloud"
+                  @click="selectSidebarPanel('cloud')"
+                >
+                  {{ appText.sidebarTabCloud }}
+                </button>
+              </div>
+
+              <div
+                v-show="sidebarPanel === 'workspace'"
+                class="sidebar-panel"
+                data-testid="sidebar-panel-workspace"
+              >
+                <FileTree
+                  ref="fileTreeRef"
+                  v-if="workspaceStore.currentWorkspacePath"
+                  :file-tree="fileTree"
+                  :loading="loading"
+                  :selected-path="selectedPath"
+                  :workspace-label="workspaceLabel"
+                  :can-reveal-current-file="canRevealCurrentFile"
+                  :locating-current-file="locatingCurrentFile"
+                  :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
+                  @file-open="handleFileOpen"
+                  @folder-toggle="handleFolderToggle"
+                  @context-menu="handleFileTreeContextMenu"
+                  @refresh="handleRefresh"
+                  @new-file="handleFileTreeCreateFile"
+                  @new-folder="handleFileTreeCreateFolder"
+                  @rename="handleFileTreeRename"
+                  @details="handleFileTreeDetails"
+                  @delete="handleFileTreeDelete"
+                  @compare-with-current="handleCompareWithCurrentFile"
+                  @run-provider-action="handleProviderFileAction"
+                  @reveal-current-file="handleRevealCurrentFile"
+                  @copy-current-file-path="handleCopyCurrentFilePath"
+                  @reveal-current-file-manager="handleRevealCurrentFileInManager"
+                  @sync-to-cloud="handleFileTreeSyncToCloud"
+                  @share="handleFileTreeShare"
+                  :shared-paths="sharedFilePaths"
+                  :synced-paths="syncedBinaryPaths"
+                />
+                <section v-else class="recent-workspaces" data-testid="recent-workspaces">
+                  <h2 class="recent-workspaces-title">{{ appText.recentFolders }}</h2>
+                  <p v-if="(workspaceStore.recentProjects ?? []).length === 0" class="recent-workspaces-empty">
+                    {{ appText.noRecentFolders }}
+                  </p>
+                  <button
+                    v-for="project in workspaceStore.recentProjects ?? []"
+                    :key="project.path"
+                    type="button"
+                    class="recent-workspace-card"
+                    :title="`${appText.openRecentFolder}: ${project.path}`"
+                    @click="handleOpenRecentFolder(project.path)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
+                      <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    </svg>
+                    <span class="recent-workspace-card-copy">
+                      <strong>{{ project.name }}</strong>
+                      <small>{{ project.path }}</small>
+                    </span>
+                  </button>
+                </section>
+              </div>
+
+              <div
+                v-show="sidebarPanel === 'cloud'"
+                class="sidebar-panel"
+                data-testid="sidebar-panel-cloud"
+              >
+                <CloudDocSidebar
+                  :active="sidebarPanel === 'cloud'"
+                  :refresh-token="cloudTreeRefreshToken"
+                  @open-file="handleFileOpen"
+                  @login-request="openCloudSyncSettings"
+                  @cloud-file-saved="handleCloudFileSaved"
+                  @doc-action="handleCloudDocAction"
+                />
+              </div>
             </div>
           </aside>
           <div
@@ -4348,6 +4656,7 @@ onUnmounted(() => {
           :active-category="activeSettingsCategory"
           @update:active-category="activeSettingsCategory = $event"
           @update-availability="handleTitlebarUpdateAvailability"
+          @open-cloud-browser="openCloudDocBrowser"
           @close="closeTransientPanels"
         />
       </section>
@@ -4409,6 +4718,8 @@ onUnmounted(() => {
               @scroll-change="handleEditorScrollChange"
               @model-save="handleSave"
               @find-references="runFindReferences"
+              @sync-to-cloud="handleActiveTabSyncToCloud"
+              @share="handleActiveTabShare"
               @markdown-image-request="handleInsertMarkdownImage"
               @markdown-image-paste="handleMarkdownImagePaste"
             />
@@ -4465,6 +4776,30 @@ onUnmounted(() => {
           :locale="settingsStore.uiLanguage"
           @navigate="handleDiagnosticNavigate"
           @close="problemsPanelVisible = false"
+        />
+
+        <CloudDocBrowser
+          v-if="cloudBrowserVisible"
+          @close="closeCloudDocBrowser"
+          @open-file="handleCloudDocBrowserOpenFile"
+          @cloud-file-saved="handleCloudFileSaved"
+          @doc-action="handleCloudDocAction"
+        />
+
+        <CloudDocSyncDialog
+          :visible="cloudSyncDialog.visible"
+          :file-path="cloudSyncDialog.filePath"
+          :file-name="cloudSyncDialog.fileName"
+          @close="cloudSyncDialog.visible = false"
+          @synced="handleCloudDocSynced"
+        />
+
+        <ShareDialog
+          :visible="shareDialog.visible"
+          :file-path="shareDialog.filePath"
+          :file-name="shareDialog.fileName"
+          @close="shareDialog.visible = false"
+          @shared="handleShareStateChanged"
         />
 
         <ReferenceResultsPanel
@@ -4551,6 +4886,7 @@ onUnmounted(() => {
               :active-category="activeSettingsCategory"
               @update:active-category="activeSettingsCategory = $event"
               @open-workspace="toggleSettingsContainer('workspace')"
+              @open-cloud-browser="openCloudDocBrowser"
               @close="closeTransientPanels"
             />
           </div>
@@ -5206,6 +5542,8 @@ textarea {
 }
 
 .sidebar-content {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -5217,6 +5555,49 @@ textarea {
     opacity 0.2s ease,
     transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
+}
+
+/* 侧栏顶部面板切换：工作区 / 云端文档（互斥占满整块高度） */
+.sidebar-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 6px 8px 4px;
+}
+
+.sidebar-tab {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-secondary, #a8b3c5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, 5px);
+}
+
+.sidebar-tab:hover {
+  color: var(--text-primary, #e5e9f0);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.sidebar-tab--active {
+  font-weight: 600;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--surface-active, rgba(124, 199, 255, 0.14));
+  border-color: var(--border-soft, rgba(148, 163, 184, 0.24));
+}
+
+.sidebar-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .recent-workspaces {

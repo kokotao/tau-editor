@@ -242,6 +242,26 @@
       <div
         v-if="contextMenu.entry?.type === 'file'"
         class="context-menu-item"
+        data-testid="file-tree-sync-to-cloud"
+        :class="{ disabled: cloudActionState.disabled }"
+        :title="cloudActionState.hint || copy.syncToCloudHint"
+        @click="handleSyncToCloud"
+      >
+        {{ syncToCloudLabel }}
+      </div>
+      <div
+        v-if="contextMenu.entry?.type === 'file'"
+        class="context-menu-item"
+        data-testid="file-tree-share"
+        :class="{ disabled: cloudActionState.disabled }"
+        :title="cloudActionState.hint || copy.shareHint"
+        @click="handleShare"
+      >
+        {{ isEntryShared(contextMenu.entry) ? copy.shareAlready : copy.share }}
+      </div>
+      <div
+        v-if="contextMenu.entry?.type === 'file'"
+        class="context-menu-item"
         data-testid="file-tree-compare-current"
         @click="handleCompareWithCurrent"
       >
@@ -272,6 +292,7 @@
       </div>
       </div>
     </Teleport>
+
   </div>
 </template>
 
@@ -280,6 +301,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { FileTreeNode } from '@/stores/fileSystem';
 import { useSettingsStore } from '@/stores/settings';
 import { getFileTreeI18n } from '@/i18n/ui';
+import { isCloudSyncEligibleFile } from '@/services/cloudSyncService';
+import { isMacroDocPath, validateBinaryDocLocal } from '@/services/cloudBinaryService';
 import LoadingSpinner from '../ui/LoadingSpinner.vue';
 
 // Props
@@ -293,6 +316,10 @@ interface FileTreeProps {
   providerActions?: Array<{ id: string; title: string }>;
   canRevealCurrentFile?: boolean;
   locatingCurrentFile?: boolean;
+  /** 已分享过的本地路径（右键菜单显示「分享（已分享）」） */
+  sharedPaths?: string[];
+  /** 已完成二进制同步的本地路径（菜单显示「已同步」） */
+  syncedPaths?: string[];
 }
 
 const props = withDefaults(defineProps<FileTreeProps>(), {
@@ -303,6 +330,8 @@ const props = withDefaults(defineProps<FileTreeProps>(), {
   providerActions: () => [],
   canRevealCurrentFile: false,
   locatingCurrentFile: false,
+  sharedPaths: () => [],
+  syncedPaths: () => [],
   workspaceLabel: '我的工作区',
 });
 const settingsStore = useSettingsStore();
@@ -331,12 +360,14 @@ const emit = defineEmits<{
   'rename': [entry: FileTreeNode];
   'details': [entry: FileTreeNode];
   'compare-with-current': [entry: FileTreeNode];
+  'sync-to-cloud': [entry: FileTreeNode];
+  'share': [entry: FileTreeNode];
   'run-provider-action': [actionId: string, entry: FileTreeNode];
   'delete': [entry: FileTreeNode];
   'reveal-current-file': [];
   'copy-current-file-path': [];
   'reveal-current-file-manager': [];
-}>();
+}>(); 
 
 // State
 const contextMenu = ref({
@@ -617,6 +648,66 @@ const handleCompareWithCurrent = () => {
     emit('compare-with-current', entry);
   }
   contextMenu.value.visible = false;
+};
+
+/** 右键「同步至云端」的可用性：非文本白名单 / 超 12MB 时禁用并给出原因。 */
+/**
+ * 右键云操作可用性三态：binary（pdf/doc/xls/ppt → 二进制上传）/ text（文本同步）/ none（禁用）。
+ */
+const cloudActionState = computed<{ disabled: boolean; hint: string; mode: 'text' | 'binary' | 'none' }>(() => {
+  const entry = contextMenu.value.entry;
+  if (!entry || entry.type !== 'file') {
+    return { disabled: false, hint: '', mode: 'none' };
+  }
+  // 宏格式优先拒绝（即使扩展名在白名单里也不能上传）
+  if (isMacroDocPath(entry.path)) {
+    return {
+      disabled: true,
+      hint: '不支持含宏的 Office 文件（docm/xlsm/pptm），请另存为普通格式后再上传',
+      mode: 'none',
+    };
+  }
+  const binary = validateBinaryDocLocal(entry.path, entry.size ?? null);
+  if (binary.eligible) {
+    return { disabled: false, hint: '', mode: 'binary' };
+  }
+  const text = isCloudSyncEligibleFile(entry.path, entry.size ?? null);
+  if (text.eligible) {
+    return { disabled: false, hint: '', mode: 'text' };
+  }
+  // 图片/二进制预览用文本同步的原因更具体；否则用二进制校验原因
+  return { disabled: true, hint: text.reason ?? binary.reason ?? '', mode: 'none' };
+});
+
+const isEntryShared = (entry: FileTreeNode | null | undefined): boolean =>
+  Boolean(entry && props.sharedPaths.includes(entry.path));
+
+/** 二进制文档已上传过 → 菜单显示「已同步」。 */
+const isEntrySynced = (entry: FileTreeNode | null | undefined): boolean =>
+  Boolean(entry && props.syncedPaths.includes(entry.path));
+
+const syncToCloudLabel = computed(() =>
+  isEntrySynced(contextMenu.value.entry) ? copy.value.alreadySynced : copy.value.syncToCloud,
+);
+
+const handleShare = () => {
+  const entry = contextMenu.value.entry;
+  const disabled = cloudActionState.value.disabled;
+  contextMenu.value.visible = false;
+  if (disabled || entry?.type !== 'file') {
+    return;
+  }
+  emit('share', entry);
+};
+
+const handleSyncToCloud = () => {
+  const entry = contextMenu.value.entry;
+  const disabled = cloudActionState.value.disabled;
+  contextMenu.value.visible = false;
+  if (disabled || entry?.type !== 'file') {
+    return;
+  }
+  emit('sync-to-cloud', entry);
 };
 
 const handleRunProviderAction = (actionId: string) => {
@@ -990,6 +1081,15 @@ onUnmounted(() => {
 
 .context-menu-item:hover {
   background: var(--n-hover-color, #2a2d2e);
+}
+
+.context-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.context-menu-item.disabled:hover {
+  background: transparent;
 }
 
 .context-menu-item.danger:hover {

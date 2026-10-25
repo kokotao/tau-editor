@@ -222,6 +222,31 @@ async function loginOnWeb(
   return { ok: true, data: webSessionInfo(webSession) };
 }
 
+/**
+ * 注册页地址：`{origin}/lizi/newUser/register?source=tau`（后端按 source 授予 Tau 角色）。
+ * 服务器地址缺失或非法时回落到默认站点。
+ */
+export function buildRegisterUrl(rawBaseUrl?: string | null): string {
+  const fallback = 'https://note.lizipro.cn';
+  const raw = (rawBaseUrl ?? '').trim();
+  let origin = fallback;
+  if (raw) {
+    try {
+      origin = new URL(raw).origin;
+    } catch {
+      // 缺 scheme 或非法地址：按「去 /lizi 后缀后补 https」兜底，补不出合法 origin 就用默认站点
+      const stripped = raw.replace(/\/lizi\/?$/, '').replace(/\/+$/, '');
+      const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(stripped) ? stripped : `https://${stripped}`;
+      try {
+        origin = new URL(withScheme).origin;
+      } catch {
+        origin = fallback;
+      }
+    }
+  }
+  return `${origin}/lizi/newUser/register?source=tau`;
+}
+
 export async function loginToLizi(
   input: CloudLoginInput,
 ): Promise<CloudOutcome<CloudSessionInfo>> {

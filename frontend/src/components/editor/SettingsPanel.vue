@@ -725,6 +725,17 @@
                   {{ cloudLoginPending ? copy.cloudSyncLoggingIn : copy.cloudSyncLogin }}
                 </button>
               </div>
+              <p class="settings-item-hint cloud-sync-register" data-testid="cloud-sync-register-hint">
+                {{ copy.cloudSyncRegisterHint }}
+                <button
+                  type="button"
+                  class="cloud-sync-register-link"
+                  data-testid="cloud-sync-register-btn"
+                  @click="handleCloudRegister"
+                >
+                  {{ copy.cloudSyncRegisterAction }}
+                </button>
+              </p>
             </div>
 
             <div v-else class="cloud-sync-account" data-testid="cloud-sync-account">
@@ -749,9 +760,11 @@
             >
               <div class="cloud-sync-quota-head">
                 <span>{{ copy.cloudSyncQuotaLabel }}</span>
-                <span data-testid="cloud-sync-quota-label">{{ cloudSyncStore.quotaLabel }}</span>
+                <span v-if="cloudSyncStore.quotaLabel" data-testid="cloud-sync-quota-label">{{ cloudSyncStore.quotaLabel }}</span>
+                <span v-else class="cloud-sync-quota-issue" data-testid="cloud-sync-quota-issue">{{ cloudSyncQuotaIssueLabel }}</span>
               </div>
               <div
+                v-if="cloudSyncStore.quotaLabel"
                 class="cloud-sync-quota-bar"
                 role="progressbar"
                 aria-valuemin="0"
@@ -770,6 +783,24 @@
                 @click="handleCloudSyncNow"
               >
                 {{ cloudSyncStore.isBusy || cloudSyncSyncing ? copy.cloudSyncSyncing : copy.cloudSyncSyncNow }}
+              </button>
+              <button
+                v-if="cloudSyncDesktopAvailable && cloudSyncStore.signedIn"
+                class="settings-action-btn"
+                data-testid="cloud-sync-pull-btn"
+                :disabled="cloudSyncStore.isBusy || cloudPullBusy"
+                @click="handleCloudPullRequest"
+              >
+                {{ cloudPullBusy ? copy.cloudSyncPulling : copy.cloudSyncPull }}
+              </button>
+              <button
+                v-if="cloudSyncDesktopAvailable && cloudSyncStore.signedIn"
+                class="settings-action-btn"
+                data-testid="cloud-sync-browse-btn"
+                :disabled="cloudSyncStore.isBusy"
+                @click="emit('open-cloud-browser')"
+              >
+                {{ copy.cloudSyncBrowse }}
               </button>
             </div>
 
@@ -801,6 +832,19 @@
                   @change="handleCloudDebounceChange"
                 />
               </label>
+              <label class="cloud-sync-auto-row">
+                <input
+                  type="checkbox"
+                  data-testid="cloud-sync-images-toggle"
+                  :checked="settingsStore.syncDocumentImages"
+                  :disabled="cloudSyncStore.isBusy"
+                  @change="handleCloudImagesToggle"
+                />
+                <span>{{ copy.cloudSyncImagesLabel }}</span>
+              </label>
+              <p class="settings-item-hint" data-testid="cloud-sync-images-hint">
+                {{ copy.cloudSyncImagesHint }}
+              </p>
               <p class="settings-item-hint" data-testid="cloud-sync-queue-status">
                 {{ cloudSyncQueueLabel }}
               </p>
@@ -826,172 +870,7 @@
               {{ cloudSyncResultLine.text }}
             </p>
 
-            <div
-              v-if="cloudSyncMetaVisible"
-              class="cloud-sync-meta"
-              data-testid="cloud-sync-meta"
-            >
-              <p class="cloud-sync-meta-title">{{ copy.cloudSyncMetaTitle }}</p>
-              <p class="settings-item-hint">{{ copy.cloudSyncMetaHint }}</p>
-              <p
-                v-if="cloudSyncFileId === null"
-                class="settings-item-hint"
-                data-testid="cloud-sync-meta-first-sync"
-              >
-                {{ copy.cloudSyncMetaFirstSyncHint }}
-              </p>
-              <p
-                v-if="cloudSyncMetaLoading"
-                class="settings-item-hint"
-                data-testid="cloud-sync-meta-loading"
-              >
-                {{ copy.cloudSyncMetaLoading }}
-              </p>
 
-              <label class="settings-item">
-                <span class="settings-label">{{ copy.cloudSyncMetaCategory }}</span>
-                <select
-                  v-if="!cloudSyncCategoryFallback"
-                  v-model="cloudSyncCategorySelection"
-                  class="cloud-sync-input"
-                  data-testid="cloud-sync-meta-category"
-                  :disabled="cloudSyncMetaSaving || cloudSyncMetaCategoriesState === 'loading'"
-                >
-                  <option value="">{{ copy.cloudSyncMetaCategoryNone }}</option>
-                  <option
-                    v-for="option in cloudSyncCategoryOptions"
-                    :key="option.id"
-                    :value="option.id"
-                  >
-                    {{ `${'　'.repeat(option.depth)}${option.name}` }}
-                  </option>
-                </select>
-                <input
-                  v-else
-                  v-model="cloudSyncCategoryText"
-                  class="cloud-sync-input"
-                  data-testid="cloud-sync-meta-category-text"
-                  type="text"
-                  spellcheck="false"
-                  :disabled="cloudSyncMetaSaving"
-                  :placeholder="copy.cloudSyncMetaCategoryPlaceholder"
-                />
-                <p
-                  v-if="cloudSyncMetaCategoriesState === 'failed'"
-                  class="settings-item-hint"
-                  data-testid="cloud-sync-meta-categories-error"
-                >
-                  {{ copy.cloudSyncMetaCategoriesFailed }}
-                </p>
-              </label>
-
-              <label class="settings-item">
-                <span class="settings-label">{{ copy.cloudSyncMetaTags }}</span>
-                <input
-                  v-model="cloudSyncTagsText"
-                  class="cloud-sync-input"
-                  data-testid="cloud-sync-meta-tags"
-                  type="text"
-                  spellcheck="false"
-                  :disabled="cloudSyncMetaSaving"
-                  :placeholder="copy.cloudSyncMetaTagsPlaceholder"
-                />
-              </label>
-
-              <label class="cloud-sync-auto-row">
-                <input
-                  type="checkbox"
-                  data-testid="cloud-sync-meta-visibility"
-                  :checked="cloudSyncVisibilityPublic"
-                  :disabled="cloudSyncMetaSaving"
-                  @change="handleCloudSyncVisibilityChange"
-                />
-                <span>
-                  {{ cloudSyncVisibilityPublic ? copy.cloudSyncMetaVisibilityPublic : copy.cloudSyncMetaVisibilityPrivate }}
-                </span>
-              </label>
-
-              <p
-                v-if="cloudSyncMetaError"
-                class="settings-item-hint error"
-                data-testid="cloud-sync-meta-error"
-              >
-                {{ cloudSyncMetaError }}
-              </p>
-
-              <div class="cloud-sync-actions">
-                <button
-                  class="settings-action-btn"
-                  data-testid="cloud-sync-meta-save"
-                  :disabled="cloudSyncMetaSaving || cloudSyncStore.isBusy || !tabsStore.activeTab"
-                  @click="handleCloudSyncMetaSave"
-                >
-                  {{ cloudSyncMetaSaving ? copy.cloudSyncMetaSaving : copy.cloudSyncMetaSave }}
-                </button>
-              </div>
-            </div>
-
-            <div
-              v-if="cloudSyncDesktopAvailable && cloudSyncStore.signedIn && cloudSyncFileId !== null"
-              class="cloud-sync-versions"
-              data-testid="cloud-sync-versions"
-            >
-              <div class="cloud-sync-actions">
-                <button
-                  class="settings-action-btn"
-                  data-testid="cloud-sync-versions-btn"
-                  :disabled="cloudSyncVersionsLoading"
-                  @click="toggleCloudSyncVersions"
-                >
-                  {{ cloudSyncVersionsLoading ? copy.cloudSyncVersionsLoading : copy.cloudSyncVersions }}
-                </button>
-              </div>
-
-              <template v-if="cloudSyncVersionsOpen">
-                <p class="settings-item-hint">{{ copy.cloudSyncVersionHint }}</p>
-                <p
-                  v-if="cloudSyncVersionsLoading"
-                  class="settings-item-hint"
-                  data-testid="cloud-sync-versions-loading"
-                >
-                  {{ copy.cloudSyncVersionsLoading }}
-                </p>
-                <p
-                  v-else-if="cloudSyncVersions.length === 0"
-                  class="settings-item-hint"
-                  data-testid="cloud-sync-versions-empty"
-                >
-                  {{ copy.cloudSyncVersionsEmpty }}
-                </p>
-                <div v-else class="cloud-sync-version-list" data-testid="cloud-sync-version-list">
-                  <div
-                    v-for="version in cloudSyncVersions"
-                    :key="version.versionId"
-                    class="cloud-sync-version-row"
-                    data-testid="cloud-sync-version-row"
-                  >
-                    <div class="cloud-sync-version-main">
-                      <span class="cloud-sync-version-title">
-                        {{ copy.cloudSyncVersionLabel(version.version) }}
-                      </span>
-                      <span class="cloud-sync-version-meta">
-                        <span v-if="version.createdAt">{{ formatCloudVersionTime(version.createdAt) }}</span>
-                        <span>{{ formatCloudVersionSize(version.size) }}</span>
-                        <span v-if="version.remark" class="cloud-sync-version-remark">{{ version.remark }}</span>
-                      </span>
-                    </div>
-                    <button
-                      class="settings-action-btn"
-                      data-testid="cloud-sync-version-restore"
-                      :disabled="cloudSyncVersionBusyId !== null"
-                      @click="handleCloudSyncRestoreVersion(version)"
-                    >
-                      {{ copy.cloudSyncVersionRestore }}
-                    </button>
-                  </div>
-                </div>
-              </template>
-            </div>
 
             <div
               v-if="cloudSyncConflictActive"
@@ -1016,6 +895,33 @@
                   @click="handleCloudKeepRemote"
                 >
                   {{ copy.cloudSyncKeepRemote }}
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="cloudPullConfirmVisible"
+              class="cloud-sync-conflict"
+              data-testid="cloud-sync-pull-confirm"
+            >
+              <p class="cloud-sync-conflict-title">{{ copy.cloudSyncPullConfirmTitle }}</p>
+              <p class="settings-item-hint">{{ copy.cloudSyncPullConfirmHint }}</p>
+              <div class="cloud-sync-actions">
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-pull-confirm-ok"
+                  :disabled="cloudPullBusy"
+                  @click="handleCloudPullConfirm"
+                >
+                  {{ copy.cloudSyncPullConfirmOk }}
+                </button>
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-pull-confirm-cancel"
+                  :disabled="cloudPullBusy"
+                  @click="handleCloudPullCancel"
+                >
+                  {{ copy.cloudSyncPullConfirmCancel }}
                 </button>
               </div>
             </div>
@@ -1305,7 +1211,7 @@ import { useNotificationStore } from '@/stores/notification';
 import { useCloudSyncStore, type CloudDocMetaInput, type CloudDocMetaSnapshot } from '@/stores/cloudSync';
 import { useTabsStore } from '@/stores/tabs';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
-import { DEFAULT_CLOUD_BASE_URL } from '@/services/cloudAuthService';
+import { DEFAULT_CLOUD_BASE_URL, buildRegisterUrl } from '@/services/cloudAuthService';
 import { fetchCloudCategories } from '@/services/cloudBlogService';
 import { listCloudDocVersions, restoreCloudDocVersion } from '@/services/cloudDocService';
 import { pullCloudDocumentIntoLocal, type CloudSyncResult } from '@/services/cloudSyncService';
@@ -1370,6 +1276,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   close: [];
   'open-workspace': [];
+  'open-cloud-browser': [];
   'update:activeCategory': [category: SettingsCategory];
   'update-availability': [state: {
     available: boolean;
@@ -1467,6 +1374,14 @@ const cloudSyncQuotaPercent = computed(() => {
   }
   return Math.min(100, Math.max(0, Math.round(ratio * 100)));
 });
+/** 配额拿不到时不再留空白：显示读取中，或带上错误归类（unauthorized / network / quota …）。 */
+const cloudSyncQuotaIssueLabel = computed(() => {
+  const issue = cloudSyncStore.spaceError;
+  if (!issue) {
+    return copy.value.cloudSyncQuotaReading;
+  }
+  return copy.value.cloudSyncQuotaFailed(issue.kind, issue.message);
+});
 /** 最近一次同步结果行：成功显示版本，冲突/失败/跳过显示对应原因。 */
 const cloudSyncResultLine = computed<{ text: string; tone: CloudSyncResultTone }>(() => {
   const result = cloudSyncLastResult.value;
@@ -1503,6 +1418,22 @@ const notifyCloudSyncResult = (tone: CloudSyncResultTone, message: string) => {
     return;
   }
   notificationStore.error(title, message);
+};
+
+/** 注册走系统浏览器：`{origin}/lizi/newUser/register?source=tau`（后端按 source 授予 Tau 角色）。 */
+const handleCloudRegister = async () => {
+  const raw = (cloudSyncForm.value.baseUrl || cloudSyncStore.baseUrl || DEFAULT_CLOUD_BASE_URL).trim();
+  let origin = 'https://note.lizipro.cn';
+  try {
+    origin = new URL(raw).origin;
+  } catch {
+    origin = raw.replace(/\/lizi\/?$/, '').replace(/\/+$/, '') || origin;
+  }
+  try {
+    await appCommands.openExternalLink(`${origin}/lizi/newUser/register?source=tau`);
+  } catch (error) {
+    notificationStore.error(copy.value.settingsCloudSync, error instanceof Error ? error.message : String(error));
+  }
 };
 
 const handleCloudLogin = async () => {
@@ -1569,6 +1500,11 @@ const cloudSyncQueueLabel = computed(() => {
   }
   return copy.value.cloudSyncQueueStatus(pending, failed);
 });
+const handleCloudImagesToggle = (event: Event) => {
+  const target = event.target as HTMLInputElement | null;
+  void settingsStore.updateSettings({ syncDocumentImages: Boolean(target?.checked) });
+};
+
 const handleCloudAutoSyncToggle = (event: Event) => {
   const target = event.target as HTMLInputElement | null;
   cloudSyncStore.setAutoSyncEnabled(Boolean(target?.checked));
@@ -1606,7 +1542,7 @@ const cloudSyncVersionsLoading = ref(false);
 const cloudSyncVersions = ref<CloudDocVersion[]>([]);
 const cloudSyncVersionBusyId = ref<number | null>(null);
 const cloudSyncConflictBusy = ref(false);
-/** 最近的同步结果是否处于冲突态；fileConflicts 里登记过当前文件也算冲突。 */
+/** 最近的同步结果是否处于冲突态；只认「云端版本冲突」来源，磁盘外部修改不影响这里。 */
 const cloudSyncConflictActive = computed(() => {
   if (!cloudSyncDesktopAvailable.value) {
     return false;
@@ -1615,7 +1551,8 @@ const cloudSyncConflictActive = computed(() => {
     return true;
   }
   const tab = tabsStore.activeTab;
-  return Boolean(tab?.filePath && fileConflictsStore.find(tab.filePath));
+  const record = tab?.filePath ? fileConflictsStore.find(tab.filePath) : null;
+  return record?.source === 'cloud';
 });
 
 const formatCloudVersionTime = (value: string | null): string => {
@@ -1741,6 +1678,11 @@ const handleCloudKeepLocal = async () => {
   }
 };
 
+/** 云端覆盖本地前的未保存确认（确认后带着 overwriteDirty 重新拉取）。 */
+const cloudPullBusy = ref(false);
+const cloudPullConfirmVisible = ref(false);
+const cloudPullConfirmTabId = ref<string | null>(null);
+
 const handleCloudKeepRemote = async () => {
   const tab = tabsStore.activeTab;
   if (!tab || cloudSyncConflictBusy.value) {
@@ -1748,10 +1690,61 @@ const handleCloudKeepRemote = async () => {
   }
   cloudSyncConflictBusy.value = true;
   try {
-    const result = await pullCloudDocumentIntoLocal(tab.id);
+    // 冲突面板里用户已明确选了「以云端为准」，这里不再二次确认。
+    const result = await pullCloudDocumentIntoLocal(tab.id, { overwriteDirty: true });
     applyCloudConflictResult(result, copy.value.cloudSyncKeepRemoteDone);
   } finally {
     cloudSyncConflictBusy.value = false;
+  }
+};
+
+/**
+ * 「从云端拉取」：普通场景的拉取入口。
+ * 有未保存修改时先弹确认（不直接落盘），确认后才带 overwriteDirty 覆盖。
+ */
+const handleCloudPullRequest = async () => {
+  const tab = tabsStore.activeTab;
+  if (!tab || cloudPullBusy.value) {
+    return;
+  }
+  cloudPullBusy.value = true;
+  try {
+    const result = await pullCloudDocumentIntoLocal(tab.id);
+    if (result.needsDirtyConfirm) {
+      cloudPullConfirmTabId.value = tab.id;
+      cloudPullConfirmVisible.value = true;
+      return;
+    }
+    applyCloudConflictResult(result, copy.value.cloudSyncKeepRemoteDone);
+  } finally {
+    cloudPullBusy.value = false;
+  }
+};
+
+/** 取消覆盖：本地内容与未保存修改都原样保留，只给一条可读提示。 */
+const handleCloudPullCancel = () => {
+  cloudPullConfirmVisible.value = false;
+  cloudPullConfirmTabId.value = null;
+  notificationStore.info(copy.value.settingsCloudSync, copy.value.cloudSyncPullCancelled);
+};
+
+const handleCloudPullConfirm = async () => {
+  const tabId = cloudPullConfirmTabId.value;
+  cloudPullConfirmVisible.value = false;
+  cloudPullConfirmTabId.value = null;
+  if (!tabId || cloudPullBusy.value) {
+    return;
+  }
+  cloudPullBusy.value = true;
+  try {
+    const result = await pullCloudDocumentIntoLocal(tabId, { overwriteDirty: true });
+    applyCloudConflictResult(result, copy.value.cloudSyncKeepRemoteDone);
+    const fileId = cloudSyncFileId.value;
+    if (result.status === 'synced' && cloudSyncVersionsOpen.value && fileId !== null) {
+      await loadCloudSyncVersions(fileId);
+    }
+  } finally {
+    cloudPullBusy.value = false;
   }
 };
 
@@ -4927,6 +4920,20 @@ defineExpose({
   opacity: 0.6;
 }
 
+.cloud-sync-register {
+  margin: 6px 0 0;
+}
+
+.cloud-sync-register-link {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--accent-brand, #7cc7ff);
+  text-decoration: underline;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
 .cloud-sync-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4975,6 +4982,14 @@ defineExpose({
   gap: 12px;
   color: var(--text-secondary, #cbd5e1);
   font-size: var(--font-size-ui-sm, 12px);
+}
+
+.cloud-sync-quota-issue {
+  max-width: 68%;
+  font-size: var(--font-size-ui-xs, 11px);
+  color: var(--state-warning, #fbbf24);
+  text-align: right;
+  word-break: break-word;
 }
 
 .cloud-sync-quota-bar {
@@ -5116,7 +5131,21 @@ defineExpose({
   font-weight: 600;
 }
 
-.cloud-sync-conflict .cloud-sync-actions {
+.cloud-sync-conflict .cloud-sync-register {
+  margin: 6px 0 0;
+}
+
+.cloud-sync-register-link {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--accent-brand, #7cc7ff);
+  text-decoration: underline;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.cloud-sync-actions {
   margin-top: 4px;
 }
 
@@ -5144,5 +5173,18 @@ defineExpose({
 .cloud-sync-meta select.cloud-sync-input {
   appearance: auto;
   padding-right: 6px;
+  /* 原生下拉弹出层在部分 WebView2 版本里不继承 color-scheme，这里显式给出可读配色 */
+  color-scheme: inherit;
+}
+
+.cloud-sync-meta select.cloud-sync-input option {
+  color: var(--text-primary, #f8fafc);
+  background-color: var(--panel-elevated, #151d2d);
+}
+
+.cloud-sync-meta select.cloud-sync-input option:checked,
+.cloud-sync-meta select.cloud-sync-input option:hover {
+  color: var(--text-primary, #f8fafc);
+  background-color: var(--surface-active, rgba(124, 199, 255, 0.14));
 }
 </style>

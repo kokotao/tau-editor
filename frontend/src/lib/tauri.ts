@@ -1265,6 +1265,109 @@ export interface CloudSyncSource {
   modifiedMs: number | null;
 }
 
+/** 云端文档打开方式（Rust `CloudOpenAction`）。 */
+export type CloudDocOpenAction =
+  | 'openExisting'
+  | 'writeAndOpen'
+  | 'confirmOverwrite'
+  | 'rejected';
+
+/** 云端文档在本机的落点与打开方式（Rust `cloud_doc_open_target`）。 */
+export interface CloudDocOpenTarget {
+  cloudPath: string;
+  relativePath: string;
+  absolutePath: string;
+  exists: boolean;
+  sameContent: boolean;
+  openable: boolean;
+  action: CloudDocOpenAction;
+  reasonCode: string | null;
+  reason: string | null;
+}
+
+/** 云文档图片附件（Rust `CloudAssetInfo`）。 */
+export interface CloudAssetInfo {
+  assetId: number;
+  relPath: string;
+  fileName: string;
+  mime?: string | null;
+  size?: number;
+  contentHash?: string | null;
+}
+
+/** 本地图片探测结果（Rust `CloudAssetSourceInfo`）。 */
+export interface CloudAssetSourceInfo {
+  path: string;
+  exists: boolean;
+  size: number;
+  contentHash: string | null;
+  supported: boolean;
+  reason: string | null;
+}
+
+/** 图片下载落盘结果（Rust `CloudAssetDownloadResult`）。 */
+export interface CloudAssetDownloadResult {
+  status: 'written' | 'skippedSame' | 'skippedConflict';
+  localPath: string;
+  size: number;
+  reason: string | null;
+}
+
+/** 二进制文档上传结果（Rust `CloudBinaryUploadResult`）。 */
+export interface CloudBinaryUploadResult {
+  fileId: number;
+  version: number;
+  contentHash?: string | null;
+  size?: number;
+  updatedAt?: string | null;
+}
+
+/** 分享创建结果（Rust `CloudShareInfo`）。 */
+export interface CloudShareInfo {
+  shareUrl: string;
+  token: string;
+  createdAt: string | null;
+  expiresAt: string | null;
+  hasPassword: boolean;
+  visitCount: number;
+  syncedVersion: number | null;
+  categoryApplied: string | null;
+  appliedDefaultCategory: boolean | null;
+  /** 文件扩展名（不含点），分享页据此选择渲染器 */
+  fileExt?: string | null;
+  /** markdown / code / text / image / pdf / office / other */
+  fileKind?: string | null;
+  fileName?: string | null;
+}
+
+/** 分享状态（Rust `CloudShareStatus`）。 */
+export interface CloudShareStatus {
+  shared: boolean;
+  shareUrl?: string | null;
+  token?: string | null;
+  createdAt?: string | null;
+  expiresAt?: string | null;
+  hasPassword?: boolean | null;
+  visitCount?: number | null;
+  fileExt?: string | null;
+  fileKind?: string | null;
+  fileName?: string | null;
+}
+
+/** 分享站点配置（Rust `CloudShareConfig`）。 */
+export interface CloudShareConfig {
+  shareBaseUrl: string | null;
+  defaultCategory: string | null;
+  maxExpireDays: number | null;
+}
+
+/** 分享创建入参：`expiresInDays` 为 null 表示永久，`password` 为空表示无密码。 */
+export interface CloudShareCreatePayload {
+  regenerate?: boolean;
+  expiresInDays?: number | null;
+  password?: string | null;
+}
+
 /**
  * 博客分类节点（云文档属性面板的分类候选）。
  * 服务端 `category` 表为多级树，id/parentId 是被序列化成字符串的雪花 ID；
@@ -1336,6 +1439,21 @@ export const cloudCommands = {
     await invokeCommand<void>('cloud_docs_delete', { fileId });
   },
 
+  /** 判定云文档在本机的落点与打开方式（纯本地探测，不产生云端请求）。 */
+  async openTarget(input: {
+    workspaceRoot: string;
+    workspaceName: string;
+    cloudPath: string;
+    remoteHash?: string | null;
+  }): Promise<CloudDocOpenTarget> {
+    return invokeCommand<CloudDocOpenTarget>('cloud_doc_open_target', {
+      workspaceRoot: input.workspaceRoot,
+      workspaceName: input.workspaceName,
+      cloudPath: input.cloudPath,
+      remoteHash: input.remoteHash ?? null,
+    });
+  },
+
   /** 读取本地待同步源文件并返回内容与 sha256（Rust 计算，避免前端重复实现哈希）。 */
   async readSyncSource(path: string, maxBytes: number): Promise<CloudSyncSource> {
     return invokeCommand<CloudSyncSource>('cloud_read_sync_source', { path, maxBytes });
@@ -1351,5 +1469,109 @@ export const cloudCommands = {
   /** 博客标签候选（公开接口，未登录也可取；Rust 侧已去重并按字典序排序）。 */
   async blogTags(): Promise<string[]> {
     return invokeCommand<string[]>('cloud_blog_tags');
+  },
+
+  /** 生成/复用云文档分享链接。 */
+  async shareCreate(fileId: number, payload: CloudShareCreatePayload = {}): Promise<CloudShareInfo> {
+    return invokeCommand<CloudShareInfo>('cloud_docs_share_create', {
+      fileId,
+      regenerate: payload.regenerate ?? false,
+      expiresInDays: payload.expiresInDays ?? null,
+      password: payload.password ?? null,
+    });
+  },
+
+  /** 查询云文档当前分享状态。 */
+  async shareStatus(fileId: number): Promise<CloudShareStatus> {
+    return invokeCommand<CloudShareStatus>('cloud_docs_share_status', { fileId });
+  },
+
+  /** 撤销分享（旧链接立即失效）。 */
+  async shareRevoke(fileId: number): Promise<void> {
+    await invokeCommand<void>('cloud_docs_share_revoke', { fileId });
+  },
+
+  /** 分享站点配置：分享域名 / 默认分类 / 有效期上限。 */
+  async shareConfig(): Promise<CloudShareConfig> {
+    return invokeCommand<CloudShareConfig>('cloud_share_config');
+  },
+
+  /** 云端分类树（管理接口，需登录）。 */
+  async categoriesList(): Promise<CloudCategoryNode[]> {
+    return invokeCommand<CloudCategoryNode[]>('cloud_categories_list');
+  },
+
+  /** 新建分类（POST /categories）。 */
+  async categoryCreate(name: string, parentId?: string | null): Promise<CloudCategoryNode> {
+    return invokeCommand<CloudCategoryNode>('cloud_category_create', {
+      name,
+      parentId: parentId ?? null,
+    });
+  },
+
+  /** 重命名分类（PUT /categories/{id}，body 只带 name）。 */
+  async categoryUpdate(id: string, name: string): Promise<CloudCategoryNode> {
+    return invokeCommand<CloudCategoryNode>('cloud_category_update', { id, name });
+  },
+
+  /** 删除分类（DELETE /categories/{id}）。 */
+  async categoryDelete(id: string): Promise<void> {
+    await invokeCommand<void>('cloud_category_delete', { id });
+  },
+
+  /** 把云文档移动到指定分类（categoryId 为 null 表示取消分类）。 */
+  async moveDocCategory(fileId: number, categoryId: number | null): Promise<void> {
+    await invokeCommand<void>('cloud_docs_move_category', { fileId, categoryId });
+  },
+
+  /** 上传二进制文档（pdf/doc/xls/ppt 等，multipart，字节不经前端）。 */
+  async binaryUpload(input: {
+    path: string;
+    title?: string | null;
+    category?: string | null;
+    tags?: string | null;
+    localPath: string;
+  }): Promise<CloudBinaryUploadResult> {
+    return invokeCommand<CloudBinaryUploadResult>('cloud_docs_binary_upload', {
+      path: input.path,
+      title: input.title ?? null,
+      category: input.category ?? null,
+      tags: input.tags ?? null,
+      localPath: input.localPath,
+    });
+  },
+
+  /** 文档图片附件列表。 */
+  async assetsList(fileId: number): Promise<CloudAssetInfo[]> {
+    return invokeCommand<CloudAssetInfo[]>('cloud_docs_assets_list', { fileId });
+  },
+
+  /** 探测一批本地图片（存在性/大小/hash/扩展名/魔数）。 */
+  async inspectAssetSources(paths: string[]): Promise<CloudAssetSourceInfo[]> {
+    return invokeCommand<CloudAssetSourceInfo[]>('cloud_inspect_asset_sources', { paths });
+  },
+
+  /** 上传单张本地图片（Rust 侧做大小/扩展名/魔数校验）。 */
+  async assetUploadFile(fileId: number, relPath: string, localPath: string): Promise<CloudAssetInfo> {
+    return invokeCommand<CloudAssetInfo>('cloud_docs_asset_upload_file', { fileId, relPath, localPath });
+  },
+
+  /** 下载云端图片并写入 workspace 相对路径（同 hash 跳过、冲突不覆盖）。 */
+  async assetDownload(input: {
+    fileId: number;
+    assetId: number;
+    workspaceRoot: string;
+    documentPath: string;
+    relPath: string;
+    expectedHash?: string | null;
+  }): Promise<CloudAssetDownloadResult> {
+    return invokeCommand<CloudAssetDownloadResult>('cloud_docs_asset_download', {
+      fileId: input.fileId,
+      assetId: input.assetId,
+      workspaceRoot: input.workspaceRoot,
+      documentPath: input.documentPath,
+      relPath: input.relPath,
+      expectedHash: input.expectedHash ?? null,
+    });
   },
 };

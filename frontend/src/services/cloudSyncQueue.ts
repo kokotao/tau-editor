@@ -134,6 +134,8 @@ export interface CloudQueueRunResult {
 export interface CloudSyncQueueDeps {
   runSync: (tabId: string) => Promise<CloudQueueRunResult>;
   onChange?: (items: CloudQueueItem[]) => void;
+  /** 达到最大尝试次数、队列放弃该项时回调（该项随后被移出队列）。 */
+  onGiveUp?: (tabId: string, filePath: string, lastError: string | null) => void;
   now?: () => number;
   setTimeoutFn?: typeof setTimeout;
   clearTimeoutFn?: typeof clearTimeout;
@@ -207,7 +209,8 @@ export function createCloudSyncQueue(deps: CloudSyncQueueDeps): CloudSyncQueue {
   function markFailed(item: CloudQueueItem, message: string): void {
     const attempts = item.attempts + 1;
     if (attempts >= CLOUD_QUEUE_MAX_ATTEMPTS) {
-      // 超过最大尝试次数：放弃（由 store 把最后错误展示给用户）
+      // 超过最大尝试次数：放弃；先回调让 store 把最后错误展示给用户，再由队列移除。
+      deps.onGiveUp?.(item.tabId, item.filePath, item.lastError ?? message);
       removeItem(item.id);
       return;
     }

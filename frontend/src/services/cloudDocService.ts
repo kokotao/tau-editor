@@ -54,6 +54,7 @@ const CLOUD_ERROR_KIND_MAP: Record<string, CloudErrorKind> = {
   TOKEN_INVALID: 'unauthorized',
   '401': 'unauthorized',
   '403': 'unauthorized',
+  FORBIDDEN: 'unauthorized',
   // 版本 / 路径冲突
   CONFLICT: 'conflict',
   VERSION_CONFLICT: 'conflict',

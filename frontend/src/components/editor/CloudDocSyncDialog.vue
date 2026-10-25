@@ -1,0 +1,581 @@
+<template>
+  <div v-if="visible" class="cloud-sync-dialog-backdrop" data-testid="cloud-sync-dialog" @click.self="requestClose">
+    <section class="cloud-sync-dialog" role="dialog" aria-modal="true">
+      <header class="cloud-sync-dialog__header">
+        <h3>{{ copy.title }}</h3>
+        <span class="cloud-sync-dialog__file" :title="filePath ?? ''">{{ fileName || filePath }}</span>
+        <button type="button" class="cloud-sync-dialog__close" data-testid="cloud-sync-dialog-close" @click="requestClose">×</button>
+      </header>
+
+      <div class="cloud-sync-dialog__body">
+        <section class="cloud-sync-dialog__section">
+          <label class="cloud-sync-dialog__label">{{ copy.categoryLabel }}</label>
+          <input
+            v-model="search"
+            class="cloud-sync-dialog__input"
+            data-testid="cloud-sync-dialog-search"
+            type="search"
+            :placeholder="copy.searchPlaceholder"
+            :disabled="busy"
+          />
+          <p v-if="categoriesState === 'loading'" class="cloud-sync-dialog__hint" data-testid="cloud-sync-dialog-categories-loading">
+            {{ copy.categoriesLoading }}
+          </p>
+          <p
+            v-else-if="categoriesState === 'failed'"
+            class="cloud-sync-dialog__hint cloud-sync-dialog__hint--warn"
+            data-testid="cloud-sync-dialog-categories-error"
+          >
+            {{ copy.categoriesFailed }}
+          </p>
+          <p
+            v-else-if="categoryOptions.length === 0"
+            class="cloud-sync-dialog__hint"
+            data-testid="cloud-sync-dialog-categories-empty"
+          >
+            {{ copy.noCategories }}
+          </p>
+          <ul v-else class="cloud-sync-dialog__list" data-testid="cloud-sync-dialog-category-list">
+            <li>
+              <button
+                type="button"
+                class="cloud-sync-dialog__option"
+                :class="{ 'is-selected': selectedId === null && !newCategory.trim() }"
+                data-testid="cloud-sync-dialog-category-none"
+                :disabled="busy"
+                @click="clearCategory"
+              >
+                {{ copy.none }}
+              </button>
+            </li>
+            <li v-for="option in categoryOptions" :key="option.id">
+              <button
+                type="button"
+                class="cloud-sync-dialog__option"
+                :class="{ 'is-selected': selectedId === option.id }"
+                :data-testid="`cloud-sync-dialog-category-${option.id}`"
+                :style="{ paddingLeft: `${8 + option.depth * 12}px` }"
+                :disabled="busy"
+                @click="selectCategory(option)"
+              >
+                {{ option.name }}
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <section class="cloud-sync-dialog__section">
+          <label class="cloud-sync-dialog__label">{{ copy.newCategoryLabel }}</label>
+          <input
+            v-model="newCategory"
+            class="cloud-sync-dialog__input"
+            data-testid="cloud-sync-dialog-new-category"
+            type="text"
+            :placeholder="copy.newCategoryPlaceholder"
+            :disabled="busy"
+          />
+          <p class="cloud-sync-dialog__hint">{{ copy.newCategoryHint }}</p>
+        </section>
+
+        <div v-if="needsOverwrite" class="cloud-sync-dialog__conflict" data-testid="cloud-sync-dialog-conflict">
+          <p class="cloud-sync-dialog__conflict-title">{{ copy.conflictTitle }}</p>
+          <p class="cloud-sync-dialog__hint">{{ copy.conflictHint }}</p>
+          <div class="cloud-sync-dialog__actions">
+            <button
+              type="button"
+              class="cloud-sync-dialog__button"
+              data-testid="cloud-sync-dialog-overwrite"
+              :disabled="busy"
+              @click="confirm(true)"
+            >
+              {{ copy.overwrite }}
+            </button>
+            <button
+              type="button"
+              class="cloud-sync-dialog__button"
+              data-testid="cloud-sync-dialog-conflict-cancel"
+              :disabled="busy"
+              @click="requestClose"
+            >
+              {{ copy.cancel }}
+            </button>
+          </div>
+        </div>
+
+        <StatusNotice
+          v-for="(line, index) in assetStatusLines"
+          :key="`asset-${index}`"
+          :tone="line.tone"
+          :text="line.text"
+          :details="line.details"
+          collapsible
+          :expand-label="copy.expandDetails"
+          :collapse-label="copy.collapseDetails"
+          :test-id="line.testId"
+        />
+        <StatusNotice
+          v-if="notice"
+          :tone="noticeTone"
+          :text="notice"
+          test-id="cloud-sync-dialog-notice"
+        />
+        <StatusNotice
+          v-if="errorText"
+          tone="error"
+          :text="errorText"
+          test-id="cloud-sync-dialog-error"
+        />
+      </div>
+
+      <footer class="cloud-sync-dialog__footer">
+        <button type="button" class="cloud-sync-dialog__button" data-testid="cloud-sync-dialog-cancel" :disabled="busy" @click="requestClose">
+          {{ copy.cancel }}
+        </button>
+        <button
+          type="button"
+          class="cloud-sync-dialog__button cloud-sync-dialog__button--primary"
+          data-testid="cloud-sync-dialog-confirm"
+          :disabled="busy || !filePath"
+          @click="confirm(false)"
+        >
+          {{ busy ? copy.syncing : copy.confirm }}
+        </button>
+      </footer>
+    </section>
+  </div>
+</template>
+
+<script setup lang="ts">
+/**
+ * @description 右键「同步至云端」的分类选择弹窗：选已有分类（可搜索）或新建分类名，确定后同步。
+ * 新建分类按「文档级分类名」实现（写 category 自由文本，不调管理端分类接口）。
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-10-25 16:10
+ */
+import { computed, ref, watch } from 'vue';
+import { fetchCloudCategories } from '@/services/cloudBlogService';
+import { syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncService';
+import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
+import { getCloudDocSyncI18n } from '@/i18n/ui';
+import StatusNotice, { type StatusNoticeTone } from '@/components/ui/StatusNotice.vue';
+import { useSettingsStore } from '@/stores/settings';
+import type { CloudCategoryNode } from '@/lib/tauri';
+
+const props = withDefaults(defineProps<{
+  visible?: boolean;
+  filePath?: string | null;
+  fileName?: string;
+}>(), { visible: false, filePath: null, fileName: '' });
+
+const emit = defineEmits<{
+  close: [];
+  synced: [result: CloudSyncResult];
+}>();
+
+const settingsStore = useSettingsStore();
+const copy = computed(() => getCloudDocSyncI18n(settingsStore.uiLanguage));
+
+interface CategoryOption {
+  id: string;
+  name: string;
+  depth: number;
+}
+
+const categories = ref<CloudCategoryNode[]>([]);
+const categoriesState = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+const search = ref('');
+const selectedId = ref<string | null>(null);
+const newCategory = ref('');
+const busy = ref(false);
+const notice = ref('');
+const errorText = ref('');
+const needsOverwrite = ref(false);
+const noticeTone = ref<StatusNoticeTone>('info');
+const lastAssets = ref<CloudAssetSyncSummary | null>(null);
+
+/** 图片同步结果按分级拆成多行：失败红字加粗并带原因，成功一行，跳过黄色。 */
+const assetStatusLines = computed<Array<{ tone: StatusNoticeTone; text: string; details: string[]; testId: string }>>(() => {
+  const assets = lastAssets.value;
+  if (!assets) {
+    return [];
+  }
+  const lines: Array<{ tone: StatusNoticeTone; text: string; details: string[]; testId: string }> = [];
+  if (assets.failed > 0) {
+    lines.push({
+      tone: 'error',
+      text: copy.value.assetsFailed(assets.failed),
+      details: assets.failures.map((item) => `${item.relPath}: ${item.reason}`),
+      testId: 'cloud-sync-dialog-assets-failed',
+    });
+  }
+  if (assets.uploaded > 0 || assets.unchanged > 0) {
+    lines.push({
+      tone: 'success',
+      text: copy.value.assetsSummary(assets.total, assets.uploaded, assets.unchanged),
+      details: [],
+      testId: 'cloud-sync-dialog-assets-summary',
+    });
+  }
+  if (assets.skipped > 0) {
+    lines.push({
+      tone: 'warning',
+      text: copy.value.assetsSkipped(assets.skipped),
+      details: [],
+      testId: 'cloud-sync-dialog-assets-skipped',
+    });
+  }
+  if (assets.disabled) {
+    lines.push({
+      tone: 'warning',
+      text: '同步文档内图片已关闭，文中图片不会同步',
+      details: [],
+      testId: 'cloud-sync-dialog-assets-disabled',
+    });
+  }
+  return lines;
+});
+
+const flatten = (nodes: CloudCategoryNode[], depth = 0): CategoryOption[] => {
+  const options: CategoryOption[] = [];
+  for (const node of nodes) {
+    options.push({ id: node.id, name: node.name, depth });
+    options.push(...flatten(node.children ?? [], depth + 1));
+  }
+  return options;
+};
+
+const allOptions = computed(() => flatten(categories.value));
+const categoryOptions = computed(() => {
+  const needle = search.value.trim().toLowerCase();
+  if (!needle) {
+    return allOptions.value;
+  }
+  return allOptions.value.filter((option) => option.name.toLowerCase().includes(needle));
+});
+
+async function loadCategories(): Promise<void> {
+  categoriesState.value = 'loading';
+  const outcome = await fetchCloudCategories();
+  if (outcome.ok) {
+    categories.value = outcome.data;
+    categoriesState.value = 'ready';
+    return;
+  }
+  categories.value = [];
+  categoriesState.value = 'failed';
+}
+
+function resetState(): void {
+  search.value = '';
+  selectedId.value = null;
+  newCategory.value = '';
+  busy.value = false;
+  notice.value = '';
+  errorText.value = '';
+  noticeTone.value = 'info';
+  lastAssets.value = null;
+  needsOverwrite.value = false;
+}
+
+function selectCategory(option: CategoryOption): void {
+  if (busy.value) {
+    return;
+  }
+  selectedId.value = option.id;
+  // 选已有分类与新建分类互斥
+  newCategory.value = '';
+}
+
+function clearCategory(): void {
+  if (busy.value) {
+    return;
+  }
+  selectedId.value = null;
+  newCategory.value = '';
+}
+
+/** 分类选择与「新建分类」互斥：填了名称就忽略选中项。 */
+const resolveCategory = (): { category: string | null; categoryId: number | null } => {
+  const typed = newCategory.value.trim();
+  if (typed) {
+    return { category: typed, categoryId: null };
+  }
+  const selected = allOptions.value.find((option) => option.id === selectedId.value);
+  if (!selected) {
+    return { category: null, categoryId: null };
+  }
+  const numericId = Number(selected.id);
+  return {
+    category: selected.name,
+    categoryId: Number.isFinite(numericId) ? numericId : null,
+  };
+};
+
+async function confirm(overwrite: boolean): Promise<void> {
+  const filePath = props.filePath;
+  if (!filePath || busy.value) {
+    return;
+  }
+  busy.value = true;
+  errorText.value = '';
+  notice.value = '';
+  try {
+    const category = resolveCategory();
+    const result = await syncDocumentByPath({
+      filePath,
+      category: category.category,
+      categoryId: category.categoryId,
+      overwrite,
+    });
+
+    lastAssets.value = result.assets ?? null;
+    if (result.status === 'conflict') {
+      needsOverwrite.value = true;
+      noticeTone.value = 'warning';
+      notice.value = result.message ?? copy.value.conflictHint;
+      return;
+    }
+    if (result.status === 'skipped') {
+      needsOverwrite.value = false;
+      noticeTone.value = 'success';
+      notice.value = result.message || copy.value.alreadySynced;
+      return;
+    }
+    if (result.status === 'failed') {
+      errorText.value = copy.value.failed(result.message ?? '');
+      return;
+    }
+    noticeTone.value = 'success';
+    emit('synced', result);
+    emit('close');
+  } catch (syncError) {
+    errorText.value = copy.value.failed(syncError instanceof Error ? syncError.message : String(syncError));
+  } finally {
+    busy.value = false;
+  }
+}
+
+function requestClose(): void {
+  if (busy.value) {
+    return;
+  }
+  emit('close');
+}
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (!visible) {
+      return;
+    }
+    resetState();
+    void loadCategories();
+  },
+  { immediate: true },
+);
+
+defineExpose({ confirm, resolveCategory });
+</script>
+
+<style scoped>
+.cloud-sync-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  /* 高于设置面板/浏览面板，低于最顶层 toast */
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6vh 6vw;
+  background: var(--bg-backdrop, rgba(8, 13, 26, 0.78));
+}
+
+.cloud-sync-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, 100%);
+  max-height: 100%;
+  min-height: 0;
+  padding: 14px 16px;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--panel-elevated, #151d2d);
+  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.38));
+  border-radius: var(--radius-dialog, 10px);
+  box-shadow: var(--shadow-overlay, 0 24px 60px rgba(0, 0, 0, 0.45));
+}
+
+.cloud-sync-dialog__header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cloud-sync-dialog__header h3 {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cloud-sync-dialog__file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-muted, #75829e);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-sync-dialog__close {
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-secondary, #a8b3c5);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.cloud-sync-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cloud-sync-dialog__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cloud-sync-dialog__label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary, #a8b3c5);
+}
+
+.cloud-sync-dialog__input {
+  width: 100%;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--panel-base, #101726);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-sync-dialog__input:focus {
+  border-color: var(--accent-brand, #7cc7ff);
+  outline: none;
+}
+
+.cloud-sync-dialog__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 180px;
+  margin: 0;
+  padding: 2px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-sync-dialog__option {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #a8b3c5);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-sync-dialog__option:hover {
+  color: var(--text-primary, #e5e9f0);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.cloud-sync-dialog__option.is-selected {
+  color: var(--accent-brand, #7cc7ff);
+  background: var(--surface-active, rgba(124, 199, 255, 0.14));
+}
+
+.cloud-sync-dialog__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted, #75829e);
+}
+
+.cloud-sync-dialog__hint--warn {
+  color: var(--state-warning, #fbbf24);
+}
+
+.cloud-sync-dialog__hint--error {
+  color: var(--state-danger, #dc2626);
+}
+
+.cloud-sync-dialog__conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel-base, #101726);
+  border: 1px solid var(--state-warning, #fbbf24);
+  border-radius: var(--radius-card, 7px);
+}
+
+.cloud-sync-dialog__conflict-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cloud-sync-dialog__actions,
+.cloud-sync-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cloud-sync-dialog__footer {
+  justify-content: flex-end;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+}
+
+.cloud-sync-dialog__button {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  color: var(--text-primary, #e5e9f0);
+  cursor: pointer;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-sync-dialog__button:hover:not(:disabled) {
+  border-color: var(--accent-brand, #7cc7ff);
+  color: var(--accent-brand, #7cc7ff);
+}
+
+.cloud-sync-dialog__button--primary {
+  color: var(--accent-brand, #7cc7ff);
+  border-color: var(--accent-brand, #7cc7ff);
+}
+
+.cloud-sync-dialog__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+</style>

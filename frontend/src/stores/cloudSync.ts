@@ -32,6 +32,7 @@ import {
   getCloudSpace,
   normalizeCloudError,
   saveCloudDoc,
+  type CloudErrorKind,
   type CloudOutcome,
 } from '@/services/cloudDocService';
 import {
@@ -236,6 +237,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   const username = ref<string | null>(null);
   const userId = ref<string | null>(null);
   const space = ref<CloudDocSpace | null>(null);
+  /** 配额接口（/me）最近一次失败的原因，用于替代「空白配额」的诊断文案。 */
+  const spaceError = ref<{ kind: CloudErrorKind; message: string } | null>(null);
   const status = ref<CloudSyncStatus>('idle');
   const lastError = ref<string | null>(null);
   const lastSyncAt = ref<number | null>(null);
@@ -251,6 +254,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   let queue: CloudSyncQueue | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let onlineHandler: (() => void) | null = null;
+  /** 防抖窗口内待同步的标签 id：多标签各自入队，避免只记住最后一个而漏同步。 */
+  const pendingAutoSyncTabIds = new Set<string>();
 
   const usedRatio = computed(() => {
     const current = space.value;
@@ -314,6 +319,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     username.value = null;
     userId.value = null;
     space.value = null;
+    spaceError.value = null;
     lastSyncAt.value = null;
   }
 
@@ -378,6 +384,10 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   async function logout(): Promise<void> {
     const outcome = await logoutFromLizi();
     resetSession();
+    // 令牌已失效：清空待同步队列并取消未触发的防抖，避免登出后继续用死令牌重试。
+    cancelPendingAutoSync();
+    queue?.clear();
+    queueItems.value = queue?.items() ?? [];
     if (outcome.ok) {
       status.value = 'idle';
       lastError.value = null;
@@ -398,6 +408,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     const outcome = await getCloudSpace();
     if (outcome.ok) {
       space.value = outcome.data;
+      spaceError.value = null;
       return;
     }
 
@@ -405,6 +416,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     if (outcome.kind === 'unauthorized') {
       resetSession();
     }
+    // 配额/会话诊断：即使已经清态也要留下原因，否则设置页只会显示空白。
+    spaceError.value = { kind: outcome.kind, message: outcome.message };
   }
 
   // ------------------------------------------------------------------
@@ -422,9 +435,21 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     queue = createCloudSyncQueue({
-      runSync: (tabId) => runCloudSync(tabId),
+      // 队列直接调服务层，这里显式做一次未授权兜底，避免自动同步拿着死令牌重试 5 次。
+      runSync: async (tabId) => {
+        const result = await runCloudSync(tabId);
+        if (result.status === 'failed' && result.kind === 'unauthorized') {
+          resetSession();
+          cancelPendingAutoSync();
+        }
+        return result;
+      },
       onChange: (items) => {
         queueItems.value = items;
+      },
+      // 队列放弃重试时把最后错误透出到结果行，避免文档静默地一直没同步上去。
+      onGiveUp: (_tabId, filePath, reason) => {
+        lastError.value = `自动同步已放弃：${filePath}（${reason ?? '未知原因'}）`;
       },
     });
     queueItems.value = queue.items();
@@ -456,19 +481,34 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       return;
     }
     initializeQueue();
+    // 累加而不是覆盖：防抖窗口内编辑多个标签时，每个标签都要入队一次。
+    pendingAutoSyncTabIds.add(tabId);
     if (debounceTimer !== null) {
       clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
+      const tabIds = [...pendingAutoSyncTabIds];
+      pendingAutoSyncTabIds.clear();
       const tabsStore = useTabsStore();
-      const tab = tabsStore.tabs.find((item) => item.id === tabId) ?? null;
-      if (!tab?.filePath) {
-        return;
+      for (const id of tabIds) {
+        const tab = tabsStore.tabs.find((item) => item.id === id) ?? null;
+        if (!tab?.filePath) {
+          continue;
+        }
+        queue?.enqueue(tab.id, tab.filePath);
       }
-      queue?.enqueue(tab.id, tab.filePath);
       void flushQueue();
     }, syncDebounceMs.value);
+  }
+
+  /** 取消未触发的自动同步防抖（登出/清理时用），避免用已失效的会话入队。 */
+  function cancelPendingAutoSync(): void {
+    pendingAutoSyncTabIds.clear();
+    if (debounceTimer !== null) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
   }
 
   async function flushQueue(): Promise<void> {
@@ -496,6 +536,11 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
 
     if (result.status === 'failed') {
       lastError.value = result.message ?? '云同步失败';
+      // 令牌已失效：立即清掉登录态，别让界面继续显示已登录、也别继续排队重试。
+      if (result.kind === 'unauthorized') {
+        resetSession();
+        cancelPendingAutoSync();
+      }
     }
 
     if (result.status === 'synced') {
@@ -772,6 +817,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     username,
     userId,
     space,
+    spaceError,
     status,
     lastError,
     lastSyncAt,
