@@ -52,11 +52,38 @@ export const CLOUD_SYNC_STORAGE_KEY = 'tau-cloud-sync';
 
 export type CloudSyncStatus = 'idle' | 'signing-in' | 'syncing' | 'error';
 
+/** 云文档可见性：PRIVATE 仅自己可见，PUBLIC 可在博客/小程序浏览。 */
+export type CloudDocVisibility = 'PRIVATE' | 'PUBLIC';
+
 export interface CloudDocSyncMeta {
   fileId: number;
   version: number;
   contentHash: string | null;
   updatedAt: string | null;
+  /** 云端分类名称（属性面板回显用，不是凭据） */
+  category?: string | null;
+  /** 云端分类 id（雪花 id 在 TS 侧统一按 number 处理） */
+  categoryId?: number | null;
+  /** 逗号分隔的标签串 */
+  tags?: string | null;
+  /** 可见性 */
+  visibility?: CloudDocVisibility | null;
+}
+
+/** 属性面板提交给 forcePushCurrentDocument 的可选元信息。 */
+export interface CloudDocMetaInput {
+  category?: string | null;
+  categoryId?: number | null;
+  tags?: string | null;
+  visibility?: CloudDocVisibility;
+}
+
+/** loadDocMeta 返回的属性面板初值。 */
+export interface CloudDocMetaSnapshot {
+  category: string | null;
+  categoryId: number | null;
+  tags: string | null;
+  visibility: CloudDocVisibility | null;
 }
 
 interface PersistedCloudSyncState {
@@ -95,17 +122,36 @@ function normalizeDocSyncMeta(value: unknown): CloudDocSyncMeta | null {
     version?: unknown;
     contentHash?: unknown;
     updatedAt?: unknown;
+    category?: unknown;
+    categoryId?: unknown;
+    tags?: unknown;
+    visibility?: unknown;
   };
   if (typeof record.fileId !== 'number' || typeof record.version !== 'number') {
     return null;
   }
 
-  return {
+  const meta: CloudDocSyncMeta = {
     fileId: record.fileId,
     version: record.version,
     contentHash: typeof record.contentHash === 'string' ? record.contentHash : null,
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : null,
   };
+  // 属性字段全部可选：旧版本持久化数据没有这些键时保持 undefined，不影响既有读取。
+  if (typeof record.category === 'string') {
+    meta.category = record.category;
+  }
+  if (typeof record.categoryId === 'number' && Number.isFinite(record.categoryId)) {
+    meta.categoryId = record.categoryId;
+  }
+  if (typeof record.tags === 'string') {
+    meta.tags = record.tags;
+  }
+  if (record.visibility === 'PRIVATE' || record.visibility === 'PUBLIC') {
+    meta.visibility = record.visibility;
+  }
+
+  return meta;
 }
 
 function readPersistedState(): PersistedCloudSyncState {
@@ -462,11 +508,14 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   }
 
   /**
-   * 强制推送当前文档（冲突时用户显式选择「用本地覆盖云端」）：
+   * 强制推送当前文档（冲突时「用本地覆盖云端」、属性面板「保存并同步」共用）：
    * 先取云端当前版本作为 baseVersion，再用本地磁盘内容覆盖，避免再次触发 409；
-   * 云端没有该文档时按新建处理。
+   * 云端没有该文档时按新建处理。传入 meta 时一并写入分类/标签/可见性。
    */
-  async function forcePushCurrentDocument(tabId?: string): Promise<CloudSyncResult> {
+  async function forcePushCurrentDocument(
+    tabId?: string,
+    meta?: CloudDocMetaInput,
+  ): Promise<CloudSyncResult> {
     if (!isDesktopRuntime()) {
       return { status: 'skipped', message: '当前是 Web 构建，云文档同步仅在 Tauri 桌面端可用。' };
     }
@@ -517,6 +566,21 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         contentHash: source.contentHash,
         baseVersion: remote ? remote.version : null,
       };
+      if (meta) {
+        // 只携带调用方显式给出的属性，避免把「未编辑」误写成清空。
+        if (meta.category !== undefined) {
+          payload.category = meta.category;
+        }
+        if (meta.categoryId !== undefined) {
+          payload.categoryId = meta.categoryId;
+        }
+        if (meta.tags !== undefined) {
+          payload.tags = meta.tags;
+        }
+        if (meta.visibility !== undefined) {
+          payload.visibility = meta.visibility;
+        }
+      }
 
       const savedOutcome = await saveCloudDoc(payload);
       if (!savedOutcome.ok) {
@@ -530,22 +594,22 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         };
       }
 
-      const meta = savedOutcome.data;
+      const savedMeta = savedOutcome.data;
       tabsStore.updateTab(tab.id, {
-        cloudFileId: meta.fileId,
-        cloudVersion: meta.version,
-        cloudContentHash: meta.contentHash,
+        cloudFileId: savedMeta.fileId,
+        cloudVersion: savedMeta.version,
+        cloudContentHash: savedMeta.contentHash,
         lastSyncedAt: Date.now(),
       });
       lastSyncAt.value = Date.now();
       status.value = 'idle';
-      rememberSyncedTab(tab.id);
+      rememberSyncedTab(tab.id, meta);
       await refreshSpace();
       return {
         status: 'synced',
-        fileId: meta.fileId,
-        version: meta.version,
-        message: '已用本地内容覆盖云端文档',
+        fileId: savedMeta.fileId,
+        version: savedMeta.version,
+        message: meta ? '已保存文档属性并同步到云端' : '已用本地内容覆盖云端文档',
       };
     } catch (error) {
       const normalized = normalizeCloudError(error);
@@ -575,8 +639,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     return null;
   }
 
-  /** 同步成功后按标签的云端字段回填 docMap，供下次三方决策使用。 */
-  function rememberSyncedTab(tabId?: string): void {
+  /** 同步成功后按标签的云端字段回填 docMap，供下次三方决策使用；meta 会合并进属性字段。 */
+  function rememberSyncedTab(tabId?: string, meta?: CloudDocMetaInput): void {
     const tabsStore = useTabsStore();
     const tab = tabId
       ? tabsStore.tabs.find((item) => item.id === tabId) ?? null
@@ -591,11 +655,18 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       workspaceStore.currentWorkspaceName,
       workspaceStore.currentWorkspacePath,
     );
+    const previous = docMap.value[cloudPath];
+    // `incoming` 显式收窄成 CloudDocMetaInput，避免依赖可选链的 undefined 判定。
+    const incoming: CloudDocMetaInput = meta ?? {};
     rememberDoc(cloudPath, {
       fileId: tab.cloudFileId,
       version: tab.cloudVersion,
       contentHash: tab.cloudContentHash ?? null,
       updatedAt: null,
+      category: incoming.category !== undefined ? incoming.category : previous?.category ?? null,
+      categoryId: incoming.categoryId !== undefined ? incoming.categoryId : previous?.categoryId ?? null,
+      tags: incoming.tags !== undefined ? incoming.tags : previous?.tags ?? null,
+      visibility: incoming.visibility !== undefined ? incoming.visibility : previous?.visibility ?? null,
     });
   }
 
@@ -615,6 +686,83 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     delete next[path];
     docMap.value = next;
     persistState();
+  }
+
+  /**
+   * 把属性合并进 docMap：已有记录直接合并；不存在但传了 base 时按 base 新建一条
+   * （loadDocMeta 用云端详情作 base，保证未同步过本地映射的文档也能记住属性）。
+   */
+  function persistDocMeta(
+    path: string,
+    snapshot: Partial<CloudDocMetaSnapshot>,
+    base?: CloudDocSyncMeta,
+  ): void {
+    if (!path) {
+      return;
+    }
+    const previous = docMap.value[path] ?? base;
+    if (!previous) {
+      return;
+    }
+
+    rememberDoc(path, {
+      ...previous,
+      category: snapshot.category !== undefined ? snapshot.category : previous.category ?? null,
+      categoryId: snapshot.categoryId !== undefined ? snapshot.categoryId : previous.categoryId ?? null,
+      tags: snapshot.tags !== undefined ? snapshot.tags : previous.tags ?? null,
+      visibility: snapshot.visibility !== undefined ? snapshot.visibility : previous.visibility ?? null,
+    });
+  }
+
+  /**
+   * 读取云端文档当前属性，作为属性面板表单初值。
+   * 传 fileId 时直接按 id 取；不传则用当前标签的云端映射。
+   */
+  async function loadDocMeta(fileId?: number | null): Promise<CloudOutcome<CloudDocMetaSnapshot>> {
+    const tabsStore = useTabsStore();
+    const tab = tabsStore.activeTab;
+    const targetId = fileId ?? tab?.cloudFileId ?? null;
+    if (targetId == null) {
+      return { ok: false, kind: 'unknown', message: '当前文档还没有云端映射' };
+    }
+
+    const detail = await getCloudDoc(targetId);
+    if (!detail.ok) {
+      return { ok: false, kind: detail.kind, message: detail.message };
+    }
+
+    const doc = detail.data;
+    const snapshot: CloudDocMetaSnapshot = {
+      category: doc.category ?? null,
+      categoryId:
+        typeof doc.categoryId === 'number' && Number.isFinite(doc.categoryId)
+          ? doc.categoryId
+          : null,
+      tags: doc.tags ?? null,
+      visibility:
+        doc.visibility === 'PUBLIC'
+          ? 'PUBLIC'
+          : doc.visibility === 'PRIVATE'
+            ? 'PRIVATE'
+            : null,
+    };
+
+    if (tab?.filePath) {
+      const workspaceStore = useWorkspaceStore();
+      const cloudPath = resolveCloudDocPathForFile(
+        tab.filePath,
+        workspaceStore.currentWorkspaceName,
+        workspaceStore.currentWorkspacePath,
+      );
+      persistDocMeta(cloudPath, snapshot, {
+        fileId: doc.fileId,
+        version: doc.version,
+        contentHash: doc.contentHash ?? null,
+        updatedAt: doc.updatedAt ?? null,
+      });
+    }
+
+    return { ok: true, data: snapshot };
   }
 
   return {
@@ -653,6 +801,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     refreshSpace,
     syncCurrentDocument,
     forcePushCurrentDocument,
+    loadDocMeta,
     rememberDoc,
     forgetDoc,
   };

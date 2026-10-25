@@ -827,6 +827,111 @@
             </p>
 
             <div
+              v-if="cloudSyncMetaVisible"
+              class="cloud-sync-meta"
+              data-testid="cloud-sync-meta"
+            >
+              <p class="cloud-sync-meta-title">{{ copy.cloudSyncMetaTitle }}</p>
+              <p class="settings-item-hint">{{ copy.cloudSyncMetaHint }}</p>
+              <p
+                v-if="cloudSyncFileId === null"
+                class="settings-item-hint"
+                data-testid="cloud-sync-meta-first-sync"
+              >
+                {{ copy.cloudSyncMetaFirstSyncHint }}
+              </p>
+              <p
+                v-if="cloudSyncMetaLoading"
+                class="settings-item-hint"
+                data-testid="cloud-sync-meta-loading"
+              >
+                {{ copy.cloudSyncMetaLoading }}
+              </p>
+
+              <label class="settings-item">
+                <span class="settings-label">{{ copy.cloudSyncMetaCategory }}</span>
+                <select
+                  v-if="!cloudSyncCategoryFallback"
+                  v-model="cloudSyncCategorySelection"
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-meta-category"
+                  :disabled="cloudSyncMetaSaving || cloudSyncMetaCategoriesState === 'loading'"
+                >
+                  <option value="">{{ copy.cloudSyncMetaCategoryNone }}</option>
+                  <option
+                    v-for="option in cloudSyncCategoryOptions"
+                    :key="option.id"
+                    :value="option.id"
+                  >
+                    {{ `${'　'.repeat(option.depth)}${option.name}` }}
+                  </option>
+                </select>
+                <input
+                  v-else
+                  v-model="cloudSyncCategoryText"
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-meta-category-text"
+                  type="text"
+                  spellcheck="false"
+                  :disabled="cloudSyncMetaSaving"
+                  :placeholder="copy.cloudSyncMetaCategoryPlaceholder"
+                />
+                <p
+                  v-if="cloudSyncMetaCategoriesState === 'failed'"
+                  class="settings-item-hint"
+                  data-testid="cloud-sync-meta-categories-error"
+                >
+                  {{ copy.cloudSyncMetaCategoriesFailed }}
+                </p>
+              </label>
+
+              <label class="settings-item">
+                <span class="settings-label">{{ copy.cloudSyncMetaTags }}</span>
+                <input
+                  v-model="cloudSyncTagsText"
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-meta-tags"
+                  type="text"
+                  spellcheck="false"
+                  :disabled="cloudSyncMetaSaving"
+                  :placeholder="copy.cloudSyncMetaTagsPlaceholder"
+                />
+              </label>
+
+              <label class="cloud-sync-auto-row">
+                <input
+                  type="checkbox"
+                  data-testid="cloud-sync-meta-visibility"
+                  :checked="cloudSyncVisibilityPublic"
+                  :disabled="cloudSyncMetaSaving"
+                  @change="handleCloudSyncVisibilityChange"
+                />
+                <span>
+                  {{ cloudSyncVisibilityPublic ? copy.cloudSyncMetaVisibilityPublic : copy.cloudSyncMetaVisibilityPrivate }}
+                </span>
+              </label>
+
+              <p
+                v-if="cloudSyncMetaError"
+                class="settings-item-hint error"
+                data-testid="cloud-sync-meta-error"
+              >
+                {{ cloudSyncMetaError }}
+              </p>
+
+              <div class="cloud-sync-actions">
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-meta-save"
+                  :disabled="cloudSyncMetaSaving || cloudSyncStore.isBusy || !tabsStore.activeTab"
+                  @click="handleCloudSyncMetaSave"
+                >
+                  {{ cloudSyncMetaSaving ? copy.cloudSyncMetaSaving : copy.cloudSyncMetaSave }}
+                </button>
+              </div>
+            </div>
+
+            <div
               v-if="cloudSyncDesktopAvailable && cloudSyncStore.signedIn && cloudSyncFileId !== null"
               class="cloud-sync-versions"
               data-testid="cloud-sync-versions"
@@ -1197,16 +1302,18 @@ import {
 import { useProvidersStore } from '@/stores/providers';
 import { useLspServersStore } from '@/stores/lspServers';
 import { useNotificationStore } from '@/stores/notification';
-import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useCloudSyncStore, type CloudDocMetaInput, type CloudDocMetaSnapshot } from '@/stores/cloudSync';
 import { useTabsStore } from '@/stores/tabs';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { DEFAULT_CLOUD_BASE_URL } from '@/services/cloudAuthService';
+import { fetchCloudCategories } from '@/services/cloudBlogService';
 import { listCloudDocVersions, restoreCloudDocVersion } from '@/services/cloudDocService';
 import { pullCloudDocumentIntoLocal, type CloudSyncResult } from '@/services/cloudSyncService';
 import {
   appCommands,
   settingsCommands,
   type AppVersionInfo,
+  type CloudCategoryNode,
   type CloudDocVersion,
   type FileAssociationState,
   type GithubUpdateInfo,
@@ -1647,6 +1754,206 @@ const handleCloudKeepRemote = async () => {
     cloudSyncConflictBusy.value = false;
   }
 };
+
+// ------------------------------------------------------------------
+// 文档属性（分类 / 标签 / 可见性）
+// ------------------------------------------------------------------
+const cloudSyncMetaLoading = ref(false);
+const cloudSyncMetaSaving = ref(false);
+const cloudSyncMetaError = ref('');
+const cloudSyncMetaCategoriesState = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+const cloudSyncCategories = ref<CloudCategoryNode[]>([]);
+const cloudSyncCategorySelection = ref('');
+const cloudSyncCategoryText = ref('');
+const cloudSyncTagsText = ref('');
+const cloudSyncVisibilityPublic = ref(false);
+
+interface CloudSyncCategoryOption {
+  id: string;
+  name: string;
+  depth: number;
+}
+
+/** 分类树拍平成下拉项；id 是雪花字符串，depth 只用于视觉缩进。 */
+const flattenCloudCategories = (
+  nodes: CloudCategoryNode[],
+  depth = 0,
+): CloudSyncCategoryOption[] => {
+  const options: CloudSyncCategoryOption[] = [];
+  for (const node of nodes) {
+    options.push({ id: node.id, name: node.name, depth });
+    if (node.children && node.children.length > 0) {
+      options.push(...flattenCloudCategories(node.children, depth + 1));
+    }
+  }
+  return options;
+};
+
+const cloudSyncCategoryOptions = computed(() => flattenCloudCategories(cloudSyncCategories.value));
+/** 分类接口失败或云端暂无分类时，降级为手写分类名。 */
+const cloudSyncCategoryFallback = computed(
+  () => cloudSyncMetaCategoriesState.value === 'failed'
+    || (cloudSyncMetaCategoriesState.value === 'ready' && cloudSyncCategories.value.length === 0),
+);
+const cloudSyncMetaVisible = computed(
+  () => cloudSyncDesktopAvailable.value && cloudSyncStore.signedIn,
+);
+
+const loadCloudSyncCategories = async () => {
+  if (!cloudSyncDesktopAvailable.value || cloudSyncMetaCategoriesState.value === 'loading') {
+    return;
+  }
+  cloudSyncMetaCategoriesState.value = 'loading';
+  const outcome = await fetchCloudCategories();
+  if (outcome.ok) {
+    cloudSyncCategories.value = outcome.data;
+    cloudSyncMetaCategoriesState.value = 'ready';
+    return;
+  }
+  cloudSyncCategories.value = [];
+  cloudSyncMetaCategoriesState.value = 'failed';
+};
+
+const resetCloudSyncMetaForm = () => {
+  cloudSyncCategorySelection.value = '';
+  cloudSyncCategoryText.value = '';
+  cloudSyncTagsText.value = '';
+  cloudSyncVisibilityPublic.value = false;
+};
+
+const applyCloudSyncMetaSnapshot = (snapshot: CloudDocMetaSnapshot) => {
+  cloudSyncCategorySelection.value = snapshot.categoryId == null ? '' : String(snapshot.categoryId);
+  cloudSyncCategoryText.value = snapshot.category ?? '';
+  cloudSyncTagsText.value = snapshot.tags ?? '';
+  cloudSyncVisibilityPublic.value = snapshot.visibility === 'PUBLIC';
+};
+
+const loadCloudSyncMeta = async () => {
+  cloudSyncMetaError.value = '';
+  const fileId = cloudSyncFileId.value;
+  if (fileId === null) {
+    resetCloudSyncMetaForm();
+    return;
+  }
+
+  cloudSyncMetaLoading.value = true;
+  try {
+    const outcome = await cloudSyncStore.loadDocMeta(fileId);
+    if (outcome.ok) {
+      applyCloudSyncMetaSnapshot(outcome.data);
+      return;
+    }
+    cloudSyncMetaError.value = outcome.message;
+  } finally {
+    cloudSyncMetaLoading.value = false;
+  }
+};
+
+const handleCloudSyncVisibilityChange = (event: Event) => {
+  const target = event.target as HTMLInputElement | null;
+  cloudSyncVisibilityPublic.value = Boolean(target?.checked);
+};
+
+/** 表单 → forcePush 的 meta；下拉选择时把雪花 id 字符串转成 number。 */
+const buildCloudSyncMetaInput = (): CloudDocMetaInput => {
+  const visibility = cloudSyncVisibilityPublic.value ? 'PUBLIC' : 'PRIVATE';
+  const tags = cloudSyncTagsText.value.trim() || null;
+
+  if (cloudSyncCategoryFallback.value) {
+    return {
+      category: cloudSyncCategoryText.value.trim() || null,
+      categoryId: null,
+      tags,
+      visibility,
+    };
+  }
+
+  const selectedId = cloudSyncCategorySelection.value;
+  const option = cloudSyncCategoryOptions.value.find((item) => item.id === selectedId) ?? null;
+  const parsedCategoryId = option ? Number(option.id) : Number.NaN;
+  return {
+    category: option ? option.name : null,
+    categoryId: Number.isFinite(parsedCategoryId) && parsedCategoryId > 0 ? parsedCategoryId : null,
+    tags,
+    visibility,
+  };
+};
+
+const handleCloudSyncMetaSave = async () => {
+  const tab = tabsStore.activeTab;
+  if (!tab || cloudSyncMetaSaving.value || !cloudSyncStore.signedIn) {
+    return;
+  }
+
+  cloudSyncMetaSaving.value = true;
+  cloudSyncMetaError.value = '';
+  try {
+    const result = await cloudSyncStore.forcePushCurrentDocument(tab.id, buildCloudSyncMetaInput());
+    cloudSyncLastResult.value = result;
+
+    if (result.status === 'synced') {
+      if (tab.filePath) {
+        fileConflictsStore.resolve(tab.filePath);
+      }
+      notificationStore.success(
+        copy.value.settingsCloudSync,
+        copy.value.cloudSyncMetaSaved(result.version),
+      );
+      await loadCloudSyncMeta();
+      const versionFileId = cloudSyncFileId.value;
+      if (cloudSyncVersionsOpen.value && versionFileId !== null) {
+        await loadCloudSyncVersions(versionFileId);
+      }
+      return;
+    }
+    if (result.status === 'conflict') {
+      notificationStore.warning(copy.value.settingsCloudSync, copy.value.cloudSyncResultConflict);
+      return;
+    }
+    if (result.status === 'skipped') {
+      notificationStore.info(
+        copy.value.settingsCloudSync,
+        copy.value.cloudSyncResultSkipped(result.message || ''),
+      );
+      return;
+    }
+    notificationStore.error(
+      copy.value.settingsCloudSync,
+      copy.value.cloudSyncResultFailed(result.message || ''),
+    );
+  } finally {
+    cloudSyncMetaSaving.value = false;
+  }
+};
+
+watch(
+  () => [cloudSyncDesktopAvailable.value, cloudSyncStore.signedIn] as const,
+  ([desktop, signedIn]) => {
+    if (!desktop || !signedIn) {
+      return;
+    }
+    void loadCloudSyncCategories();
+    if (cloudSyncFileId.value !== null) {
+      void loadCloudSyncMeta();
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  cloudSyncFileId,
+  (fileId) => {
+    if (!cloudSyncDesktopAvailable.value || !cloudSyncStore.signedIn) {
+      return;
+    }
+    if (fileId === null) {
+      resetCloudSyncMetaForm();
+      return;
+    }
+    void loadCloudSyncMeta();
+  },
+  { immediate: true },
+);
 
 watch(
   () => cloudSyncStore.baseUrl,
@@ -4811,5 +5118,31 @@ defineExpose({
 
 .cloud-sync-conflict .cloud-sync-actions {
   margin-top: 4px;
+}
+
+/* 文档属性：分类 / 标签 / 可见性 */
+.cloud-sync-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+}
+
+.cloud-sync-meta-title {
+  margin: 0;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-sync-meta .settings-item {
+  margin-bottom: 0;
+}
+
+.cloud-sync-meta select.cloud-sync-input {
+  appearance: auto;
+  padding-right: 6px;
 }
 </style>

@@ -312,6 +312,21 @@ interface SettingsPanelText {
   cloudSyncKeepRemote: string;
   cloudSyncKeepLocalDone: (version?: number) => string;
   cloudSyncKeepRemoteDone: (version?: number) => string;
+  cloudSyncMetaTitle: string;
+  cloudSyncMetaHint: string;
+  cloudSyncMetaFirstSyncHint: string;
+  cloudSyncMetaLoading: string;
+  cloudSyncMetaCategory: string;
+  cloudSyncMetaCategoryNone: string;
+  cloudSyncMetaCategoryPlaceholder: string;
+  cloudSyncMetaCategoriesFailed: string;
+  cloudSyncMetaTags: string;
+  cloudSyncMetaTagsPlaceholder: string;
+  cloudSyncMetaVisibilityPublic: string;
+  cloudSyncMetaVisibilityPrivate: string;
+  cloudSyncMetaSave: string;
+  cloudSyncMetaSaving: string;
+  cloudSyncMetaSaved: (version?: number) => string;
 }
 
 interface AppText {
@@ -1011,6 +1026,21 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     cloudSyncKeepRemote: '用云端覆盖本地',
     cloudSyncKeepLocalDone: (version) => (version ? `已用本地内容覆盖云端（v${version}）。` : '已用本地内容覆盖云端。'),
     cloudSyncKeepRemoteDone: (version) => (version ? `已用云端内容覆盖本地（v${version}）。` : '已用云端内容覆盖本地。'),
+    cloudSyncMetaTitle: '文档属性',
+    cloudSyncMetaHint: '分类、标签与可见性会随「保存并同步」一起上传到云端。',
+    cloudSyncMetaFirstSyncHint: '当前文档还没有云端版本，保存会先创建云端文档。',
+    cloudSyncMetaLoading: '正在读取云端属性…',
+    cloudSyncMetaCategory: '分类',
+    cloudSyncMetaCategoryNone: '不分类',
+    cloudSyncMetaCategoryPlaceholder: '输入分类名称',
+    cloudSyncMetaCategoriesFailed: '分类列表加载失败，可手动输入分类名称。',
+    cloudSyncMetaTags: '标签',
+    cloudSyncMetaTagsPlaceholder: '用英文逗号分隔，例如：笔记, 云同步',
+    cloudSyncMetaVisibilityPublic: '公开（可在博客与小程序浏览）',
+    cloudSyncMetaVisibilityPrivate: '私有（仅自己可见）',
+    cloudSyncMetaSave: '保存并同步',
+    cloudSyncMetaSaving: '保存中…',
+    cloudSyncMetaSaved: (version) => (version ? `属性已保存并同步到云端（v${version}）。` : '属性已保存并同步到云端。'),
   },
   'en-US': {
     title: 'Settings',
@@ -1220,6 +1250,21 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     cloudSyncKeepRemote: 'Overwrite Local with Cloud',
     cloudSyncKeepLocalDone: (version) => (version ? `Cloud overwritten with local content (v${version}).` : 'Cloud overwritten with local content.'),
     cloudSyncKeepRemoteDone: (version) => (version ? `Local overwritten with cloud content (v${version}).` : 'Local overwritten with cloud content.'),
+    cloudSyncMetaTitle: 'Document Properties',
+    cloudSyncMetaHint: 'Category, tags and visibility are uploaded together when you save and sync.',
+    cloudSyncMetaFirstSyncHint: 'This document has no cloud copy yet; saving creates one first.',
+    cloudSyncMetaLoading: 'Loading cloud properties…',
+    cloudSyncMetaCategory: 'Category',
+    cloudSyncMetaCategoryNone: 'No category',
+    cloudSyncMetaCategoryPlaceholder: 'Enter a category name',
+    cloudSyncMetaCategoriesFailed: 'Failed to load categories. You can type a category name instead.',
+    cloudSyncMetaTags: 'Tags',
+    cloudSyncMetaTagsPlaceholder: 'Separate with commas, e.g. notes, cloud-sync',
+    cloudSyncMetaVisibilityPublic: 'Public (visible on the blog and mini program)',
+    cloudSyncMetaVisibilityPrivate: 'Private (only visible to you)',
+    cloudSyncMetaSave: 'Save & Sync',
+    cloudSyncMetaSaving: 'Saving…',
+    cloudSyncMetaSaved: (version) => (version ? `Properties saved and synced to the cloud (v${version}).` : 'Properties saved and synced to the cloud.'),
   },
 };
 

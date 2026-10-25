@@ -41,6 +41,8 @@ const cloudMocks = vi.hoisted(() => ({
   session: vi.fn(),
   logout: vi.fn(),
   login: vi.fn(),
+  blogCategories: vi.fn(),
+  blogTags: vi.fn(),
   getAppVersionInfo: vi.fn(),
   checkGithubUpdate: vi.fn(),
   downloadAndInstallUpdate: vi.fn(),
@@ -69,6 +71,8 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
       session: cloudMocks.session,
       logout: cloudMocks.logout,
       login: cloudMocks.login,
+      blogCategories: cloudMocks.blogCategories,
+      blogTags: cloudMocks.blogTags,
     },
     settingsCommands: {
       ...actual.settingsCommands,
@@ -95,13 +99,26 @@ const REMOTE_DOC = {
   contentHash: 'sha256:remote',
   size: 10,
   version: 7,
-  category: null,
-  categoryId: null,
-  tags: null,
+  category: '笔记',
+  categoryId: 1001,
+  tags: '旧标签',
   visibility: 'PRIVATE',
   publishedArticleId: null,
   updatedAt: '2026-10-24T10:00:00Z',
 };
+
+/** 分类树：id 为雪花字符串，父节点 parentId 为 null。 */
+const CATEGORY_TREE = [
+  {
+    id: '1001',
+    name: '笔记',
+    parentId: null,
+    children: [
+      { id: '2002', name: '子分类', parentId: '1001', children: [] },
+    ],
+  },
+  { id: '1003', name: '随笔', parentId: null, children: [] },
+];
 
 const VERSION_ROWS = [
   {
@@ -158,6 +175,7 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
   const settle = async () => {
     await flushPromises();
     await flushPromises();
+    await flushPromises();
   };
 
   beforeEach(() => {
@@ -165,6 +183,8 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
     setActivePinia(pinia);
     cloudMocks.isTauri.value = true;
     cloudMocks.get.mockResolvedValue(REMOTE_DOC);
+    cloudMocks.blogCategories.mockResolvedValue(CATEGORY_TREE);
+    cloudMocks.blogTags.mockResolvedValue(['笔记', '云同步']);
     cloudMocks.save.mockResolvedValue({
       fileId: 42,
       version: 8,
@@ -307,5 +327,62 @@ describe('SettingsPanel 云同步版本历史与冲突处理', () => {
     expect(wrapper.find('[data-testid="cloud-sync-versions-btn"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="cloud-sync-keep-local-btn"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="cloud-sync-keep-remote-btn"]').exists()).toBe(false);
+  });
+
+  it('文档属性卡应渲染分类树、回填云端属性，并在保存时把 meta 送入 payload', async () => {
+    seedActiveTab();
+
+    const wrapper = mountPanel();
+    await settle();
+
+    expect(cloudMocks.blogCategories).toHaveBeenCalled();
+
+    const categorySelect = wrapper.get('[data-testid="cloud-sync-meta-category"]');
+    const optionValues = categorySelect.findAll('option').map((option) => (option.element as HTMLOptionElement).value);
+    expect(optionValues).toContain('1001');
+    expect(optionValues).toContain('2002');
+    // 表单初值来自 getCloudDoc 返回的云端属性
+    expect((categorySelect.element as HTMLSelectElement).value).toBe('1001');
+    expect((wrapper.get('[data-testid="cloud-sync-meta-tags"]').element as HTMLInputElement).value).toBe('旧标签');
+
+    await categorySelect.setValue('2002');
+    await wrapper.get('[data-testid="cloud-sync-meta-tags"]').setValue('新标签, 云同步');
+    await wrapper.get('[data-testid="cloud-sync-meta-visibility"]').setValue(true);
+    await wrapper.get('[data-testid="cloud-sync-meta-save"]').trigger('click');
+    await settle();
+
+    const payload = cloudMocks.save.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      path: 'tau/ws/notes.md',
+      baseVersion: 7,
+      category: '子分类',
+      // 雪花 id 字符串必须转成 number 传给后端
+      categoryId: 2002,
+      tags: '新标签, 云同步',
+      visibility: 'PUBLIC',
+    });
+  });
+
+  it('分类接口失败时应降级为文本输入并仍能保存分类名', async () => {
+    seedActiveTab();
+    cloudMocks.blogCategories.mockRejectedValue(new Error('网络异常'));
+
+    const wrapper = mountPanel();
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-meta-categories-error"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-sync-meta-category"]').exists()).toBe(false);
+
+    const categoryText = wrapper.get('[data-testid="cloud-sync-meta-category-text"]');
+    await categoryText.setValue('手写分类');
+    await wrapper.get('[data-testid="cloud-sync-meta-save"]').trigger('click');
+    await settle();
+
+    const payload = cloudMocks.save.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      category: '手写分类',
+      categoryId: null,
+      visibility: 'PRIVATE',
+    });
   });
 });
