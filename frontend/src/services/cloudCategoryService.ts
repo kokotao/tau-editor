@@ -14,6 +14,15 @@ export const CLOUD_CATEGORY_MAX_DEPTH = 3;
 
 const WEB_UNSUPPORTED_MESSAGE = '当前是 Web 构建，云文档功能仅在 Tauri 桌面端可用。';
 
+/** 分类 id 统一转成数字（后端 Long）；非数字返回 null，避免传字符串触发 400。 */
+export function toNumericId(raw: string | number | null | undefined): number | null {
+  if (raw === null || raw === undefined || raw === '') {
+    return null;
+  }
+  const value = typeof raw === 'number' ? raw : Number(String(raw).trim());
+  return Number.isFinite(value) ? value : null;
+}
+
 export interface FlatCategory {
   id: string;
   name: string;
@@ -84,6 +93,7 @@ export async function createCategory(
     return { ok: false, kind: 'unknown', message: '分类名称不能为空' };
   }
   try {
+    // 雪花 id 全程按字符串透传（2114279859393396737 > 2^53，经 number 会丢精度）
     const node = await cloudCommands.categoryCreate(trimmed, parentId ?? null);
     return { ok: true, data: node };
   } catch (error) {
@@ -138,7 +148,7 @@ export async function deleteCategory(id: string): Promise<CloudOutcome<void>> {
 /** 把文档移动到指定分类；`categoryId` 为 null 表示取消分类。 */
 export async function moveDocumentToCategory(
   fileId: number,
-  categoryId: number | null,
+  categoryId: string | null,
 ): Promise<CloudOutcome<void>> {
   if (!isTauriApp()) {
     return { ok: false, kind: 'unsupported', message: WEB_UNSUPPORTED_MESSAGE };

@@ -1,8 +1,9 @@
 <template>
+  <Teleport to="body">
   <div v-if="visible" class="cloud-hist-backdrop" data-testid="version-history-dialog" @click.self="emit('close')">
-    <section class="cloud-hist" role="dialog" aria-modal="true" @keydown.esc.prevent="emit('close')">
+    <section class="cloud-hist" role="dialog" aria-modal="true" style="min-width: 320px" @keydown.esc.prevent="emit('close')">
       <header class="cloud-hist__header">
-        <h3 data-testid="version-history-title">{{ copy.historyTitle(fileName || '') }}</h3>
+        <h3 data-testid="version-history-title" style="white-space: nowrap">{{ copy.historyTitle(fileName || '') }}</h3>
         <button type="button" class="cloud-hist__close" data-testid="version-history-close" @click="emit('close')">×</button>
       </header>
 
@@ -39,6 +40,7 @@
       <p v-if="notice" class="cloud-hist__hint" data-testid="version-history-notice">{{ notice }}</p>
     </section>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -165,7 +167,10 @@ defineExpose({ load });
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(560px, 100%);
+  /* 固定宽度 + 最小宽度：避免被父容器压成竖条 */
+  width: min(560px, 100vw - 32px);
+  min-width: 320px;
+  max-width: calc(100vw - 32px);
   max-height: min(640px, 88vh);
   padding: 14px 16px;
   color: var(--text-primary, #e5e9f0);
@@ -188,8 +193,9 @@ defineExpose({ load });
   overflow: hidden;
   font-size: 13.5px;
   font-weight: 600;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  word-break: keep-all;
+  text-overflow: ellipsis;
 }
 
 .cloud-hist__close {

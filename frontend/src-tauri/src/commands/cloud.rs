@@ -602,6 +602,82 @@ pub async fn cloud_docs_delete(
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 分享统计（查看次数 / 独立访客 / 近 N 天明细 / 最近访问）
+// ---------------------------------------------------------------------------
+
+/// 分享统计中「最近访问」的一条记录。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudShareVisit {
+    #[serde(default)]
+    pub time: Option<String>,
+    #[serde(default)]
+    pub ip_masked: Option<String>,
+    #[serde(default)]
+    pub fingerprint_short: Option<String>,
+    #[serde(default)]
+    pub ua: Option<String>,
+    #[serde(default)]
+    pub referer: Option<String>,
+    #[serde(default)]
+    pub is_new_visitor: bool,
+}
+
+/// 分享统计按天聚合项。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudShareDailyPoint {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub views: i64,
+    #[serde(default)]
+    pub visitors: i64,
+}
+
+/// 分享统计整体返回。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudShareStats {
+    #[serde(default)]
+    pub share_url: Option<String>,
+    #[serde(default)]
+    pub total_views: i64,
+    #[serde(default)]
+    pub unique_visitors: i64,
+    #[serde(default)]
+    pub first_view_at: Option<String>,
+    #[serde(default)]
+    pub last_view_at: Option<String>,
+    #[serde(default)]
+    pub daily: Vec<CloudShareDailyPoint>,
+    #[serde(default)]
+    pub recent: Vec<CloudShareVisit>,
+}
+
+/// 拉取某文档的分享统计（仅 owner 可读；后端按 (userId, docId) 鉴权）。
+#[tauri::command]
+pub async fn cloud_docs_share_stats(
+    state: State<'_, CloudState>,
+    file_id: i64,
+    days: Option<i64>,
+) -> Result<CloudShareStats, CommandError> {
+    let window = days.unwrap_or(30).clamp(1, 365);
+    let response = send_authed(&state, "读取分享统计", |client, session| {
+        authed(
+            client.get(format!(
+                "{}{CLOUD_DOCS_PATH}/{file_id}/share/stats",
+                session.base_url
+            )),
+            session,
+        )
+        .header("Accept", "application/json")
+        .query(&[("days", window.to_string())])
+    })
+    .await?;
+    parse_result(response, "读取分享统计").await
+}
 // 云端分类管理（新建/重命名）与文档移动分类
 // ---------------------------------------------------------------------------
 
@@ -615,6 +691,7 @@ pub struct CloudCategorySavePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub name: String,
+    /// 父分类 id：雪花 id 超过 2^53，必须按字符串透传，避免 JSON number 丢精度
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
 }
@@ -736,12 +813,13 @@ fn validate_category_name(raw: &str) -> Result<String, CommandError> {
 pub async fn cloud_docs_move_category(
     state: State<'_, CloudState>,
     file_id: i64,
-    category_id: Option<i64>,
+    category_id: Option<String>,
 ) -> Result<(), CommandError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct MovePayload {
-        category_id: Option<i64>,
+        /// 雪花 id：字符串透传，避免 JS number 精度丢失
+        category_id: Option<String>,
     }
     let response = send_authed(&state, "移动文档分类", |client, session| {
         authed(
@@ -752,7 +830,7 @@ pub async fn cloud_docs_move_category(
             session,
         )
         .header("Accept", "application/json")
-        .json(&MovePayload { category_id })
+        .json(&MovePayload { category_id: category_id.clone() })
     })
     .await?;
     parse_unit(response, "移动文档分类").await
@@ -1127,15 +1205,7 @@ pub struct CloudAssetInfo {
     pub content_hash: Option<String>,
 }
 
-/// 上传请求体：内容走 base64，避免 IPC 传字节数组。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CloudAssetUploadPayload {
-    rel_path: String,
-    file_name: String,
-    mime: String,
-    content_base64: String,
-}
+
 
 /// 图片下载落盘结果。
 #[derive(Debug, Clone, Serialize)]
@@ -1163,29 +1233,7 @@ fn asset_mime_for(path: &str) -> &'static str {
     }
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
-        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        out.push(TABLE[((triple >> 18) & 0x3f) as usize] as char);
-        out.push(TABLE[((triple >> 12) & 0x3f) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[((triple >> 6) & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[(triple & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
+
 
 /// 列出文档已上传的图片附件。
 #[tauri::command]
@@ -1259,11 +1307,21 @@ pub async fn cloud_docs_asset_upload_file(
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
         .unwrap_or_else(|| rel_path.clone());
-    let payload = CloudAssetUploadPayload {
-        file_name,
-        rel_path: rel_path.clone(),
-        mime: asset_mime_for(&local_path).to_string(),
-        content_base64: base64_encode(&bytes),
+    let mime = asset_mime_for(&local_path);
+    // 后端是 multipart/form-data（@RequestParam relPath/fileName/mime + MultipartFile file）：
+    // 401 续期会重放请求，因此每次重建 form（bytes 克隆一次）。
+    let build_form = || {
+        let part = reqwest::multipart::Part::bytes(bytes.clone())
+            .file_name(file_name.clone())
+            .mime_str(mime)
+            .unwrap_or_else(|_| {
+                reqwest::multipart::Part::bytes(bytes.clone()).file_name(file_name.clone())
+            });
+        reqwest::multipart::Form::new()
+            .text("relPath", rel_path.clone())
+            .text("fileName", file_name.clone())
+            .text("mime", mime.to_string())
+            .part("file", part)
     };
     let response = send_authed(&state, "上传图片附件", |client, session| {
         authed(
@@ -1274,7 +1332,7 @@ pub async fn cloud_docs_asset_upload_file(
             session,
         )
         .header("Accept", "application/json")
-        .json(&payload)
+        .multipart(build_form())
     })
     .await?;
     parse_result(response, "上传图片附件").await

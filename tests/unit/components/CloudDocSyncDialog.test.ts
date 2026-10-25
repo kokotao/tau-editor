@@ -31,6 +31,9 @@ vi.mock('@/services/cloudSyncService', async (importOriginal) => {
 });
 
 import CloudDocSyncDialog from '@/components/editor/CloudDocSyncDialog.vue';
+import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useWorkspaceStore } from '@/stores/workspace';
+import { useCenterToastStore } from '@/stores/centerToast';
 
 const CATEGORY_TREE = [
   {
@@ -66,6 +69,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
   it('选择已有分类后 payload 带 category 与数字 categoryId', async () => {
     const wrapper = mountDialog();
     await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-category-2002"]').trigger('click');
     await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
@@ -84,6 +89,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
   it('新建分类与选择互斥：填名称后忽略已选分类', async () => {
     const wrapper = mountDialog();
     await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-category-1001"]').trigger('click');
     await wrapper.get('[data-testid="cloud-sync-dialog-new-category"]').setValue('我的新分类');
@@ -98,6 +105,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
   it('不选分类时按不分类上传', async () => {
     const wrapper = mountDialog();
     await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
     await settle();
@@ -110,6 +119,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
   it('已是同步状态时提示且不重复上传', async () => {
     mocks.syncByPath.mockResolvedValue({ status: 'skipped', message: '已是同步状态（内容与云端一致），无需重复上传' });
     const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
     await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
@@ -124,6 +135,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
       .mockResolvedValueOnce({ status: 'conflict', message: '云端已有该文档且内容不同' })
       .mockResolvedValueOnce({ status: 'synced', fileId: 42, version: 4 });
     const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
     await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
@@ -158,6 +171,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
     });
     const wrapper = mountDialog();
     await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
     await settle();
@@ -181,6 +196,8 @@ describe('CloudDocSyncDialog 右键同步', () => {
     mocks.fetchCategories.mockResolvedValue({ ok: false, kind: 'network', message: '连不上服务器' });
     const wrapper = mountDialog();
     await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
 
     expect(wrapper.find('[data-testid="cloud-sync-dialog-categories-error"]').exists()).toBe(true);
     await wrapper.get('[data-testid="cloud-sync-dialog-new-category"]').setValue('手写分类');
@@ -196,11 +213,84 @@ describe('CloudDocSyncDialog 右键同步', () => {
     mocks.syncByPath.mockResolvedValue({ status: 'failed', message: '云端空间不足' });
     const wrapper = mountDialog();
     await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
 
     await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
     await settle();
 
     expect(wrapper.get('[data-testid="cloud-sync-dialog-error"]').text()).toContain('云端空间不足');
     expect(wrapper.emitted('synced')).toBeUndefined();
+  });
+});
+
+describe('CloudDocSyncDialog 分类下拉与成功提示（0.6.23）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    mocks.fetchCategories.mockResolvedValue({ ok: true, data: CATEGORY_TREE });
+    mocks.syncByPath.mockResolvedValue({ status: 'synced', fileId: 42, version: 3 });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('打开时按云端记录回显已同步的分类', async () => {
+    useWorkspaceStore().currentWorkspacePath = '/ws';
+    useWorkspaceStore().currentWorkspaceName = 'ws';
+    useCloudSyncStore().docMap['tau/ws/notes/a.md'] = {
+      fileId: 42,
+      version: 3,
+      contentHash: 'sha256:x',
+      updatedAt: null,
+      category: '笔记',
+      categoryId: 1001,
+    } as never;
+
+    const wrapper = mountDialog({ filePath: '/ws/notes/a.md' });
+    await settle();
+
+    expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('笔记');
+  });
+
+  it('分类下拉默认收起，点击展开并可用搜索过滤，选中后收起', async () => {
+    const wrapper = mountDialog();
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-panel"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-panel"]').exists()).toBe(true);
+
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-search"]').setValue('笔记');
+    await settle();
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-1001"]').exists()).toBe(true);
+
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-1001"]').trigger('click');
+    await settle();
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-category-panel"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('笔记');
+  });
+
+  it('同步成功：关闭弹窗并弹居中标示 toast', async () => {
+    mocks.syncByPath.mockResolvedValue({
+      status: 'synced',
+      fileId: 42,
+      version: 7,
+      message: '已更新云端文档',
+    });
+    const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
+
+    await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
+    await settle();
+
+    expect(wrapper.emitted('close')).toBeTruthy();
+    expect(wrapper.emitted('synced')).toBeTruthy();
+    const toast = useCenterToastStore();
+    expect(toast.visible).toBe(true);
+    expect(toast.message).toContain('v7');
   });
 });

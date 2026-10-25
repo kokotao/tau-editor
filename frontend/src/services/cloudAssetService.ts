@@ -406,6 +406,10 @@ export function describeAssetSync(summary: CloudAssetSyncSummary): string {
   if (summary.uploaded > 0) parts.push(`已上传 ${summary.uploaded} 张`);
   if (summary.unchanged > 0) parts.push(`${summary.unchanged} 张无变化`);
   if (summary.skipped > 0) parts.push(`${summary.skipped} 张已跳过`);
-  if (summary.failed > 0) parts.push(`${summary.failed} 张失败`);
+  if (summary.failed > 0) {
+    // 带上后端/本地校验的第一条可读原因，避免只显示「失败」
+    const first = summary.failures[0];
+    parts.push(`${summary.failed} 张失败${first ? `（${first.relPath}: ${first.reason}）` : ''}`);
+  }
   return parts.join('，');
 }

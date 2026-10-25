@@ -108,6 +108,18 @@
               <button type="button" class="share-dialog__button" data-testid="share-dialog-open" :disabled="busy || !shareUrl" @click="openLink">{{ copy.open }}</button>
             </div>
 
+            <div v-if="statsViews !== null" class="share-dialog__stats" data-testid="share-dialog-stats">
+              <span data-testid="share-dialog-stats-line">{{ statsCopy.statsLine(statsViews, statsVisitors ?? 0) }}</span>
+              <button
+                type="button"
+                class="share-dialog__button"
+                data-testid="share-dialog-stats-btn"
+                @click="openStats()"
+              >
+                {{ statsCopy.openStats }}
+              </button>
+            </div>
+
             <dl class="share-dialog__meta">
               <div>
                 <dt>{{ copy.visits }}</dt>
@@ -216,7 +228,8 @@ import {
   formatBinarySize,
   isBinaryDocPath,
 } from '@/services/cloudBinaryService';
-import { getCloudShareI18n } from '@/i18n/ui';
+import { getCloudShareI18n, getShareStatsI18n } from '@/i18n/ui';
+import { fetchShareStats } from '@/services/cloudShareStatsService';
 import StatusNotice from '@/components/ui/StatusNotice.vue';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useSettingsStore } from '@/stores/settings';
@@ -232,12 +245,17 @@ const emit = defineEmits<{
   close: [];
   /** 分享成功后上层刷新云端文档树（分类可能变化） */
   shared: [];
+  /** 打开分享统计弹窗（由 App 承载 ShareStatsDialog） */
+  'open-stats': [payload: { fileId: number; fileName: string }];
 }>();
 
 const settingsStore = useSettingsStore();
 const workspaceStore = useWorkspaceStore();
 const cloudSyncStore = useCloudSyncStore();
 const copy = computed(() => getCloudShareI18n(settingsStore.uiLanguage));
+const statsCopy = computed(() => getShareStatsI18n(settingsStore.uiLanguage));
+const statsViews = ref<number | null>(null);
+const statsVisitors = ref<number | null>(null);
 
 type Phase = 'syncing' | 'ready';
 
@@ -502,6 +520,32 @@ async function loadStatus(id: number): Promise<void> {
   visitCount.value = status.visitCount ?? 0;
   fileKind.value = status.fileKind ?? fileKind.value;
   fileExt.value = status.fileExt ?? fileExt.value;
+  if (shared.value) {
+    void loadShareStats(id);
+  } else {
+    statsViews.value = null;
+    statsVisitors.value = null;
+  }
+}
+
+/** 打开统计弹窗（由 App 承载 ShareStatsDialog）。 */
+function openStats(): void {
+  if (fileId.value === null) {
+    return;
+  }
+  emit('open-stats', { fileId: fileId.value, fileName: props.fileName });
+}
+
+/** 统计拉取失败不影响分享主流程：仅不展示统计行。 */
+async function loadShareStats(targetId: number): Promise<void> {
+  statsViews.value = null;
+  statsVisitors.value = null;
+  const outcome = await fetchShareStats(targetId, 30);
+  if (!outcome.ok) {
+    return;
+  }
+  statsViews.value = outcome.data.totalViews;
+  statsVisitors.value = outcome.data.uniqueVisitors;
 }
 
 async function generate(regenerate: boolean): Promise<void> {
@@ -530,6 +574,10 @@ async function generate(regenerate: boolean): Promise<void> {
     expiresAt.value = info.expiresAt;
     hasPassword.value = Boolean(info.hasPassword);
     visitCount.value = info.visitCount ?? 0;
+    // 生成/复用分享后立即拉一次统计，弹窗内直接给出查看量与独立访客
+    if (fileId.value !== null) {
+      void loadShareStats(fileId.value);
+    }
     fileKind.value = info.fileKind ?? fileKind.value;
     fileExt.value = info.fileExt ?? fileExt.value;
     emit('shared');
@@ -756,6 +804,17 @@ defineExpose({ generate, revoke, startSync });
 .share-dialog__input:focus {
   border-color: var(--accent-brand, #7cc7ff);
   outline: none;
+}
+
+.share-dialog__stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 9px;
+  font-size: 11.5px;
+  color: var(--text-secondary, #a8b3c5);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius-control, 5px);
 }
 
 .share-dialog__link-row {

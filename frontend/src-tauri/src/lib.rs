@@ -137,6 +137,7 @@ pub fn run() {
             commands::cloud_category_update,
             commands::cloud_category_delete,
             commands::cloud_docs_move_category,
+            commands::cloud_docs_share_stats,
             commands::cloud_read_sync_source,
             commands::cloud_doc_open_target,
             commands::cloud_blog_categories,

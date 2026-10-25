@@ -69,7 +69,7 @@ describe('DocPropertiesDialog', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('展示元信息与分类/标签/可见性，默认可见性私有', async () => {
-    const wrapper = mount(DocPropertiesDialog, { props: { visible: true, doc: DOC } });
+    const wrapper = mount(DocPropertiesDialog, { global: { stubs: { teleport: true } }, props: { visible: true, doc: DOC } });
     await flushPromises();
 
     expect(wrapper.get('[data-testid="doc-properties-name"]').text()).toBe('a.md');
@@ -80,7 +80,7 @@ describe('DocPropertiesDialog', () => {
   });
 
   it('没有改动时不提交，只提示', async () => {
-    const wrapper = mount(DocPropertiesDialog, { props: { visible: true, doc: DOC } });
+    const wrapper = mount(DocPropertiesDialog, { global: { stubs: { teleport: true } }, props: { visible: true, doc: DOC } });
     await flushPromises();
 
     await wrapper.get('[data-testid="doc-properties-save"]').trigger('click');
@@ -91,7 +91,7 @@ describe('DocPropertiesDialog', () => {
   });
 
   it('改了可见性才提交，且只带改动字段', async () => {
-    const wrapper = mount(DocPropertiesDialog, { props: { visible: true, doc: DOC } });
+    const wrapper = mount(DocPropertiesDialog, { global: { stubs: { teleport: true } }, props: { visible: true, doc: DOC } });
     await flushPromises();
 
     await wrapper.get('[data-testid="doc-properties-visibility"]').setValue('PUBLIC');
@@ -114,11 +114,42 @@ describe('DocPropertiesDialog', () => {
       ok: true,
       data: { shared: true, shareUrl: 'https://note.lizipro.cn/s/tok123456789012' },
     });
-    const wrapper = mount(DocPropertiesDialog, { props: { visible: true, doc: DOC } });
+    const wrapper = mount(DocPropertiesDialog, { global: { stubs: { teleport: true } }, props: { visible: true, doc: DOC } });
     await flushPromises();
 
     const shared = wrapper.get('[data-testid="doc-properties-shared"]');
     expect(shared.text()).toContain('已分享');
     expect(shared.text()).toContain('https://note.lizipro.cn/s/');
+  });
+});
+
+
+describe('DocPropertiesDialog 渲染位置与宽度（0.6.24）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    mocks.getDoc.mockResolvedValue({ ok: true, data: { ...DOC, content: 'x', createdAt: null } });
+    mocks.fetchCategories.mockResolvedValue({ ok: true, data: [] });
+    mocks.shareStatus.mockResolvedValue({ ok: true, data: { shared: false } });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('弹窗 Teleport 到 body，宽度有下限且标题不逐字换行', async () => {
+    const wrapper = mount(DocPropertiesDialog, { props: { visible: true, doc: DOC } });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="doc-properties-dialog"]').exists()).toBe(false);
+    const inBody = document.body.querySelector('[data-testid="doc-properties-dialog"]') as HTMLElement;
+    expect(inBody).not.toBeNull();
+
+    const panel = inBody.querySelector('.cloud-props') as HTMLElement;
+    expect(panel.style.minWidth).toBe('320px');
+
+    const title = inBody.querySelector('[data-testid="doc-properties-title"]') as HTMLElement;
+    expect(title.style.whiteSpace).toBe('nowrap');
+    wrapper.unmount();
   });
 });

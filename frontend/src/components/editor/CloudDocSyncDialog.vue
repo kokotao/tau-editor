@@ -10,58 +10,73 @@
       <div class="cloud-sync-dialog__body">
         <section class="cloud-sync-dialog__section">
           <label class="cloud-sync-dialog__label">{{ copy.categoryLabel }}</label>
-          <input
-            v-model="search"
-            class="cloud-sync-dialog__input"
-            data-testid="cloud-sync-dialog-search"
-            type="search"
-            :placeholder="copy.searchPlaceholder"
+          <button
+            type="button"
+            class="cloud-sync-dialog__trigger"
+            data-testid="cloud-sync-dialog-category-trigger"
+            :aria-expanded="categoryOpen"
             :disabled="busy"
-          />
-          <p v-if="categoriesState === 'loading'" class="cloud-sync-dialog__hint" data-testid="cloud-sync-dialog-categories-loading">
-            {{ copy.categoriesLoading }}
-          </p>
-          <p
-            v-else-if="categoriesState === 'failed'"
-            class="cloud-sync-dialog__hint cloud-sync-dialog__hint--warn"
-            data-testid="cloud-sync-dialog-categories-error"
+            @click="toggleCategoryPanel()"
           >
-            {{ copy.categoriesFailed }}
-          </p>
-          <p
-            v-else-if="categoryOptions.length === 0"
-            class="cloud-sync-dialog__hint"
-            data-testid="cloud-sync-dialog-categories-empty"
-          >
-            {{ copy.noCategories }}
-          </p>
-          <ul v-else class="cloud-sync-dialog__list" data-testid="cloud-sync-dialog-category-list">
-            <li>
-              <button
-                type="button"
-                class="cloud-sync-dialog__option"
-                :class="{ 'is-selected': selectedId === null && !newCategory.trim() }"
-                data-testid="cloud-sync-dialog-category-none"
-                :disabled="busy"
-                @click="clearCategory"
-              >
-                {{ copy.none }}
-              </button>
-            </li>
-            <li v-for="option in categoryOptions" :key="option.id">
-              <button
-                type="button"
-                class="cloud-sync-dialog__option"
-                :class="{ 'is-selected': selectedId === option.id }"
-                :data-testid="`cloud-sync-dialog-category-${option.id}`"
-                :style="{ paddingLeft: `${8 + option.depth * 12}px` }"
-                :disabled="busy"
-                @click="selectCategory(option)"
-              >
-                {{ option.name }}
-              </button>
-            </li>
-          </ul>
+            <span class="cloud-sync-dialog__trigger-text">{{ categoryLabel }}</span>
+            <span class="cloud-sync-dialog__trigger-caret" aria-hidden="true">{{ categoryOpen ? '▴' : '▾' }}</span>
+          </button>
+
+          <div v-if="categoryOpen" class="cloud-sync-dialog__panel" data-testid="cloud-sync-dialog-category-panel">
+            <input
+              ref="categorySearchRef"
+              v-model="search"
+              class="cloud-sync-dialog__input"
+              data-testid="cloud-sync-dialog-category-search"
+              type="search"
+              :placeholder="copy.searchPlaceholder"
+              :disabled="busy"
+            />
+            <p v-if="categoriesState === 'loading'" class="cloud-sync-dialog__hint" data-testid="cloud-sync-dialog-categories-loading">
+              {{ copy.categoriesLoading }}
+            </p>
+            <p
+              v-else-if="categoriesState === 'failed'"
+              class="cloud-sync-dialog__hint cloud-sync-dialog__hint--warn"
+              data-testid="cloud-sync-dialog-categories-error"
+            >
+              {{ copy.categoriesFailed }}
+            </p>
+            <p
+              v-else-if="categoryOptions.length === 0"
+              class="cloud-sync-dialog__hint"
+              data-testid="cloud-sync-dialog-categories-empty"
+            >
+              {{ copy.noCategories }}
+            </p>
+            <ul v-else class="cloud-sync-dialog__list" data-testid="cloud-sync-dialog-category-list">
+              <li>
+                <button
+                  type="button"
+                  class="cloud-sync-dialog__option"
+                  :class="{ 'is-selected': selectedId === null && !newCategory.trim() }"
+                  data-testid="cloud-sync-dialog-category-none"
+                  :disabled="busy"
+                  @click="clearCategory"
+                >
+                  {{ copy.none }}
+                </button>
+              </li>
+              <li v-for="option in categoryOptions" :key="option.id">
+                <button
+                  type="button"
+                  class="cloud-sync-dialog__option"
+                  :class="{ 'is-selected': selectedId === option.id }"
+                  :data-testid="`cloud-sync-dialog-category-${option.id}`"
+                  :style="{ paddingLeft: `${8 + option.depth * 12}px` }"
+                  :disabled="busy"
+                  @click="selectCategory(option)"
+                >
+                  {{ option.name }}
+                </button>
+              </li>
+            </ul>
+          </div>
         </section>
 
         <section class="cloud-sync-dialog__section">
@@ -153,11 +168,15 @@
  * @email 480199976@qq.com
  * @date 2026-10-25 16:10
  */
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { fetchCloudCategories } from '@/services/cloudBlogService';
 import { syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncService';
 import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import { getCloudDocSyncI18n } from '@/i18n/ui';
+import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useCenterToastStore } from '@/stores/centerToast';
+import { useWorkspaceStore } from '@/stores/workspace';
+import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
 import StatusNotice, { type StatusNoticeTone } from '@/components/ui/StatusNotice.vue';
 import { useSettingsStore } from '@/stores/settings';
 import type { CloudCategoryNode } from '@/lib/tauri';
@@ -174,6 +193,9 @@ const emit = defineEmits<{
 }>();
 
 const settingsStore = useSettingsStore();
+const cloudSyncStore = useCloudSyncStore();
+const centerToast = useCenterToastStore();
+const workspaceStore = useWorkspaceStore();
 const copy = computed(() => getCloudDocSyncI18n(settingsStore.uiLanguage));
 
 interface CategoryOption {
@@ -245,7 +267,29 @@ const flatten = (nodes: CloudCategoryNode[], depth = 0): CategoryOption[] => {
   return options;
 };
 
+const categoryOpen = ref(false);
+const categorySearchRef = ref<HTMLInputElement | null>(null);
+
 const allOptions = computed(() => flatten(categories.value));
+
+/** 触发器上显示：已选分类名 / 手填的新分类 / 「不分类」 */
+const categoryLabel = computed(() => {
+  if (newCategory.value.trim()) {
+    return newCategory.value.trim();
+  }
+  const matched = allOptions.value.find((option) => option.id === selectedId.value);
+  return matched ? matched.name : copy.value.none;
+});
+
+function toggleCategoryPanel(): void {
+  categoryOpen.value = !categoryOpen.value;
+  if (categoryOpen.value && selectedId.value === null && !newCategory.value.trim()) {
+    applyInitialCategory();
+  }
+  if (categoryOpen.value) {
+    void nextTick(() => categorySearchRef.value?.focus());
+  }
+}
 const categoryOptions = computed(() => {
   const needle = search.value.trim().toLowerCase();
   if (!needle) {
@@ -260,6 +304,7 @@ async function loadCategories(): Promise<void> {
   if (outcome.ok) {
     categories.value = outcome.data;
     categoriesState.value = 'ready';
+    applyInitialCategory();
     return;
   }
   categories.value = [];
@@ -270,6 +315,7 @@ function resetState(): void {
   search.value = '';
   selectedId.value = null;
   newCategory.value = '';
+  categoryOpen.value = false;
   busy.value = false;
   notice.value = '';
   errorText.value = '';
@@ -285,6 +331,57 @@ function selectCategory(option: CategoryOption): void {
   selectedId.value = option.id;
   // 选已有分类与新建分类互斥
   newCategory.value = '';
+  closeCategoryPanel();
+}
+
+/** 打开弹窗时按云端记录回显已同步的分类（categoryId 优先，其次按名称匹配）。 */
+function applyInitialCategory(): void {
+  const filePath = props.filePath ?? '';
+  if (!filePath) {
+    return;
+  }
+  const cloudPath = resolveCloudDocPathForFile(
+    filePath,
+    workspaceStore.currentWorkspaceName,
+    workspaceStore.currentWorkspacePath,
+  );
+  const docMap = cloudSyncStore.docMap as Record<string, { category?: string | null; categoryId?: number | null }>;
+  let record = docMap[cloudPath];
+  if (!record) {
+    // 工作区名不一致时按相对路径后缀兜底匹配
+    const relative = filePath.replace(/\\/g, '/').split('/').slice(-2).join('/');
+    const matchedKey = Object.keys(docMap).find((key) => key.endsWith(`/${relative}`));
+    record = matchedKey ? docMap[matchedKey] : undefined;
+  }
+  if (!record) {
+    return;
+  }
+  const recordId = record.categoryId;
+  if (recordId !== null && recordId !== undefined) {
+    const matched = allOptions.value.find((option) => String(option.id) === String(recordId));
+    if (matched) {
+      selectedId.value = matched.id;
+      return;
+    }
+  }
+  if (record.category) {
+    const matched = allOptions.value.find((option) => option.name === record.category);
+    if (matched) {
+      selectedId.value = matched.id;
+    }
+  }
+}
+
+function closeCategoryPanel(): void {
+  categoryOpen.value = false;
+}
+
+function handleOutsideClick(event: MouseEvent): void {
+  const target = event.target;
+  if (target instanceof Element && target.closest('.cloud-sync-dialog__panel, .cloud-sync-dialog__trigger')) {
+    return;
+  }
+  closeCategoryPanel();
 }
 
 function clearCategory(): void {
@@ -293,6 +390,7 @@ function clearCategory(): void {
   }
   selectedId.value = null;
   newCategory.value = '';
+  closeCategoryPanel();
 }
 
 /** 分类选择与「新建分类」互斥：填了名称就忽略选中项。 */
@@ -347,6 +445,8 @@ async function confirm(overwrite: boolean): Promise<void> {
       return;
     }
     noticeTone.value = 'success';
+    // 成功后：关闭弹窗 + 屏幕中央 toast（3 秒），弹窗内不再显示状态行
+    centerToast.show(result.version ? `已同步到云端（v${result.version}）` : '已同步到云端', 'success', 3000);
     emit('synced', result);
     emit('close');
   } catch (syncError) {
@@ -475,6 +575,52 @@ defineExpose({ confirm, resolveCategory });
   outline: none;
 }
 
+/* ---------- 分类下拉：点击展开 + 搜索 ---------- */
+.cloud-sync-dialog__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-primary, #e5e9f0);
+  text-align: left;
+  cursor: pointer;
+  background: var(--panel-base, #101726);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-sync-dialog__trigger:hover:not(:disabled) {
+  border-color: var(--accent-brand, #7cc7ff);
+}
+
+.cloud-sync-dialog__trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-sync-dialog__trigger-caret {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted, #75829e);
+}
+
+.cloud-sync-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  padding: 6px;
+  margin-top: 4px;
+  overflow: auto;
+  background: var(--panel-base, #101726);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-control, 5px);
+}
 .cloud-sync-dialog__list {
   display: flex;
   flex-direction: column;

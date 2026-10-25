@@ -2290,6 +2290,14 @@ interface CloudDocPanelText {
   confirm: string;
   cancel: string;
   close: string;
+  choiceTitle: string;
+  choiceHint: string;
+  choicePreview: string;
+  choiceSaveAs: string;
+  previewTitle: (fileName: string) => string;
+  previewUnsupported: string;
+  saveAsDone: (path: string) => string;
+  saveAsFailed: (message: string) => string;
 }
 
 const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
@@ -2353,6 +2361,14 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     confirm: '确定',
     cancel: '取消',
     close: '关闭',
+    choiceTitle: '该云文档不在当前工作区',
+    choiceHint: '可以只读预览，或另存到本地任意位置。',
+    choicePreview: '只读预览',
+    choiceSaveAs: '另存为…',
+    previewTitle: (fileName) => `只读预览 · ${fileName}`,
+    previewUnsupported: '该类型暂不支持应用内预览，请使用「另存为…」或分享页在线预览',
+    saveAsDone: (path) => `已另存为 ${path}`,
+    saveAsFailed: (message) => `另存失败：${message}`,
   },
   'en-US': {
     historyTitle: (fileName) => `Version history - ${fileName}`,
@@ -2414,9 +2430,103 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     confirm: 'OK',
     cancel: 'Cancel',
     close: 'Close',
+    choiceTitle: 'This cloud document is outside the current workspace',
+    choiceHint: 'Preview it read-only, or save a copy anywhere on disk.',
+    choicePreview: 'Read-only preview',
+    choiceSaveAs: 'Save as…',
+    previewTitle: (fileName) => `Preview - ${fileName}`,
+    previewUnsupported: 'Preview is not available for this type - use Save as or the share page',
+    saveAsDone: (path) => `Saved to ${path}`,
+    saveAsFailed: (message) => `Save failed: ${message}`,
   },
 };
 
 export function getCloudDocPanelI18n(locale: UiLanguage): CloudDocPanelText {
   return CLOUD_DOC_PANEL_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 分享统计（查看次数 / 独立访客 / 近 N 天）
+// ---------------------------------------------------------------------------
+interface ShareStatsText {
+  title: string;
+  subtitle: (fileName: string) => string;
+  loading: string;
+  empty: string;
+  error: (message: string) => string;
+  noPermission: string;
+  totalViews: string;
+  uniqueVisitors: string;
+  firstView: string;
+  lastView: string;
+  chartTitle: (days: number) => string;
+  chartEmpty: string;
+  recentTitle: string;
+  recentEmpty: string;
+  newVisitor: string;
+  returningVisitor: string;
+  unknownIp: string;
+  unknownFingerprint: string;
+  viewsUnit: (count: number) => string;
+  refresh: string;
+  close: string;
+  statsLine: (views: number, visitors: number) => string;
+  openStats: string;
+}
+
+const SHARE_STATS_TEXTS: Record<UiLanguage, ShareStatsText> = {
+  'zh-CN': {
+    title: '分享统计',
+    subtitle: (fileName) => `《${fileName}》的分享访问`,
+    loading: '正在读取统计…',
+    empty: '还没有人访问这个分享链接',
+    error: (message) => `读取统计失败：${message}`,
+    noPermission: '只有文档所有者可以查看统计',
+    totalViews: '总访问',
+    uniqueVisitors: '独立访客',
+    firstView: '首次访问',
+    lastView: '最近访问',
+    chartTitle: (days) => `近 ${days} 天访问趋势`,
+    chartEmpty: '这段时间没有访问',
+    recentTitle: '最近访问',
+    recentEmpty: '暂无访问记录',
+    newVisitor: '新访客',
+    returningVisitor: '回访',
+    unknownIp: 'IP 未知',
+    unknownFingerprint: '无指纹',
+    viewsUnit: (count) => `${count} 次`,
+    refresh: '刷新',
+    close: '关闭',
+    statsLine: (views, visitors) => `查看 ${views} 次 · 独立访客 ${visitors}`,
+    openStats: '查看统计',
+  },
+  'en-US': {
+    title: 'Share statistics',
+    subtitle: (fileName) => `Share visits - ${fileName}`,
+    loading: 'Loading statistics…',
+    empty: 'No one has visited this share link yet',
+    error: (message) => `Failed to load statistics: ${message}`,
+    noPermission: 'Only the document owner can view statistics',
+    totalViews: 'Total views',
+    uniqueVisitors: 'Unique visitors',
+    firstView: 'First view',
+    lastView: 'Last view',
+    chartTitle: (days) => `Views in the last ${days} days`,
+    chartEmpty: 'No visits in this period',
+    recentTitle: 'Recent visits',
+    recentEmpty: 'No visits yet',
+    newVisitor: 'New',
+    returningVisitor: 'Returning',
+    unknownIp: 'Unknown IP',
+    unknownFingerprint: 'No fingerprint',
+    viewsUnit: (count) => `${count}`,
+    refresh: 'Refresh',
+    close: 'Close',
+    statsLine: (views, visitors) => `${views} views · ${visitors} unique visitors`,
+    openStats: 'View statistics',
+  },
+};
+
+export function getShareStatsI18n(locale: UiLanguage): ShareStatsText {
+  return SHARE_STATS_TEXTS[normalizeUiLanguage(locale)];
 }

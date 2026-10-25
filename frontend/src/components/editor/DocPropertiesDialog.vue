@@ -1,8 +1,9 @@
 <template>
+  <Teleport to="body">
   <div v-if="visible" class="cloud-props-backdrop" data-testid="doc-properties-dialog" @click.self="emit('close')">
-    <section class="cloud-props" role="dialog" aria-modal="true" @keydown.esc.prevent="emit('close')">
+    <section class="cloud-props" role="dialog" aria-modal="true" style="min-width: 320px" @keydown.esc.prevent="emit('close')">
       <header class="cloud-props__header">
-        <h3 data-testid="doc-properties-title">{{ copy.propsTitle }}</h3>
+        <h3 data-testid="doc-properties-title" style="white-space: nowrap">{{ copy.propsTitle }}</h3>
         <button type="button" class="cloud-props__close" data-testid="doc-properties-close" @click="emit('close')">×</button>
       </header>
 
@@ -72,6 +73,7 @@
       </div>
     </section>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -274,7 +276,10 @@ defineExpose({ load, save });
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(560px, 100%);
+  /* 固定宽度 + 最小宽度：避免被父容器压成竖条 */
+  width: min(560px, 100vw - 32px);
+  min-width: 320px;
+  max-width: calc(100vw - 32px);
   max-height: min(680px, 88vh);
   padding: 14px 16px;
   color: var(--text-primary, #e5e9f0);
@@ -294,6 +299,8 @@ defineExpose({ load, save });
   margin: 0;
   font-size: 13.5px;
   font-weight: 600;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .cloud-props__close {
@@ -328,6 +335,7 @@ defineExpose({ load, save });
 .cloud-props__meta dd {
   margin: 0;
   overflow: hidden;
+  word-break: normal;
   color: var(--text-secondary, #a8b3c5);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -346,6 +354,13 @@ defineExpose({ load, save });
   gap: 4px;
   font-size: 11.5px;
   color: var(--text-secondary, #a8b3c5);
+}
+
+/* 标签行不参与换行（正文/值仍可换行） */
+.cloud-props__field > span,
+.cloud-props__meta dt {
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .cloud-props__input {
@@ -371,6 +386,8 @@ defineExpose({ load, save });
 }
 
 .cloud-props__button {
+  white-space: nowrap;
+  word-break: keep-all;
   padding: 5px 12px;
   font-size: 11.5px;
   color: var(--text-primary, #e5e9f0);

@@ -117,6 +117,9 @@ import HierarchyPanel, { type HierarchyMode, type HierarchyRow } from './compone
 import CloudDocBrowser from './components/editor/CloudDocBrowser.vue';
 import CloudDocSyncDialog from './components/editor/CloudDocSyncDialog.vue';
 import ShareDialog from './components/editor/ShareDialog.vue';
+import CenterToast from './components/ui/CenterToast.vue';
+import ShareStatsDialog from './components/editor/ShareStatsDialog.vue';
+import { useCenterToastStore } from './stores/centerToast';
 import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
 import type { CloudSyncResult } from '@/services/cloudSyncService';
 import { getShareStatus } from '@/services/cloudShareService';
@@ -147,6 +150,7 @@ const fileConflictsStore = useFileConflictsStore();
 const diffStore = useDiffStore();
 const diagnosticsStore = useDiagnosticsStore();
 const cloudSyncStore = useCloudSyncStore();
+const centerToast = useCenterToastStore();
 const pendingLocalWrites = new Map<string, number>();
 const markLocalWritePending = (filePath?: string | null) => {
   if (filePath) pendingLocalWrites.set(normalizeFsPath(filePath), Date.now() + 4000);
@@ -1931,10 +1935,19 @@ const handleFileTreeSyncToCloud = (entry: FileTreeNode) => {
 const handleCloudDocSynced = (result: CloudSyncResult) => {
   cloudSyncDialog.value = { visible: false, filePath: '', fileName: '' };
   cloudTreeRefreshToken.value += 1;
-  notificationStore.success(
-    cloudSyncCopy.value.settingsCloudSync,
-    cloudSyncCopy.value.cloudSyncResultSynced(result.version),
-  );
+  // 居中 toast：3 秒自动消失（同步成功不再占用弹窗内状态行）
+  centerToast.show(cloudSyncCopy.value.cloudSyncResultSynced(result.version), 'success', 3000);
+};
+
+/** 分享统计弹窗目标（从分享弹窗的「查看统计」进入）。 */
+const shareStatsTarget = ref<{ visible: boolean; fileId: number | null; fileName: string }>({
+  visible: false,
+  fileId: null,
+  fileName: '',
+});
+
+const handleOpenShareStats = (payload: { fileId: number; fileName: string }) => {
+  shareStatsTarget.value = { visible: true, fileId: payload.fileId, fileName: payload.fileName };
 };
 
 /** 一键分享弹窗（先自动同步，再生成/复用分享链接）。 */
@@ -4786,6 +4799,8 @@ onUnmounted(() => {
           @doc-action="handleCloudDocAction"
         />
 
+        <CenterToast />
+
         <CloudDocSyncDialog
           :visible="cloudSyncDialog.visible"
           :file-path="cloudSyncDialog.filePath"
@@ -4794,12 +4809,20 @@ onUnmounted(() => {
           @synced="handleCloudDocSynced"
         />
 
+        <ShareStatsDialog
+          :visible="shareStatsTarget.visible"
+          :file-id="shareStatsTarget.fileId"
+          :file-name="shareStatsTarget.fileName"
+          @close="shareStatsTarget.visible = false"
+        />
+
         <ShareDialog
           :visible="shareDialog.visible"
           :file-path="shareDialog.filePath"
           :file-name="shareDialog.fileName"
           @close="shareDialog.visible = false"
           @shared="handleShareStateChanged"
+          @open-stats="handleOpenShareStats"
         />
 
         <ReferenceResultsPanel

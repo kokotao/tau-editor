@@ -133,3 +133,27 @@ describe('分类写操作', () => {
     expect(mocks.categoryDelete).not.toHaveBeenCalled();
   });
 });
+
+
+describe('雪花 id 精度（0.6.24）', () => {
+  it('超大父分类 id 原样透传，不被截断', async () => {
+    mocks.isTauri.value = true;
+    mocks.categoryCreate.mockResolvedValue({ id: '2114279859393396800', name: 'x', parentId: '2114279859393396737', children: [] });
+
+    const outcome = await createCategory('子分类', '2114279859393396737');
+
+    expect(outcome.ok).toBe(true);
+    const payloadParent = mocks.categoryCreate.mock.calls.at(-1)?.[1];
+    expect(payloadParent).toBe('2114279859393396737');
+    // 关键：不能退化成 number（会变成 ...700）
+    expect(String(payloadParent)).not.toBe('2114279859393396700');
+  });
+
+  it('重命名同样按字符串携带 id', async () => {
+    mocks.isTauri.value = true;
+    mocks.categoryUpdate.mockResolvedValue({ id: '2114279859393396737', name: '改', parentId: null, children: [] });
+    const outcome = await renameCategory('2114279859393396737', '改');
+    expect(outcome.ok).toBe(true);
+    expect(mocks.categoryUpdate).toHaveBeenCalledWith('2114279859393396737', '改');
+  });
+});

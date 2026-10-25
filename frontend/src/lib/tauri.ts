@@ -1313,6 +1313,34 @@ export interface CloudAssetDownloadResult {
   reason: string | null;
 }
 
+/** 分享统计「最近访问」条目。 */
+export interface CloudShareVisit {
+  time?: string | null;
+  ipMasked?: string | null;
+  fingerprintShort?: string | null;
+  ua?: string | null;
+  referer?: string | null;
+  isNewVisitor?: boolean;
+}
+
+/** 分享统计按天聚合。 */
+export interface CloudShareDailyPoint {
+  date: string;
+  views: number;
+  visitors: number;
+}
+
+/** 分享统计整体（Rust `CloudShareStats`）。 */
+export interface CloudShareStats {
+  shareUrl?: string | null;
+  totalViews: number;
+  uniqueVisitors: number;
+  firstViewAt?: string | null;
+  lastViewAt?: string | null;
+  daily: CloudShareDailyPoint[];
+  recent: CloudShareVisit[];
+}
+
 /** 二进制文档上传结果（Rust `CloudBinaryUploadResult`）。 */
 export interface CloudBinaryUploadResult {
   fileId: number;
@@ -1496,12 +1524,17 @@ export const cloudCommands = {
     return invokeCommand<CloudShareConfig>('cloud_share_config');
   },
 
+  /** 分享统计（owner 可读）。 */
+  async shareStats(fileId: number, days = 30): Promise<CloudShareStats> {
+    return invokeCommand<CloudShareStats>('cloud_docs_share_stats', { fileId, days });
+  },
+
   /** 云端分类树（管理接口，需登录）。 */
   async categoriesList(): Promise<CloudCategoryNode[]> {
     return invokeCommand<CloudCategoryNode[]>('cloud_categories_list');
   },
 
-  /** 新建分类（POST /categories）。 */
+  /** 新建分类（POST /categories）；parentId 用字符串透传雪花 id。 */
   async categoryCreate(name: string, parentId?: string | null): Promise<CloudCategoryNode> {
     return invokeCommand<CloudCategoryNode>('cloud_category_create', {
       name,
@@ -1519,8 +1552,8 @@ export const cloudCommands = {
     await invokeCommand<void>('cloud_category_delete', { id });
   },
 
-  /** 把云文档移动到指定分类（categoryId 为 null 表示取消分类）。 */
-  async moveDocCategory(fileId: number, categoryId: number | null): Promise<void> {
+  /** 把云文档移动到指定分类（categoryId 为字符串雪花 id；null 表示取消分类）。 */
+  async moveDocCategory(fileId: number, categoryId: string | null): Promise<void> {
     await invokeCommand<void>('cloud_docs_move_category', { fileId, categoryId });
   },
 

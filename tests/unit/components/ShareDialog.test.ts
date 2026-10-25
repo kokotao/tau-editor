@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   inspectAssetSources: vi.fn(),
   binaryUpload: vi.fn(),
   findByPath: vi.fn(),
+  fetchStats: vi.fn(),
   clipboardWrite: vi.fn(),
 }));
 
@@ -44,6 +45,11 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
     },
     appCommands: { ...actual.appCommands, openExternalLink: mocks.openExternalLink },
   };
+});
+
+vi.mock('@/services/cloudShareStatsService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudShareStatsService')>();
+  return { ...actual, fetchShareStats: mocks.fetchStats };
 });
 
 vi.mock('@/services/cloudDocService', async (importOriginal) => {
@@ -104,6 +110,7 @@ describe('ShareDialog 一键分享', () => {
     mocks.inspectAssetSources.mockResolvedValue([]);
     mocks.findByPath.mockResolvedValue({ ok: true, data: null });
     mocks.binaryUpload.mockResolvedValue({ fileId: 77, version: 1, size: 2048 });
+    mocks.fetchStats.mockResolvedValue({ ok: true, data: { totalViews: 9, uniqueVisitors: 4, daily: [], recent: [] } });
     mocks.clipboardWrite.mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText: mocks.clipboardWrite } });
 
@@ -375,5 +382,62 @@ describe('ShareDialog 一键分享', () => {
     await settle();
 
     expect(wrapper.get('[data-testid="share-dialog-error"]').text()).toContain('没有权限分享该文档');
+  });
+});
+
+describe('ShareDialog 分享统计（0.6.24）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    useWorkspaceStore().currentWorkspacePath = '/ws';
+    useWorkspaceStore().currentWorkspaceName = 'ws';
+    useSettingsStore().syncDocumentImages = true;
+    useCloudSyncStore().signedIn = true;
+    mocks.shareConfig.mockResolvedValue({
+      shareBaseUrl: SHARE_BASE,
+      defaultCategory: '分享',
+      maxExpireDays: 365,
+    });
+    mocks.syncByPath.mockResolvedValue({ status: 'synced', fileId: 42, version: 3 });
+    mocks.readSyncSource.mockResolvedValue({ content: '正文', contentHash: 'sha256:x', size: 10, modifiedMs: 1 });
+    mocks.assetsList.mockResolvedValue([]);
+    mocks.inspectAssetSources.mockResolvedValue([]);
+    mocks.shareStatus.mockResolvedValue({ ok: true, data: { shared: false } });
+    mocks.shareCreate.mockResolvedValue({ token: 'abcdefgh12345678' });
+    mocks.fetchStats.mockResolvedValue({ ok: true, data: { totalViews: 9, uniqueVisitors: 4, daily: [], recent: [] } });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('已分享时展示「查看 N 次 · 独立访客 M」并可打开统计弹窗', async () => {
+    const wrapper = mount(ShareDialog, {
+      props: { visible: true, filePath: '/ws/notes/a.md', fileName: 'a.md' },
+    });
+    await settle();
+    await wrapper.get('[data-testid="share-dialog-generate"]').trigger('click');
+    await settle();
+
+    const line = wrapper.get('[data-testid="share-dialog-stats-line"]');
+    expect(line.text()).toContain('9');
+    expect(line.text()).toContain('4');
+
+    await wrapper.get('[data-testid="share-dialog-stats-btn"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.emitted('open-stats')?.[0]?.[0]).toMatchObject({ fileName: 'a.md' });
+  });
+
+  it('统计拉取失败不阻塞分享主流程（不展示统计行）', async () => {
+    mocks.fetchStats.mockResolvedValue({ ok: false, kind: 'network', message: '连不上' });
+
+    const wrapper = mount(ShareDialog, {
+      props: { visible: true, filePath: '/ws/notes/a.md', fileName: 'a.md' },
+    });
+    await settle();
+    await wrapper.get('[data-testid="share-dialog-generate"]').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-testid="share-dialog-stats"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="share-dialog-url"]').exists()).toBe(true);
   });
 });

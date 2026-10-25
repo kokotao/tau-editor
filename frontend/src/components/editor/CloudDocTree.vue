@@ -35,7 +35,9 @@
         </button>
         <span v-else class="cloud-doc-tree__toggle cloud-doc-tree__toggle--leaf" aria-hidden="true">·</span>
 
+        <span v-if="row.node.kind === 'file'" class="cloud-doc-tree__type" aria-hidden="true" :data-type="iconForFile(row.node.name)">{{ iconForFile(row.node.name) }}</span>
         <span class="cloud-doc-tree__name" :title="row.node.path">{{ row.node.name }}</span>
+        <span v-if="row.node.kind === 'dir'" class="cloud-doc-tree__count">{{ countFiles(row.node) }}</span>
 
         <span v-if="row.node.kind === 'file' && !compact" class="cloud-doc-tree__meta">
           <span>{{ formatSize(row.node.file?.size ?? 0) }}</span>
@@ -90,22 +92,25 @@
       </div>
     </div>
 
-    <!-- 右键菜单：文档 / 分类 -->
+    <!-- 右键菜单：Teleport 到 body，避免被侧栏/面板 overflow 裁剪导致点击热区错位 -->
+    <Teleport to="body">
     <div
       v-if="rowMenu.visible && rowMenu.node"
       class="cloud-doc-tree__menu"
       :style="{ left: `${rowMenu.x}px`, top: `${rowMenu.y}px` }"
       data-testid="cloud-doc-tree-menu"
+      @mousedown.stop
       @click.stop
     >
       <template v-if="rowMenu.node.kind === 'file'">
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-open" @click="menuOpenDoc()">{{ panel.menuOpen }}</button>
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-sync" @click="menuDocAction('sync')">{{ panel.menuSync }}</button>
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-share" @click="menuDocAction('share')">{{ panel.menuShare }}</button>
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-properties" @click="menuOpenProperties()">{{ panel.menuProperties }}</button>
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-history" @click="menuOpenHistory()">{{ panel.menuHistory }}</button>
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-move" @click="menuOpenMove()">{{ panel.menuMoveTo }}</button>
-        <button type="button" class="cloud-doc-tree__menu-item cloud-doc-tree__menu-item--danger" data-testid="cloud-doc-menu-delete" @click="menuDeleteDoc()">{{ panel.menuDelete }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-open" @click.stop="menuOpenDoc()">{{ panel.menuOpen }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-sync" @click.stop="menuDocAction('sync')">{{ panel.menuSync }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-share" @click.stop="menuDocAction('share')">{{ panel.menuShare }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-properties" @click.stop="menuOpenProperties()">{{ panel.menuProperties }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-history" @click.stop="menuOpenHistory()">{{ panel.menuHistory }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-doc-menu-move" @click.stop="menuOpenMove()">{{ panel.menuMoveTo }}</button>
+        <div class="cloud-doc-tree__menu-divider"></div>
+        <button type="button" class="cloud-doc-tree__menu-item cloud-doc-tree__menu-item--danger" data-testid="cloud-doc-menu-delete" @click.stop="menuDeleteDoc()">{{ panel.menuDelete }}</button>
       </template>
       <template v-else>
         <button
@@ -114,22 +119,24 @@
           data-testid="cloud-category-menu-new"
           :disabled="!canAddChild(rowMenu.node)"
           :title="canAddChild(rowMenu.node) ? '' : panel.maxDepthReached"
-          @click="menuNewSubCategory()"
+          @click.stop="menuNewSubCategory()"
         >
           {{ panel.newSubCategory }}
         </button>
-        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-category-menu-rename" @click="menuRenameCategory()">{{ panel.renameCategory }}</button>
+        <button type="button" class="cloud-doc-tree__menu-item" data-testid="cloud-category-menu-rename" @click.stop="menuRenameCategory()">{{ panel.renameCategory }}</button>
         <button
           type="button"
           class="cloud-doc-tree__menu-item cloud-doc-tree__menu-item--danger"
           data-testid="cloud-category-menu-delete"
           :disabled="!categoryIdOf(rowMenu.node)"
-          @click="menuDeleteCategory()"
+          @click.stop="menuDeleteCategory()"
         >
           {{ panel.deleteCategory }}
         </button>
       </template>
     </div>
+
+    </Teleport>
 
     <!-- 移动到分类 -->
     <div
@@ -153,12 +160,19 @@
       </button>
     </div>
 
-    <!-- 分类新建/重命名 -->
-    <div v-if="prompt.visible" class="cloud-doc-tree__prompt" data-testid="cloud-category-prompt">
+    <Teleport to="body">
+    <!-- 分类新建/重命名：内联卡片面板 -->
+    <div
+      v-if="prompt.visible"
+      class="cloud-doc-tree__prompt"
+      data-testid="cloud-category-prompt"
+      @keydown.esc.prevent="closePrompt()"
+    >
       <p class="cloud-doc-tree__prompt-title">
-        {{ prompt.mode === 'create' ? panel.newCategory : panel.renameCategory }}
+        {{ prompt.mode === 'create' ? (prompt.parentName ? `${panel.newSubCategory} · ${prompt.parentName}` : panel.newCategory) : panel.renameCategory }}
       </p>
       <input
+        ref="promptInputRef"
         v-model="prompt.name"
         class="cloud-doc-tree__prompt-input"
         data-testid="cloud-category-name-input"
@@ -166,7 +180,7 @@
         :placeholder="panel.categoryNamePlaceholder"
         @keydown.enter.prevent="submitPrompt()"
       />
-      <p v-if="prompt.error" class="cloud-doc-tree__prompt-error">{{ prompt.error }}</p>
+      <p v-if="prompt.error" class="cloud-doc-tree__prompt-error" data-testid="cloud-category-prompt-error">{{ prompt.error }}</p>
       <div class="cloud-doc-tree__prompt-actions">
         <button type="button" class="cloud-doc-tree__button" data-testid="cloud-category-prompt-cancel" @click="closePrompt()">{{ panel.cancel }}</button>
         <button type="button" class="cloud-doc-tree__button" data-testid="cloud-category-prompt-confirm" :disabled="prompt.busy" @click="submitPrompt()">{{ panel.confirm }}</button>
@@ -183,6 +197,27 @@
       </div>
     </div>
 
+    <!-- 跨工作区/无法映射：只读预览 或 另存为 -->
+    <div v-if="openChoice.visible" class="cloud-doc-tree__prompt" data-testid="cloud-doc-choice-dialog">
+      <p class="cloud-doc-tree__prompt-title">{{ panel.choiceTitle }}</p>
+      <p class="cloud-doc-tree__prompt-hint">{{ panel.choiceHint }}</p>
+      <div class="cloud-doc-tree__prompt-actions">
+        <button type="button" class="cloud-doc-tree__button" data-testid="cloud-doc-choice-cancel" @click="cancelChoice()">{{ panel.cancel }}</button>
+        <button type="button" class="cloud-doc-tree__button" data-testid="cloud-doc-choice-save-as" @click="chooseSaveAs()">{{ panel.choiceSaveAs }}</button>
+        <button type="button" class="cloud-doc-tree__button" data-testid="cloud-doc-choice-preview" @click="choosePreview()">{{ panel.choicePreview }}</button>
+      </div>
+    </div>
+
+    <!-- 只读预览 -->
+    <div v-if="previewState.visible" class="cloud-doc-tree__preview" data-testid="cloud-doc-preview-dialog">
+      <header class="cloud-doc-tree__preview-header">
+        <span class="cloud-doc-tree__preview-title">{{ panel.previewTitle(previewState.name) }}</span>
+        <button type="button" class="cloud-doc-tree__preview-close" data-testid="cloud-doc-preview-close" @click="previewState.visible = false">×</button>
+      </header>
+      <pre v-if="previewState.kind === 'text'" class="cloud-doc-tree__preview-body" data-testid="cloud-doc-preview-content">{{ previewState.content }}</pre>
+      <p v-else class="cloud-doc-tree__preview-hint" data-testid="cloud-doc-preview-hint">{{ previewState.hint }}</p>
+    </div>
+
     <!-- 删除确认 -->
     <div v-if="deleteTarget" class="cloud-doc-tree__prompt" data-testid="cloud-doc-delete-confirm">
       <p class="cloud-doc-tree__prompt-title">{{ panel.menuDelete }}</p>
@@ -192,6 +227,8 @@
         <button type="button" class="cloud-doc-tree__button" data-testid="cloud-doc-delete-confirm-btn" :disabled="busy" @click="confirmDeleteDoc()">{{ panel.confirm }}</button>
       </div>
     </div>
+
+    </Teleport>
 
     <VersionHistoryDialog
       :visible="historyVisible"
@@ -219,11 +256,12 @@
  * @email 480199976@qq.com
  * @date 2026-10-25 15:20
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { cloudCommands, fileCommands, type CloudCategoryNode, type CloudDocOpenTarget } from '@/lib/tauri';
 import { formatCloudDocSize, type CloudDocTreeNode } from '@/services/cloudBrowserService';
-import { deleteCloudDoc, normalizeCloudError } from '@/services/cloudDocService';
+import { deleteCloudDoc, getCloudDoc, normalizeCloudError } from '@/services/cloudDocService';
+import { useCenterToastStore } from '@/stores/centerToast';
 import {
   canAddChildCategory,
   createCategory,
@@ -332,6 +370,11 @@ async function openDoc(node: CloudDocTreeNode): Promise<void> {
     });
 
     if (target.action === 'rejected') {
+      // 不在当前工作区 / 路径无法映射：不再直接报错，改为「只读预览 / 另存为 / 取消」
+      if (target.reasonCode === 'CLOUD_PATH_NOT_IN_WORKSPACE') {
+        openChoice.value = { visible: true, node };
+        return;
+      }
       notice.value = target.reason || copy.value.openFailed(target.reasonCode ?? 'unsupported');
       return;
     }
@@ -425,16 +468,36 @@ function cancelOpen(): void {
 // ------------------------------------------------------------------
 const panel = computed(() => getCloudDocPanelI18n(settingsStore.uiLanguage));
 
-const rowMenu = ref<{ visible: boolean; x: number; y: number; node: CloudDocTreeNode | null }>({
+const rowMenu = ref<{
+  visible: boolean;
+  x: number;
+  y: number;
+  node: CloudDocTreeNode | null;
+  flipX: boolean;
+  flipY: boolean;
+}>({
   visible: false,
   x: 0,
   y: 0,
   node: null,
+  flipX: false,
+  flipY: false,
 });
 const moveMenuVisible = ref(false);
 const moveTarget = ref<CloudDocTreeNode | null>(null);
 const deleteTarget = ref<CloudDocTreeNode | null>(null);
 const categoryDeleteTarget = ref<CloudDocTreeNode | null>(null);
+const centerToast = useCenterToastStore();
+/** 跨工作区/路径无法映射时的选择弹层 */
+const openChoice = ref<{ visible: boolean; node: CloudDocTreeNode | null }>({ visible: false, node: null });
+/** 只读预览状态 */
+const previewState = ref<{
+  visible: boolean;
+  name: string;
+  content: string;
+  kind: 'text' | 'hint';
+  hint: string;
+}>({ visible: false, name: '', content: '', kind: 'text', hint: '' });
 const historyVisible = ref(false);
 const historyTarget = ref<CloudDocTreeNode | null>(null);
 const propsVisible = ref(false);
@@ -443,17 +506,37 @@ const dropTargetKey = ref('');
 const dragSource = ref<CloudDocTreeNode | null>(null);
 const categoryRows = ref<FlatCategory[]>([]);
 const categoryTree = ref<CloudCategoryNode[]>([]);
+const promptInputRef = ref<HTMLInputElement | null>(null);
 const prompt = ref<{
   visible: boolean;
   mode: 'create' | 'rename';
   name: string;
   parentId: string | null;
+  parentName: string;
   id: string | null;
   busy: boolean;
   error: string;
-}>({ visible: false, mode: 'create', name: '', parentId: null, id: null, busy: false, error: '' });
+}>({ visible: false, mode: 'create', name: '', parentId: null, parentName: '', id: null, busy: false, error: '' });
 
 /** 分类节点 key → 分类 id（`cat:<id>`）。 */
+/** 文件类型徽标（md / 代码 / 图片 / Office / 其他）。 */
+function iconForFile(name: string): string {
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  if (['md', 'markdown', 'mdx'].includes(ext)) return 'MD';
+  if (['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'vue', 'json', 'yaml', 'yml', 'toml', 'sh'].includes(ext)) return '</>';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'].includes(ext)) return 'IMG';
+  if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'DOC';
+  return '·';
+}
+
+/** 目录下文件数量（含后代）。 */
+function countFiles(node: CloudDocTreeNode): number {
+  if (node.kind === 'file') {
+    return 1;
+  }
+  return node.children.reduce((total, child) => total + countFiles(child), 0);
+}
+
 function categoryIdOf(node: CloudDocTreeNode | null): string | null {
   if (!node || node.kind !== 'dir') {
     return null;
@@ -476,10 +559,20 @@ function closeMenus(): void {
   moveMenuVisible.value = false;
 }
 
+const MENU_WIDTH = 208;
+const MENU_ITEM_HEIGHT = 34;
+
 function openRowMenu(row: { node: CloudDocTreeNode }, event: MouseEvent): void {
-  const x = Math.min(event.clientX, Math.max(8, (window.innerWidth || 1024) - 200));
-  const y = Math.min(event.clientY, Math.max(8, (window.innerHeight || 768) - 220));
-  rowMenu.value = { visible: true, x, y, node: row.node };
+  const viewportWidth = window.innerWidth || 1024;
+  const viewportHeight = window.innerHeight || 768;
+  const itemCount = row.node.kind === 'file' ? 7 : 4;
+  const menuHeight = itemCount * MENU_ITEM_HEIGHT + 18;
+  // 右侧/底部空间不足时翻转，保证浮层不出视口（点击热区跟随视觉位置）
+  const flipX = event.clientX + MENU_WIDTH + 8 > viewportWidth;
+  const flipY = event.clientY + menuHeight + 8 > viewportHeight;
+  const x = flipX ? Math.max(8, event.clientX - MENU_WIDTH) : Math.max(8, event.clientX);
+  const y = flipY ? Math.max(8, event.clientY - menuHeight) : Math.max(8, event.clientY);
+  rowMenu.value = { visible: true, x, y, node: row.node, flipX, flipY };
   moveMenuVisible.value = false;
   if (row.node.kind === 'dir') {
     void refreshCategoryTree();
@@ -521,7 +614,7 @@ async function menuOpenMove(): Promise<void> {
 }
 
 /** 移动文档到目标分类（null = 取消分类）；失败提示并保持原状（刷新即回滚）。 */
-async function moveDocToCategory(node: CloudDocTreeNode, categoryId: number | null): Promise<void> {
+async function moveDocToCategory(node: CloudDocTreeNode, categoryId: string | null): Promise<void> {
   const fileId = node.file?.fileId;
   if (fileId === undefined) {
     return;
@@ -530,11 +623,15 @@ async function moveDocToCategory(node: CloudDocTreeNode, categoryId: number | nu
   try {
     const outcome = await moveDocumentToCategory(fileId, categoryId);
     if (!outcome.ok) {
+      console.warn('[cloud-doc] 移动分类失败', { kind: outcome.kind, message: outcome.message });
       notice.value = panel.value.moveFailed(outcome.message);
       return;
     }
     notice.value = panel.value.moveDone;
     emit('changed');
+  } catch (error) {
+    console.warn('[cloud-doc] 移动分类异常', error);
+    notice.value = panel.value.moveFailed(error instanceof Error ? error.message : String(error));
   } finally {
     busy.value = false;
   }
@@ -546,8 +643,8 @@ async function moveTo(categoryId: string): Promise<void> {
   if (!node?.file) {
     return;
   }
-  const numeric = categoryId ? Number(categoryId) : null;
-  await moveDocToCategory(node, numeric !== null && Number.isFinite(numeric) ? numeric : null);
+  // 雪花 id 直接按字符串下发，避免 number 精度丢失
+  await moveDocToCategory(node, categoryId || null);
 }
 
 function menuDeleteDoc(): void {
@@ -566,11 +663,15 @@ async function confirmDeleteDoc(): Promise<void> {
   try {
     const outcome = await deleteCloudDoc(fileId);
     if (!outcome.ok) {
+      console.warn('[cloud-doc] 删除失败', { kind: outcome.kind, message: outcome.message });
       notice.value = panel.value.deleteFailed(outcome.message);
       return;
     }
     notice.value = panel.value.deleteDone;
     emit('changed');
+  } catch (error) {
+    console.warn('[cloud-doc] 删除异常', error);
+    notice.value = panel.value.deleteFailed(error instanceof Error ? error.message : String(error));
   } finally {
     busy.value = false;
   }
@@ -592,14 +693,89 @@ async function confirmDeleteCategory(): Promise<void> {
   try {
     const outcome = await deleteCategory(id);
     if (!outcome.ok) {
+      console.warn('[cloud-category] 删除分类失败', { kind: outcome.kind, message: outcome.message });
       notice.value = outcome.message;
       return;
     }
-    notice.value = panel.value.deleteCategoryDone;
     await refreshCategoryTree();
     emit('changed');
+    centerToast.show(panel.value.deleteCategoryDone, 'success', 3000);
+  } catch (error) {
+    console.warn('[cloud-category] 删除分类异常', error);
+    notice.value = error instanceof Error ? error.message : String(error);
   } finally {
     busy.value = false;
+  }
+}
+
+/** 应用内预览只支持文本类（markdown/代码/纯文本）。 */
+function isPreviewableText(name: string): boolean {
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  return [
+    'md', 'markdown', 'mdx', 'txt', 'log', 'csv', 'json', 'yaml', 'yml', 'toml', 'ini', 'conf',
+    'ts', 'tsx', 'js', 'jsx', 'vue', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'hpp', 'sh',
+    'ps1', 'bat', 'sql', 'html', 'css', 'scss', 'xml',
+  ].includes(ext);
+}
+
+function cancelChoice(): void {
+  openChoice.value = { visible: false, node: null };
+}
+
+/** 只读预览：不写盘（文本类直接展示，其它类型给提示）。 */
+async function choosePreview(): Promise<void> {
+  const node = openChoice.value.node;
+  openChoice.value = { visible: false, node: null };
+  const fileId = node?.file?.fileId;
+  if (!node || fileId === undefined) {
+    return;
+  }
+  const outcome = await getCloudDoc(fileId);
+  if (!outcome.ok) {
+    notice.value = outcome.message;
+    return;
+  }
+  const content = outcome.data.content ?? '';
+  if (isPreviewableText(node.name) && content) {
+    previewState.value = { visible: true, name: node.name, content, kind: 'text', hint: '' };
+    return;
+  }
+  previewState.value = {
+    visible: true,
+    name: node.name,
+    content: '',
+    kind: 'hint',
+    hint: panel.value.previewUnsupported,
+  };
+}
+
+/** 另存为：系统保存对话框选位置后写盘；取消则不写。 */
+async function chooseSaveAs(): Promise<void> {
+  const node = openChoice.value.node;
+  openChoice.value = { visible: false, node: null };
+  const fileId = node?.file?.fileId;
+  if (!node || fileId === undefined) {
+    return;
+  }
+  const outcome = await getCloudDoc(fileId);
+  if (!outcome.ok) {
+    notice.value = panel.value.saveAsFailed(outcome.message);
+    return;
+  }
+  const content = outcome.data.content ?? '';
+  if (!isPreviewableText(node.name) || !content) {
+    notice.value = panel.value.saveAsFailed(panel.value.previewUnsupported);
+    return;
+  }
+  const target = await saveFileDialog({ defaultPath: node.name });
+  if (typeof target !== 'string' || !target) {
+    return; // 取消：不写盘
+  }
+  try {
+    await fileCommands.writeFile(target, content);
+    centerToast.show(panel.value.saveAsDone(target), 'success', 3000);
+  } catch (error) {
+    notice.value = panel.value.saveAsFailed(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -609,10 +785,12 @@ function openCreateCategory(): void {
     mode: 'create',
     name: '',
     parentId: null,
+    parentName: '',
     id: null,
     busy: false,
     error: '',
   };
+  focusPrompt();
   void refreshCategoryTree();
 }
 
@@ -628,10 +806,12 @@ function menuNewSubCategory(): void {
     mode: 'create',
     name: '',
     parentId,
+    parentName: rowMenu.value.node?.name ?? '',
     id: null,
     busy: false,
     error: '',
   };
+  focusPrompt();
   closeMenus();
 }
 
@@ -642,11 +822,21 @@ function menuRenameCategory(): void {
     mode: 'rename',
     name: node?.name ?? '',
     parentId: null,
+    parentName: '',
     id: categoryIdOf(node),
     busy: false,
     error: '',
   };
+  focusPrompt();
   closeMenus();
+}
+
+/** 打开面板后自动聚焦输入框（下一帧，等 v-if 渲染完）。 */
+function focusPrompt(): void {
+  void nextTick(() => {
+    promptInputRef.value?.focus();
+    promptInputRef.value?.select();
+  });
 }
 
 function closePrompt(): void {
@@ -670,13 +860,28 @@ async function submitPrompt(): Promise<void> {
       ? await renameCategory(current.id, current.name)
       : await createCategory(current.name, current.parentId);
     if (!outcome.ok) {
+      // 业务错误（HTTP 200 + body.code）已在 Rust 侧映射；这里展示后端 message 原文
+      console.warn('[cloud-category] 保存分类失败', { kind: outcome.kind, message: outcome.message });
       current.error = outcome.message;
       return;
     }
-    notice.value = current.mode === 'create' ? panel.value.createDone : panel.value.renameDone;
     prompt.value.visible = false;
+    // 展开到父分类，便于看到刚建好的子分类
+    if (current.mode === 'create' && current.parentId) {
+      collapsedKeys.value.delete(`cat:${current.parentId}`);
+    }
     await refreshCategoryTree();
     emit('changed');
+    centerToast.show(
+      current.mode === 'create' ? panel.value.createDone : panel.value.renameDone,
+      'success',
+      3000,
+    );
+  } catch (error) {
+    // 兜底：IPC/参数异常此前会被静默吞掉（表现为「点确定没反应」）
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[cloud-category] 保存分类异常', error);
+    current.error = message;
   } finally {
     prompt.value.busy = false;
   }
@@ -730,21 +935,25 @@ async function handleDrop(row: { node: CloudDocTreeNode }, event: DragEvent): Pr
     notice.value = panel.value.moveFailed(panel.value.maxDepthReached);
     return;
   }
-  const numeric = categoryId ? Number(categoryId) : null;
-  await moveDocToCategory(source, numeric !== null && Number.isFinite(numeric) ? numeric : null);
+  await moveDocToCategory(source, categoryId || null);
 }
 
-function handleDocumentClick(): void {
+/** 外部点击关闭：菜单本身用 mousedown.stop 防误关，这里再按 closest 兜底（菜单已 Teleport 到 body）。 */
+function handleDocumentClick(event?: MouseEvent): void {
+  const target = event?.target;
+  if (target instanceof Element && target.closest('.cloud-doc-tree__menu')) {
+    return;
+  }
   if (rowMenu.value.visible || moveMenuVisible.value) {
     closeMenus();
   }
 }
 
 onMounted(() => {
-  document.addEventListener('mousedown', handleDocumentClick);
+  document.addEventListener('mousedown', handleDocumentClick as EventListener);
 });
 onUnmounted(() => {
-  document.removeEventListener('mousedown', handleDocumentClick);
+  document.removeEventListener('mousedown', handleDocumentClick as EventListener);
 });
 defineExpose({ cancelOpen, openCreateCategory });
 </script>
@@ -775,6 +984,11 @@ defineExpose({ cancelOpen, openCreateCategory });
 }
 
 .cloud-doc-tree__row {
+  /* 统一行高与内边距：侧栏、浏览弹窗共用同一套行样式 */
+  min-height: 28px;
+  padding-block: 2px;
+  gap: 4px;
+  border-radius: var(--radius-control, 5px);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -834,8 +1048,163 @@ defineExpose({ cancelOpen, openCreateCategory });
   background: color-mix(in srgb, var(--state-danger, #dc2626) 14%, transparent);
 }
 
+/* ---------- 右键菜单浮层（fixed + 视口翻转 + 深色卡片） ---------- */
+.cloud-doc-tree__menu {
+  position: fixed;
+  /* 防止文字逐字竖排：容器给足宽度并禁止换行，不受父级 writing-mode/word-break 影响 */
+  min-width: 180px;
+  width: max-content;
+  max-width: 280px;
+  white-space: nowrap;
+  word-break: keep-all;
+  writing-mode: horizontal-tb;
+  z-index: 13000;
+  display: flex;
+  flex-direction: column;
+  min-width: 208px;
+  padding: 4px;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--panel-elevated, #151d2d);
+  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.38));
+  border-radius: var(--radius-panel, 8px);
+  box-shadow: var(--shadow-overlay, 0 18px 40px rgba(0, 0, 0, 0.45));
+}
+
+.cloud-doc-tree__menu--scroll {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.cloud-doc-tree__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  min-height: 34px;
+  line-height: 34px;
+  white-space: nowrap;
+  word-break: keep-all;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-primary, #e5e9f0);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-doc-tree__menu-item:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.cloud-doc-tree__menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cloud-doc-tree__menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-soft, rgba(148, 163, 184, 0.24));
+}
+
+/* ---------- 新建/重命名分类：居中卡片 ---------- */
+.cloud-doc-tree__prompt {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 13500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--panel-elevated, #151d2d);
+  border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.38));
+  border-radius: var(--radius-dialog, 10px);
+  box-shadow: var(--shadow-overlay, 0 18px 40px rgba(0, 0, 0, 0.45));
+  transform: translate(-50%, -50%);
+}
+
+.cloud-doc-tree__prompt-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-doc-tree__prompt-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--panel-base, #101726);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
+  border-radius: var(--radius-control, 5px);
+}
+
+.cloud-doc-tree__prompt-input:focus {
+  border-color: var(--accent-brand, #7cc7ff);
+  outline: none;
+}
+
+.cloud-doc-tree__prompt-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--state-danger, #dc2626);
+}
+
+.cloud-doc-tree__prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cloud-doc-tree__prompt-actions .cloud-doc-tree__button:last-child {
+  color: var(--accent-brand, #7cc7ff);
+  border-color: var(--accent-brand, #7cc7ff);
+}
+
+/* ---------- 行：统一行高 / 图标 / 悬浮操作 ---------- */
+.cloud-doc-tree__type {
+  flex-shrink: 0;
+  width: 26px;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-muted, #75829e);
+  letter-spacing: 0.02em;
+}
+
+.cloud-doc-tree__count {
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--text-muted, #75829e);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius-badge, 999px);
+}
+
+.cloud-doc-tree__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.cloud-doc-tree__row--dir .cloud-doc-tree__name {
+  font-weight: 600;
+  color: var(--text-primary, #e5e9f0);
+}
 .cloud-doc-tree__open {
+  flex: 0 0 52px;
+  width: 52px;
   margin-left: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
   padding: 1px 8px;
   font-size: 11px;
   color: var(--text-primary, #e5e9f0);
@@ -843,6 +1212,11 @@ defineExpose({ cancelOpen, openCreateCategory });
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.24));
   border-radius: var(--radius-control, 5px);
+}
+
+.cloud-doc-tree__row:hover .cloud-doc-tree__open,
+.cloud-doc-tree__row:focus-within .cloud-doc-tree__open {
+  opacity: 1;
 }
 
 .cloud-doc-tree__open:hover:not(:disabled) {
@@ -902,6 +1276,11 @@ defineExpose({ cancelOpen, openCreateCategory });
 }
 
 .cloud-doc-tree--compact .cloud-doc-tree__row {
+  /* 统一行高与内边距：侧栏、浏览弹窗共用同一套行样式 */
+  min-height: 28px;
+  padding-block: 2px;
+  gap: 4px;
+  border-radius: var(--radius-control, 5px);
   font-size: 11.5px;
 }
 </style>

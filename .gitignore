@@ -11,3 +11,6 @@ test-results/
 .idea/
 .tmp-release-assets-*/
 .tmp-readme-video/
+
+# 本地源码快照（不入库）
+tau-editor-source-*.tar.gz

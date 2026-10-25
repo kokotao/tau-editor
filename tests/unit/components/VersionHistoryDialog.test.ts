@@ -47,6 +47,7 @@ describe('VersionHistoryDialog', () => {
 
   it('标题写清文件名，列表展示版本/时间/大小/说明', async () => {
     const wrapper = mount(VersionHistoryDialog, {
+      global: { stubs: { teleport: true } },
       props: { visible: true, fileId: 42, fileName: '读书笔记.md', currentVersion: 3 },
     });
     await flushPromises();
@@ -61,6 +62,7 @@ describe('VersionHistoryDialog', () => {
 
   it('当前版本高亮且不能恢复', async () => {
     const wrapper = mount(VersionHistoryDialog, {
+      global: { stubs: { teleport: true } },
       props: { visible: true, fileId: 42, fileName: 'a.md', currentVersion: 3 },
     });
     await flushPromises();
@@ -72,6 +74,7 @@ describe('VersionHistoryDialog', () => {
 
   it('恢复旧版本调用接口并 emit restored', async () => {
     const wrapper = mount(VersionHistoryDialog, {
+      global: { stubs: { teleport: true } },
       props: { visible: true, fileId: 42, fileName: 'a.md', currentVersion: 3 },
     });
     await flushPromises();
@@ -87,10 +90,44 @@ describe('VersionHistoryDialog', () => {
   it('接口失败显示可读错误', async () => {
     mocks.listVersions.mockResolvedValue({ ok: false, kind: 'network', message: '连不上服务器' });
     const wrapper = mount(VersionHistoryDialog, {
+      global: { stubs: { teleport: true } },
       props: { visible: true, fileId: 42, fileName: 'a.md', currentVersion: 3 },
     });
     await flushPromises();
 
     expect(wrapper.get('[data-testid="version-history-error"]').text()).toContain('连不上服务器');
+  });
+});
+
+
+describe('VersionHistoryDialog 渲染位置与宽度（0.6.24）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    mocks.listVersions.mockResolvedValue({ ok: true, data: [] });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('弹窗 Teleport 到 body，宽度有下限且标题不逐字换行', async () => {
+    const wrapper = mount(VersionHistoryDialog, {
+      props: { visible: true, fileId: 42, fileName: '读书笔记.md', currentVersion: 3 },
+    });
+    await flushPromises();
+
+    // 不在组件内部渲染（避免被侧栏容器压窄）
+    expect(wrapper.find('[data-testid="version-history-dialog"]').exists()).toBe(false);
+    const inBody = document.body.querySelector('[data-testid="version-history-dialog"]') as HTMLElement;
+    expect(inBody).not.toBeNull();
+
+    const panel = inBody.querySelector('.cloud-hist') as HTMLElement;
+    expect(panel.style.minWidth).toBe('320px');
+
+    const title = inBody.querySelector('[data-testid="version-history-title"]') as HTMLElement;
+    expect(title.style.whiteSpace).toBe('nowrap');
+    expect(title.textContent).not.toContain('\n');
+    wrapper.unmount();
   });
 });
