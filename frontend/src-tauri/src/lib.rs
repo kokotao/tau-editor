@@ -124,6 +124,8 @@ pub fn run() {
             commands::cloud_docs_restore,
             commands::cloud_docs_delete,
             commands::cloud_read_sync_source,
+            commands::cloud_blog_categories,
+            commands::cloud_blog_tags,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

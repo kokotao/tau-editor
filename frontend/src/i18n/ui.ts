@@ -299,6 +299,19 @@ interface SettingsPanelText {
   cloudSyncQueueEmpty: string;
   cloudSyncQueueStatus: (pending: number, failed: number) => string;
   cloudSyncRetryQueue: string;
+  cloudSyncVersions: string;
+  cloudSyncVersionsLoading: string;
+  cloudSyncVersionsEmpty: string;
+  cloudSyncVersionLabel: (version: number) => string;
+  cloudSyncVersionRestore: string;
+  cloudSyncVersionRestored: (version: number) => string;
+  cloudSyncVersionHint: string;
+  cloudSyncConflictTitle: string;
+  cloudSyncConflictHint: string;
+  cloudSyncKeepLocal: string;
+  cloudSyncKeepRemote: string;
+  cloudSyncKeepLocalDone: (version?: number) => string;
+  cloudSyncKeepRemoteDone: (version?: number) => string;
 }
 
 interface AppText {
@@ -985,6 +998,19 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     cloudSyncQueueEmpty: '同步队列为空。',
     cloudSyncQueueStatus: (pending, failed) => `队列：待同步 ${pending} · 失败 ${failed}`,
     cloudSyncRetryQueue: '重试失败项',
+    cloudSyncVersions: '版本历史',
+    cloudSyncVersionsLoading: '正在读取版本历史…',
+    cloudSyncVersionsEmpty: '暂无历史版本',
+    cloudSyncVersionLabel: (version) => `版本 v${version}`,
+    cloudSyncVersionRestore: '恢复',
+    cloudSyncVersionRestored: (version) => `已恢复到 v${version}，云端生成了新版本。`,
+    cloudSyncVersionHint: '恢复只会新增版本，不会删除任何历史。',
+    cloudSyncConflictTitle: '冲突处理',
+    cloudSyncConflictHint: '本地与云端都修改过该文档，请选择保留哪一份。',
+    cloudSyncKeepLocal: '用本地覆盖云端',
+    cloudSyncKeepRemote: '用云端覆盖本地',
+    cloudSyncKeepLocalDone: (version) => (version ? `已用本地内容覆盖云端（v${version}）。` : '已用本地内容覆盖云端。'),
+    cloudSyncKeepRemoteDone: (version) => (version ? `已用云端内容覆盖本地（v${version}）。` : '已用云端内容覆盖本地。'),
   },
   'en-US': {
     title: 'Settings',
@@ -1181,6 +1207,19 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     cloudSyncQueueEmpty: 'Sync queue is empty.',
     cloudSyncQueueStatus: (pending, failed) => `Queue: ${pending} pending · ${failed} failed`,
     cloudSyncRetryQueue: 'Retry failed',
+    cloudSyncVersions: 'Version History',
+    cloudSyncVersionsLoading: 'Loading version history…',
+    cloudSyncVersionsEmpty: 'No version history yet',
+    cloudSyncVersionLabel: (version) => `Version v${version}`,
+    cloudSyncVersionRestore: 'Restore',
+    cloudSyncVersionRestored: (version) => `Restored v${version}. The cloud now has a new version.`,
+    cloudSyncVersionHint: 'Restoring only adds a new version; no history is removed.',
+    cloudSyncConflictTitle: 'Resolve Conflict',
+    cloudSyncConflictHint: 'Both the cloud copy and the local file changed. Choose which one to keep.',
+    cloudSyncKeepLocal: 'Overwrite Cloud with Local',
+    cloudSyncKeepRemote: 'Overwrite Local with Cloud',
+    cloudSyncKeepLocalDone: (version) => (version ? `Cloud overwritten with local content (v${version}).` : 'Cloud overwritten with local content.'),
+    cloudSyncKeepRemoteDone: (version) => (version ? `Local overwritten with cloud content (v${version}).` : 'Local overwritten with cloud content.'),
   },
 };
 

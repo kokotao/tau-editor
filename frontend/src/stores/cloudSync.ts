@@ -1,13 +1,19 @@
 /**
  * @description 云文档同步 Store：登录会话、配额展示、同步状态与本地文档映射。
- * 持久化白名单仅 baseUrl + docMap（键 `tau-cloud-sync`），绝不落盘 token/密码。
+ * 持久化白名单仅 baseUrl + docMap + 自动同步偏好（键 `tau-cloud-sync`），绝不落盘 token/密码。
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-25 10:35
  */
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { isTauriApp, type CloudDocSpace, type CloudSessionInfo } from '@/lib/tauri';
+import {
+  cloudCommands,
+  isTauriApp,
+  type CloudDocSavePayload,
+  type CloudDocSpace,
+  type CloudSessionInfo,
+} from '@/lib/tauri';
 import {
   createCloudSyncQueue,
   type CloudQueueItem,
@@ -20,12 +26,24 @@ import {
   restoreCloudSession,
   type CloudLoginInput,
 } from '@/services/cloudAuthService';
-import { getCloudSpace, type CloudOutcome } from '@/services/cloudDocService';
 import {
+  findCloudDocByPath,
+  getCloudDoc,
+  getCloudSpace,
+  normalizeCloudError,
+  saveCloudDoc,
+  type CloudOutcome,
+} from '@/services/cloudDocService';
+import {
+  CLOUD_SYNC_MAX_BYTES,
   resolveCloudDocPathForFile,
   syncCurrentDocument as runCloudSync,
   type CloudSyncResult,
 } from '@/services/cloudSyncService';
+import { createTabService } from '@/services/tabService';
+import { useEditorStore } from '@/stores/editor';
+import { useFileSystemStore } from '@/stores/fileSystem';
+import { useNotificationStore } from '@/stores/notification';
 import { useTabsStore } from '@/stores/tabs';
 import { useWorkspaceStore } from '@/stores/workspace';
 
@@ -281,6 +299,12 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     applySession(restored.data);
     status.value = 'idle';
     await refreshSpace();
+
+    // 启动续跑：会话恢复成功（signedIn 已置位）且用户开着自动同步时，
+    // 立即冲刷上次中断的断点队列；用 void 避免拖慢启动。
+    if (autoSyncEnabled.value) {
+      void flushQueue();
+    }
   }
 
   async function login(input: CloudLoginInput): Promise<CloudOutcome<CloudSessionInfo>> {
@@ -437,6 +461,120 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     return result;
   }
 
+  /**
+   * 强制推送当前文档（冲突时用户显式选择「用本地覆盖云端」）：
+   * 先取云端当前版本作为 baseVersion，再用本地磁盘内容覆盖，避免再次触发 409；
+   * 云端没有该文档时按新建处理。
+   */
+  async function forcePushCurrentDocument(tabId?: string): Promise<CloudSyncResult> {
+    if (!isDesktopRuntime()) {
+      return { status: 'skipped', message: '当前是 Web 构建，云文档同步仅在 Tauri 桌面端可用。' };
+    }
+
+    const tabsStore = useTabsStore();
+    const tab = tabId
+      ? tabsStore.tabs.find((item) => item.id === tabId) ?? null
+      : tabsStore.activeTab;
+    if (!tab || !tab.filePath) {
+      return { status: 'failed', message: '没有可同步的文档' };
+    }
+
+    const filePath: string = tab.filePath;
+    status.value = 'syncing';
+    lastError.value = null;
+
+    try {
+      if (tab.isDirty) {
+        // 「用本地覆盖云端」必须包含编辑器里未落盘的修改，先静默保存再读同步源。
+        const tabService = createTabService(
+          tabsStore,
+          useFileSystemStore(),
+          useEditorStore(),
+          useWorkspaceStore(),
+          useNotificationStore(),
+        );
+        const saved = await tabService.saveTab(tab.id, { silent: true });
+        if (!saved) {
+          lastError.value = '当前文档尚未保存到磁盘，无法同步到云端';
+          status.value = 'error';
+          return { status: 'failed', message: lastError.value };
+        }
+      }
+
+      const source = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
+      const workspaceStore = useWorkspaceStore();
+      const cloudPath = resolveCloudDocPathForFile(
+        filePath,
+        workspaceStore.currentWorkspaceName,
+        workspaceStore.currentWorkspacePath,
+      );
+
+      const remote = await resolveRemoteDocForForcePush(tab.cloudFileId ?? null, cloudPath);
+      const payload: CloudDocSavePayload = {
+        path: cloudPath,
+        title: tab.fileName,
+        content: source.content,
+        contentHash: source.contentHash,
+        baseVersion: remote ? remote.version : null,
+      };
+
+      const savedOutcome = await saveCloudDoc(payload);
+      if (!savedOutcome.ok) {
+        lastError.value = savedOutcome.message;
+        status.value = 'error';
+        return {
+          status: savedOutcome.kind === 'conflict' ? 'conflict' : 'failed',
+          fileId: remote?.fileId,
+          version: remote?.version,
+          message: savedOutcome.message,
+        };
+      }
+
+      const meta = savedOutcome.data;
+      tabsStore.updateTab(tab.id, {
+        cloudFileId: meta.fileId,
+        cloudVersion: meta.version,
+        cloudContentHash: meta.contentHash,
+        lastSyncedAt: Date.now(),
+      });
+      lastSyncAt.value = Date.now();
+      status.value = 'idle';
+      rememberSyncedTab(tab.id);
+      await refreshSpace();
+      return {
+        status: 'synced',
+        fileId: meta.fileId,
+        version: meta.version,
+        message: '已用本地内容覆盖云端文档',
+      };
+    } catch (error) {
+      const normalized = normalizeCloudError(error);
+      lastError.value = normalized.message;
+      status.value = 'error';
+      return { status: 'failed', message: normalized.message };
+    }
+  }
+
+  /** 强制推送时解析云端当前版本：按标签记住的 id 取详情，失败（已删除）再按路径兜底。 */
+  async function resolveRemoteDocForForcePush(
+    fileId: number | null,
+    cloudPath: string,
+  ): Promise<{ fileId: number; version: number } | null> {
+    if (fileId !== null) {
+      const detail = await getCloudDoc(fileId);
+      if (detail.ok) {
+        return { fileId: detail.data.fileId, version: detail.data.version };
+      }
+    }
+
+    const byPath = await findCloudDocByPath(cloudPath);
+    if (byPath.ok && byPath.data) {
+      return { fileId: byPath.data.fileId, version: byPath.data.version };
+    }
+
+    return null;
+  }
+
   /** 同步成功后按标签的云端字段回填 docMap，供下次三方决策使用。 */
   function rememberSyncedTab(tabId?: string): void {
     const tabsStore = useTabsStore();
@@ -514,6 +652,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     logout,
     refreshSpace,
     syncCurrentDocument,
+    forcePushCurrentDocument,
     rememberDoc,
     forgetDoc,
   };

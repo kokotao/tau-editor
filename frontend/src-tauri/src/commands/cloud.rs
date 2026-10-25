@@ -166,6 +166,19 @@ pub struct CloudSyncSource {
     pub modified_ms: Option<i64>,
 }
 
+/// 博客分类节点。
+///
+/// 服务端 `category` 表走雪花 ID，`id` / `parentId` 被 `ToStringSerializer` 序列化成字符串；
+/// 根节点的 `parentId` 可能是 `null` 也可能是 `0`，这里统一归一化成 `None`。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudCategoryNode {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub children: Vec<CloudCategoryNode>,
+}
+
 /// keyring 中持久化的凭据结构（只在 Rust 内部编解码，绝不下发前端）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -512,6 +525,47 @@ pub async fn cloud_docs_delete(
     parse_unit(response, "删除云文档").await
 }
 
+/// 博客分类树。
+///
+/// 服务端 `GET /blog/pages/categories` 是公开接口（SecurityConfig PUBLIC_PATHS 含 `/blog/pages/**`），
+/// 因此不携带令牌：避免本地已过期 token 反而被 JWT filter 判成 401。
+/// 返回值有两种形态，这里统一归一化成树：
+/// - `category` 表有数据：`Category` 实体树（id/name/parentId/children）；
+/// - `category` 表为空：文章表去重后的分类名数组（纯字符串），以分类名同时充当 id/name。
+#[tauri::command]
+pub async fn cloud_blog_categories(
+    state: State<'_, CloudState>,
+) -> Result<Vec<CloudCategoryNode>, CommandError> {
+    let base_url = resolve_base_url(&state).await;
+    let client = http_client()?;
+    let response = client
+        .get(format!("{base_url}/blog/pages/categories"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| network_error("获取博客分类", error))?;
+    let data = parse_optional_value(response, "获取博客分类").await?;
+    Ok(normalize_categories(&data))
+}
+
+/// 博客标签。
+///
+/// 服务端 `GET /blog/pages/tags` 同样是公开接口，返回 `Set<String>`（无序、已按中英文逗号拆分）。
+/// 这里去重并排序，保证前端每次拿到的顺序稳定。
+#[tauri::command]
+pub async fn cloud_blog_tags(state: State<'_, CloudState>) -> Result<Vec<String>, CommandError> {
+    let base_url = resolve_base_url(&state).await;
+    let client = http_client()?;
+    let response = client
+        .get(format!("{base_url}/blog/pages/tags"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| network_error("获取博客标签", error))?;
+    let data = parse_optional_value(response, "获取博客标签").await?;
+    Ok(normalize_tags(&data))
+}
+
 #[tauri::command]
 pub fn cloud_read_sync_source(
     path: String,
@@ -612,6 +666,20 @@ async fn current_session(state: &CloudState) -> Result<CloudSession, CommandErro
     cached
         .clone()
         .ok_or_else(|| CommandError::new("UNAUTHORIZED", "尚未登录 lizi 账号，请先登录"))
+}
+
+/// 公开接口用的 base_url：优先当前会话，其次 keyring 里上次登录的地址，最后回默认值。
+async fn resolve_base_url(state: &CloudState) -> String {
+    {
+        let cached = state.session.lock().await;
+        if let Some(session) = cached.as_ref() {
+            return session.base_url.clone();
+        }
+    }
+    if let Some(stored) = load_stored_credential() {
+        return stored.base_url;
+    }
+    DEFAULT_BASE_URL.to_string()
 }
 
 fn normalize_base_url(raw: Option<String>) -> Result<String, CommandError> {
@@ -740,6 +808,19 @@ async fn parse_unit(response: Response, action: &str) -> Result<(), CommandError
     Err(map_failure(envelope.code, envelope.message.as_deref(), action))
 }
 
+/// 只读公开接口：校验 success/code 后返回原始 data，并允许 data 为 null（由调用方归一化成空集合）。
+async fn parse_optional_value(response: Response, action: &str) -> Result<Value, CommandError> {
+    let status = response.status();
+    if status == StatusCode::UNAUTHORIZED {
+        return Err(unauthorized_error(action));
+    }
+    let envelope = read_envelope(response, status, action).await?;
+    if status.is_success() && envelope.success && envelope.code.unwrap_or(200) == 200 {
+        return Ok(envelope.data.unwrap_or(Value::Null));
+    }
+    Err(map_failure(envelope.code, envelope.message.as_deref(), action))
+}
+
 fn network_error(action: &str, error: reqwest::Error) -> CommandError {
     CommandError::new(
         "NETWORK_ERROR",
@@ -799,6 +880,113 @@ fn clear_credential() -> Result<(), CommandError> {
             "KEYRING_ERROR",
             format!("清除系统凭据失败：{error}"),
         )),
+    }
+}
+
+/// 把分类返回值归一化成树；`null`/非数组都退化成空树，不让前端需要区分两种形态。
+fn normalize_categories(data: &Value) -> Vec<CloudCategoryNode> {
+    let items = match data {
+        Value::Array(items) => items,
+        Value::Null => return Vec::new(),
+        // 兜底：万一服务端只返回单个对象，也当作一个根节点。
+        other => return category_node_from_value(other).into_iter().collect(),
+    };
+    items.iter().filter_map(category_node_from_value).collect()
+}
+
+fn category_node_from_value(value: &Value) -> Option<CloudCategoryNode> {
+    match value {
+        // 回退形态：只有分类名，没有 ID/层级。
+        Value::String(name) => {
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some(CloudCategoryNode {
+                id: name.to_string(),
+                name: name.to_string(),
+                parent_id: None,
+                children: Vec::new(),
+            })
+        }
+        Value::Object(map) => {
+            let name = map.get("name").and_then(jsonish_string)?;
+            let id = map
+                .get("id")
+                .and_then(jsonish_string)
+                .unwrap_or_else(|| name.clone());
+            let children = map
+                .get("children")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(category_node_from_value).collect())
+                .unwrap_or_default();
+            Some(CloudCategoryNode {
+                id,
+                name,
+                parent_id: map
+                    .get("parentId")
+                    .and_then(jsonish_string)
+                    .and_then(normalize_parent_id),
+                children,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// 根节点的 `parentId` 可能是 `null` / `0` / `"0"`，统一成 `None`。
+fn normalize_parent_id(raw: String) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "0" {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// 把标签返回值归一化成去重、有序的字符串列表；同时兼容未来可能出现的对象形态。
+fn normalize_tags(data: &Value) -> Vec<String> {
+    let items = match data {
+        Value::Array(items) => items,
+        Value::Null => return Vec::new(),
+        other => std::slice::from_ref(other),
+    };
+    let mut tags: Vec<String> = items.iter().filter_map(tag_from_value).collect();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+fn tag_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Object(map) => ["name", "tag", "tagName", "label", "title"]
+            .iter()
+            .find_map(|key| map.get(*key).and_then(jsonish_string)),
+        _ => None,
+    }
+}
+
+/// 服务端 ID / 名称字段既可能是 JSON 字符串（雪花 ID 用 ToStringSerializer）也可能是数字。
+fn jsonish_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
     }
 }
 

@@ -1266,6 +1266,18 @@ export interface CloudSyncSource {
 }
 
 /**
+ * 博客分类节点（云文档属性面板的分类候选）。
+ * 服务端 `category` 表为多级树，id/parentId 是被序列化成字符串的雪花 ID；
+ * 根节点 parentId 统一为 null。分类表为空时 Rust 侧会把「分类名数组」归一化成同结构的扁平节点。
+ */
+export interface CloudCategoryNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  children: CloudCategoryNode[];
+}
+
+/**
  * 云文档桥接。桌面端的网络请求、JWT 与 keyring 全部在 Rust 侧完成，
  * 前端只负责传参，不持有也不落盘任何凭据。
  */
@@ -1327,5 +1339,17 @@ export const cloudCommands = {
   /** 读取本地待同步源文件并返回内容与 sha256（Rust 计算，避免前端重复实现哈希）。 */
   async readSyncSource(path: string, maxBytes: number): Promise<CloudSyncSource> {
     return invokeCommand<CloudSyncSource>('cloud_read_sync_source', { path, maxBytes });
+  },
+
+  /**
+   * 博客分类树（公开接口，未登录也可取；Rust 已把「分类表树」与「分类名数组」归一化成同结构）。
+   */
+  async blogCategories(): Promise<CloudCategoryNode[]> {
+    return invokeCommand<CloudCategoryNode[]>('cloud_blog_categories');
+  },
+
+  /** 博客标签候选（公开接口，未登录也可取；Rust 侧已去重并按字典序排序）。 */
+  async blogTags(): Promise<string[]> {
+    return invokeCommand<string[]>('cloud_blog_tags');
   },
 };

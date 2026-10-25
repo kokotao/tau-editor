@@ -1,0 +1,311 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { defineComponent } from 'vue';
+
+/**
+ * P8：设置页云同步分类的「版本历史 / 恢复」与「冲突双按钮」。
+ * 桌面端（isTauriApp = true）才能看到这些入口，因此单独用一份带云命令 mock 的用例，
+ * 避免影响既有 SettingsPanel.test.ts 的 Web 行为。
+ */
+const NConfigProviderStub = defineComponent({
+  name: 'NConfigProvider',
+  template: '<div class="n-config-provider"><slot /></div>',
+});
+
+const NSelectStub = defineComponent({
+  name: 'NSelect',
+  props: {
+    value: { type: [String, Number], default: null },
+    options: { type: Array, default: () => [] },
+  },
+  emits: ['update:value'],
+  template: `
+    <select :value="value" @change="$emit('update:value', $event.target.value)">
+      <option v-for="option in options" :key="String(option.value)" :value="String(option.value)">
+        {{ option.label }}
+      </option>
+    </select>
+  `,
+});
+
+const cloudMocks = vi.hoisted(() => ({
+  isTauri: { value: true },
+  get: vi.fn(),
+  save: vi.fn(),
+  me: vi.fn(),
+  list: vi.fn(),
+  versions: vi.fn(),
+  restore: vi.fn(),
+  readSyncSource: vi.fn(),
+  session: vi.fn(),
+  logout: vi.fn(),
+  login: vi.fn(),
+  getAppVersionInfo: vi.fn(),
+  checkGithubUpdate: vi.fn(),
+  downloadAndInstallUpdate: vi.fn(),
+}));
+
+vi.mock('naive-ui', () => ({
+  darkTheme: {},
+  NConfigProvider: NConfigProviderStub,
+  NSelect: NSelectStub,
+}));
+
+vi.mock('@/lib/tauri', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tauri')>();
+  return {
+    ...actual,
+    isTauriApp: () => cloudMocks.isTauri.value,
+    cloudCommands: {
+      ...actual.cloudCommands,
+      get: cloudMocks.get,
+      save: cloudMocks.save,
+      me: cloudMocks.me,
+      list: cloudMocks.list,
+      versions: cloudMocks.versions,
+      restore: cloudMocks.restore,
+      readSyncSource: cloudMocks.readSyncSource,
+      session: cloudMocks.session,
+      logout: cloudMocks.logout,
+      login: cloudMocks.login,
+    },
+    settingsCommands: {
+      ...actual.settingsCommands,
+      getAppVersionInfo: cloudMocks.getAppVersionInfo,
+      checkGithubUpdate: cloudMocks.checkGithubUpdate,
+      downloadAndInstallUpdate: cloudMocks.downloadAndInstallUpdate,
+    },
+  };
+});
+
+vi.mock('@/services/markdownRenderService', () => ({
+  renderMarkdown: vi.fn(() => '<h1>新版本</h1>'),
+}));
+
+import SettingsPanel from '@/components/editor/SettingsPanel.vue';
+import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useTabsStore, type Tab } from '@/stores/tabs';
+import { useWorkspaceStore } from '@/stores/workspace';
+
+const REMOTE_DOC = {
+  fileId: 42,
+  path: 'tau/ws/notes.md',
+  title: 'notes.md',
+  contentHash: 'sha256:remote',
+  size: 10,
+  version: 7,
+  category: null,
+  categoryId: null,
+  tags: null,
+  visibility: 'PRIVATE',
+  publishedArticleId: null,
+  updatedAt: '2026-10-24T10:00:00Z',
+};
+
+const VERSION_ROWS = [
+  {
+    versionId: 101,
+    version: 3,
+    contentHash: 'sha256:v3',
+    size: 1024,
+    remark: '首次上传',
+    createdAt: '2026-10-24T10:00:00Z',
+  },
+  {
+    versionId: 102,
+    version: 2,
+    contentHash: 'sha256:v2',
+    size: 2048,
+    remark: null,
+    createdAt: '2026-10-23T10:00:00Z',
+  },
+];
+
+describe('SettingsPanel 云同步版本历史与冲突处理', () => {
+  let pinia: ReturnType<typeof createPinia>;
+
+  const seedActiveTab = (overrides: Partial<Omit<Tab, 'id' | 'createdAt'>> = {}) => {
+    const tabsStore = useTabsStore();
+    return tabsStore.addTab({
+      filePath: '/ws/notes.md',
+      fileName: 'notes.md',
+      language: 'markdown',
+      isDirty: false,
+      isUntitled: false,
+      content: 'local content',
+      cloudFileId: 42,
+      cloudVersion: 5,
+      cloudContentHash: 'sha256:base',
+      ...overrides,
+    });
+  };
+
+  const mountPanel = () => mount(SettingsPanel, {
+    props: { activeCategory: 'cloudSync' },
+    global: {
+      plugins: [pinia],
+      stubs: {
+        NConfigProvider: NConfigProviderStub,
+        NSelect: NSelectStub,
+        'n-config-provider': NConfigProviderStub,
+        'n-select': NSelectStub,
+      },
+    },
+  });
+
+  /** 组件 onMounted 会串起会话恢复 + 配额刷新，多刷一轮微任务确保状态落地。 */
+  const settle = async () => {
+    await flushPromises();
+    await flushPromises();
+  };
+
+  beforeEach(() => {
+    pinia = createPinia();
+    setActivePinia(pinia);
+    cloudMocks.isTauri.value = true;
+    cloudMocks.get.mockResolvedValue(REMOTE_DOC);
+    cloudMocks.save.mockResolvedValue({
+      fileId: 42,
+      version: 8,
+      contentHash: 'sha256:local',
+      size: 12,
+      updatedAt: '2026-10-25T09:00:00Z',
+    });
+    cloudMocks.me.mockResolvedValue({
+      userId: 'u1',
+      usedBytes: 12,
+      quotaBytes: 1024,
+      fileCount: 1,
+      maxVersionPerFile: 30,
+    });
+    cloudMocks.list.mockResolvedValue({ records: [], total: 0, page: 1, size: 100 });
+    cloudMocks.versions.mockResolvedValue(VERSION_ROWS);
+    cloudMocks.restore.mockResolvedValue({
+      fileId: 42,
+      version: 9,
+      contentHash: 'sha256:restored',
+      size: 1024,
+      updatedAt: '2026-10-25T09:30:00Z',
+    });
+    cloudMocks.readSyncSource.mockResolvedValue({
+      content: 'local content',
+      contentHash: 'sha256:local',
+      size: 12,
+      modifiedMs: 1,
+    });
+    cloudMocks.session.mockResolvedValue({
+      signedIn: true,
+      userId: 'u1',
+      username: 'alice',
+      baseUrl: 'https://note.lizipro.cn/lizi',
+    });
+    cloudMocks.logout.mockResolvedValue(undefined);
+    cloudMocks.getAppVersionInfo.mockResolvedValue({
+      version: '0.2.0',
+      os: 'linux',
+      arch: 'x86_64',
+      buildTarget: 'x86_64-linux',
+      homepageUrl: 'https://github.com/kokotao/tau-editor',
+    });
+    cloudMocks.checkGithubUpdate.mockResolvedValue({
+      currentVersion: '0.2.0',
+      latestVersion: '0.2.0',
+      hasUpdate: false,
+      releaseName: 'v0.2.0',
+      releaseNotes: '',
+      releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.2.0',
+      publishedAt: null,
+      selectedAsset: null,
+      device: { os: 'linux', arch: 'x86_64' },
+      repositoryUrl: 'https://github.com/kokotao/tau-editor',
+    });
+    cloudMocks.downloadAndInstallUpdate.mockResolvedValue({
+      downloadedPath: '/tmp/installer',
+      launched: true,
+      message: 'ok',
+    });
+
+    // 组件 onMounted 会异步恢复会话；先置为已登录，避免用例受恢复时序影响。
+    const cloudSyncStore = useCloudSyncStore();
+    cloudSyncStore.signedIn = true;
+
+    const workspaceStore = useWorkspaceStore();
+    workspaceStore.currentWorkspacePath = '/ws';
+    workspaceStore.currentWorkspaceName = 'ws';
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('有云端映射时应展开版本历史并在恢复时调用 restore', async () => {
+    seedActiveTab();
+    const wrapper = mountPanel();
+    await settle();
+
+    const versionsBtn = wrapper.get('[data-testid="cloud-sync-versions-btn"]');
+    expect(versionsBtn.exists()).toBe(true);
+    await versionsBtn.trigger('click');
+    await settle();
+
+    expect(cloudMocks.versions).toHaveBeenCalledWith(42);
+    const rows = wrapper.findAll('[data-testid="cloud-sync-version-row"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.text()).toContain('版本 v3');
+    expect(rows[0]?.text()).toContain('首次上传');
+
+    const restoreBtn = wrapper.findAll('[data-testid="cloud-sync-version-restore"]')[0];
+    expect(restoreBtn).toBeDefined();
+    await restoreBtn!.trigger('click');
+    await settle();
+
+    expect(cloudMocks.restore).toHaveBeenCalledWith(42, 101);
+    // 恢复后要刷新配额并重新拉取版本列表
+    expect(cloudMocks.me).toHaveBeenCalled();
+    expect(cloudMocks.versions).toHaveBeenCalledTimes(2);
+  });
+
+  it('同步结果为冲突时应出现双按钮，用本地覆盖时以云端版本为 baseVersion 保存', async () => {
+    seedActiveTab();
+    cloudMocks.list.mockResolvedValue({ records: [REMOTE_DOC], total: 1, page: 1, size: 100 });
+
+    const wrapper = mountPanel();
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-keep-local-btn"]').exists()).toBe(false);
+
+    await wrapper.get('[data-testid="cloud-sync-now-btn"]').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-conflict"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-sync-keep-local-btn"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-sync-keep-remote-btn"]').exists()).toBe(true);
+
+    await wrapper.get('[data-testid="cloud-sync-keep-local-btn"]').trigger('click');
+    await settle();
+
+    expect(cloudMocks.get).toHaveBeenCalledWith(42);
+    const payload = cloudMocks.save.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      path: 'tau/ws/notes.md',
+      content: 'local content',
+      baseVersion: 7,
+    });
+    // 冲突解决后按钮应消失
+    expect(wrapper.find('[data-testid="cloud-sync-keep-local-btn"]').exists()).toBe(false);
+  });
+
+  it('Web 构建下不应展示版本历史与冲突处理入口', async () => {
+    cloudMocks.isTauri.value = false;
+    seedActiveTab();
+
+    const wrapper = mountPanel();
+    await settle();
+
+    expect(wrapper.find('[data-testid="cloud-sync-versions"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-sync-versions-btn"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-sync-keep-local-btn"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-sync-keep-remote-btn"]').exists()).toBe(false);
+  });
+});

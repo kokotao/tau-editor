@@ -825,6 +825,95 @@
             >
               {{ cloudSyncResultLine.text }}
             </p>
+
+            <div
+              v-if="cloudSyncDesktopAvailable && cloudSyncStore.signedIn && cloudSyncFileId !== null"
+              class="cloud-sync-versions"
+              data-testid="cloud-sync-versions"
+            >
+              <div class="cloud-sync-actions">
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-versions-btn"
+                  :disabled="cloudSyncVersionsLoading"
+                  @click="toggleCloudSyncVersions"
+                >
+                  {{ cloudSyncVersionsLoading ? copy.cloudSyncVersionsLoading : copy.cloudSyncVersions }}
+                </button>
+              </div>
+
+              <template v-if="cloudSyncVersionsOpen">
+                <p class="settings-item-hint">{{ copy.cloudSyncVersionHint }}</p>
+                <p
+                  v-if="cloudSyncVersionsLoading"
+                  class="settings-item-hint"
+                  data-testid="cloud-sync-versions-loading"
+                >
+                  {{ copy.cloudSyncVersionsLoading }}
+                </p>
+                <p
+                  v-else-if="cloudSyncVersions.length === 0"
+                  class="settings-item-hint"
+                  data-testid="cloud-sync-versions-empty"
+                >
+                  {{ copy.cloudSyncVersionsEmpty }}
+                </p>
+                <div v-else class="cloud-sync-version-list" data-testid="cloud-sync-version-list">
+                  <div
+                    v-for="version in cloudSyncVersions"
+                    :key="version.versionId"
+                    class="cloud-sync-version-row"
+                    data-testid="cloud-sync-version-row"
+                  >
+                    <div class="cloud-sync-version-main">
+                      <span class="cloud-sync-version-title">
+                        {{ copy.cloudSyncVersionLabel(version.version) }}
+                      </span>
+                      <span class="cloud-sync-version-meta">
+                        <span v-if="version.createdAt">{{ formatCloudVersionTime(version.createdAt) }}</span>
+                        <span>{{ formatCloudVersionSize(version.size) }}</span>
+                        <span v-if="version.remark" class="cloud-sync-version-remark">{{ version.remark }}</span>
+                      </span>
+                    </div>
+                    <button
+                      class="settings-action-btn"
+                      data-testid="cloud-sync-version-restore"
+                      :disabled="cloudSyncVersionBusyId !== null"
+                      @click="handleCloudSyncRestoreVersion(version)"
+                    >
+                      {{ copy.cloudSyncVersionRestore }}
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div
+              v-if="cloudSyncConflictActive"
+              class="cloud-sync-conflict"
+              data-testid="cloud-sync-conflict"
+            >
+              <p class="cloud-sync-conflict-title">{{ copy.cloudSyncConflictTitle }}</p>
+              <p class="settings-item-hint">{{ copy.cloudSyncConflictHint }}</p>
+              <div class="cloud-sync-actions">
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-keep-local-btn"
+                  :disabled="cloudSyncConflictBusy || cloudSyncStore.isBusy"
+                  @click="handleCloudKeepLocal"
+                >
+                  {{ copy.cloudSyncKeepLocal }}
+                </button>
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-keep-remote-btn"
+                  :disabled="cloudSyncConflictBusy || cloudSyncStore.isBusy"
+                  @click="handleCloudKeepRemote"
+                >
+                  {{ copy.cloudSyncKeepRemote }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div
@@ -1109,12 +1198,16 @@ import { useProvidersStore } from '@/stores/providers';
 import { useLspServersStore } from '@/stores/lspServers';
 import { useNotificationStore } from '@/stores/notification';
 import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useTabsStore } from '@/stores/tabs';
+import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { DEFAULT_CLOUD_BASE_URL } from '@/services/cloudAuthService';
-import type { CloudSyncResult } from '@/services/cloudSyncService';
+import { listCloudDocVersions, restoreCloudDocVersion } from '@/services/cloudDocService';
+import { pullCloudDocumentIntoLocal, type CloudSyncResult } from '@/services/cloudSyncService';
 import {
   appCommands,
   settingsCommands,
   type AppVersionInfo,
+  type CloudDocVersion,
   type FileAssociationState,
   type GithubUpdateInfo,
   type ReleaseAssetInfo,
@@ -1187,6 +1280,8 @@ const providersStore = useProvidersStore();
 const lspServersStore = useLspServersStore();
 const notificationStore = useNotificationStore();
 const cloudSyncStore = useCloudSyncStore();
+const tabsStore = useTabsStore();
+const fileConflictsStore = useFileConflictsStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const autoSaveStatus = ref(settingsStore.autoSaveEnabled);
 watch(
@@ -1354,10 +1449,14 @@ const handleCloudSyncNow = async () => {
 
 /** 自动同步防抖秒数展示（内部毫秒） */
 const cloudSyncDebounceSeconds = computed(() => Math.max(1, Math.round(cloudSyncStore.syncDebounceMs / 1000)));
-/** 队列状态行：0 项时显示「队列为空」 */
+/**
+ * 队列状态行：0 项时显示「队列为空」。
+ * store 的 pendingSyncCount 是队列全量长度（含失败项），failedSyncCount 是其子集，
+ * 这里做互斥拆分，避免「待同步 3 · 失败 1」把同一项算两次。
+ */
 const cloudSyncQueueLabel = computed(() => {
-  const pending = cloudSyncStore.pendingSyncCount;
   const failed = cloudSyncStore.failedSyncCount;
+  const pending = Math.max(0, cloudSyncStore.pendingSyncCount - failed);
   if (pending === 0 && failed === 0) {
     return copy.value.cloudSyncQueueEmpty;
   }
@@ -1380,6 +1479,173 @@ const handleCloudRetryQueue = async () => {
     return;
   }
   await cloudSyncStore.retryQueue();
+};
+
+// ------------------------------------------------------------------
+// 版本历史 / 冲突处理
+// ------------------------------------------------------------------
+/** 桌面端能力判断：测试环境可能只 mock 了 @/lib/tauri 的少数导出，这里必须容错。 */
+const cloudSyncDesktopAvailable = computed(() => {
+  try {
+    return typeof isTauriApp === 'function' ? isTauriApp() : false;
+  } catch {
+    return false;
+  }
+});
+/** 当前标签对应的云端文档 id；没有映射时不展示版本历史入口。 */
+const cloudSyncFileId = computed(() => tabsStore.activeTab?.cloudFileId ?? null);
+const cloudSyncVersionsOpen = ref(false);
+const cloudSyncVersionsLoading = ref(false);
+const cloudSyncVersions = ref<CloudDocVersion[]>([]);
+const cloudSyncVersionBusyId = ref<number | null>(null);
+const cloudSyncConflictBusy = ref(false);
+/** 最近的同步结果是否处于冲突态；fileConflicts 里登记过当前文件也算冲突。 */
+const cloudSyncConflictActive = computed(() => {
+  if (!cloudSyncDesktopAvailable.value) {
+    return false;
+  }
+  if (cloudSyncLastResult.value?.status === 'conflict') {
+    return true;
+  }
+  const tab = tabsStore.activeTab;
+  return Boolean(tab?.filePath && fileConflictsStore.find(tab.filePath));
+});
+
+const formatCloudVersionTime = (value: string | null): string => {
+  if (!value) {
+    return '';
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+  return new Date(timestamp).toLocaleString(settingsStore.uiLanguage);
+};
+
+const formatCloudVersionSize = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index] ?? 'B'}`;
+};
+
+const loadCloudSyncVersions = async (fileId: number) => {
+  cloudSyncVersionsLoading.value = true;
+  try {
+    const outcome = await listCloudDocVersions(fileId);
+    if (outcome.ok) {
+      cloudSyncVersions.value = outcome.data;
+      return;
+    }
+    cloudSyncVersions.value = [];
+    notificationStore.error(copy.value.settingsCloudSync, copy.value.cloudSyncResultFailed(outcome.message));
+  } finally {
+    cloudSyncVersionsLoading.value = false;
+  }
+};
+
+const toggleCloudSyncVersions = async () => {
+  if (cloudSyncVersionsOpen.value) {
+    cloudSyncVersionsOpen.value = false;
+    return;
+  }
+  const fileId = cloudSyncFileId.value;
+  if (fileId === null) {
+    return;
+  }
+  cloudSyncVersionsOpen.value = true;
+  await loadCloudSyncVersions(fileId);
+};
+
+const handleCloudSyncRestoreVersion = async (version: CloudDocVersion) => {
+  const fileId = cloudSyncFileId.value;
+  if (fileId === null || cloudSyncVersionBusyId.value !== null) {
+    return;
+  }
+  cloudSyncVersionBusyId.value = version.versionId;
+  try {
+    const outcome = await restoreCloudDocVersion(fileId, version.versionId);
+    if (!outcome.ok) {
+      notificationStore.error(copy.value.settingsCloudSync, copy.value.cloudSyncResultFailed(outcome.message));
+      return;
+    }
+    const restored = outcome.data;
+    cloudSyncLastResult.value = {
+      status: 'synced',
+      fileId: restored.fileId,
+      version: restored.version,
+      message: copy.value.cloudSyncVersionRestored(restored.version),
+    };
+    notificationStore.success(copy.value.settingsCloudSync, copy.value.cloudSyncVersionRestored(restored.version));
+    await cloudSyncStore.refreshSpace();
+    await loadCloudSyncVersions(fileId);
+  } finally {
+    cloudSyncVersionBusyId.value = null;
+  }
+};
+
+/** 冲突处理完成后统一刷新结果行、冲突登记与通知。 */
+const applyCloudConflictResult = (
+  result: CloudSyncResult,
+  doneText: (version?: number) => string,
+) => {
+  cloudSyncLastResult.value = result;
+  const tab = tabsStore.activeTab;
+  if (result.status === 'synced') {
+    if (tab?.filePath) {
+      fileConflictsStore.resolve(tab.filePath);
+    }
+    notificationStore.success(copy.value.settingsCloudSync, doneText(result.version));
+    return;
+  }
+  if (result.status === 'conflict') {
+    notificationStore.warning(copy.value.settingsCloudSync, copy.value.cloudSyncResultConflict);
+    return;
+  }
+  if (result.status === 'skipped') {
+    notificationStore.info(copy.value.settingsCloudSync, copy.value.cloudSyncResultSkipped(result.message || ''));
+    return;
+  }
+  notificationStore.error(copy.value.settingsCloudSync, copy.value.cloudSyncResultFailed(result.message || ''));
+};
+
+const handleCloudKeepLocal = async () => {
+  const tab = tabsStore.activeTab;
+  if (!tab || cloudSyncConflictBusy.value) {
+    return;
+  }
+  cloudSyncConflictBusy.value = true;
+  try {
+    const result = await cloudSyncStore.forcePushCurrentDocument(tab.id);
+    applyCloudConflictResult(result, copy.value.cloudSyncKeepLocalDone);
+    const fileId = cloudSyncFileId.value;
+    if (result.status === 'synced' && cloudSyncVersionsOpen.value && fileId !== null) {
+      await loadCloudSyncVersions(fileId);
+    }
+  } finally {
+    cloudSyncConflictBusy.value = false;
+  }
+};
+
+const handleCloudKeepRemote = async () => {
+  const tab = tabsStore.activeTab;
+  if (!tab || cloudSyncConflictBusy.value) {
+    return;
+  }
+  cloudSyncConflictBusy.value = true;
+  try {
+    const result = await pullCloudDocumentIntoLocal(tab.id);
+    applyCloudConflictResult(result, copy.value.cloudSyncKeepRemoteDone);
+  } finally {
+    cloudSyncConflictBusy.value = false;
+  }
 };
 
 watch(
@@ -4468,5 +4734,82 @@ defineExpose({
 
 .cloud-sync-auto-debounce .cloud-sync-input {
   max-width: 96px;
+}
+
+/* 版本历史：列表行 + 恢复按钮 */
+.cloud-sync-versions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+}
+
+.cloud-sync-version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cloud-sync-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.cloud-sync-version-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cloud-sync-version-title {
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-sync-version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.cloud-sync-version-remark {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 冲突处理：双按钮区域 */
+.cloud-sync-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--state-warning, #fbbf24);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.cloud-sync-conflict-title {
+  margin: 0;
+  color: var(--state-warning, #fbbf24);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-sync-conflict .cloud-sync-actions {
+  margin-top: 4px;
 }
 </style>
