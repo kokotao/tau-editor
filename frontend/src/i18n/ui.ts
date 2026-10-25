@@ -293,6 +293,12 @@ interface SettingsPanelText {
   cloudSyncResultConflict: string;
   cloudSyncResultFailed: (message: string) => string;
   cloudSyncResultSkipped: (reason: string) => string;
+  cloudSyncAutoLabel: string;
+  cloudSyncAutoUnavailable: string;
+  cloudSyncDebounceLabel: string;
+  cloudSyncQueueEmpty: string;
+  cloudSyncQueueStatus: (pending: number, failed: number) => string;
+  cloudSyncRetryQueue: string;
 }
 
 interface AppText {
@@ -973,6 +979,12 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     cloudSyncResultConflict: '云端与本地都已修改，请先手动比对后再同步。',
     cloudSyncResultFailed: (message) => `同步失败：${message}`,
     cloudSyncResultSkipped: (reason) => `当前文档未同步：${reason}`,
+    cloudSyncAutoLabel: '自动同步',
+    cloudSyncAutoUnavailable: '自动同步仅在 Tau 桌面端且已登录时可用。',
+    cloudSyncDebounceLabel: '保存后延迟（秒）',
+    cloudSyncQueueEmpty: '同步队列为空。',
+    cloudSyncQueueStatus: (pending, failed) => `队列：待同步 ${pending} · 失败 ${failed}`,
+    cloudSyncRetryQueue: '重试失败项',
   },
   'en-US': {
     title: 'Settings',
@@ -1163,6 +1175,12 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     cloudSyncResultConflict: 'Both the cloud copy and the local file changed. Compare them before syncing again.',
     cloudSyncResultFailed: (message) => `Sync failed: ${message}`,
     cloudSyncResultSkipped: (reason) => `Document not synced: ${reason}`,
+    cloudSyncAutoLabel: 'Auto sync',
+    cloudSyncAutoUnavailable: 'Auto sync is available in the Tau desktop app after signing in.',
+    cloudSyncDebounceLabel: 'Delay after save (seconds)',
+    cloudSyncQueueEmpty: 'Sync queue is empty.',
+    cloudSyncQueueStatus: (pending, failed) => `Queue: ${pending} pending · ${failed} failed`,
+    cloudSyncRetryQueue: 'Retry failed',
   },
 };
 

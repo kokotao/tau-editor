@@ -7,7 +7,12 @@
  */
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { CloudDocSpace, CloudSessionInfo } from '@/lib/tauri';
+import { isTauriApp, type CloudDocSpace, type CloudSessionInfo } from '@/lib/tauri';
+import {
+  createCloudSyncQueue,
+  type CloudQueueItem,
+  type CloudSyncQueue,
+} from '@/services/cloudSyncQueue';
 import {
   DEFAULT_CLOUD_BASE_URL,
   loginToLizi,
@@ -39,6 +44,10 @@ export interface CloudDocSyncMeta {
 interface PersistedCloudSyncState {
   baseUrl?: string;
   docMap?: Record<string, CloudDocSyncMeta>;
+  /** 自动同步开关（默认关闭，属于用户偏好，不是凭据） */
+  autoSyncEnabled?: boolean;
+  /** 自动同步防抖毫秒数 */
+  syncDebounceMs?: number;
 }
 
 function formatBytes(bytes: number): string {
@@ -97,11 +106,24 @@ function readPersistedState(): PersistedCloudSyncState {
       return {};
     }
 
-    const record = parsed as { baseUrl?: unknown; docMap?: unknown };
+    const record = parsed as {
+      baseUrl?: unknown;
+      docMap?: unknown;
+      autoSyncEnabled?: unknown;
+      syncDebounceMs?: unknown;
+    };
     const state: PersistedCloudSyncState = {};
 
     if (typeof record.baseUrl === 'string' && record.baseUrl.trim()) {
       state.baseUrl = record.baseUrl.trim();
+    }
+
+    if (typeof record.autoSyncEnabled === 'boolean') {
+      state.autoSyncEnabled = record.autoSyncEnabled;
+    }
+
+    if (typeof record.syncDebounceMs === 'number' && Number.isFinite(record.syncDebounceMs)) {
+      state.syncDebounceMs = clampDebounceMs(record.syncDebounceMs);
     }
 
     if (typeof record.docMap === 'object' && record.docMap !== null) {
@@ -122,6 +144,28 @@ function readPersistedState(): PersistedCloudSyncState {
   }
 }
 
+/** 防抖区间：500ms ~ 60s，默认 3s */
+const MIN_SYNC_DEBOUNCE_MS = 500;
+const MAX_SYNC_DEBOUNCE_MS = 60_000;
+const DEFAULT_SYNC_DEBOUNCE_MS = 3000;
+
+/** 把任意输入夹取到合法防抖区间 */
+function clampDebounceMs(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_SYNC_DEBOUNCE_MS;
+  }
+  return Math.min(MAX_SYNC_DEBOUNCE_MS, Math.max(MIN_SYNC_DEBOUNCE_MS, Math.floor(value)));
+}
+
+/** 桌面运行时判断：测试环境可能只 mock 了 @/lib/tauri 的少数导出，这里必须容错 */
+function isDesktopRuntime(): boolean {
+  try {
+    return isTauriApp();
+  } catch {
+    return false;
+  }
+}
+
 export const useCloudSyncStore = defineStore('cloudSync', () => {
   const baseUrl = ref(DEFAULT_CLOUD_BASE_URL);
   const signedIn = ref(false);
@@ -132,6 +176,17 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
   const lastError = ref<string | null>(null);
   const lastSyncAt = ref<number | null>(null);
   const docMap = ref<Record<string, CloudDocSyncMeta>>({});
+  /** 自动同步开关（默认关闭） */
+  const autoSyncEnabled = ref(false);
+  /** 自动同步防抖毫秒数 */
+  const syncDebounceMs = ref(DEFAULT_SYNC_DEBOUNCE_MS);
+  /** 队列快照（用于 UI 展示，真实数据在 queue 实例内） */
+  const queueItems = ref<CloudQueueItem[]>([]);
+
+  /** 队列实例与防抖/在线监听句柄（store 单例内闭包持有） */
+  let queue: CloudSyncQueue | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let onlineHandler: (() => void) | null = null;
 
   const usedRatio = computed(() => {
     const current = space.value;
@@ -153,16 +208,27 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     () => status.value === 'signing-in' || status.value === 'syncing',
   );
 
+  /** 自动同步只在桌面端且已登录时可用 */
+  const autoSyncAvailable = computed(() => signedIn.value && isDesktopRuntime());
+  const pendingSyncCount = computed(() => queueItems.value.length);
+  const failedSyncCount = computed(
+    () => queueItems.value.filter((item) => item.attempts > 0).length,
+  );
+  /** 队列摘要（`待同步/失败` 数字），文案由设置页用 i18n 拼装 */
+  const queueSummaryLabel = computed(() => `${pendingSyncCount.value} / ${failedSyncCount.value}`);
+
   function persistState(): void {
     if (typeof localStorage === 'undefined') {
       return;
     }
 
     try {
-      // 白名单持久化：只有 baseUrl 与 docMap 会离开内存。
+      // 白名单持久化：只有 baseUrl/docMap/自动同步偏好会离开内存，不含任何凭据。
       const payload: PersistedCloudSyncState = {
         baseUrl: baseUrl.value,
         docMap: docMap.value,
+        autoSyncEnabled: autoSyncEnabled.value,
+        syncDebounceMs: syncDebounceMs.value,
       };
       localStorage.setItem(CLOUD_SYNC_STORAGE_KEY, JSON.stringify(payload));
     } catch (error) {
@@ -193,6 +259,9 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
       baseUrl.value = persisted.baseUrl;
     }
     docMap.value = persisted.docMap ?? {};
+    autoSyncEnabled.value = persisted.autoSyncEnabled ?? false;
+    syncDebounceMs.value = persisted.syncDebounceMs ?? DEFAULT_SYNC_DEBOUNCE_MS;
+    initializeQueue();
 
     const restored = await restoreCloudSession();
     if (!restored.ok) {
@@ -266,6 +335,86 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     if (outcome.kind === 'unauthorized') {
       resetSession();
     }
+  }
+
+  // ------------------------------------------------------------------
+  // 自动同步队列
+  // ------------------------------------------------------------------
+
+  /**
+   * 初始化队列（幂等）：恢复断点队列项到 state，并监听网络恢复后自动冲刷。
+   * 队列自身不感知网络，离线失败项按退避重试，网络恢复时立即再试。
+   */
+  function initializeQueue(): void {
+    if (queue) {
+      queueItems.value = queue.items();
+      return;
+    }
+
+    queue = createCloudSyncQueue({
+      runSync: (tabId) => runCloudSync(tabId),
+      onChange: (items) => {
+        queueItems.value = items;
+      },
+    });
+    queueItems.value = queue.items();
+
+    if (typeof window !== 'undefined' && onlineHandler === null) {
+      onlineHandler = () => {
+        void flushQueue();
+      };
+      window.addEventListener('online', onlineHandler);
+    }
+  }
+
+  function setAutoSyncEnabled(enabled: boolean): void {
+    autoSyncEnabled.value = Boolean(enabled);
+    persistState();
+  }
+
+  function setSyncDebounceMs(ms: number): void {
+    syncDebounceMs.value = clampDebounceMs(ms);
+    persistState();
+  }
+
+  /**
+   * 自动保存成功后调用：防抖后把该标签入队并立即尝试同步。
+   * 未登录或未开启自动同步时 no-op，不影响手动同步。
+   */
+  function scheduleAutoSync(tabId: string): void {
+    if (!signedIn.value || !autoSyncEnabled.value) {
+      return;
+    }
+    initializeQueue();
+    if (debounceTimer !== null) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      const tabsStore = useTabsStore();
+      const tab = tabsStore.tabs.find((item) => item.id === tabId) ?? null;
+      if (!tab?.filePath) {
+        return;
+      }
+      queue?.enqueue(tab.id, tab.filePath);
+      void flushQueue();
+    }, syncDebounceMs.value);
+  }
+
+  async function flushQueue(): Promise<void> {
+    if (!queue) {
+      return;
+    }
+    await queue.flush();
+    queueItems.value = queue.items();
+  }
+
+  async function retryQueue(): Promise<void> {
+    if (!queue) {
+      return;
+    }
+    await queue.retryNow();
+    queueItems.value = queue.items();
   }
 
   async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResult> {
@@ -345,8 +494,22 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     usedRatio,
     quotaLabel,
     isBusy,
+    autoSyncAvailable,
+    pendingSyncCount,
+    failedSyncCount,
+    queueSummaryLabel,
+    // 自动同步状态
+    autoSyncEnabled,
+    syncDebounceMs,
+    queueItems,
     // actions
     initialize,
+    initializeQueue,
+    setAutoSyncEnabled,
+    setSyncDebounceMs,
+    scheduleAutoSync,
+    flushQueue,
+    retryQueue,
     login,
     logout,
     refreshSpace,

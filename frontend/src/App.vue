@@ -3603,6 +3603,8 @@ async function runAutoSave() {
       if (saved) {
         await sessionService.discardRecoveryDraft(tab.id);
         hasSaved = true;
+        // 自动同步：仅由 store 内部判断是否登录/开启，未开启时是空操作。
+        cloudSyncStore.scheduleAutoSync(tab.id);
       } else {
         hasFailure = true;
       }
@@ -3826,6 +3828,8 @@ onMounted(async () => {
   // 桌面端在启动后异步恢复云同步会话（keyring 中的会话与配额），失败不阻塞启动。
   if (isTauriApp()) {
     void cloudSyncStore.initialize();
+    // 恢复上次未完成的同步队列（断网/退出遗留项），并按退避自动重试。
+    cloudSyncStore.initializeQueue();
   }
   // 新窗口优先消费一次性迁移 payload，避免再走一遍会话恢复覆盖标签。
   const pendingWindowTransfer = await consumePendingWindowTransfer();

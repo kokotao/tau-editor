@@ -773,6 +773,49 @@
               </button>
             </div>
 
+            <div v-if="cloudSyncStore.signedIn" class="cloud-sync-auto" data-testid="cloud-sync-auto">
+              <label class="cloud-sync-auto-row">
+                <input
+                  type="checkbox"
+                  data-testid="cloud-sync-auto-toggle"
+                  :checked="cloudSyncStore.autoSyncEnabled"
+                  :disabled="!cloudSyncStore.autoSyncAvailable || cloudSyncStore.isBusy"
+                  @change="handleCloudAutoSyncToggle"
+                />
+                <span>{{ copy.cloudSyncAutoLabel }}</span>
+              </label>
+              <p v-if="!cloudSyncStore.autoSyncAvailable" class="settings-item-hint" data-testid="cloud-sync-auto-unavailable">
+                {{ copy.cloudSyncAutoUnavailable }}
+              </p>
+              <label v-else class="settings-item cloud-sync-auto-debounce">
+                <span class="settings-label">{{ copy.cloudSyncDebounceLabel }}</span>
+                <input
+                  class="cloud-sync-input"
+                  data-testid="cloud-sync-debounce"
+                  type="number"
+                  min="1"
+                  max="60"
+                  step="1"
+                  :value="cloudSyncDebounceSeconds"
+                  :disabled="cloudSyncStore.isBusy"
+                  @change="handleCloudDebounceChange"
+                />
+              </label>
+              <p class="settings-item-hint" data-testid="cloud-sync-queue-status">
+                {{ cloudSyncQueueLabel }}
+              </p>
+              <div class="cloud-sync-actions">
+                <button
+                  class="settings-action-btn"
+                  data-testid="cloud-sync-retry-btn"
+                  :disabled="cloudSyncStore.failedSyncCount === 0 || cloudSyncStore.isBusy"
+                  @click="handleCloudRetryQueue"
+                >
+                  {{ copy.cloudSyncRetryQueue }}
+                </button>
+              </div>
+            </div>
+
             <p
               v-if="cloudSyncResultLine.text"
               class="cloud-sync-result"
@@ -1307,6 +1350,36 @@ const handleCloudSyncNow = async () => {
   } finally {
     cloudSyncSyncing.value = false;
   }
+};
+
+/** 自动同步防抖秒数展示（内部毫秒） */
+const cloudSyncDebounceSeconds = computed(() => Math.max(1, Math.round(cloudSyncStore.syncDebounceMs / 1000)));
+/** 队列状态行：0 项时显示「队列为空」 */
+const cloudSyncQueueLabel = computed(() => {
+  const pending = cloudSyncStore.pendingSyncCount;
+  const failed = cloudSyncStore.failedSyncCount;
+  if (pending === 0 && failed === 0) {
+    return copy.value.cloudSyncQueueEmpty;
+  }
+  return copy.value.cloudSyncQueueStatus(pending, failed);
+});
+const handleCloudAutoSyncToggle = (event: Event) => {
+  const target = event.target as HTMLInputElement | null;
+  cloudSyncStore.setAutoSyncEnabled(Boolean(target?.checked));
+};
+const handleCloudDebounceChange = (event: Event) => {
+  const target = event.target as HTMLInputElement | null;
+  const seconds = Number(target?.value ?? 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return;
+  }
+  cloudSyncStore.setSyncDebounceMs(Math.round(seconds * 1000));
+};
+const handleCloudRetryQueue = async () => {
+  if (cloudSyncStore.failedSyncCount === 0 || cloudSyncStore.isBusy) {
+    return;
+  }
+  await cloudSyncStore.retryQueue();
 };
 
 watch(
@@ -4368,5 +4441,32 @@ defineExpose({
 
 .cloud-sync-result--error {
   color: var(--state-danger, #f87171);
+}
+
+/* 自动同步：开关行 + 防抖输入，沿用云同步区块间距 */
+.cloud-sync-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+}
+
+.cloud-sync-auto-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+}
+
+.cloud-sync-auto-debounce {
+  gap: 8px;
+}
+
+.cloud-sync-auto-debounce .cloud-sync-input {
+  max-width: 96px;
 }
 </style>
