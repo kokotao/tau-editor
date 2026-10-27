@@ -94,6 +94,8 @@ import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/ser
 import { guardPersistedScratchWorkspace } from '@/services/scratchWorkspaceGuard';
 import {
   getAppI18n,
+  getCloudDocConflictI18n,
+  getCloudDocEditOpenI18n,
   getCommandText,
   getMarkdownPreviewI18n,
   getSettingsPanelI18n,
@@ -118,6 +120,7 @@ import ProblemsPanel from './components/editor/ProblemsPanel.vue';
 import ReferenceResultsPanel, { type ReferenceResultGroup, type ReferenceResultItem } from './components/editor/ReferenceResultsPanel.vue';
 import HierarchyPanel, { type HierarchyMode, type HierarchyRow } from './components/editor/HierarchyPanel.vue';
 import CloudDocBrowser from './components/editor/CloudDocBrowser.vue';
+import CloudDocConflictDialog from './components/editor/CloudDocConflictDialog.vue';
 import CloudDocSyncDialog from './components/editor/CloudDocSyncDialog.vue';
 import ShareDialog from './components/editor/ShareDialog.vue';
 import CenterToast from './components/ui/CenterToast.vue';
@@ -135,7 +138,9 @@ import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
 import { createAutoSaveScheduler } from '@/utils/autoSaveScheduler';
 import { createContentHasher, normalizeContentHash } from '@/utils/contentHash';
-import { saveCloudDoc } from '@/services/cloudDocService';
+import { getCloudDoc, saveCloudDoc } from '@/services/cloudDocService';
+import { materializeCloudDocForEdit } from '@/services/cloudDocEditOpen';
+import type { CloudDocTreeNode } from '@/services/cloudBrowserService';
 import {
   createCloudDocSaveController,
   type SaveControllerEvent,
@@ -985,7 +990,36 @@ const cloudSaveTargets = new Map<number, { path: string; title: string }>();
 /** 同一文件同内容的并发哈希计算会被合并，debounce 抖动不会重复算。 */
 const cloudContentHasher = createContentHasher();
 
-/** 409：登记冲突 + 一条中英通知。不弹三选一（后续单），也绝不自动覆盖。 */
+/**
+ * 409 冲突对话框状态。云端保存被乐观锁拒绝时打开，用户在
+ * 「保留我的 / 用云端版本 / 另存副本」里选一个，选择结果交给 cloudSaveController.resolveConflict 执行。
+ */
+const cloudConflict = ref<{
+  visible: boolean;
+  fileId: number | null;
+  tabId: string | null;
+  fileName: string;
+  message: string;
+  remoteVersion: number | null;
+  busy: boolean;
+}>({ visible: false, fileId: null, tabId: null, fileName: '', message: '', remoteVersion: null, busy: false });
+
+const conflictCopy = computed(() => getCloudDocConflictI18n(settingsStore.uiLanguage));
+const editOpenCopy = computed(() => getCloudDocEditOpenI18n(settingsStore.uiLanguage));
+
+/** 冲突时顺手把云端最新版本号读出来，供对话框展示（失败不影响三选一，值留空）。 */
+const refreshConflictRemoteVersion = async (fileId: number): Promise<void> => {
+  const outcome = await getCloudDoc(fileId);
+  if (!outcome.ok) {
+    return;
+  }
+  if (cloudConflict.value.fileId !== fileId) {
+    return;
+  }
+  cloudConflict.value.remoteVersion = outcome.data.version;
+};
+
+/** 409：登记冲突 + 弹出三选一对话框（绝不自动覆盖云端）。 */
 const handleCloudSaveEvent = (event: SaveControllerEvent): void => {
   if (event.type === 'saved') {
     // 回写标签元数据：下次重新打开这份文档时，基线来自这里而不是内存里的控制器
@@ -1006,20 +1040,24 @@ const handleCloudSaveEvent = (event: SaveControllerEvent): void => {
     return;
   }
 
-  const copy = cloudSyncCopy.value;
   const conflictTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
-  const isNew = fileConflictsStore.flag({
+  fileConflictsStore.flag({
     path: conflictTab?.filePath ?? `cloud-doc:${event.fileId}`,
     kind: 'modified',
     source: 'cloud',
     detectedAt: Date.now(),
   });
-  if (isNew) {
-    notificationStore.warning(
-      copy.cloudDocSaveConflictTitle,
-      copy.cloudDocSaveConflictBody(event.message ?? ''),
-    );
-  }
+
+  cloudConflict.value = {
+    visible: true,
+    fileId: event.fileId,
+    tabId: conflictTab?.id ?? null,
+    fileName: conflictTab?.fileName ?? '',
+    message: event.message ?? '',
+    remoteVersion: null,
+    busy: false,
+  };
+  void refreshConflictRemoteVersion(event.fileId);
 };
 
 const cloudSaveController = createCloudDocSaveController({
@@ -1149,6 +1187,235 @@ watch(
     }
   },
 );
+
+/* ===== 409 冲突三选一：把编辑流水线的 resolveConflict 接到 UI ===== */
+
+const closeCloudConflict = (): void => {
+  if (cloudConflict.value.busy) {
+    return;
+  }
+  cloudConflict.value = {
+    visible: false,
+    fileId: null,
+    tabId: null,
+    fileName: '',
+    message: '',
+    remoteVersion: null,
+    busy: false,
+  };
+};
+
+/** 拉一次云端详情作为冲突决策依据（版本/哈希/正文）；失败直接提示并放弃本次选择。 */
+const fetchRemoteSnapshot = async (
+  fileId: number,
+): Promise<{ version: number; contentHash: string; content: string } | null> => {
+  const outcome = await getCloudDoc(fileId);
+  if (!outcome.ok) {
+    notificationStore.error(conflictCopy.value.title, outcome.message);
+    return null;
+  }
+  return {
+    version: outcome.data.version,
+    contentHash: outcome.data.contentHash ?? '',
+    content: outcome.data.content ?? '',
+  };
+};
+
+/** 用云端正文替换标签内容（编辑器同步刷新 + 落盘 + 元数据推进）。 */
+const applyRemoteContentToTab = async (
+  tabId: string | null,
+  content: string,
+  remote: { version: number; contentHash: string },
+): Promise<void> => {
+  if (!tabId) {
+    return;
+  }
+  if (!tabsStore.tabs.some((item) => item.id === tabId)) {
+    return;
+  }
+  // 编辑器正显示这份文档时同步刷新，避免「标签内容变了但编辑器还是旧文本」
+  if (activeTab.value?.id === tabId) {
+    editorCoreRef.value?.replaceContent(content);
+  }
+  tabService.updateTabContent(tabId, content, { markDirty: false });
+  tabsStore.updateTab(tabId, {
+    isDirty: false,
+    cloudVersion: remote.version,
+    cloudContentHash: remote.contentHash,
+    lastSyncedAt: Date.now(),
+  });
+  await tabService.saveTab(tabId, { silent: true });
+};
+
+/** 另存副本时把冲突标记插在扩展名之前：`a.md` → `a（冲突副本）.md`。 */
+const buildConflictCopyPath = (cloudPath: string, tag: string): string => {
+  const slash = cloudPath.lastIndexOf('/');
+  const dir = slash >= 0 ? cloudPath.slice(0, slash + 1) : '';
+  const name = slash >= 0 ? cloudPath.slice(slash + 1) : cloudPath;
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? `${dir}${name.slice(0, dot)}${tag}${name.slice(dot)}` : `${dir}${name}${tag}`;
+};
+
+/** 保留我的：以云端最新版本为基线重试一次，用本地内容覆盖云端。 */
+const resolveConflictKeepMine = async (): Promise<void> => {
+  const state = cloudConflict.value;
+  if (state.fileId === null || state.busy) {
+    return;
+  }
+  const remote = await fetchRemoteSnapshot(state.fileId);
+  if (!remote) {
+    return;
+  }
+  state.busy = true;
+  try {
+    const outcome = await cloudSaveController.resolveConflict('keepMine', remote);
+    if (outcome.action === 'retried') {
+      if (outcome.result === 'saved' || outcome.result === 'skipped') {
+        notificationStore.success(conflictCopy.value.title, editOpenCopy.value.conflictKeepMineDone);
+        closeCloudConflict();
+        return;
+      }
+      notificationStore.error(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.result));
+      return;
+    }
+    if (outcome.action === 'retryExhausted') {
+      notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictRetryExhausted);
+      return;
+    }
+    notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.action));
+  } finally {
+    state.busy = false;
+  }
+};
+
+/** 用云端版本：放弃本地修改，编辑器内容替换为云端最新正文。 */
+const resolveConflictUseRemote = async (): Promise<void> => {
+  const state = cloudConflict.value;
+  if (state.fileId === null || state.busy) {
+    return;
+  }
+  const remote = await fetchRemoteSnapshot(state.fileId);
+  if (!remote) {
+    return;
+  }
+  state.busy = true;
+  try {
+    const outcome = await cloudSaveController.resolveConflict('useRemote', remote);
+    if (outcome.action !== 'replaceLocalWithRemote') {
+      notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.action));
+      return;
+    }
+    const content = outcome.content ?? remote.content;
+    await applyRemoteContentToTab(state.tabId, content, remote);
+    notificationStore.success(conflictCopy.value.title, editOpenCopy.value.conflictUseRemoteDone);
+    closeCloudConflict();
+  } finally {
+    state.busy = false;
+  }
+};
+
+/** 另存副本：本地内容作为新文档上传，原文档回到云端内容，两端都不丢。 */
+const resolveConflictSaveCopy = async (): Promise<void> => {
+  const state = cloudConflict.value;
+  if (state.fileId === null || state.busy) {
+    return;
+  }
+  const remote = await fetchRemoteSnapshot(state.fileId);
+  if (!remote) {
+    return;
+  }
+  const target = cloudSaveTargets.get(state.fileId);
+  if (!target) {
+    notificationStore.error(conflictCopy.value.title, editOpenCopy.value.conflictFailed('找不到该文档的云端落点'));
+    return;
+  }
+  const outcome = await cloudSaveController.resolveConflict('saveCopy', remote);
+  if (outcome.action !== 'saveAsCopy') {
+    notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.action));
+    return;
+  }
+  state.busy = true;
+  try {
+    const copyPath = buildConflictCopyPath(target.path, outcome.copy.copyTag);
+    const saved = await saveCloudDoc({
+      path: copyPath,
+      title: copyPath.split('/').pop() ?? copyPath,
+      content: outcome.copy.content,
+      contentHash: outcome.copy.contentHash,
+      // 副本是新建：baseVersion 必须是 null，否则会覆盖原文档
+      baseVersion: null,
+    });
+    if (!saved.ok) {
+      notificationStore.error(conflictCopy.value.title, editOpenCopy.value.conflictFailed(saved.message));
+      return;
+    }
+    cloudSyncStore.rememberDoc(copyPath, {
+      fileId: saved.data.fileId,
+      version: saved.data.version,
+      contentHash: saved.data.contentHash,
+      updatedAt: saved.data.updatedAt ?? null,
+    });
+    // 原文档回到云端内容（副本已保住本地修改），否则下一次自动保存会把云端又覆盖回去
+    await applyRemoteContentToTab(state.tabId, remote.content, remote);
+    notificationStore.success(conflictCopy.value.title, editOpenCopy.value.conflictSavedCopy(copyPath));
+    closeCloudConflict();
+  } finally {
+    state.busy = false;
+  }
+};
+
+/* ===== 跨工作区云文档：在编辑器中打开（替代原先的只读预览） ===== */
+
+/**
+ * 「在编辑器中打开」：把云端文档落位到该云工作区对应的本地临时工作区，打开标签并打上云端绑定，
+ * 之后的保存由既有自动保存流水线（2.5s 空闲 / Ctrl+S / 失焦）同步回云端。
+ */
+const handleCloudDocEditOpen = async (node: CloudDocTreeNode): Promise<void> => {
+  const file = node.file;
+  if (!file) {
+    return;
+  }
+  const fileId = file.fileId;
+
+  // 已经打开过：直接切到那个标签，不再重复落位
+  const existing = tabsStore.tabs.find((tab) => tab.cloudFileId === fileId);
+  if (existing?.filePath) {
+    await openFileInEditor(existing.filePath);
+    cloudBrowserVisible.value = false;
+    notificationStore.info(editOpenCopy.value.alreadyOpen(existing.fileName), editOpenCopy.value.openedHint);
+    return;
+  }
+
+  const result = await materializeCloudDocForEdit({ fileId, cloudPath: node.path, title: node.name });
+  if (!result.ok) {
+    notificationStore.error(node.name, editOpenCopy.value.openFailed(result.message));
+    return;
+  }
+
+  const target = result.target;
+  // 先登记云端落点与基线：标签一旦激活，syncCloudSaveSession 会立刻按 docMap 建编辑会话
+  cloudSyncStore.rememberDoc(target.cloudPath, {
+    fileId: target.fileId,
+    version: target.version,
+    contentHash: target.contentHash,
+    updatedAt: file.updatedAt ?? null,
+  });
+  cloudSaveTargets.set(target.fileId, { path: target.cloudPath, title: target.title });
+
+  await openFileInEditor(target.absolutePath);
+
+  const opened = tabsStore.tabs.find((tab) => tab.filePath === target.absolutePath) ?? tabsStore.activeTab;
+  if (opened) {
+    tabsStore.updateTab(opened.id, {
+      cloudFileId: target.fileId,
+      cloudVersion: target.version,
+      cloudContentHash: target.contentHash,
+    });
+  }
+
+  cloudBrowserVisible.value = false;
+  notificationStore.success(editOpenCopy.value.opened(target.title), editOpenCopy.value.openedHint);
+};
 
 const handleSave = async () => {
   syncActiveEditorContent();
@@ -4826,6 +5093,7 @@ onUnmounted(() => {
                   :active="sidebarPanel === 'cloud'"
                   :refresh-token="cloudTreeRefreshToken"
                   @open-file="handleFileOpen"
+                  @edit-cloud-doc="handleCloudDocEditOpen"
                   @login-request="openCloudSyncSettings"
                   @cloud-file-saved="handleCloudFileSaved"
                   @doc-action="handleCloudDocAction"
@@ -5032,11 +5300,24 @@ onUnmounted(() => {
           v-if="cloudBrowserVisible"
           @close="closeCloudDocBrowser"
           @open-file="handleCloudDocBrowserOpenFile"
+          @edit-cloud-doc="handleCloudDocEditOpen"
           @cloud-file-saved="handleCloudFileSaved"
           @doc-action="handleCloudDocAction"
         />
 
         <CenterToast />
+
+        <CloudDocConflictDialog
+          :visible="cloudConflict.visible"
+          :file-name="cloudConflict.fileName"
+          :message="cloudConflict.message"
+          :remote-version="cloudConflict.remoteVersion"
+          :busy="cloudConflict.busy"
+          @close="closeCloudConflict"
+          @keep-mine="resolveConflictKeepMine"
+          @use-remote="resolveConflictUseRemote"
+          @save-copy="resolveConflictSaveCopy"
+        />
 
         <CloudDocSyncDialog
           :visible="cloudSyncDialog.visible"
