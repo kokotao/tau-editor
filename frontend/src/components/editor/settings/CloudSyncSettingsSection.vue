@@ -2,9 +2,11 @@
   /**
    * @description 设置页「云同步」分区（设计稿二：Stitch「Tau Editor 偏好设置 - 云端同步」）。
    *
-   * 版式：页头（面包屑 + H1 + 版本胶囊 + 诊断节点链路 + TLS 胶囊）→ Bento 遥测 4 卡
+   * 版式：页头（面包屑 + H1 + 版本胶囊 + 诊断节点链路 + TLS 胶囊）
    *      → 12 列双栏（左 span7：账号与配额 / 文档调度中心 / 同步队列遥测；
    *                    右 span5：自动化触发策略 / 媒体资产与附件同步 / 安全徽标）。
+   * 说明：原页头下方的 Bento 遥测 4 卡（运行版本 / 集群版本 / 环境架构 / 往返时延）
+   *      已按需求整块移除——本软件没有对应功能；「诊断节点链路」的结果改在按钮文案上短暂显示。
    *
    * 视觉层全部消费 `assets/clouddoc-nocturne.css` 的 `.cd-*` 原语与 `--cd-*` token（本文件不改它）。
    * 状态来源仍是 `stores/cloudSync`（signedIn / quota / queue / error），行为与抽离前一致；
@@ -38,11 +40,12 @@
           type="button"
           class="cd-btn cd-btn--secondary cd-sync__diag"
           data-testid="cloud-sync-diagnose-btn"
+          :data-state="diagnoseState"
           :disabled="diagnoseBusy"
           @click="runDiagnostics"
         >
           <CdGlyph name="network" :size="16" class="cd-sync__diag-glyph" />
-          <span>{{ diagnoseLabel }}</span>
+          <span aria-live="polite">{{ diagnoseLabel }}</span>
         </button>
         <span class="cd-sync__hero-divider" aria-hidden="true" />
         <span class="cd-sync__tls cd-mono">
@@ -52,40 +55,10 @@
       </div>
     </header>
 
-    <!-- 1. Bento 遥测：当前运行版本 / 云端集群版本 / 本地环境架构 / 集群往返时延 -->
-    <div class="cd-sync__bento">
-      <article
-        v-for="card in telemetryCards"
-        :key="card.id"
-        class="cd-sync__tele"
-        :data-tone="card.tone"
-        :title="card.note"
-        :data-testid="`cloud-sync-telemetry-${card.id}`"
-      >
-        <header class="cd-sync__tele-head">
-          <span class="cd-sync__tele-label cd-mono">{{ card.label }}</span>
-          <TauIcon v-if="card.tauIcon" :name="card.tauIcon" :size="16" class="cd-sync__tele-icon" />
-          <CdGlyph v-else :name="card.glyph ?? 'network'" :size="16" class="cd-sync__tele-icon" />
-        </header>
-        <div class="cd-sync__tele-value">
-          <span class="cd-sync__tele-main cd-mono">{{ card.value }}</span>
-          <span v-if="card.unit" class="cd-sync__tele-unit cd-mono">{{ card.unit }}</span>
-          <span v-if="card.pill" class="cd-sync__tele-pill cd-mono">{{ card.pill }}</span>
-        </div>
-        <div class="cd-sync__tele-meta cd-mono">
-          <span v-if="card.dot" class="cd-sync__dot" :data-tone="card.tone" aria-hidden="true" />
-          <template v-for="(item, index) in card.meta" :key="`${card.id}-meta-${index}`">
-            <span v-if="index > 0" class="cd-sync__sep">·</span>
-            <span>{{ item }}</span>
-          </template>
-        </div>
-      </article>
-    </div>
-
     <!-- 主栅格：左 span7 / 右 span5 -->
     <div class="cd-sync__grid">
       <div class="cd-sync__col">
-        <!-- 2. 账号与配额（未登录时是登录卡片） -->
+        <!-- 1. 账号与配额（未登录时是登录卡片） -->
         <article class="cd-sync__card" data-testid="cloud-sync-account-card">
           <template v-if="signedIn">
             <div class="cd-sync__account" data-testid="cloud-sync-account">
@@ -255,7 +228,7 @@
           </div>
         </article>
 
-        <!-- 3. 文档调度中心：三按钮 + 反馈条 -->
+        <!-- 2. 文档调度中心：三按钮 + 反馈条 -->
         <article class="cd-sync__card">
           <header class="cd-sync__card-head">
             <div class="cd-sync__card-title-row">
@@ -345,7 +318,7 @@
           </div>
         </article>
 
-        <!-- 4. 同步队列遥测 -->
+        <!-- 3. 同步队列遥测 -->
         <article class="cd-sync__card">
           <header class="cd-sync__card-head">
             <div class="cd-sync__card-title-row">
@@ -399,7 +372,7 @@
       </div>
 
       <div class="cd-sync__col">
-        <!-- 5. 自动化触发策略 -->
+        <!-- 4. 自动化触发策略 -->
         <article class="cd-sync__card">
           <header class="cd-sync__card-title-row cd-sync__card-title-row--solo">
             <TauIcon name="icon-sliders" :size="20" class="cd-sync__card-icon" />
@@ -547,7 +520,7 @@
           </div>
         </article>
 
-        <!-- 6. 媒体资产与附件同步 -->
+        <!-- 5. 媒体资产与附件同步 -->
         <article class="cd-sync__card">
           <header class="cd-sync__card-title-row cd-sync__card-title-row--solo">
             <CdGlyph name="image" :size="20" class="cd-sync__card-icon" />
@@ -598,7 +571,7 @@
           </div>
         </article>
 
-        <!-- 7. 安全徽标 -->
+        <!-- 6. 安全徽标 -->
         <div class="cd-sync__security">
           <span class="cd-sync__security-icon" aria-hidden="true">
             <TauIcon name="icon-shield-check" :size="18" />
@@ -611,7 +584,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch, type PropType } from 'vue';
+import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch, type PropType } from 'vue';
 import TauIcon from '@/components/icons/TauIcon.vue';
 import { getCloudSyncSettingsI18n, getSettingsPanelI18n } from '@/i18n/ui';
 import { useCloudSyncStore } from '@/stores/cloudSync';
@@ -621,7 +594,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
 import { DEFAULT_CLOUD_BASE_URL } from '@/services/cloudAuthService';
 import { pullCloudDocumentIntoLocal, type CloudSyncResult } from '@/services/cloudSyncService';
-import { appCommands, settingsCommands, type AppVersionInfo } from '@/lib/tauri';
+import { appCommands } from '@/lib/tauri';
 import { isTauriApp } from '@/lib/tauri';
 
 /**
@@ -668,14 +641,37 @@ const mock = reactive({
   loginPending: false,
   cacheBusy: false,
   queueBusy: false,
-  latencyMs: 16 as number | null,
   feedback: '',
   feedbackTone: 'info' as FeedbackTone,
   taskId: '0942',
 });
 
-/** 只在用户点过「诊断节点链路」之后才把按钮文案换成结果；未诊断时按钮保持动作名。 */
+/**
+ * 「诊断节点链路」的结果只在按钮文案上短暂停留：
+ * 原先它还要写进「集群往返时延」遥测卡，卡片移除后按钮就是唯一反馈位，
+ * 因此既要保证点了有反馈，又不能让结果一直挂在按钮上被误读成常驻状态。
+ */
+const DIAGNOSE_RESULT_HOLD_MS = 3200;
 const diagnoseResultMs = ref<number | null>(null);
+let diagnoseResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearDiagnoseResult(): void {
+  if (diagnoseResetTimer) {
+    clearTimeout(diagnoseResetTimer);
+    diagnoseResetTimer = null;
+  }
+  diagnoseResultMs.value = null;
+}
+
+function flashDiagnoseResult(ms: number): void {
+  clearDiagnoseResult();
+  diagnoseResultMs.value = ms;
+  diagnoseResetTimer = setTimeout(() => {
+    diagnoseResultMs.value = null;
+    diagnoseResetTimer = null;
+  }, DIAGNOSE_RESULT_HOLD_MS);
+}
+
 /** 是否已清理过本地媒体缓存（决定明细行显示 0 B） */
 const cacheCleared = ref(false);
 
@@ -707,8 +703,7 @@ watch(
       mock.pullBusy = false;
       mock.pending = next === 'syncing' ? 1 : 0;
       mock.failed = next === 'error' ? 1 : 0;
-      mock.latencyMs = next === 'error' ? null : 16;
-      diagnoseResultMs.value = null;
+      clearDiagnoseResult();
       cacheCleared.value = false;
     }
   },
@@ -996,111 +991,11 @@ const schedulerStateLabel = computed(() => {
 });
 
 // ------------------------------------------------------------------
-// Bento 遥测 4 卡
-//   · 版本 / 架构来自 settingsCommands.getAppVersionInfo()（真实）
-//   · 集群版本、通道、时延没有现成接口：集群版本是设计稿常量，时延由「诊断节点链路」实测
+// 页头「诊断节点链路」
+//   原先诊断测得的往返时延还要写进 Bento 遥测卡；卡片整块移除后，
+//   结果直接落在按钮文案上短暂显示（flashDiagnoseResult），点了必有反馈。
 // ------------------------------------------------------------------
-const appVersionInfo = ref<AppVersionInfo | null>(null);
-const latencyMs = ref<number | null>(null);
 const diagnoseBusy = ref(false);
-
-const clusterHost = computed(() => {
-  const base = live.value ? cloudSyncStore.baseUrl : DEFAULT_CLOUD_BASE_URL;
-  try {
-    return new URL(base).host || base;
-  } catch {
-    return base || copyText.value.telemetryUnknown;
-  }
-});
-/** 设计稿示例值：云端还没有版本 / 通道查询接口（SPEC §2.1 稿内常量） */
-const CLUSTER_VERSION_MOCK = '0.6.13';
-
-/** 版本卡副行：真实模式给构建目标，预览态沿用稿内 Hash 示例 */
-const versionMeta = computed<string[]>(() => {
-  if (!live.value) {
-    return ['Hash: b8e41a9', copyText.value.telemetryNoPendingPatch];
-  }
-  const buildTarget = appVersionInfo.value?.buildTarget;
-  return [
-    buildTarget ? `${copyText.value.telemetryBuild}: ${buildTarget}` : copyText.value.telemetryUnknown,
-    copyText.value.telemetryNoPendingPatch,
-  ];
-});
-
-const platformMeta = computed<string[]>(() => {
-  if (!live.value) {
-    return ['NT Kernel 10.0 · AVX2'];
-  }
-  const buildTarget = appVersionInfo.value?.buildTarget;
-  return [buildTarget ? `${copyText.value.telemetryRuntime}: ${buildTarget}` : copyText.value.telemetryUnknown];
-});
-
-const telemetryCards = computed(() => {
-  const version = appVersionInfo.value;
-  const platform = version?.os && version?.arch
-    ? `${version.os} / ${version.arch}`
-    : live.value
-      ? copyText.value.telemetryUnknown
-      : 'Windows / x86_64';
-
-  return [
-    {
-      id: 'runtime',
-      label: copyText.value.telemetryLiveVersion,
-      value: version?.version ?? (live.value ? copyText.value.telemetryUnknown : '0.6.25'),
-      unit: '',
-      pill: version ? copyText.value.telemetryStable : '',
-      tone: 'success' as const,
-      dot: true,
-      tauIcon: 'icon-check-circle',
-      glyph: '',
-      note: '',
-      meta: versionMeta.value,
-    },
-    {
-      id: 'cluster',
-      label: copyText.value.telemetryClusterVersion,
-      value: CLUSTER_VERSION_MOCK,
-      unit: '',
-      pill: signedIn.value ? copyText.value.telemetrySynced : '',
-      tone: isError.value ? ('danger' as const) : ('accent' as const),
-      dot: false,
-      tauIcon: 'icon-cloud-sync',
-      glyph: '',
-      note: copyText.value.telemetryMockNote,
-      meta: [`${copyText.value.telemetryChannel}: ${clusterHost.value}`],
-    },
-    {
-      id: 'platform',
-      label: copyText.value.telemetryPlatform,
-      value: platform,
-      unit: '',
-      pill: '',
-      tone: 'neutral' as const,
-      dot: false,
-      tauIcon: 'icon-monitor',
-      glyph: '',
-      note: '',
-      meta: platformMeta.value,
-    },
-    {
-      id: 'latency',
-      label: copyText.value.telemetryLatency,
-      value: measuredLatency.value === null ? copyText.value.telemetryUnknown : String(measuredLatency.value),
-      unit: measuredLatency.value === null ? '' : 'ms',
-      pill: '',
-      tone: isError.value || measuredLatency.value === null ? ('neutral' as const) : ('success' as const),
-      dot: false,
-      tauIcon: '',
-      glyph: 'signal',
-      note: '',
-      meta: [copyText.value.telemetryPacketLoss, `${copyText.value.telemetryTunnel}：${clusterHost.value}`],
-    },
-  ];
-});
-
-/** 预览用 mock.latencyMs，真实模式用诊断实测值 */
-const measuredLatency = computed<number | null>(() => (live.value ? latencyMs.value : mock.latencyMs));
 
 const diagnoseLabel = computed(() => {
   if (diagnoseBusy.value) {
@@ -1110,6 +1005,14 @@ const diagnoseLabel = computed(() => {
     return copyText.value.diagnoseOk(diagnoseResultMs.value);
   }
   return copyText.value.diagnose;
+});
+
+/** 给按钮一个可样式化的状态位：idle / busy / result（result 用成功色短暂高亮） */
+const diagnoseState = computed<'idle' | 'busy' | 'result'>(() => {
+  if (diagnoseBusy.value) {
+    return 'busy';
+  }
+  return diagnoseResultMs.value === null ? 'idle' : 'result';
 });
 
 const heroTone = computed(() => (isError.value ? 'danger' : 'success'));
@@ -1123,9 +1026,7 @@ const runDiagnostics = async (): Promise<void> => {
   try {
     if (!live.value) {
       await wait(700);
-      const ms = 12 + Math.round(Math.random() * 8);
-      mock.latencyMs = ms;
-      diagnoseResultMs.value = ms;
+      flashDiagnoseResult(12 + Math.round(Math.random() * 8));
       return;
     }
     if (!cloudSyncStore.signedIn) {
@@ -1135,11 +1036,11 @@ const runDiagnostics = async (): Promise<void> => {
     const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
     await cloudSyncStore.refreshSpace();
     const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - started);
-    latencyMs.value = elapsed;
-    diagnoseResultMs.value = elapsed;
     if (cloudSyncStore.spaceError) {
       notificationStore.error(copy.value.settingsCloudSync, quotaIssueLabel.value);
+      return;
     }
+    flashDiagnoseResult(elapsed);
   } finally {
     diagnoseBusy.value = false;
   }
@@ -1588,18 +1489,8 @@ watch(
   },
 );
 
-onMounted(async (): Promise<void> => {
-  if (!live.value) {
-    return;
-  }
-  try {
-    appVersionInfo.value = await settingsCommands.getAppVersionInfo();
-  } catch (error) {
-    console.warn('[CloudSyncSettings] 读取版本信息失败：', error);
-  }
-});
-
 onBeforeUnmount(() => {
+  clearDiagnoseResult();
   for (const timer of timers) {
     clearTimeout(timer);
   }
@@ -1618,7 +1509,6 @@ const GLYPH_PATHS: Record<string, string[]> = {
     'M5 16v-2a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2',
     'M12 13V8',
   ],
-  signal: ['M4 20v-4', 'M9 20v-7', 'M14 20V8', 'M19 20V4'],
   refresh: ['M21 12a9 9 0 1 1-3.2-6.9', 'M21 3.5V9h-5.5'],
   image: ['M4 4h16v16H4z', 'M8.5 10a1.5 1.5 0 1 0 0-.01', 'M20 15l-4.5-4.5L6 20'],
   trash: ['M3 6h18', 'M19 6v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2', 'M10 11v6', 'M14 11v6'],
@@ -1665,7 +1555,7 @@ const CdGlyph = defineComponent({
   --sx-gap-card: 24px;
   --sx-card-bg: var(--cd-bg-card);
   --sx-inner-bg: color-mix(in srgb, var(--cd-bg-card) 62%, var(--cd-bg-overlay));
-  --sx-tele-bg: color-mix(in srgb, var(--cd-bg-card) 74%, var(--cd-bg-panel));
+  --sx-pill-bg: color-mix(in srgb, var(--cd-bg-card) 74%, var(--cd-bg-panel));
   --sx-card-shadow: 0 4px 18px -12px rgba(0, 0, 0, 0.75);
   display: flex;
   flex-direction: column;
@@ -1799,10 +1689,21 @@ const CdGlyph = defineComponent({
   border: 0;
   border-radius: var(--cd-r-panel);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
 .cd-sync__diag-glyph {
   color: var(--cd-success);
+}
+
+/* 诊断结果短暂回来时，按钮整块染成成功色，避免「点了没反应」的错觉 */
+.cd-sync__diag[data-state='result'] {
+  color: var(--cd-success);
+  background: color-mix(in srgb, var(--cd-success) 14%, var(--sx-inner-bg));
+}
+
+.cd-sync__diag[data-state='busy'] .cd-sync__diag-glyph {
+  color: var(--cd-accent);
 }
 
 .cd-sync__diag:disabled {
@@ -1822,115 +1723,12 @@ const CdGlyph = defineComponent({
   padding: 6px 12px;
   font-size: var(--cd-fs-meta);
   color: var(--cd-text-2);
-  background: var(--sx-tele-bg);
+  background: var(--sx-pill-bg);
   border-radius: var(--cd-r-panel);
 }
 
 .cd-sync__tls-icon {
   color: var(--cd-accent);
-}
-
-/* ------------------------------------------------------------------ */
-/* 1. Bento 遥测                                                       */
-/* ------------------------------------------------------------------ */
-.cd-sync__bento {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 32px;
-}
-
-.cd-sync__tele {
-  position: relative;
-  padding: 16px;
-  overflow: hidden;
-  background: var(--sx-tele-bg);
-  border-radius: var(--cd-r-dialog);
-  transition: background-color 0.15s ease;
-}
-
-.cd-sync__tele:hover {
-  background: color-mix(in srgb, var(--sx-tele-bg) 70%, var(--cd-bg-overlay));
-}
-
-.cd-sync__tele-head {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  color: var(--cd-text-3);
-}
-
-.cd-sync__tele-label {
-  font-size: var(--cd-fs-label);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.cd-sync__tele-icon {
-  color: var(--cd-text-3);
-}
-
-.cd-sync__tele[data-tone='success'] .cd-sync__tele-icon {
-  color: var(--cd-success);
-}
-
-.cd-sync__tele[data-tone='accent'] .cd-sync__tele-icon {
-  color: var(--cd-accent);
-}
-
-.cd-sync__tele[data-tone='danger'] .cd-sync__tele-icon {
-  color: var(--cd-danger);
-}
-
-.cd-sync__tele-value {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: baseline;
-}
-
-.cd-sync__tele-main {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--cd-text);
-  letter-spacing: -0.01em;
-}
-
-.cd-sync__tele[data-tone='accent'] .cd-sync__tele-main {
-  color: var(--cd-accent);
-}
-
-.cd-sync__tele[data-tone='success'] .cd-sync__tele-main {
-  color: var(--cd-success);
-}
-
-.cd-sync__tele[data-tone='danger'] .cd-sync__tele-main {
-  color: var(--cd-danger);
-}
-
-.cd-sync__tele-unit {
-  font-size: var(--cd-fs-meta);
-  color: var(--cd-text-3);
-}
-
-.cd-sync__tele-pill {
-  padding: 2px 6px;
-  font-size: 10px;
-  color: var(--cd-accent);
-  background: rgba(56, 189, 248, 0.12);
-  border-radius: 4px;
-}
-
-.cd-sync__tele-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-top: 8px;
-  font-size: var(--cd-fs-meta);
-  color: var(--cd-text-3);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2871,10 +2669,6 @@ const CdGlyph = defineComponent({
 }
 
 @media (max-width: 1180px) {
-  .cd-sync__bento {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .cd-sync__grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 24px;
@@ -2882,10 +2676,6 @@ const CdGlyph = defineComponent({
 }
 
 @media (max-width: 720px) {
-  .cd-sync__bento {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .cd-sync__card {
     padding: 16px;
   }

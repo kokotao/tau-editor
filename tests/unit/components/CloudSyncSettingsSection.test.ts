@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
 
 /**
  * 设计稿二：设置-云同步分区的四种预览态。
@@ -26,14 +27,50 @@ const mountSection = (previewState: 'signed-out' | 'signed-in' | 'syncing' | 'er
 describe('CloudSyncSettingsSection 预览态', () => {
   setActivePinia(createPinia());
 
-  it('页头与 Bento 遥测四卡在任一预览态都存在', () => {
+  it('页头完整，且 Bento 遥测四卡已整块移除', () => {
     const wrapper = mountSection('signed-in');
 
     expect(wrapper.get('.cd-sync__h1').text()).toBe('云同步服务');
     expect(wrapper.text()).toContain('Lizi Sync Core v3');
     expect(wrapper.text()).toContain('TLS 1.3 · AES-GCM-256');
-    expect(wrapper.findAll('.cd-sync__tele')).toHaveLength(4);
     expect(wrapper.find('[data-testid="cloud-sync-diagnose-btn"]').exists()).toBe(true);
+
+    // 四卡（当前运行版本 / 云端集群版本 / 本地环境架构 / 集群往返时延）不再渲染
+    expect(wrapper.find('.cd-sync__bento').exists()).toBe(false);
+    expect(wrapper.find('.cd-sync__tele').exists()).toBe(false);
+    expect(wrapper.find('[data-testid^="cloud-sync-telemetry-"]').exists()).toBe(false);
+    expect(wrapper.html()).not.toContain('当前运行版本');
+    expect(wrapper.html()).not.toContain('云端集群版本');
+    expect(wrapper.html()).not.toContain('本地环境架构');
+    expect(wrapper.html()).not.toContain('集群往返时延');
+  });
+
+  it('诊断节点链路：结果改在按钮文案上短暂显示，随后回到动作名', async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountSection('signed-in');
+      const btn = wrapper.get('[data-testid="cloud-sync-diagnose-btn"]');
+
+      expect(btn.text()).toContain('诊断节点链路');
+      expect(btn.attributes('data-state')).toBe('idle');
+
+      await btn.trigger('click');
+      expect(btn.attributes('data-state')).toBe('busy');
+
+      // 预览态诊断固定等待 700ms 再出结果
+      await vi.advanceTimersByTimeAsync(800);
+      await nextTick();
+      expect(btn.text()).toContain('节点延时');
+      expect(btn.attributes('data-state')).toBe('result');
+
+      // 结果只停留一小段时间，避免被误读成常驻状态
+      await vi.advanceTimersByTimeAsync(4000);
+      await nextTick();
+      expect(btn.text()).toContain('诊断节点链路');
+      expect(btn.attributes('data-state')).toBe('idle');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('signed-out 渲染登录卡片，且同步按钮不可用', () => {
