@@ -175,7 +175,7 @@ import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import { getCloudDocSyncI18n } from '@/i18n/ui';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useWorkspaceStore } from '@/stores/workspace';
-import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
+import { resolveCloudDocIdentity, type CloudDocIdentityMeta } from '@/services/cloudSyncService';
 import StatusNotice, { type StatusNoticeTone } from '@/components/ui/StatusNotice.vue';
 import { useSettingsStore } from '@/stores/settings';
 import type { CloudCategoryNode } from '@/lib/tauri';
@@ -184,7 +184,23 @@ const props = withDefaults(defineProps<{
   visible?: boolean;
   filePath?: string | null;
   fileName?: string;
-}>(), { visible: false, filePath: null, fileName: '' });
+  /** 云端文档 id：临时区落位的文档靠它认身份（回显分类 + 更新而非新建） */
+  cloudFileId?: number | null;
+  /** 云端完整路径（云端文档树节点的 path） */
+  cloudPath?: string | null;
+  /** 云端记录里的分类（DB 回显的第一来源） */
+  category?: string | null;
+  /** 云端记录里的分类 id：雪花 id 按字符串 */
+  categoryId?: string | number | null;
+}>(), {
+  visible: false,
+  filePath: null,
+  fileName: '',
+  cloudFileId: null,
+  cloudPath: null,
+  category: null,
+  categoryId: null,
+});
 
 const emit = defineEmits<{
   close: [];
@@ -332,41 +348,58 @@ function selectCategory(option: CategoryOption): void {
   closeCategoryPanel();
 }
 
-/** 打开弹窗时按云端记录回显已同步的分类（categoryId 优先，其次按名称匹配）。 */
+/**
+ * 打开弹窗时回显该文档在云端已有的分类。
+ *
+ * 回显优先级（都是"云端数据"，不再依赖本地路径反推）：
+ * 1. 调用方直接传进来的云端记录字段 categoryId / category（来自 CloudDocItem，最权威、无额外请求）；
+ * 2. docMap 里按 fileId 命中的元数据（同一份云端记录的历史快照）；
+ * 3. 最后才用本地路径推导一次（仅覆盖"文档就在当前工作区内"的老场景）。
+ */
 function applyInitialCategory(): void {
+  const matchById = (rawId: string | number | null | undefined): CategoryOption | undefined => {
+    if (rawId === null || rawId === undefined || rawId === '') {
+      return undefined;
+    }
+    return allOptions.value.find((option) => String(option.id) === String(rawId));
+  };
+  const matchByName = (rawName: string | null | undefined): CategoryOption | undefined => {
+    const name = typeof rawName === 'string' ? rawName.trim() : '';
+    return name ? allOptions.value.find((option) => option.name === name) : undefined;
+  };
+
+  // 1) 云端记录字段（DB 里有存 category/categoryId，直接回显）
+  const fromProps = matchById(props.categoryId) ?? matchByName(props.category);
+  if (fromProps) {
+    selectedId.value = fromProps.id;
+    return;
+  }
+
+  // 2) docMap：按 fileId（或云端路径）命中的历史元数据
   const filePath = props.filePath ?? '';
-  if (!filePath) {
+  // store 里每条记录都带 fileId；按服务层的身份元数据结构收窄，便于直接传给 resolveCloudDocIdentity
+  const docMap = cloudSyncStore.docMap as unknown as Record<string, CloudDocIdentityMeta>;
+  let record: CloudDocIdentityMeta | undefined;
+  if (props.cloudFileId !== null) {
+    record = Object.values(docMap).find((item) => item.fileId === props.cloudFileId);
+  }
+  if (!record && filePath) {
+    const identity = resolveCloudDocIdentity({
+      filePath,
+      cloudFileId: props.cloudFileId,
+      cloudPath: props.cloudPath,
+      docMap,
+      workspaceName: workspaceStore.currentWorkspaceName,
+      workspacePath: workspaceStore.currentWorkspacePath,
+    });
+    record = identity.meta ?? docMap[identity.cloudPath];
+  }
+  if (!record) {
     return;
   }
-  const cloudPath = resolveCloudDocPathForFile(
-    filePath,
-    workspaceStore.currentWorkspaceName,
-    workspaceStore.currentWorkspacePath,
-  );
-  const docMap = cloudSyncStore.docMap as Record<string, { category?: string | null; categoryId?: string | number | null }>;
-  let record = docMap[cloudPath];
-  if (!record) {
-    // 工作区名不一致时按相对路径后缀兜底匹配
-    const relative = filePath.replace(/\\/g, '/').split('/').slice(-2).join('/');
-    const matchedKey = Object.keys(docMap).find((key) => key.endsWith(`/${relative}`));
-    record = matchedKey ? docMap[matchedKey] : undefined;
-  }
-  if (!record) {
-    return;
-  }
-  const recordId = record.categoryId;
-  if (recordId !== null && recordId !== undefined) {
-    const matched = allOptions.value.find((option) => String(option.id) === String(recordId));
-    if (matched) {
-      selectedId.value = matched.id;
-      return;
-    }
-  }
-  if (record.category) {
-    const matched = allOptions.value.find((option) => option.name === record.category);
-    if (matched) {
-      selectedId.value = matched.id;
-    }
+  const fromDocMap = matchById(record.categoryId) ?? matchByName(record.category);
+  if (fromDocMap) {
+    selectedId.value = fromDocMap.id;
   }
 }
 
@@ -431,6 +464,9 @@ async function confirm(overwrite: boolean): Promise<void> {
     const category = resolveCategory();
     const result = await syncDocumentByPath({
       filePath,
+      // 云端身份：临时区落位的文档必须靠 fileId/cloudPath 定位，避免被当成新文档
+      fileId: props.cloudFileId,
+      cloudPath: props.cloudPath,
       category: category.category,
       categoryId: category.categoryId,
       overwrite,
@@ -481,6 +517,21 @@ watch(
     void loadCategories();
   },
   { immediate: true },
+);
+
+// 同一个弹窗被不同文档复用（或分类数据晚到）时，重新回显一次，避免停在上一个文档的分类上
+watch(
+  () => [props.filePath, props.cloudFileId, props.category, props.categoryId] as const,
+  () => {
+    if (!props.visible || categoriesState.value !== 'ready') {
+      return;
+    }
+    if (newCategory.value.trim()) {
+      return;
+    }
+    selectedId.value = null;
+    applyInitialCategory();
+  },
 );
 
 defineExpose({ confirm, resolveCategory });

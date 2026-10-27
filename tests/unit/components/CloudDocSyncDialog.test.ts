@@ -333,3 +333,81 @@ describe('CloudDocSyncDialog 分类下拉与成功提示（0.6.23）', () => {
     expect(useCenterToastStore().visible).toBe(false);
   });
 });
+
+describe('CloudDocSyncDialog 云端身份（临时区落位文档的分类回显与更新）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    mocks.fetchCategories.mockResolvedValue({ ok: true, data: CATEGORY_TREE });
+    mocks.syncByPath.mockResolvedValue({ status: 'synced', fileId: 42, version: 4 });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('按云端记录字段回显分类（临时区路径推导不出云端 path 也要能回显）', async () => {
+    const wrapper = mount(CloudDocSyncDialog, {
+      props: {
+        visible: true,
+        // 临时区路径：任何「当前工作区」推导都得不到 tau/分享/…
+        filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/分享/notes/a.md',
+        fileName: 'a.md',
+        cloudFileId: 42,
+        cloudPath: 'tau/分享/notes/a.md',
+        category: '子分类',
+        categoryId: '2002',
+      },
+    });
+    await settle();
+
+    const trigger = wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]');
+    expect(trigger.text()).toContain('子分类');
+  });
+
+  it('确认同步时把 fileId 与 cloudPath 一并下发（走更新而不是新建）', async () => {
+    const wrapper = mount(CloudDocSyncDialog, {
+      props: {
+        visible: true,
+        filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/分享/notes/a.md',
+        fileName: 'a.md',
+        cloudFileId: 42,
+        cloudPath: 'tau/分享/notes/a.md',
+        categoryId: '1001',
+      },
+    });
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
+    await settle();
+
+    expect(mocks.syncByPath).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: 42,
+        cloudPath: 'tau/分享/notes/a.md',
+        categoryId: '1001',
+      }),
+    );
+  });
+
+  it('没有云端记录字段时按 docMap 的 fileId 兜底回显分类', async () => {
+    const cloudSyncStore = useCloudSyncStore();
+    cloudSyncStore.docMap['tau/分享/notes/a.md'] = {
+      fileId: 42,
+      version: 3,
+      contentHash: 'sha256:x',
+      updatedAt: null,
+      category: '随笔',
+      categoryId: '1003',
+    };
+    const wrapper = mount(CloudDocSyncDialog, {
+      props: {
+        visible: true,
+        filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/分享/notes/a.md',
+        fileName: 'a.md',
+        cloudFileId: 42,
+      },
+    });
+    await settle();
+
+    expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('随笔');
+  });
+});

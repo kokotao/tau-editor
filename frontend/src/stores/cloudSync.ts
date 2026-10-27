@@ -37,7 +37,7 @@ import {
 } from '@/services/cloudDocService';
 import {
   CLOUD_SYNC_MAX_BYTES,
-  resolveCloudDocPathForFile,
+  resolveCloudDocIdentity,
   syncCurrentDocument as runCloudSync,
   type CloudSyncResult,
 } from '@/services/cloudSyncService';
@@ -603,11 +603,14 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
 
       const source = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
       const workspaceStore = useWorkspaceStore();
-      const cloudPath = resolveCloudDocPathForFile(
+      // 临时区落位的文档不能用本地路径反推云端身份，否则会新建一篇而不是更新
+      const cloudPath = resolveCloudDocIdentity({
         filePath,
-        workspaceStore.currentWorkspaceName,
-        workspaceStore.currentWorkspacePath,
-      );
+        cloudFileId: tab.cloudFileId ?? null,
+        docMap: docMap.value,
+        workspaceName: workspaceStore.currentWorkspaceName,
+        workspacePath: workspaceStore.currentWorkspacePath,
+      }).cloudPath;
 
       const remote = await resolveRemoteDocForForcePush(tab.cloudFileId ?? null, cloudPath);
       const payload: CloudDocSavePayload = {
@@ -701,11 +704,14 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     const workspaceStore = useWorkspaceStore();
-    const cloudPath = resolveCloudDocPathForFile(
-      tab.filePath,
-      workspaceStore.currentWorkspaceName,
-      workspaceStore.currentWorkspacePath,
-    );
+    // 以标签上的 cloudFileId 为准：临时区落位的文档本地路径反推不出云端路径
+    const cloudPath = resolveCloudDocIdentity({
+      filePath: tab.filePath,
+      cloudFileId: tab.cloudFileId,
+      docMap: docMap.value,
+      workspaceName: workspaceStore.currentWorkspaceName,
+      workspacePath: workspaceStore.currentWorkspacePath,
+    }).cloudPath;
     const previous = docMap.value[cloudPath];
     // `incoming` 显式收窄成 CloudDocMetaInput，避免依赖可选链的 undefined 判定。
     const incoming: CloudDocMetaInput = meta ?? {};
@@ -800,11 +806,13 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
 
     if (tab?.filePath) {
       const workspaceStore = useWorkspaceStore();
-      const cloudPath = resolveCloudDocPathForFile(
-        tab.filePath,
-        workspaceStore.currentWorkspaceName,
-        workspaceStore.currentWorkspacePath,
-      );
+      const cloudPath = resolveCloudDocIdentity({
+        filePath: tab.filePath,
+        cloudFileId: tab.cloudFileId ?? doc.fileId,
+        docMap: docMap.value,
+        workspaceName: workspaceStore.currentWorkspaceName,
+        workspacePath: workspaceStore.currentWorkspacePath,
+      }).cloudPath;
       persistDocMeta(cloudPath, snapshot, {
         fileId: doc.fileId,
         version: doc.version,

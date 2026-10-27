@@ -2363,10 +2363,23 @@ const handleCloudFileSaved = async () => {
 const cloudTreeRefreshToken = ref(0);
 
 /** 右键「同步至云端」：未登录先引导登录，登录了才弹分类弹窗。 */
-const cloudSyncDialog = ref<{ visible: boolean; filePath: string; fileName: string }>({
+const cloudSyncDialog = ref<{
+  visible: boolean;
+  filePath: string;
+  fileName: string;
+  /** 云端身份：临时区落位的文档靠它回显分类并走「更新」而不是「新建」 */
+  cloudFileId: number | null;
+  cloudPath: string | null;
+  category: string | null;
+  categoryId: string | number | null;
+}>({
   visible: false,
   filePath: '',
   fileName: '',
+  cloudFileId: null,
+  cloudPath: null,
+  category: null,
+  categoryId: null,
 });
 
 const handleFileTreeSyncToCloud = (entry: FileTreeNode) => {
@@ -2383,11 +2396,27 @@ const handleFileTreeSyncToCloud = (entry: FileTreeNode) => {
     void syncBinaryDocument(entry);
     return;
   }
-  cloudSyncDialog.value = { visible: true, filePath: entry.path, fileName: entry.name };
+  cloudSyncDialog.value = {
+    visible: true,
+    filePath: entry.path,
+    fileName: entry.name,
+    cloudFileId: null,
+    cloudPath: null,
+    category: null,
+    categoryId: null,
+  };
 };
 
 const handleCloudDocSynced = (result: CloudSyncResult) => {
-  cloudSyncDialog.value = { visible: false, filePath: '', fileName: '' };
+  cloudSyncDialog.value = {
+    visible: false,
+    filePath: '',
+    fileName: '',
+    cloudFileId: null,
+    cloudPath: null,
+    category: null,
+    categoryId: null,
+  };
   cloudTreeRefreshToken.value += 1;
   // 居中 toast：3 秒自动消失（同步成功不再占用弹窗内状态行）
   centerToast.show(cloudSyncCopy.value.cloudSyncResultSynced(result.version), 'success', 3000);
@@ -2533,29 +2562,53 @@ const handleShareStateChanged = () => {
   cloudTreeRefreshToken.value += 1;
 };
 
-/** 云文档树右键的「同步/分享」：把云端 path 反解成本地绝对路径再复用现有流程。 */
+/**
+ * 云文档树右键的「同步/分享」。
+ *
+ * 本地路径优先取「已打开的标签」：跨工作区文档会被落到系统临时区，它不在当前工作区里，
+ * 按工作区反推会指向一个不存在（或另一份）的文件 —— 这也是「同步至云端」曾把更新做成新建的根因。
+ * 同时把云端身份（fileId / 云端路径 / 分类）一并带给同步弹窗，回显与更新都靠它。
+ */
 const handleCloudDocAction = (
   action: 'sync' | 'share',
-  node: { path: string; name: string },
+  node: CloudDocTreeNode,
 ) => {
-  const workspaceName = workspaceStore.currentWorkspaceName ?? '';
-  const prefix = workspaceName ? `tau/${workspaceName}/` : 'tau/';
-  const root = workspaceStore.currentWorkspacePath ?? '';
-  const relative = node.path.startsWith(prefix) ? node.path.slice(prefix.length) : '';
-  if (!root || !relative || relative.includes('..')) {
-    notificationStore.warning(
-      cloudSyncCopy.value.settingsCloudSync,
-      '本地没有对应文件，请先在云端文档树里打开它',
-    );
-    return;
+  const file = node.file ?? null;
+  const cloudFileId = file?.fileId ?? null;
+  const openedTab = cloudFileId === null
+    ? undefined
+    : tabsStore.tabs.find((tab) => tab.cloudFileId === cloudFileId);
+
+  let localPath = openedTab?.filePath ?? '';
+  if (!localPath) {
+    const workspaceName = workspaceStore.currentWorkspaceName ?? '';
+    const prefix = workspaceName ? `tau/${workspaceName}/` : 'tau/';
+    const root = workspaceStore.currentWorkspacePath ?? '';
+    const relative = node.path.startsWith(prefix) ? node.path.slice(prefix.length) : '';
+    if (!root || !relative || relative.includes('..')) {
+      notificationStore.warning(
+        cloudSyncCopy.value.settingsCloudSync,
+        '本地没有对应文件，请先在云端文档树里打开它',
+      );
+      return;
+    }
+    localPath = `${root}/${relative}`;
   }
-  const localPath = `${root}/${relative}`;
+
   if (action === 'sync') {
     if (isBinaryDocPath(localPath)) {
       void syncBinaryDocument({ path: localPath, name: node.name } as FileTreeNode);
       return;
     }
-    cloudSyncDialog.value = { visible: true, filePath: localPath, fileName: node.name };
+    cloudSyncDialog.value = {
+      visible: true,
+      filePath: localPath,
+      fileName: node.name,
+      cloudFileId,
+      cloudPath: node.path ?? null,
+      category: file?.category ?? null,
+      categoryId: file?.categoryId ?? null,
+    };
     return;
   }
   shareDialog.value = { visible: true, filePath: localPath, fileName: node.name };
@@ -5323,6 +5376,10 @@ onUnmounted(() => {
           :visible="cloudSyncDialog.visible"
           :file-path="cloudSyncDialog.filePath"
           :file-name="cloudSyncDialog.fileName"
+          :cloud-file-id="cloudSyncDialog.cloudFileId"
+          :cloud-path="cloudSyncDialog.cloudPath"
+          :category="cloudSyncDialog.category"
+          :category-id="cloudSyncDialog.categoryId"
           @close="cloudSyncDialog.visible = false"
           @synced="handleCloudDocSynced"
         />

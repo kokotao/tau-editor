@@ -197,6 +197,90 @@ export function resolveCloudDocPathForFile(
   return toCloudDocPath(workspaceName, resolveCloudDocRelativePath(filePath, workspaceRoot));
 }
 
+/** docMap 中与「身份判定」相关的字段子集（结构兼容 CloudDocSyncMeta，用结构化类型避免与 store 形成类型环）。 */
+export interface CloudDocIdentityMeta {
+  fileId: number;
+  version?: number;
+  contentHash?: string | null;
+  category?: string | null;
+  categoryId?: string | number | null;
+}
+
+export interface CloudDocIdentity {
+  /** 云端完整路径（保存时必须用它定位文档，不能再用本地路径反推） */
+  cloudPath: string;
+  /** 已知的云端 fileId；无法判定时为 null（说明是首次上传） */
+  fileId: number | null;
+  /** docMap 里命中的元数据（版本/分类/哈希） */
+  meta: CloudDocIdentityMeta | null;
+}
+
+export interface CloudDocIdentityInput {
+  filePath?: string | null;
+  /** 标签上的云端 fileId：一旦存在就是权威身份 */
+  cloudFileId?: number | null;
+  /** 明确的云端路径（来自云端文档树节点的 path） */
+  cloudPath?: string | null;
+  docMap?: Record<string, CloudDocIdentityMeta> | null;
+  workspaceName?: string | null;
+  workspacePath?: string | null;
+}
+
+/**
+ * 解析「这份本地文件到底是云端哪篇文档」。
+ *
+ * 背景：跨工作区云文档会被落到系统临时区（scratch），本地路径已经无法反推出
+ * `tau/<workspace>/<relative>`；此时若仍按本地路径推导，会把「更新同一篇文档」误判成
+ * 「新建一篇文档」（旧文档留在原分类，新文档出现在新分类）。因此优先级必须是：
+ * 显式 cloudPath → 标签的 cloudFileId → 最后才是本地路径推导。
+ */
+export function resolveCloudDocIdentity(input: CloudDocIdentityInput): CloudDocIdentity {
+  const docMap = input.docMap ?? {};
+  const normalize = (value: string): string =>
+    value
+      .replace(/\\/g, '/')
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0)
+      .join('/');
+
+  const findByFileId = (fileId: number): { path: string; meta: CloudDocIdentityMeta } | null => {
+    for (const [path, meta] of Object.entries(docMap)) {
+      if (meta && meta.fileId === fileId) {
+        return { path, meta };
+      }
+    }
+    return null;
+  };
+
+  const explicitPath = typeof input.cloudPath === 'string' ? normalize(input.cloudPath) : '';
+  if (explicitPath) {
+    const meta = docMap[explicitPath] ?? (input.cloudFileId != null ? findByFileId(input.cloudFileId)?.meta ?? null : null);
+    return {
+      cloudPath: explicitPath,
+      fileId: input.cloudFileId ?? meta?.fileId ?? null,
+      meta,
+    };
+  }
+
+  if (input.cloudFileId != null) {
+    const hit = findByFileId(input.cloudFileId);
+    if (hit) {
+      return { cloudPath: hit.path, fileId: hit.meta.fileId, meta: hit.meta };
+    }
+  }
+
+  const derived = input.filePath
+    ? normalize(resolveCloudDocPathForFile(input.filePath, input.workspaceName ?? null, input.workspacePath ?? null))
+    : '';
+  const derivedMeta = derived ? docMap[derived] ?? null : null;
+  return {
+    cloudPath: derived,
+    fileId: derivedMeta?.fileId ?? null,
+    meta: derivedMeta,
+  };
+}
+
 /**
  * 三方决策：
  * - 云端没有文档 → create
@@ -421,18 +505,30 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
     }
 
     const source = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
-    const cloudPath = resolveCloudDocPathForFile(
+    // 与「同步至云端」同一套身份解析：临时区落位的文档必须靠 tagging 的 cloudFileId 认身份，
+    // 否则会把更新误判为新建（旧文档留在原分类）。
+    const { useCloudSyncStore } = await import('@/stores/cloudSync');
+    const identity = resolveCloudDocIdentity({
       filePath,
-      context.workspaceStore.currentWorkspaceName,
-      context.workspaceStore.currentWorkspacePath,
-    );
+      cloudFileId: tab.cloudFileId ?? null,
+      docMap: useCloudSyncStore().docMap,
+      workspaceName: context.workspaceStore.currentWorkspaceName,
+      workspacePath: context.workspaceStore.currentWorkspacePath,
+    });
+    const cloudPath = identity.cloudPath;
 
     const remoteOutcome = await findCloudDocByPath(cloudPath);
     if (!remoteOutcome.ok) {
       return { status: 'failed', message: remoteOutcome.message };
     }
 
-    const remote = remoteOutcome.data;
+    let remote = remoteOutcome.data;
+    if (!remote && identity.fileId !== null) {
+      const detail = await getCloudDoc(identity.fileId);
+      if (detail.ok) {
+        remote = detail.data;
+      }
+    }
     // 保存流程可能更新过标签，重新取一次以拿到最新云端基线。
     const currentTab = resolveTargetTab(context.tabsStore, tab.id) ?? tab;
     const decision = resolveCloudSyncDecision({
@@ -528,6 +624,10 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
 /** 右键「同步至云端」的入参：文件可能没在标签里打开。 */
 export interface CloudDocSyncByPathInput {
   filePath: string;
+  /** 云端文档 id：跨工作区落位到临时区的文档靠它判定「更新谁」，不再依赖本地路径反推 */
+  fileId?: number | null;
+  /** 云端完整路径（云端文档树节点的 path）：与 fileId 一起构成权威身份 */
+  cloudPath?: string | null;
   /** 叶子分类名（自由文本；「新建分类」就写这里，不调管理端接口） */
   category?: string | null;
   /** 分类节点 id：雪花 id 按字符串透传（number 仅兼容旧调用方） */
@@ -572,17 +672,31 @@ export async function syncDocumentByPath(
     }
 
     const source = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
-    const cloudPath = resolveCloudDocPathForFile(
+    // 身份优先级：显式 cloudPath → 标签 cloudFileId → 本地路径推导。
+    // 跨工作区文档被落到系统临时区后，本地路径反推不出 tau/<workspace>/…，
+    // 若仍按本地路径推导，会把「更新同一篇文档」误判成「新建文档」。
+    const identity = resolveCloudDocIdentity({
       filePath,
-      context.workspaceStore.currentWorkspaceName,
-      context.workspaceStore.currentWorkspacePath,
-    );
+      cloudFileId: input.fileId ?? openTab?.cloudFileId ?? null,
+      cloudPath: input.cloudPath ?? null,
+      docMap: cloudSyncStore.docMap,
+      workspaceName: context.workspaceStore.currentWorkspaceName,
+      workspacePath: context.workspaceStore.currentWorkspacePath,
+    });
+    const cloudPath = identity.cloudPath;
 
     const remoteOutcome = await findCloudDocByPath(cloudPath);
     if (!remoteOutcome.ok) {
       return { status: 'failed', message: remoteOutcome.message };
     }
-    const remote = remoteOutcome.data;
+    let remote = remoteOutcome.data;
+    // 路径查不到但已知 fileId（例如 docMap 里路径被改名过）：按 id 再确认一次，避免误新建
+    if (!remote && identity.fileId !== null) {
+      const detail = await getCloudDoc(identity.fileId);
+      if (detail.ok) {
+        remote = detail.data;
+      }
+    }
 
     // 基线优先取标签，其次取 docMap（文件没打开时仍然有上次同步的哈希）
     const baseHash = openTab?.cloudContentHash
@@ -595,7 +709,17 @@ export async function syncDocumentByPath(
       baseHash,
     });
 
-    if (decision === 'skip' && remote) {
+    // 只改分类、内容没变：仍然要提交一次「更新」（否则用户选的分类落不了地）。
+    // 分类 id 两边都有时只比 id（分类改名不应被当成换了分类）。
+    const categoryTouched = input.category !== undefined || input.categoryId !== undefined;
+    const localCategoryId = input.categoryId ?? null;
+    const remoteCategoryId = remote?.categoryId ?? null;
+    const sameCategory = localCategoryId !== null || remoteCategoryId !== null
+      ? String(localCategoryId ?? '') === String(remoteCategoryId ?? '')
+      : (input.category ?? null) === (remote?.category ?? null);
+    const categoryChanged = remote !== null && categoryTouched && !sameCategory;
+
+    if (decision === 'skip' && remote && !categoryChanged) {
       if (openTab) {
         applySyncedMeta(context, openTab.id, {
           fileId: remote.fileId,
