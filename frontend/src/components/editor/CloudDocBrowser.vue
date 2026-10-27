@@ -99,29 +99,46 @@
         <!-- ---------- 左栏 256：工作空间 / 目录树 / 标签 / 同步底栏 ---------- -->
         <aside class="cloud-browser__sidebar" aria-label="云文档导航" data-testid="cloud-browser-sidebar">
           <div class="cloud-browser__sidebar-scroll cd-scroll">
-            <!-- 工作空间 -->
+            <!-- 工作空间（数据驱动：由云端路径 `tau/<workspace>/…` 派生，后端没有独立的空间实体） -->
             <section class="cloud-browser__section">
               <div class="cloud-browser__section-head cd-mono">
                 <span>{{ copy.shell.workspaceSection }}</span>
-                <span class="cd-dim">{{ copy.shell.workspacePlan }}</span>
               </div>
-              <nav class="cloud-browser__spaces">
+              <nav class="cloud-browser__spaces" data-testid="cloud-browser-workspaces">
                 <button
-                  v-for="space in SPACES"
-                  :key="space.id"
                   type="button"
                   class="cloud-browser__space"
-                  :class="{ 'cloud-browser__space--active': activeSpace === space.id }"
-                  :aria-pressed="activeSpace === space.id"
-                  :data-testid="`cloud-browser-space-${space.id}`"
-                  @click="activeSpace = space.id"
+                  :class="{ 'cloud-browser__space--active': activeWorkspace === '' }"
+                  :aria-pressed="activeWorkspace === ''"
+                  data-testid="cloud-browser-workspace-all"
+                  @click="selectWorkspace('')"
                 >
                   <svg class="cloud-browser__space-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path :d="space.icon" />
+                    <path d="M17.5 19a4.5 4.5 0 0 0 .4-8.98A6 6 0 0 0 6.3 12.4 3.6 3.6 0 0 0 7 19h10.5Z" />
                   </svg>
-                  <span>{{ space.label }}</span>
-                  <span v-if="activeSpace === space.id" class="cloud-browser__space-dot" aria-hidden="true"></span>
+                  <span class="cloud-browser__space-name">{{ copy.shell.workspaceAll }}</span>
+                  <span class="cloud-browser__space-count cd-mono">{{ allFileCount }}</span>
                 </button>
+                <button
+                  v-for="space in workspaces"
+                  :key="space.name"
+                  type="button"
+                  class="cloud-browser__space"
+                  :class="{ 'cloud-browser__space--active': activeWorkspace === space.name }"
+                  :aria-pressed="activeWorkspace === space.name"
+                  :title="space.name"
+                  :data-testid="`cloud-browser-workspace-${space.name}`"
+                  @click="selectWorkspace(space.name)"
+                >
+                  <svg class="cloud-browser__space-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  </svg>
+                  <span class="cloud-browser__space-name">{{ space.name }}</span>
+                  <span class="cloud-browser__space-count cd-mono">{{ space.count }}</span>
+                </button>
+                <p v-if="workspaces.length === 0" class="cloud-browser__spaces-empty" data-testid="cloud-browser-workspace-empty">
+                  {{ copy.shell.workspaceNone }}
+                </p>
               </nav>
             </section>
 
@@ -147,13 +164,14 @@
                   ref="sidebarTreeRef"
                   layout="tree"
                   compact
-                  :nodes="keywordTree"
+                  :nodes="workspaceTree"
                   :selected-key="selectedKey"
                   @select="onSelect"
                   @open-file="emit('open-file', $event)"
                   @written="emit('cloud-file-saved')"
                   @changed="reload()"
                   @doc-action="(action, node) => emit('doc-action', action, node)"
+                  @edit-cloud-doc="(node) => emit('edit-cloud-doc', node)"
                 />
               </div>
             </section>
@@ -295,6 +313,7 @@
               @written="emit('cloud-file-saved')"
               @changed="reload()"
               @doc-action="(action, node) => emit('doc-action', action, node)"
+              @edit-cloud-doc="(node) => emit('edit-cloud-doc', node)"
             />
           </div>
 
@@ -336,7 +355,7 @@
                 <svg class="cloud-browser__btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
                 </svg>
-                {{ copy.shell.openInEditor }}
+                {{ copy.shell.editInEditor }}
               </button>
               <div class="cloud-browser__inspect-actions">
                 <button type="button" class="cd-btn cd-btn--secondary" data-testid="cloud-browser-download" @click="notifyDesktopOnly()">
@@ -428,6 +447,7 @@ import {
   type CloudDocTreeNode,
 } from '@/services/cloudBrowserService';
 import { fetchCloudCategories } from '@/services/cloudBlogService';
+import { cloudWorkspaceNameFromPath } from '@/services/cloudDocLanding';
 import type { CloudCategoryNode, CloudDocItem } from '@/lib/tauri';
 import { getCloudDocBrowserI18n, getCloudDocPanelI18n } from '@/i18n/ui';
 import { useCenterToastStore } from '@/stores/centerToast';
@@ -451,6 +471,11 @@ const emit = defineEmits<{
   'cloud-file-saved': [];
   /** 云文档右键动作（同步/分享）交给上层处理 */
   'doc-action': [action: 'sync' | 'share', node: CloudDocTreeNode];
+  /**
+   * 「在编辑器中打开」：树只做编排，落位/开标签/绑定 cloudFileId 一律由宿主完成
+   * （与 CloudDocTree 的 `edit-cloud-doc` 同一契约，这里原样透传给上一层）。
+   */
+  'edit-cloud-doc': [node: CloudDocTreeNode];
 }>();
 
 /** CloudDocTree 暴露面（折叠/新建分类为既有能力；openNode 为三栏工作台的打开入口）。 */
@@ -509,13 +534,6 @@ type FormatChip = 'all' | 'markdown' | 'word' | 'code';
 const FORMAT_CHIPS: FormatChip[] = ['all', 'markdown', 'word', 'code'];
 const activeFormat = ref<FormatChip>('all');
 const activeTags = ref<string[]>([]);
-/** 工作空间分区（设计稿为导航层级；真实云端只有一个工作区，这里只做视觉选中态）。 */
-const SPACES = computed(() => [
-  { id: 'personal', label: copy.value.shell.spacePersonal, icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21c0-4 3.6-6 8-6s8 2 8 6' },
-  { id: 'team', label: copy.value.shell.spaceTeam, icon: 'M8.6 10.7 15.4 6.3M8.6 13.3l6.8 4.4M21 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM21 19a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z' },
-  { id: 'archive', label: copy.value.shell.spaceArchive, icon: 'M3 5h18v4H3zM5 9v11h14V9M10 13h4' },
-]);
-const activeSpace = ref('team');
 
 /** 文件类型判定：徽标配色 + 格式筛选 + 检查器徽标共用一套分类。 */
 type FileKind = 'markdown' | 'word' | 'code' | 'json' | 'image' | 'other';
@@ -602,6 +620,62 @@ function filterTreeByFile(
   return walk(nodes);
 }
 
+// ---------------------------------------------------------------------------
+// 工作空间导航（真实数据）
+// ---------------------------------------------------------------------------
+/**
+ * 全部云端文档的文件数（不含工作空间/格式/标签筛选，只跟关键字无关的数据源走）。
+ * 「全部云端文档」这一项是导航入口，计数口径要保持稳定。
+ */
+const allFileCount = computed(() => countCloudDocFiles(sourceTree.value));
+
+/**
+ * 工作空间列表：后端没有「团队空间 / 归档 / CLOUD PRO」这类实体，
+ * 因此只能从云端路径反查——`CloudDocItem.path` 形如 `tau/<workspace>/<relative…>`，
+ * `tau` 之后的第一段就是工作空间名（与 cloudDocLanding 的落位规则同一套判定）。
+ *
+ * 统计用 sourceTree（与关键字无关）而非 keywordTree：边打字边增删导航项会让左栏「跳」。
+ * 排序固定为「文件数降序 → 名称升序」，保证同样数据每次渲染顺序一致。
+ * 反查不到工作空间的文档（路径不以 `tau/` 开头）只出现在「全部云端文档」里。
+ */
+const workspaces = computed<{ name: string; count: number }[]>(() => {
+  const counts = new Map<string, number>();
+  for (const node of collectFiles(sourceTree.value)) {
+    const name = cloudWorkspaceNameFromPath(node.path);
+    if (!name) {
+      continue;
+    }
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((left, right) => right.count - left.count
+      || left.name.localeCompare(right.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' }));
+});
+
+/** 当前工作空间（'' = 全部云端文档）。 */
+const activeWorkspace = ref('');
+
+/** 工作空间过滤层：叠在关键字之后，供格式 chips / 标签 / 表格共用。 */
+const workspaceTree = computed(() => {
+  const name = activeWorkspace.value;
+  if (!name) {
+    return keywordTree.value;
+  }
+  return filterTreeByFile(keywordTree.value, (node) => cloudWorkspaceNameFromPath(node.path) === name);
+});
+
+function selectWorkspace(name: string): void {
+  activeWorkspace.value = name;
+}
+
+/** 数据刷新后该工作空间消失（文件被删/移动）时，退回「全部云端文档」。 */
+watch(workspaces, (list) => {
+  if (activeWorkspace.value && !list.some((space) => space.name === activeWorkspace.value)) {
+    activeWorkspace.value = '';
+  }
+});
+
 /** 标签是后端自由文本：逗号/分号/换行分隔，去掉 # 前缀后去重。 */
 function parseTags(raw: string | null): string[] {
   if (!raw) {
@@ -630,7 +704,7 @@ const allTags = computed<string[]>(() => {
 
 const formatCounts = computed(() => {
   const counts = { all: 0, markdown: 0, word: 0, code: 0 };
-  for (const node of collectFiles(keywordTree.value)) {
+  for (const node of collectFiles(workspaceTree.value)) {
     counts.all += 1;
     if (matchesFormat(node.name, 'markdown')) {
       counts.markdown += 1;
@@ -643,12 +717,12 @@ const formatCounts = computed(() => {
   return counts;
 });
 
-/** 中间列表：关键字 + 格式 + 标签三重筛选后的树。 */
+/** 中间列表：工作空间 + 关键字 + 格式 + 标签多重筛选后的树。 */
 const tableTree = computed(() => {
   const chip = activeFormat.value;
   const tags = activeTags.value;
   const tagFilter = tags.length > 0;
-  return filterTreeByFile(keywordTree.value, (node) => {
+  return filterTreeByFile(workspaceTree.value, (node) => {
     if (!matchesFormat(node.name, chip)) {
       return false;
     }
@@ -666,9 +740,11 @@ function toggleTag(tag: string): void {
     : [...activeTags.value, tag];
 }
 
+/** 清除筛选：格式 + 标签 + 工作空间一起复位（关键字由搜索框单独维护）。 */
 function clearFilters(): void {
   activeFormat.value = 'all';
   activeTags.value = [];
+  activeWorkspace.value = '';
 }
 
 function formatChipLabel(chip: FormatChip): string {
@@ -688,12 +764,18 @@ function formatChipLabel(chip: FormatChip): string {
 // ---------------------------------------------------------------------------
 // 计数 / 选中 / 面包屑
 // ---------------------------------------------------------------------------
-const fileCount = computed(() => countCloudDocFiles(keywordTree.value));
+const fileCount = computed(() => countCloudDocFiles(workspaceTree.value));
 const visibleFileCount = computed(() => countCloudDocFiles(tableTree.value));
 const matchedTotal = computed(() =>
   previewMode.value ? (props.previewTotal ?? fileCount.value) : (total.value || records.value.length),
 );
-const countLabel = computed(() => copy.value.count(fileCount.value, matchedTotal.value));
+/** 标题计数胶囊：选中工作空间时补一段作用域提示，让「数字为什么变了」一眼可见。 */
+const countLabel = computed(() => {
+  const label = copy.value.count(fileCount.value, matchedTotal.value);
+  return activeWorkspace.value
+    ? `${label} · ${copy.value.shell.workspaceScope(activeWorkspace.value)}`
+    : label;
+});
 /** 空态诊断：直接暴露服务端 total / 实拉条数 / 请求页数，区分「真没文档」与「接口异常」。 */
 const emptyDiagnostic = computed(() =>
   copy.value.emptyDetail(total.value, records.value.length, pages.value),
@@ -735,16 +817,16 @@ function firstFileKey(nodes: CloudDocTreeNode[]): string {
 }
 
 const selectedNode = computed<CloudDocTreeNode | null>(() =>
-  selectedKey.value ? findNode(keywordTree.value, selectedKey.value) : null,
+  selectedKey.value ? findNode(workspaceTree.value, selectedKey.value) : null,
 );
 const selectedFile = computed<CloudDocItem | null>(() => selectedNode.value?.file ?? null);
 
-/** 选中项保持有效：数据刷新/筛选后若选中项消失，退回第一条文件。 */
+/** 选中项保持有效：数据刷新/筛选后若选中项消失，退回当前作用域里的第一条文件。 */
 function syncSelection(): void {
-  if (selectedKey.value && findNode(keywordTree.value, selectedKey.value)) {
+  if (selectedKey.value && findNode(workspaceTree.value, selectedKey.value)) {
     return;
   }
-  selectedKey.value = firstFileKey(keywordTree.value);
+  selectedKey.value = firstFileKey(workspaceTree.value);
 }
 
 function onSelect(key: string): void {
@@ -755,16 +837,21 @@ function clearSelection(): void {
   selectedKey.value = '';
 }
 
-watch(keywordTree, () => syncSelection(), { immediate: true });
+watch(workspaceTree, () => syncSelection(), { immediate: true });
 
-/** 面包屑：云端路径形如 `tau/{workspace}/{相对路径}`，前两段不参与展示。 */
+/** 面包屑：云端路径形如 `tau/{workspace}/{相对路径}`，前两段默认不展示；
+ *  选中工作空间时第一段换成该工作空间，目录层级顺延。 */
 const breadcrumb = computed<string[]>(() => {
   const node = selectedNode.value;
+  const workspace = activeWorkspace.value;
   if (!node) {
-    return [];
+    return workspace ? [workspace] : [];
   }
   const parts = node.path.split('/').filter(Boolean);
   const relative = parts[0] === 'tau' && parts.length > 2 ? parts.slice(2, -1) : parts.slice(0, -1);
+  if (workspace) {
+    return [workspace, ...relative.slice(-2)];
+  }
   return relative.slice(-3);
 });
 
@@ -861,8 +948,10 @@ function notifyDesktopOnly(): void {
 }
 
 /**
- * 打开选中文档：「云端 → 本地落盘 → open-file」的整套流程由 CloudDocTree 编排（它已 expose openNode）。
- * 若某天树不再暴露入口，退回事件契约，由上层决定如何打开。
+ * 检查器主按钮「在编辑器中打开」：走 CloudDocTree 暴露的 openNode（它已编排 openTarget → 写盘 → open-file）。
+ * 跨工作区/路径无法映射时由树弹出三选一（取消 / 另存为… / 在编辑器中打开），
+ * 用户在弹窗里选「在编辑器中打开」后树 emit `edit-cloud-doc`，本组件原样透传给宿主，不再自己发 IPC。
+ * 若某天树不再暴露入口，退回事件契约（open-file），由上层决定如何打开。
  */
 function openSelectedInEditor(): void {
   const node = selectedNode.value;
@@ -943,6 +1032,7 @@ watch(
     if (!visible) {
       records.value = [];
       selectedKey.value = '';
+      activeWorkspace.value = '';
       return;
     }
     if (previewMode.value) {
@@ -1179,12 +1269,30 @@ watch(
   opacity: 0.85;
 }
 
-.cloud-browser__space-dot {
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  background: var(--cd-accent, #38bdf8);
-  border-radius: 50%;
+/* 工作空间名占满剩余宽度并省略（路径第一段可能很长），计数等宽右对齐 */
+.cloud-browser__space-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-browser__space-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--cd-text-3, #64748b);
+}
+
+.cloud-browser__space--active .cloud-browser__space-count {
+  color: var(--cd-accent, #38bdf8);
+}
+
+.cloud-browser__spaces-empty {
+  margin: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--cd-text-3, #64748b);
 }
 
 /* 目录树容器（行渲染归 CloudDocTree，table/tree 布局共用） */

@@ -42,6 +42,7 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
 });
 
 import CloudDocBrowser from '@/components/editor/CloudDocBrowser.vue';
+import CloudDocTree from '@/components/editor/CloudDocTree.vue';
 import { buildCloudDocTree } from '@/services/cloudBrowserService';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useWorkspaceStore } from '@/stores/workspace';
@@ -251,6 +252,95 @@ describe('CloudDocBrowser 打开云端文档', () => {
     expect(rows[0]!.text()).toContain('b.md');
   });
 
+  // -------------------------------------------------------------------------
+  // 左栏「工作空间」：后端没有团队空间/归档这类实体，只能由 path 派生
+  // -------------------------------------------------------------------------
+  /** 三个文件落在两个工作空间：alpha 2 份、beta 1 份（路径形如 tau/<workspace>/…）。 */
+  const mountMultiWorkspace = async () => {
+    const wrapper = mount(CloudDocBrowser, {
+      props: {
+        visible: true,
+        previewNodes: buildCloudDocTree([
+          { ...DOC, fileId: 51, path: 'tau/alpha/notes/a.md', title: 'a.md' },
+          { ...DOC, fileId: 52, path: 'tau/alpha/notes/b.md', title: 'b.md' },
+          { ...DOC, fileId: 53, path: 'tau/beta/spec.md', title: 'spec.md' },
+        ]),
+        previewTotal: 3,
+      },
+      global: { plugins: [pinia] },
+    });
+    mountedWrappers.push(wrapper);
+    await flushPromises();
+    return wrapper;
+  };
+
+  const workspaceIds = (wrapper: Awaited<ReturnType<typeof mountMultiWorkspace>>) =>
+    wrapper.findAll('[data-testid^="cloud-browser-workspace-"]')
+      .map((item) => item.attributes('data-testid') ?? '')
+      .filter((id) => id !== 'cloud-browser-workspace-empty');
+
+  it('工作空间列表由 path 派生：全部云端文档 + 各空间文件数，且没有假条目', async () => {
+    const wrapper = await mountMultiWorkspace();
+
+    // 首项固定「全部云端文档」，计数口径是全部文件
+    const all = wrapper.get('[data-testid="cloud-browser-workspace-all"]');
+    expect(all.text()).toContain('全部云端文档');
+    expect(all.text()).toContain('3');
+
+    // workspace 名 = path 中 tau 之后第一段，计数为该空间文件数
+    expect(wrapper.get('[data-testid="cloud-browser-workspace-alpha"]').text()).toContain('2');
+    expect(wrapper.get('[data-testid="cloud-browser-workspace-beta"]').text()).toContain('1');
+    // 稳定排序：文件数降序
+    expect(workspaceIds(wrapper)).toEqual([
+      'cloud-browser-workspace-all',
+      'cloud-browser-workspace-alpha',
+      'cloud-browser-workspace-beta',
+    ]);
+
+    // 后端无实体来源的三个假条目 + CLOUD PRO 徽标已删除
+    expect(wrapper.text()).not.toContain('个人云空间');
+    expect(wrapper.text()).not.toContain('团队分享空间');
+    expect(wrapper.text()).not.toContain('归档与历史备份');
+    expect(wrapper.text()).not.toContain('Cloud Pro');
+  });
+
+  it('点工作空间：中间表格与计数胶囊一并收窄，面包屑首段换成该空间', async () => {
+    const wrapper = await mountMultiWorkspace();
+    const table = () => wrapper.get('[data-testid="cloud-browser-table"]');
+    expect(table().findAll('[data-testid="cloud-browser-file"]').length).toBe(3);
+
+    await wrapper.get('[data-testid="cloud-browser-workspace-beta"]').trigger('click');
+    await flushPromises();
+
+    const rows = table().findAll('[data-testid="cloud-browser-file"]');
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.text()).toContain('spec.md');
+    const count = wrapper.get('[data-testid="cloud-browser-count"]').text();
+    expect(count).toContain('共 1 个文件');
+    expect(count).toContain('工作空间 beta');
+    // 面包屑第一段：tau 与其后的空间段被该工作空间替换
+    expect(wrapper.get('[data-testid="cloud-browser-main"]').text()).toContain('beta');
+  });
+
+  it('点「全部云端文档」恢复全量列表与计数胶囊', async () => {
+    const wrapper = await mountMultiWorkspace();
+    const table = () => wrapper.get('[data-testid="cloud-browser-table"]');
+
+    await wrapper.get('[data-testid="cloud-browser-workspace-alpha"]').trigger('click');
+    await flushPromises();
+    expect(table().findAll('[data-testid="cloud-browser-file"]').length).toBe(2);
+    expect(wrapper.get('[data-testid="cloud-browser-count"]').text()).toContain('共 2 个文件');
+
+    await wrapper.get('[data-testid="cloud-browser-workspace-all"]').trigger('click');
+    await flushPromises();
+
+    expect(table().findAll('[data-testid="cloud-browser-file"]').length).toBe(3);
+    const count = wrapper.get('[data-testid="cloud-browser-count"]').text();
+    expect(count).toContain('共 3 个文件');
+    // 作用域提示消失，回到全局口径
+    expect(count).not.toContain('工作空间');
+  });
+
   it('已同步（哈希一致）时直接打开对应标签，不再拉内容', async () => {
     cloudMocks.openTarget.mockResolvedValue({
       ...TARGET_BASE,
@@ -345,24 +435,58 @@ describe('CloudDocBrowser 打开云端文档', () => {
     expect(wrapper.emitted('cloud-file-saved')).toHaveLength(1);
   });
 
-  it('跨工作区点「只读预览」：遮罩卡片里能看见正文，且不写盘', async () => {
+  it('跨工作区选「在编辑器中打开」：弹窗接管、原样向上 emit edit-cloud-doc 且不写盘', async () => {
     const wrapper = mountBrowser();
     await flushPromises();
     await flushPromises();
 
     await openFirstFileCrossWorkspace(wrapper);
     expect(bodyQuery('cloud-doc-choice-dialog')).not.toBeNull();
+    // 跨工作区不再走「打开失败：…」的 notice，改由三选一弹窗接管
+    expect(wrapper.find('[data-testid="cloud-browser-notice"]').exists()).toBe(false);
 
-    clickInBody('cloud-doc-choice-preview');
+    clickInBody('cloud-doc-choice-edit');
     await flushPromises();
 
-    // 回归点：预览浮层此前没有定位与遮罩，点完「毫无反应」
-    expect(bodyQuery('cloud-doc-preview-overlay')).not.toBeNull();
-    expect(bodyQuery('cloud-doc-preview-dialog')?.getAttribute('aria-modal')).toBe('true');
-    expect(bodyQuery('cloud-doc-preview-content')?.textContent).toContain('cloud content');
-    expect(bodyQuery('cloud-doc-choice-dialog')).toBeNull();
+    // 树只发事件，落位/开标签由宿主完成：浏览器外壳不写盘、不自行 open-file
+    const emitted = wrapper.emitted('edit-cloud-doc');
+    expect(emitted).toHaveLength(1);
+    expect((emitted![0]![0] as { path: string }).path).toBe('tau/ws/notes/a.md');
     expect(cloudMocks.writeFile).not.toHaveBeenCalled();
     expect(wrapper.emitted('open-file')).toBeUndefined();
+    expect(bodyQuery('cloud-doc-choice-dialog')).toBeNull();
+  });
+
+  it('树 emit edit-cloud-doc 时浏览器原样向上 emit（左栏与中间两处实例都接）', async () => {
+    const wrapper = mount(CloudDocBrowser, {
+      props: {
+        visible: true,
+        previewNodes: buildCloudDocTree(
+          [
+            { ...DOC, path: 'tau/ws/notes/a.md', title: 'a.md' },
+            { ...DOC, fileId: 43, path: 'tau/ws/notes/b.md', title: 'b.md' },
+          ],
+          { stripPrefix: 'tau/ws' },
+        ),
+        previewTotal: 2,
+      },
+      global: { plugins: [pinia] },
+    });
+    mountedWrappers.push(wrapper);
+    await flushPromises();
+
+    // 三栏工作台里有两个 CloudDocTree：左栏 tree + 中间 table，两处都要透传
+    const trees = wrapper.findAllComponents(CloudDocTree);
+    expect(trees.length).toBe(2);
+    const node = buildCloudDocTree([{ ...DOC, path: 'tau/ws/notes/a.md', title: 'a.md' }])[0]!;
+    trees[0]!.vm.$emit('edit-cloud-doc', node);
+    trees[1]!.vm.$emit('edit-cloud-doc', node);
+    await flushPromises();
+
+    const emitted = wrapper.emitted('edit-cloud-doc');
+    expect(emitted).toHaveLength(2);
+    expect(emitted![0]![0]).toBe(node);
+    expect(emitted![1]![0]).toBe(node);
   });
 
   it('跨工作区「另存为…」：写到选中路径后透传 open-file 自动打开', async () => {
