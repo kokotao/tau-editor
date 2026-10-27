@@ -1,6 +1,7 @@
 /**
- * @description 跨工作区云文档：不再直接报错，提供「只读预览 / 另存为 / 取消」；取消不写盘。
- * 同时覆盖商业错误兜底（IPC 异常不再静默）。
+ * @description 跨工作区云文档：不再直接报错，也不再「只读预览」——提供
+ * 「取消 / 另存为… / 在编辑器中打开」三选一，主按钮把节点 emit 给宿主去落位并编辑；
+ * 取消不写盘。同时覆盖商业错误兜底（IPC 异常不再静默）。
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-25 21:25
@@ -169,7 +170,7 @@ describe('CloudDocTree 跨工作区云文档', () => {
     document.body.innerHTML = '';
   });
 
-  it('不在当前工作区时弹出「预览 / 另存为 / 取消」而不是直接失败', async () => {
+  it('不在当前工作区时弹出「取消 / 另存为… / 在编辑器中打开」而不是直接失败', async () => {
     const wrapper = mountTree();
     await openDocMenu(wrapper);
 
@@ -177,72 +178,44 @@ describe('CloudDocTree 跨工作区云文档', () => {
     expect(q('cloud-doc-choice-overlay')).not.toBeNull();
     expect(q('cloud-doc-choice-dialog')).not.toBeNull();
     expect(q('cloud-doc-choice-dialog')?.getAttribute('aria-modal')).toBe('true');
-    expect(q('cloud-doc-choice-preview')).not.toBeNull();
-    expect(q('cloud-doc-choice-save-as')).not.toBeNull();
+
+    // 只有三个动作，且「在编辑器中打开」是主按钮（只读预览已被移除）
+    const actions = q('cloud-doc-choice-dialog')?.querySelectorAll('.cloud-doc-overlay__actions button') ?? [];
+    expect(Array.from(actions).map((button) => button.getAttribute('data-testid'))).toEqual([
+      'cloud-doc-choice-cancel',
+      'cloud-doc-choice-save-as',
+      'cloud-doc-choice-edit',
+    ]);
+    expect(actions[2]?.classList.contains('cloud-doc-tree__button--primary')).toBe(true);
+    expect(q('cloud-doc-choice-preview')).toBeNull();
     expect(wrapper.find('[data-testid="cloud-browser-notice"]').exists()).toBe(false);
   });
 
-  it('只读预览：遮罩卡片里可见正文且不写盘', async () => {
+  it('点「在编辑器中打开」：关掉选择题并把节点 emit 给宿主，树内不写盘、不打开', async () => {
     const wrapper = mountTree();
     await openDocMenu(wrapper);
-    clickEl('cloud-doc-choice-preview');
+    clickEl('cloud-doc-choice-edit');
     await flushPromises();
 
-    // 回归点：预览浮层此前没有定位/遮罩，点完「看起来毫无反应」
-    expect(q('cloud-doc-preview-overlay')).not.toBeNull();
-    expect(q('cloud-doc-preview-dialog')).not.toBeNull();
-    expect(q('cloud-doc-preview-dialog')?.getAttribute('role')).toBe('dialog');
-    expect(q('cloud-doc-preview-dialog')?.getAttribute('aria-modal')).toBe('true');
-    expect(q('cloud-doc-preview-title')?.textContent).toContain('a.md');
-    expect(q('cloud-doc-preview-content')?.textContent).toContain('跨工作区文档');
-    // 选择题在预览打开时收起，两层不会叠在一起
+    // 落位/打开/云绑定由上层（App.vue）完成，树只上抛节点
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+    expect(wrapper.emitted('edit-cloud-doc')?.[0]).toEqual([FILE]);
     expect(q('cloud-doc-choice-dialog')).toBeNull();
+    // 只读预览已下线：点完不会再有预览浮层，也不会顺手写盘或打开文件
+    expect(q('cloud-doc-preview-dialog')).toBeNull();
+    expect(q('cloud-doc-preview-overlay')).toBeNull();
+    expect(mocks.getDoc).not.toHaveBeenCalled();
     expect(mocks.writeFile).not.toHaveBeenCalled();
     expect(wrapper.emitted('open-file')).toBeUndefined();
   });
 
-  it('只读预览：Esc 与关闭按钮都能收起，关闭按钮可聚焦', async () => {
+  it('在编辑器中打开的按钮可见文案是主按钮语义（不再出现「只读预览」）', async () => {
     const wrapper = mountTree();
     await openDocMenu(wrapper);
-    clickEl('cloud-doc-choice-preview');
-    await flushPromises();
 
-    const closeButton = q<HTMLButtonElement>('cloud-doc-preview-close');
-    expect(closeButton).not.toBeNull();
-    // 打开即聚焦关闭按钮：键盘用户不必先 Tab 找出口
-    expect(document.activeElement).toBe(closeButton);
-
-    closeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await flushPromises();
-    expect(q('cloud-doc-preview-dialog')).toBeNull();
-
-    // 再次打开后按 Esc 关闭（焦点在树行上时也要能关）
-    await openDocMenu(wrapper);
-    clickEl('cloud-doc-choice-preview');
-    await flushPromises();
-    expect(q('cloud-doc-preview-dialog')).not.toBeNull();
-    pressEscape();
-    await flushPromises();
-    expect(q('cloud-doc-preview-dialog')).toBeNull();
-  });
-
-  it('非文本类只读预览：给提示而不是空白卡片', async () => {
-    // 预览分支按「文件名后缀」判定，换个 .png 节点即可走到 hint 分支
-    const png: CloudDocTreeNode = {
-      ...FILE,
-      key: 'tau/other-ws/a.png',
-      name: 'a.png',
-      path: 'tau/other-ws/a.png',
-      file: FILE.file ? { ...FILE.file, path: 'tau/other-ws/a.png', title: 'a.png' } : null,
-    };
-    const wrapper = mountTree([{ ...CATEGORY, children: [png] }]);
-    await openDocMenu(wrapper);
-    clickEl('cloud-doc-choice-preview');
-    await flushPromises();
-
-    expect(q('cloud-doc-preview-dialog')).not.toBeNull();
-    expect(q('cloud-doc-preview-hint')?.textContent).toContain('暂不支持应用内预览');
-    expect(mocks.writeFile).not.toHaveBeenCalled();
+    const editButton = q('cloud-doc-choice-edit');
+    expect(editButton?.textContent).toContain('在编辑器中打开');
+    expect(q('cloud-doc-choice-dialog')?.textContent).not.toContain('只读预览');
   });
 
   it('另存为：选位置后写盘并自动打开（open-file）', async () => {
@@ -269,19 +242,18 @@ describe('CloudDocTree 跨工作区云文档', () => {
     expect(mocks.writeFile).not.toHaveBeenCalled();
     expect(wrapper.emitted('open-file')).toBeUndefined();
     expect(q('cloud-doc-choice-dialog')).toBeNull();
-    expect(q('cloud-doc-preview-dialog')).toBeNull();
   });
 
-  it('取消：不写盘也不预览', async () => {
+  it('取消：不写盘、不打开，也不发 edit-cloud-doc', async () => {
     const wrapper = mountTree();
     await openDocMenu(wrapper);
     clickEl('cloud-doc-choice-cancel');
     await flushPromises();
 
     expect(q('cloud-doc-choice-dialog')).toBeNull();
-    expect(q('cloud-doc-preview-dialog')).toBeNull();
     expect(mocks.writeFile).not.toHaveBeenCalled();
     expect(wrapper.emitted('open-file')).toBeUndefined();
+    expect(wrapper.emitted('edit-cloud-doc')).toBeUndefined();
   });
 
   it('选择题按 Esc 关闭：不写盘、不打开', async () => {
@@ -295,6 +267,7 @@ describe('CloudDocTree 跨工作区云文档', () => {
     expect(q('cloud-doc-choice-dialog')).toBeNull();
     expect(mocks.writeFile).not.toHaveBeenCalled();
     expect(wrapper.emitted('open-file')).toBeUndefined();
+    expect(wrapper.emitted('edit-cloud-doc')).toBeUndefined();
   });
 
   it('同工作区但本地不存在：仍走原有「写入并打开」流程', async () => {

@@ -508,3 +508,58 @@ describe('CloudDocTree 布局契约（tree / table 双模式）', () => {
     expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
   });
 });
+
+describe('CloudDocTree 跨工作区选择题：在编辑器中打开', () => {
+  /** Rust 判定「不属于当前工作区」时的返回值：树据此弹出三选一 */
+  const REJECTED = {
+    cloudPath: 'tau/ws/a.md',
+    relativePath: null,
+    absolutePath: null,
+    exists: false,
+    sameContent: false,
+    openable: true,
+    action: 'rejected',
+    reasonCode: 'CLOUD_PATH_NOT_IN_WORKSPACE',
+    reason: '该云文档不属于当前工作区，无法落到本地',
+  } as const;
+
+  async function openChoiceDialog(wrapper: ReturnType<typeof mountTree>): Promise<void> {
+    mocks.openTarget.mockResolvedValue(REJECTED);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-open');
+    await flushPromises();
+  }
+
+  it('只有取消/另存为/在编辑器中打开三个动作，主按钮不再走只读预览', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openChoiceDialog(wrapper);
+
+    expect(q('cloud-doc-choice-dialog')).not.toBeNull();
+    const actions = q('cloud-doc-choice-dialog')?.querySelectorAll('.cloud-doc-overlay__actions button') ?? [];
+    expect(Array.from(actions).map((button) => button.getAttribute('data-testid'))).toEqual([
+      'cloud-doc-choice-cancel',
+      'cloud-doc-choice-save-as',
+      'cloud-doc-choice-edit',
+    ]);
+    expect(actions[2]?.classList.contains('cloud-doc-tree__button--primary')).toBe(true);
+    expect(q('cloud-doc-choice-preview')).toBeNull();
+    // 预览浮层与预览分支一起删除：任何时刻都不应再被挂载
+    expect(q('cloud-doc-preview-dialog')).toBeNull();
+  });
+
+  it('点「在编辑器中打开」把节点交给宿主（落位与云绑定在 App.vue 完成）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openChoiceDialog(wrapper);
+
+    clickEl('cloud-doc-choice-edit');
+    await flushPromises();
+
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+    expect(wrapper.emitted('edit-cloud-doc')?.[0]).toEqual([FILE]);
+    expect(q('cloud-doc-choice-dialog')).toBeNull();
+    expect(q('cloud-doc-preview-dialog')).toBeNull();
+    // 树内不发 IPC：不拉正文、不写盘、不直接打开
+    expect(mocks.getDoc).not.toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')).toBeUndefined();
+  });
+});

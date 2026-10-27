@@ -388,7 +388,9 @@
       </div>
     </Teleport>
 
-    <!-- 跨工作区/无法映射：遮罩 + 居中卡片（此前复用无遮罩的 .__prompt，与底部按钮条视觉重叠） -->
+    <!-- 跨工作区/无法映射：遮罩 + 居中卡片（此前复用无遮罩的 .__prompt，与底部按钮条视觉重叠）。
+         主按钮是「在编辑器中打开」：只读预览已被取代——落位到临时工作区、由宿主打开并绑定云文档，
+         之后的编辑/保存/同步走既有自动保存流水线；树内不发 IPC。 -->
     <CloudDocPreviewDialog
       :visible="openChoice.visible"
       variant="choice"
@@ -399,18 +401,8 @@
     >
       <button type="button" class="cloud-doc-tree__button" data-testid="cloud-doc-choice-cancel" @click="cancelChoice()">{{ panel.cancel }}</button>
       <button type="button" class="cloud-doc-tree__button" data-testid="cloud-doc-choice-save-as" @click="chooseSaveAs()">{{ panel.choiceSaveAs }}</button>
-      <button type="button" class="cloud-doc-tree__button cloud-doc-tree__button--primary" data-testid="cloud-doc-choice-preview" @click="choosePreview()">{{ panel.choicePreview }}</button>
+      <button type="button" class="cloud-doc-tree__button cloud-doc-tree__button--primary" data-testid="cloud-doc-choice-edit" @click="chooseEditInEditor()">{{ panel.editInEditor }}</button>
     </CloudDocPreviewDialog>
-
-    <!-- 只读预览：遮罩 + 居中卡片 + 关闭/Esc，文本类正文可滚动 -->
-    <CloudDocPreviewDialog
-      :visible="previewState.visible"
-      :title="panel.previewTitle(previewState.name)"
-      :content="previewState.kind === 'text' ? previewState.content : ''"
-      :hint="previewState.kind === 'hint' ? previewState.hint : ''"
-      :close-label="panel.close"
-      @close="previewState.visible = false"
-    />
 
     <VersionHistoryDialog
       :visible="historyVisible"
@@ -492,6 +484,11 @@ const emit = defineEmits<{
   changed: [];
   /** 文档级动作交给宿主处理（同步/分享） */
   'doc-action': [action: 'sync' | 'share', node: CloudDocTreeNode];
+  /**
+   * 「在编辑器中打开」云文档：落位到该云工作区的本地临时工作区、打开标签并绑定云端身份，
+   * 之后的编辑/保存/同步由宿主（App.vue）接既有自动保存流水线，树内不发 IPC。
+   */
+  'edit-cloud-doc': [node: CloudDocTreeNode];
   /** 行被选中（两种模式都发），参数为节点 key（`cat:<id>` / 完整云端路径） */
   select: [key: string];
 }>();
@@ -681,7 +678,7 @@ async function openDoc(node: CloudDocTreeNode): Promise<void> {
     });
 
     if (target.action === 'rejected') {
-      // 不在当前工作区 / 路径无法映射：不再直接报错，改为「只读预览 / 另存为 / 取消」
+      // 不在当前工作区 / 路径无法映射：不再直接报错，改为「在编辑器中打开 / 另存为 / 取消」
       if (target.reasonCode === 'CLOUD_PATH_NOT_IN_WORKSPACE') {
         openChoice.value = { visible: true, node };
         return;
@@ -709,7 +706,7 @@ async function openDoc(node: CloudDocTreeNode): Promise<void> {
 /**
  * 打开云端文档前的落位：没有工作区时不打断用户，按解析链静默打开原工作区或建临时工作区。
  *
- * 已经有工作区时保持原行为（同名原地、不同名走只读预览/另存为），不劫持上下文。
+ * 已经有工作区时保持原行为（同名原地、不同名走「在编辑器中打开 / 另存为」），不劫持上下文。
  *
  * @returns 可用于落盘的绝对目录；无法解析时返回 null 并给出提示
  */
@@ -872,16 +869,8 @@ const moveTarget = ref<CloudDocTreeNode | null>(null);
 const deleteTarget = ref<CloudDocTreeNode | null>(null);
 const categoryDeleteTarget = ref<CloudDocTreeNode | null>(null);
 const centerToast = useCenterToastStore();
-/** 跨工作区/路径无法映射时的选择弹层 */
+/** 跨工作区/路径无法映射时的选择弹层：主按钮改为「在编辑器中打开」 */
 const openChoice = ref<{ visible: boolean; node: CloudDocTreeNode | null }>({ visible: false, node: null });
-/** 只读预览状态 */
-const previewState = ref<{
-  visible: boolean;
-  name: string;
-  content: string;
-  kind: 'text' | 'hint';
-  hint: string;
-}>({ visible: false, name: '', content: '', kind: 'text', hint: '' });
 const historyVisible = ref(false);
 const historyTarget = ref<CloudDocTreeNode | null>(null);
 const propsVisible = ref(false);
@@ -1134,7 +1123,7 @@ async function confirmDeleteCategory(): Promise<void> {
   }
 }
 
-/** 应用内预览只支持文本类（markdown/代码/纯文本）。 */
+/** 可编辑打开只支持文本类（markdown/代码/纯文本）：另存为仍用它判断类型。 */
 function isPreviewableText(name: string): boolean {
   const ext = (name.split('.').pop() ?? '').toLowerCase();
   return [
@@ -1148,31 +1137,20 @@ function cancelChoice(): void {
   openChoice.value = { visible: false, node: null };
 }
 
-/** 只读预览：不写盘（文本类直接展示，其它类型给提示）。 */
-async function choosePreview(): Promise<void> {
+/**
+ * 在编辑器中打开（替代原「只读预览」）：关掉选择题，把节点交给宿主。
+ *
+ * 树内刻意不发 IPC：落位（cloudDocEditOpen.materializeCloudDocForEdit）、打开标签、
+ * 绑定 cloudFileId/cloudVersion/cloudContentHash 全由 App.vue 完成，
+ * 这样侧栏、浏览弹窗两个宿主可以各自接自己的打开逻辑，树保持纯编排。
+ */
+function chooseEditInEditor(): void {
   const node = openChoice.value.node;
   openChoice.value = { visible: false, node: null };
-  const fileId = node?.file?.fileId;
-  if (!node || fileId === undefined) {
+  if (!node?.file) {
     return;
   }
-  const outcome = await getCloudDoc(fileId);
-  if (!outcome.ok) {
-    notice.value = outcome.message;
-    return;
-  }
-  const content = outcome.data.content ?? '';
-  if (isPreviewableText(node.name) && content) {
-    previewState.value = { visible: true, name: node.name, content, kind: 'text', hint: '' };
-    return;
-  }
-  previewState.value = {
-    visible: true,
-    name: node.name,
-    content: '',
-    kind: 'hint',
-    hint: panel.value.previewUnsupported,
-  };
+  emit('edit-cloud-doc', node);
 }
 
 /** 另存为：系统保存对话框选位置后写盘，写盘成功即交由宿主打开；取消则不写盘、不打开。 */
@@ -1885,7 +1863,7 @@ defineExpose({ cancelOpen, openCreateCategory, openNode, openByKey, selectByKey 
   border-color: var(--cd-accent, #38bdf8);
 }
 
-/* 选择题主按钮（只读预览）：按钮作为插槽内容仍带本组件作用域，可直接在这里上强调色 */
+/* 选择题主按钮（在编辑器中打开）：按钮作为插槽内容仍带本组件作用域，可直接在这里上强调色 */
 .cloud-doc-tree__button--primary {
   color: var(--cd-accent, #38bdf8);
   border-color: var(--cd-accent, #38bdf8);

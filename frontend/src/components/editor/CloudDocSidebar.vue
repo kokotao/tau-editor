@@ -54,6 +54,7 @@
         :nodes="tree"
         compact
         @open-file="emit('open-file', $event)"
+        @edit-cloud-doc="emit('edit-cloud-doc', $event)"
         @written="emit('cloud-file-saved')"
         @changed="reload()"
         @doc-action="(action, node) => emit('doc-action', action, node)"
@@ -94,6 +95,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'open-file': [path: string];
+  /** 跨工作区云文档「在编辑器中打开」：落位与标签绑定由宿主完成 */
+  'edit-cloud-doc': [node: CloudDocTreeNode];
   'login-request': [];
   /** 云端内容已写入磁盘：上层据此刷新工作区文件树 */
   'cloud-file-saved': [];
