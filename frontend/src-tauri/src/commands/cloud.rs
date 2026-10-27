@@ -2231,6 +2231,63 @@ pub fn is_openable_text_path(path: &str) -> bool {
     TEXT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
 }
 
+/// 云文档临时工作区目录名（位于系统临时目录下）。
+pub const CLOUD_SCRATCH_DIR_NAME: &str = "tau-scratch";
+
+/// 临时工作区目录名归一化：替换路径分隔符与保留字符，避免把 `../` 之类带出临时目录。
+pub fn scratch_workspace_segment(workspace_name: &str) -> String {
+    const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    let cleaned: String = workspace_name
+        .trim()
+        .chars()
+        .map(|c| {
+            if FORBIDDEN.contains(&c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    // 头尾的点在 Windows 上无法创建目录，一并去掉
+    let trimmed = cleaned.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    let value: String = trimmed.chars().take(64).collect();
+    if value.is_empty() {
+        "_unnamed".to_string()
+    } else {
+        value
+    }
+}
+
+/// 批量探测目录是否存在（落位解析链用，避免 N 次 IPC 往返）。
+#[tauri::command]
+pub fn cloud_dir_exists(paths: Vec<String>) -> Vec<bool> {
+    paths
+        .iter()
+        .map(|path| {
+            let trimmed = path.trim();
+            !trimmed.is_empty() && std::path::Path::new(trimmed).is_dir()
+        })
+        .collect()
+}
+
+/// 确保云文档临时工作区目录存在，返回其绝对路径。
+///
+/// 目录落在系统临时目录下：临时工作区只做编辑缓冲，云路径才是文档身份，
+/// 因此这里不需要用户先选一个"正式"工作区。
+#[tauri::command]
+pub fn cloud_scratch_workspace(workspace_name: String) -> Result<String, CommandError> {
+    let root = std::env::temp_dir()
+        .join(CLOUD_SCRATCH_DIR_NAME)
+        .join(scratch_workspace_segment(&workspace_name));
+    std::fs::create_dir_all(&root).map_err(|error| {
+        CommandError::new(
+            "SCRATCH_UNAVAILABLE",
+            format!("无法创建云文档临时工作区：{error}"),
+        )
+    })?;
+    Ok(root.to_string_lossy().into_owned())
+}
+
 /// 打开云端文档的动作决策（纯函数，便于单测）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloudOpenAction {
@@ -2778,11 +2835,41 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_refresh_response, cooldown_active, resolve_refreshed_tokens,
-        should_attempt_refresh, should_clear_session_after_retry, RefreshVerdict,
-        REFRESH_FAILURE_COOLDOWN,
+        classify_refresh_response, cloud_dir_exists, cooldown_active, resolve_refreshed_tokens,
+        scratch_workspace_segment, should_attempt_refresh, should_clear_session_after_retry,
+        RefreshVerdict, REFRESH_FAILURE_COOLDOWN,
     };
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn 临时工作区目录名要能安全落盘() {
+        // 中文工作区名（云文档路径里最常见）原样保留
+        assert_eq!(scratch_workspace_segment("分享"), "分享");
+        // 分隔符与保留字符一律替换，避免把 ../ 带出临时目录
+        assert_eq!(scratch_workspace_segment(" a/b\\c "), "a_b_c");
+        assert_eq!(scratch_workspace_segment("../etc"), "_etc");
+        assert_eq!(scratch_workspace_segment("a:b*c?"), "a_b_c_");
+        // 空、纯点、纯空白都回落固定名
+        assert_eq!(scratch_workspace_segment(""), "_unnamed");
+        assert_eq!(scratch_workspace_segment("   "), "_unnamed");
+        assert_eq!(scratch_workspace_segment("..."), "_unnamed");
+        assert_eq!(scratch_workspace_segment("...x..."), "x");
+        // 超长名按字符截断，避免 MAX_PATH
+        assert_eq!(scratch_workspace_segment(&"长".repeat(100)).chars().count(), 64);
+    }
+
+    #[test]
+    fn 目录探测只认非空且真实存在的目录() {
+        let temp = std::env::temp_dir();
+        let flags = cloud_dir_exists(vec![
+            temp.to_string_lossy().into_owned(),
+            "   ".to_string(),
+            String::new(),
+            format!("{}/__tau_not_exists__", temp.to_string_lossy()),
+        ]);
+        assert_eq!(flags, vec![true, false, false, false]);
+        assert!(cloud_dir_exists(Vec::new()).is_empty());
+    }
 
     #[test]
     fn 只有401且本地有刷新令牌才续期() {

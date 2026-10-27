@@ -76,6 +76,7 @@ import {
 } from '@/services/keybindingService';
 import {
   appCommands,
+  cloudCommands,
   fileCommands,
   gitCommands,
   isTauriApp,
@@ -90,6 +91,7 @@ import {
 } from '@/lib/tauri';
 import type { MarkdownLinkStatus, WorkspaceTaskResponse } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
+import { guardPersistedScratchWorkspace } from '@/services/scratchWorkspaceGuard';
 import {
   getAppI18n,
   getCommandText,
@@ -103,6 +105,7 @@ import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
 import ReplacePreviewDialog from './components/editor/ReplacePreviewDialog.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
+import ScratchWorkspaceBanner from './components/editor/ScratchWorkspaceBanner.vue';
 import CloudDocSidebar from './components/editor/CloudDocSidebar.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
 import EditorBreadcrumbs, { type EditorBreadcrumbSegment } from './components/editor/EditorBreadcrumbs.vue';
@@ -130,6 +133,13 @@ import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
 import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
+import { createAutoSaveScheduler } from '@/utils/autoSaveScheduler';
+import { createContentHasher, normalizeContentHash } from '@/utils/contentHash';
+import { saveCloudDoc } from '@/services/cloudDocService';
+import {
+  createCloudDocSaveController,
+  type SaveControllerEvent,
+} from '@/services/cloudDocSaveController';
 import DocumentPreview from './components/editor/DocumentPreview.vue';
 import {
   isDocumentPreviewFilePath,
@@ -967,11 +977,188 @@ const handleOpenRecentFolder = async (path: string) => {
   }
 };
 
+/* ===== 云文档在线编辑：自动保存接线（方案 §3.2 T1 的客户端部分） ===== */
+
+/** fileId → 云端落点。cloud_docs_save 按 path 定位文档，baseVersion 才是乐观锁，两者都必需。 */
+const cloudSaveTargets = new Map<number, { path: string; title: string }>();
+
+/** 同一文件同内容的并发哈希计算会被合并，debounce 抖动不会重复算。 */
+const cloudContentHasher = createContentHasher();
+
+/** 409：登记冲突 + 一条中英通知。不弹三选一（后续单），也绝不自动覆盖。 */
+const handleCloudSaveEvent = (event: SaveControllerEvent): void => {
+  if (event.type === 'saved') {
+    // 回写标签元数据：下次重新打开这份文档时，基线来自这里而不是内存里的控制器
+    const savedTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
+    if (savedTab) {
+      tabsStore.updateTab(savedTab.id, {
+        cloudFileId: event.fileId,
+        cloudVersion: event.version,
+        cloudContentHash: event.contentHash,
+        lastSyncedAt: event.at,
+      });
+    }
+    return;
+  }
+
+  if (event.type !== 'conflict') {
+    // failed 只是这一次没落地（网络/配额），本地文件已保存；每 2.5s 弹一次会变成骚扰
+    return;
+  }
+
+  const copy = cloudSyncCopy.value;
+  const conflictTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
+  const isNew = fileConflictsStore.flag({
+    path: conflictTab?.filePath ?? `cloud-doc:${event.fileId}`,
+    kind: 'modified',
+    source: 'cloud',
+    detectedAt: Date.now(),
+  });
+  if (isNew) {
+    notificationStore.warning(
+      copy.cloudDocSaveConflictTitle,
+      copy.cloudDocSaveConflictBody(event.message ?? ''),
+    );
+  }
+};
+
+const cloudSaveController = createCloudDocSaveController({
+  // 真正的 IPC：path 定位文档，baseVersion 由控制器按会话基线透传（绝不传 null 走"新建"）
+  save: async (snapshot) => {
+    const target = cloudSaveTargets.get(snapshot.fileId);
+    // 派发这一刻再确认标签还开着：标签关掉/工作区切走后，即便队列里还排着一次，
+    // 这里也直接返回失败 —— 文档已经没了，不允许再发 IPC 把旧内容写回云端。
+    const stillOpen = tabsStore.tabs.some((tab) => tab.cloudFileId === snapshot.fileId);
+    if (!target || !stillOpen) {
+      return { ok: false, kind: 'unsupported', message: '文档已关闭，已丢弃这次云端保存。' };
+    }
+    return saveCloudDoc({
+      path: target.path,
+      title: target.title,
+      content: snapshot.content,
+      contentHash: snapshot.contentHash,
+      baseVersion: snapshot.baseVersion,
+    });
+  },
+  notify: handleCloudSaveEvent,
+});
+
+/** 一次自动保存：算哈希（async）→ 交给控制器（空写抑制、单飞合并、409 停止都在里面）。 */
+const runCloudAutoSave = async (): Promise<void> => {
+  const tab = activeTab.value;
+  const fileId = tab?.cloudFileId ?? null;
+  if (!tab || fileId === null) {
+    return;
+  }
+
+  // 409 未处理前不再自动保存：控制器本来就会拦，这里省掉一次哈希计算
+  const session = cloudSaveController.session();
+  if (session && session.fileId === fileId && session.status === 'conflict') {
+    return;
+  }
+
+  // 编辑器可能还有一次去抖没回写到标签，保存前先对齐
+  syncActiveEditorContent();
+  const current = activeTab.value;
+  if (!current || current.cloudFileId !== fileId) {
+    return; // 期间换了文档：这次触发作废（控制器里还有一层 Lane 防护）
+  }
+
+  const content = current.content ?? '';
+  const hash = await cloudContentHasher.hashFor(fileId, content);
+  if (activeTab.value?.cloudFileId !== fileId) {
+    return; // 哈希算完时文档已经切走
+  }
+  await cloudSaveController.schedule(content, hash);
+};
+
+const createCloudAutoSave = () => createAutoSaveScheduler({ onTrigger: () => runCloudAutoSave() });
+
+/** 当前文档的自动保存窗口；换文档时整个替换（destroy 是终态，不能复用）。 */
+let cloudAutoSave = createCloudAutoSave();
+
+/**
+ * 打开/切换云文档时建立编辑基线。
+ * 第一步永远是销毁旧的自动保存窗口 —— 这是"文档关掉/切走后不得再补发一次保存"的第一道闸：
+ * 窗口没了，触发源就没了；即便真的在飞，控制器也会因 Lane 引用失效而丢弃结果。
+ */
+const syncCloudSaveSession = (): void => {
+  cloudAutoSave.destroy();
+  cloudAutoSave = createCloudAutoSave();
+
+  const tab = activeTab.value;
+  const fileId = tab?.cloudFileId ?? null;
+  if (!tab || fileId === null) {
+    return;
+  }
+
+  // 云端落点优先取 docMap（cloudPath → fileId 的权威映射）：落位到 scratch 后 path 仍与原文一致，
+  // 用本地 scratch 路径反推会"搬家"。
+  let path: string | null = null;
+  let version: number | null = tab.cloudVersion ?? null;
+  let contentHash: string | null = tab.cloudContentHash ?? null;
+  for (const [docPath, meta] of Object.entries(cloudSyncStore.docMap)) {
+    if (meta.fileId !== fileId) {
+      continue;
+    }
+    path = docPath;
+    version = version ?? meta.version;
+    contentHash = contentHash ?? meta.contentHash;
+    break;
+  }
+  if (!path && tab.filePath) {
+    path = resolveCloudDocPathForFile(
+      tab.filePath,
+      workspaceStore.currentWorkspaceName,
+      workspaceStore.currentWorkspacePath,
+    );
+  }
+  if (!path) {
+    return;
+  }
+
+  cloudSaveTargets.set(fileId, { path, title: tab.fileName });
+  cloudSaveController.open(fileId, {
+    version: version ?? 0,
+    contentHash: normalizeContentHash(contentHash),
+  });
+};
+
+// 打开或切换云文档标签：建立基线（换文档时旧 Lane 立即失权）。
+watch(
+  () => [activeTab.value?.id ?? '', activeTab.value?.cloudFileId ?? null] as const,
+  () => {
+    syncCloudSaveSession();
+  },
+  { immediate: true },
+);
+
+// 标签关闭后丢掉已无主的落点映射：既避免 map 随会话增长，也避免重复用旧 path 保存。
+watch(
+  () => tabsStore.tabs.map((tab) => tab.cloudFileId ?? 0).join('|'),
+  () => {
+    const alive = new Set(
+      tabsStore.tabs
+        .map((tab) => tab.cloudFileId)
+        .filter((fileId): fileId is number => typeof fileId === 'number'),
+    );
+    for (const fileId of [...cloudSaveTargets.keys()]) {
+      if (!alive.has(fileId)) {
+        cloudSaveTargets.delete(fileId);
+      }
+    }
+  },
+);
+
 const handleSave = async () => {
   syncActiveEditorContent();
   markLocalWritePending(activeTab.value?.filePath);
   await tabService.saveActiveTab();
   editorCoreRef.value?.saveLspDocument();
+  // Ctrl+S：本地保存保持原样，云端保存是追加动作（不阻塞、不改变本地保存时延）
+  if (activeTab.value?.cloudFileId != null) {
+    void cloudAutoSave.triggerNow('manual');
+  }
   // 保存后任务勾选状态可能变化，静默重扫一次工作区任务。
   if (workspaceRuntimeId.value && activeTab.value?.language === 'markdown') {
     void refreshWorkspaceTasks();
@@ -2359,6 +2546,10 @@ const handleContentChange = (content: string, modelId: string) => {
   // 编辑器可能在上一次输入去抖后才提交，这里按模型对应的标签回写，避免串写。
   tabService.updateTabContent(modelId, content);
   scheduleSessionSave();
+  // 云文档：内容变化进入 2.5s 空闲窗口；后台模型的回写不参与计时
+  if (modelId === activeTab.value?.id && activeTab.value?.cloudFileId != null) {
+    cloudAutoSave.notifyEditing();
+  }
 };
 
 const handleEditorBlur = (modelId: string) => {
@@ -2366,6 +2557,10 @@ const handleEditorBlur = (modelId: string) => {
   syncActiveEditorContent();
   markLocalWritePending(activeTab.value?.filePath);
   void tabService.saveActiveTab({ silent: true });
+  // 失焦立即补一次云端保存，并取消未到期的去抖窗口（同一次编辑不会存两遍）
+  if (activeTab.value?.cloudFileId != null) {
+    void cloudAutoSave.triggerNow('blur');
+  }
 };
 
 const handleMarkdownCodeLanguageChange = (payload: {
@@ -3747,7 +3942,36 @@ const handleShellKeydown = (event: KeyboardEvent) => {
   toggleSettingsContainer('workspace');
 };
 
-async function restoreSession() {
+/**
+ * 冷启动校验：上次的临时工作区（scratch）目录可能已被系统清理。
+ *
+ * 不清掉的话会同时出现三件事：资源管理器是空树、徽标仍写着"临时工作区"、
+ * 外部文件轮询每 1.5s 刷一条 warn。只处理 scratch——用户自己的目录可能只是
+ * 暂时不可用（网络盘掉线），静默清掉反而会让人丢掉想恢复的上下文。
+ *
+ * @returns 是否真的清掉了（用于阻止 restoreSession 再把这条失效路径复活）
+ */
+async function clearPersistedScratchWorkspaceIfMissing(): Promise<boolean> {
+  const result = await guardPersistedScratchWorkspace(workspaceStore, {
+    probeDirectoryExists: async (path) => {
+      if (!isTauriApp()) {
+        return null;
+      }
+      const [exists] = await cloudCommands.dirExists([path]);
+      return typeof exists === 'boolean' ? exists : null;
+    },
+    notifyCleared: (path) => {
+      notificationStore.warning(
+        appText.value.scratchWorkspaceClearedTitle,
+        appText.value.scratchWorkspaceClearedMessage(path),
+      );
+    },
+  });
+
+  return result === 'cleared';
+}
+
+async function restoreSession(options: { skipWorkspaceRestore?: boolean } = {}) {
   const shouldRestoreLastSession = settingsStore.restoreLastSession;
   const snapshot = shouldRestoreLastSession ? sessionService.load() : null;
   const allRecoveryDrafts = sessionService.loadRecoveryDrafts() ?? [];
@@ -3781,8 +4005,17 @@ async function restoreSession() {
 
   tabsStore.restoreSession(restoredTabs, activeTabId);
 
-  if (shouldRestoreLastSession && snapshot?.workspacePath && snapshot.mode === 'workspace') {
-    workspaceStore.openWorkspace(snapshot.workspacePath);
+  // 失效的临时工作区已在冷启动时清掉，别在这里把它复活
+  const canRestoreWorkspace = !options.skipWorkspaceRestore
+    && shouldRestoreLastSession
+    && snapshot?.workspacePath
+    && snapshot.mode === 'workspace';
+  if (canRestoreWorkspace && snapshot?.workspacePath) {
+    // 保留持久化的来源：scratch 被当成 user 会污染"最近项目"，徽标也会与实际不符
+    const restoredOrigin = workspaceStore.currentWorkspacePath === snapshot.workspacePath
+      ? workspaceStore.workspaceOrigin
+      : 'user';
+    workspaceStore.openWorkspace(snapshot.workspacePath, restoredOrigin);
     void fileSystemStore.syncFromWorkspace();
   } else if (restoredTabs.length > 0) {
     workspaceStore.setMode('single-file', true);
@@ -4090,6 +4323,7 @@ onMounted(async () => {
   }
   window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
+  const scratchContextCleared = await clearPersistedScratchWorkspaceIfMissing();
   await settingsStore.init();
   configureAutoSaveTimer();
   await bootstrapProviders();
@@ -4107,7 +4341,7 @@ onMounted(async () => {
   if (pendingWindowTransfer) {
     applyWindowTransferPayload(pendingWindowTransfer);
   } else {
-    await restoreSession();
+    await restoreSession({ skipWorkspaceRestore: scratchContextCleared });
   }
   await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
   const monacoEditorOpener = registerMonacoEditorOpener({
@@ -4151,6 +4385,8 @@ onUnmounted(() => {
     clearInterval(autoSaveTimer);
     autoSaveTimer = null;
   }
+  // 组件卸载后不再有任何云文档自动保存动作（未到期的 2.5s 窗口一并取消）
+  cloudAutoSave.destroy();
   void stopExternalFileWatch();
   void applicationLspService.dispose();
   lspDiagnosticCounts.clear();
@@ -4526,6 +4762,7 @@ onUnmounted(() => {
                 class="sidebar-panel"
                 data-testid="sidebar-panel-workspace"
               >
+                <ScratchWorkspaceBanner @written="handleCloudFileSaved" />
                 <FileTree
                   ref="fileTreeRef"
                   v-if="workspaceStore.currentWorkspacePath"

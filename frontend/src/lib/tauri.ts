@@ -902,6 +902,11 @@ export const fileCommands = {
     await invokeCommand<void>('write_file', { path, content });
   },
 
+  /** 按字节复制文件（二进制安全，目标已存在时后端报错而不是覆盖），返回复制字节数 */
+  async copyFile(source: string, target: string): Promise<number> {
+    return invokeCommand<number>('copy_file', { source, target });
+  },
+
   async listFiles(dir: string): Promise<FileEntry[]> {
     const entries = await invokeCommand<Array<Omit<FileEntry, 'type'> & { type?: FileEntryType; file_type?: FileEntryType }>>(
       'list_files',
@@ -1485,6 +1490,16 @@ export const cloudCommands = {
       cloudPath: input.cloudPath,
       remoteHash: input.remoteHash ?? null,
     });
+  },
+
+  /** 批量探测目录是否存在（云文档落位解析用，一次往返）。 */
+  async dirExists(paths: string[]): Promise<boolean[]> {
+    return invokeCommand<boolean[]>('cloud_dir_exists', { paths });
+  },
+
+  /** 确保云文档临时工作区目录存在并返回绝对路径。 */
+  async scratchWorkspace(workspaceName: string): Promise<string> {
+    return invokeCommand<string>('cloud_scratch_workspace', { workspaceName });
   },
 
   /** 读取本地待同步源文件并返回内容与 sha256（Rust 计算，避免前端重复实现哈希）。 */

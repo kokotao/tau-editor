@@ -49,6 +49,7 @@ pub fn run() {
             commands::read_file,
             commands::read_file_bytes,
             commands::write_file,
+            commands::copy_file,
             commands::atomic_write_file,
             commands::list_files,
             commands::create_file,
@@ -140,6 +141,8 @@ pub fn run() {
             commands::cloud_docs_share_stats,
             commands::cloud_read_sync_source,
             commands::cloud_doc_open_target,
+            commands::cloud_dir_exists,
+            commands::cloud_scratch_workspace,
             commands::cloud_blog_categories,
             commands::cloud_blog_tags,
         ])

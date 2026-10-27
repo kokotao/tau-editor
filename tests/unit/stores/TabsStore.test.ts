@@ -412,3 +412,97 @@ describe('TabsStore', () => {
     })
   })
 })
+
+describe('TabsStore 标签重定位（临时工作区另存到工作区）', () => {
+  const SCRATCH = 'C:/Users/Administrator/AppData/Local/Temp/tau-scratch/分享'
+  const TARGET = 'D:/WorkSpace/分享'
+
+  let store: ReturnType<typeof useTabsStore>
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useTabsStore()
+  })
+
+  const addDirtyTab = (filePath: string, content = '# 未保存的改动') => store.addTab({
+    filePath,
+    fileName: filePath.split('/').pop() as string,
+    language: 'markdown',
+    isDirty: true,
+    isUntitled: false,
+    content,
+    fileRevision: 'mtimeNs:111',
+    lastKnownModified: 111,
+    externalModifiedAt: null,
+  } as Omit<Tab, 'id' | 'createdAt'>)
+
+  it('dirty 标签只改 filePath：内容与脏标记原样保留，tab id 不变', () => {
+    const tabId = addDirtyTab(`${SCRATCH}/note.md`)
+    const before = store.tabs.find((tab) => tab.id === tabId)
+
+    const outcome = store.relocateTabsUnderWorkspace(SCRATCH, TARGET, ['note.md'])
+
+    const after = store.tabs.find((tab) => tab.id === tabId)
+    expect(outcome.movedTabIds).toEqual([tabId])
+    expect(outcome.skipped).toEqual([])
+    expect(after?.id).toBe(tabId)
+    expect(after?.filePath).toBe(`${TARGET}/note.md`)
+    expect(after?.content).toBe('# 未保存的改动')
+    expect(after?.isDirty).toBe(true)
+    expect(before?.content).toBe(after?.content)
+    // 旧基线绑定临时目录里的文件，迁移后清空，让下次保存重新取基线
+    expect(after?.fileRevision).toBeNull()
+    expect(after?.lastKnownModified).toBeNull()
+    expect(after?.externalModifiedAt).toBeNull()
+  })
+
+  it('目标已被别的标签打开时跳过该标签，路径保持不变', () => {
+    const dirtyId = addDirtyTab(`${SCRATCH}/dup.md`)
+    const holderId = addDirtyTab(`${TARGET}/dup.md`)
+
+    const outcome = store.relocateTabsUnderWorkspace(SCRATCH, TARGET, ['dup.md'])
+
+    expect(outcome.movedTabIds).toEqual([])
+    expect(outcome.skipped.map((item) => [item.tabId, item.reason])).toEqual([[dirtyId, 'occupied-by-tab']])
+    expect(store.tabs.find((tab) => tab.id === dirtyId)?.filePath).toBe(`${SCRATCH}/dup.md`)
+    expect(store.tabs.find((tab) => tab.id === holderId)?.filePath).toBe(`${TARGET}/dup.md`)
+  })
+
+  it('不在旧根下的标签不动，也不产生跳过项', () => {
+    const outsideId = addDirtyTab('E:/Other/keep.md')
+    const insideId = addDirtyTab(`${SCRATCH}/move.md`)
+
+    const outcome = store.relocateTabsUnderWorkspace(SCRATCH, TARGET, ['move.md'])
+
+    expect(outcome.movedTabIds).toEqual([insideId])
+    expect(outcome.skipped).toEqual([])
+    expect(store.tabs.find((tab) => tab.id === outsideId)?.filePath).toBe('E:/Other/keep.md')
+  })
+
+  it('没被复制过去的文件不迁指针，并给出 not-copied', () => {
+    const tabId = addDirtyTab(`${SCRATCH}/binary.docx`)
+
+    const outcome = store.relocateTabsUnderWorkspace(SCRATCH, TARGET, ['note.md'])
+
+    expect(outcome.movedTabIds).toEqual([])
+    expect(outcome.skipped).toEqual([
+      {
+        tabId,
+        fromPath: `${SCRATCH}/binary.docx`,
+        toPath: `${TARGET}/binary.docx`,
+        reason: 'not-copied',
+      },
+    ])
+    expect(store.tabs.find((tab) => tab.id === tabId)?.filePath).toBe(`${SCRATCH}/binary.docx`)
+  })
+
+  it('不传复制清单时不校验，旧根下的标签全部迁移', () => {
+    const tabId = addDirtyTab(`${SCRATCH}/legacy.md`)
+
+    const outcome = store.relocateTabsUnderWorkspace(SCRATCH, TARGET)
+
+    expect(outcome.movedTabIds).toEqual([tabId])
+    expect(store.tabs.find((tab) => tab.id === tabId)?.filePath).toBe(`${TARGET}/legacy.md`)
+  })
+})
+

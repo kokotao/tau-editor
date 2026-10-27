@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { planScratchTabMoves, type ScratchTabPlan, type ScratchTabSkip } from '@/utils/scratchTabRelocation';
 
 export interface Tab {
   id: string;                   // 唯一标识
@@ -33,6 +34,13 @@ export interface Tab {
   cloudContentHash?: string | null;
   /** 最近一次云同步完成时间（毫秒时间戳） */
   lastSyncedAt?: number | null;
+}
+
+/** 临时工作区另存后标签重定位的结果 */
+export interface TabRelocationOutcome {
+  movedTabIds: string[];
+  /** 有目标但没迁的标签：目标已被别的标签打开，或文件没被复制过去 */
+  skipped: ScratchTabSkip[];
 }
 
 export interface TabsState {
@@ -159,6 +167,39 @@ export const useTabsStore = defineStore('tabs', {
       if (!tab) return;
 
       Object.assign(tab, updates);
+    },
+
+    /**
+     * 临时工作区另存后，把 filePath 落在 fromRoot 之下的标签改指到 toRoot。
+     *
+     * 只改路径和磁盘基线：内容、脏标记、撤销栈一律不动，也绝不因路径变化去重读磁盘，
+     * 否则未保存的改动会被静默丢弃。
+     */
+    relocateTabsUnderWorkspace(
+      fromRoot: string,
+      toRoot: string,
+      copiedRelativePaths?: readonly string[],
+    ): TabRelocationOutcome {
+      const plan: ScratchTabPlan = planScratchTabMoves({
+        tabs: this.tabs,
+        fromRoot,
+        toRoot,
+        copiedRelativePaths,
+      });
+
+      const movedTabIds: string[] = [];
+      for (const move of plan.moves) {
+        const tab = this.tabs.find((item) => item.id === move.tabId);
+        if (!tab) continue;
+        tab.filePath = move.toPath;
+        // 旧 revision/修改时间绑定的是临时目录里的那份文件，清掉让下一次保存重新取基线
+        tab.fileRevision = null;
+        tab.lastKnownModified = null;
+        tab.externalModifiedAt = null;
+        movedTabIds.push(tab.id);
+      }
+
+      return { movedTabIds, skipped: plan.skipped };
     },
 
     restoreSession(tabs: Tab[], activeTabId: string | null) {
