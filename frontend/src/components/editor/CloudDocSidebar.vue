@@ -1,8 +1,20 @@
 <template>
-  <section v-if="active" class="cloud-sidebar" data-testid="cloud-doc-sidebar">
+  <section v-if="active" class="cloud-sidebar cd-nocturne" data-testid="cloud-doc-sidebar">
+    <!-- 云端文档分区头（设计稿三）：琥珀云标识 + 库名 + 文件计数胶囊 + 刷新 -->
     <header class="cloud-sidebar__header">
-      <span class="cloud-sidebar__title">{{ copy.title }}</span>
-      <span v-if="loaded" class="cloud-sidebar__count" data-testid="cloud-doc-sidebar-count">{{ fileCount }}</span>
+      <span class="cloud-sidebar__cloud" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M6.5 19a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 17.7 9.5A4.25 4.25 0 0 1 17.5 19z" />
+        </svg>
+      </span>
+      <span class="cloud-sidebar__title">{{ panel.libraryTitle }}</span>
+      <span
+        v-if="loaded"
+        class="cd-pill cd-pill--warning cloud-sidebar__count"
+        data-testid="cloud-doc-sidebar-count"
+      >
+        {{ panel.fileCountPill(fileCount) }}
+      </span>
       <button
         type="button"
         class="cloud-sidebar__icon-button"
@@ -67,7 +79,7 @@ import {
 } from '@/services/cloudBrowserService';
 import { fetchCloudCategories } from '@/services/cloudBlogService';
 import type { CloudCategoryNode, CloudDocItem } from '@/lib/tauri';
-import { getCloudDocBrowserI18n } from '@/i18n/ui';
+import { getCloudDocBrowserI18n, getCloudDocPanelI18n } from '@/i18n/ui';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorkspaceStore } from '@/stores/workspace';
@@ -93,6 +105,8 @@ const settingsStore = useSettingsStore();
 const workspaceStore = useWorkspaceStore();
 const cloudSyncStore = useCloudSyncStore();
 const copy = computed(() => getCloudDocBrowserI18n(settingsStore.uiLanguage));
+/** 分区头/菜单等面板文案（设计稿三的「云端文档库」分区头） */
+const panel = computed(() => getCloudDocPanelI18n(settingsStore.uiLanguage));
 
 const loaded = ref(false);
 const loading = ref(false);
@@ -198,38 +212,48 @@ defineExpose({ reload });
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  color: var(--text-secondary, #a8b3c5);
-  background: var(--sidebar-bg, var(--panel-base, #101726));
+  color: var(--cd-text-2, #94a3b8);
+  background: var(--sidebar-bg, var(--cd-bg-panel, #161826));
 }
 
 .cloud-sidebar__header {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
   flex-shrink: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-soft, rgba(148, 163, 184, 0.24)) 60%, transparent);
+  gap: 6px;
+  align-items: center;
+  padding: 6px 12px;
+  /* 设计稿三：云端分区头 底 #171411/50 + 琥珀标识 */
+  background: rgba(23, 20, 17, 0.5);
+  border-bottom: 1px solid var(--cd-border-soft, rgba(50, 54, 83, 0.6));
+}
+
+.cloud-sidebar__cloud {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--cd-warning, #f59e0b);
+}
+
+.cloud-sidebar__cloud svg {
+  width: 14px;
+  height: 14px;
 }
 
 .cloud-sidebar__title {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary, #e5e9f0);
+  color: #fde68a;
 }
 
 .cloud-sidebar__count {
   margin-left: auto;
-  padding: 0 6px;
-  font-size: 10px;
-  color: var(--text-muted, #75829e);
-  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
-  border-radius: var(--radius-badge, 999px);
 }
 
 .cloud-sidebar__icon-button {
   padding: 2px 6px;
   font-size: 12px;
-  color: var(--text-secondary, #a8b3c5);
+  color: var(--cd-text-2, #94a3b8);
   cursor: pointer;
   background: transparent;
   border: 0;
@@ -237,8 +261,8 @@ defineExpose({ reload });
 }
 
 .cloud-sidebar__icon-button:hover:not(:disabled) {
-  color: var(--text-primary, #e5e9f0);
-  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--cd-text, #f8fafc);
+  background: var(--cd-hover, rgba(255, 255, 255, 0.08));
 }
 
 .cloud-sidebar__body {
@@ -254,11 +278,11 @@ defineExpose({ reload });
   margin: 2px 0;
   font-size: 11px;
   line-height: 1.6;
-  color: var(--text-muted, #75829e);
+  color: var(--cd-text-3, #64748b);
 }
 
 .cloud-sidebar__hint--error {
-  color: var(--state-danger, #dc2626);
+  color: var(--cd-danger, #ef4444);
 }
 
 .cloud-sidebar__hint-line {
@@ -269,18 +293,18 @@ defineExpose({ reload });
   margin: 2px 0 0;
   font-size: 10.5px;
   line-height: 1.5;
-  color: var(--text-muted, #75829e);
+  color: var(--cd-text-3, #64748b);
   word-break: break-word;
 }
 
 .cloud-sidebar__diag--warn {
-  color: var(--state-warning, #fbbf24);
+  color: var(--cd-warning, #f59e0b);
 }
 
 .cloud-sidebar__link {
   padding: 0 2px;
   font-size: 11px;
-  color: var(--accent-brand, #7cc7ff);
+  color: var(--cd-accent, #38bdf8);
   text-decoration: underline;
   cursor: pointer;
   background: transparent;
