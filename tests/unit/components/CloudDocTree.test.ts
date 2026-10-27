@@ -428,3 +428,83 @@ describe('CloudDocTree 分类管理', () => {
     expect(wrapper.emitted('changed')).toBeUndefined();
   });
 });
+
+describe('CloudDocTree 布局契约（tree / table 双模式）', () => {
+  it('table 模式渲染 5 列表头与 .cd-row 行，行内含大小/版本/更新时间', async () => {
+    const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
+
+    const thead = wrapper.get('[data-testid="cloud-browser-thead"]');
+    expect(thead.findAll('[role="columnheader"]')).toHaveLength(5);
+    for (const label of ['文件名称', '大小', '版本', '云端更新时间', '操作']) {
+      expect(thead.text()).toContain(label);
+    }
+
+    const row = wrapper.get('[data-testid="cloud-browser-file"]');
+    expect(row.classes()).toContain('cd-row');
+    expect(row.classes()).toContain('cloud-doc-tree__row');
+    expect(row.text()).toContain('a.md');
+    expect(row.text()).toContain('1.0 KB');
+    expect(row.text()).toContain('v2');
+    // 设计稿一：中间数据表只列文件，目录归左侧导航，因此 table 模式不渲染目录行
+    expect(wrapper.findAll('[data-testid="cloud-browser-dir"]')).toHaveLength(0);
+  });
+
+  it('点行 emit select（key），受控 selectedKey 命中行带选中类', async () => {
+    const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('click');
+
+    expect(wrapper.emitted('select')?.[0]).toEqual(['tau/ws/a.md']);
+    expect(wrapper.get('[data-testid="cloud-browser-file"]').classes()).toContain('cd-row--selected');
+
+    // 受控覆盖：宿主改 selectedKey 后选中态随之移动（指向别的 key 时本行取消选中）
+    await wrapper.setProps({ selectedKey: 'cat:1001' });
+    expect(wrapper.get('[data-testid="cloud-browser-file"]').classes()).not.toContain('cd-row--selected');
+    await wrapper.setProps({ selectedKey: 'tau/ws/a.md' });
+    expect(wrapper.get('[data-testid="cloud-browser-file"]').classes()).toContain('cd-row--selected');
+  });
+
+  it('table 模式点行尾「在编辑器中载入」走同一条打开链路', async () => {
+    const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
+    const loadButton = wrapper.get('[data-testid="cloud-browser-open"]');
+    expect(loadButton.attributes('title')).toBe('在编辑器中载入');
+    await loadButton.trigger('click');
+    await flushPromises();
+
+    expect(mocks.openTarget).toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+  });
+
+  it('tree 模式：点目录行切换展开、Enter 打开文件、Esc 收起右键菜单', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    expect(wrapper.findAll('[data-testid="cloud-browser-file"]')).toHaveLength(1);
+
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="cloud-browser-file"]')).toHaveLength(0);
+    expect(wrapper.emitted('select')?.[0]).toEqual(['cat:1001']);
+
+    // 展开回来再按 Enter 打开文件
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+
+    await openMenu(wrapper, 'cloud-browser-file');
+    expect(q('cloud-doc-tree-menu')).not.toBeNull();
+    // 打开菜单后焦点在第一项，Esc 从菜单里冒泡上来即收起
+    q('cloud-doc-tree-menu')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(q('cloud-doc-tree-menu')).toBeNull();
+  });
+
+  it('暴露 openNode：宿主（浏览弹窗检查器）可直接触发打开', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    const vm = wrapper.vm as unknown as { openNode: (node: CloudDocTreeNode) => Promise<void> };
+    await vm.openNode(FILE);
+    await flushPromises();
+
+    expect(mocks.openTarget).toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+  });
+});
