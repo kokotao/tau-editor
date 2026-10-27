@@ -1,0 +1,711 @@
+/**
+ * @description 云文档三套设计稿（Stitch「Tau Editor Redesign」）共用的 Nocturne Precision 视觉层。
+ *
+ * 设计稿落地策略：**不做全站换肤**。设计稿的主色 #38BDF8、语义色、12px 圆角会波及编辑器/侧栏/设置，
+ * 因此这里只定义 `.cd-nocturne` 作用域内的 --cd-* token 与共享原语（按钮/输入/徽标/行/菜单/开关/进度/三态），
+ * 供云文档浏览弹窗、设置-云同步分区、资源管理器云端文档区共用，保证三处同源同款。
+ *
+ * 规格来源：docs/design/stitch/SPEC.md（§0.1 色彩映射、§0.2 字号阶梯、§1~§3 分稿）。
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-10-26 23:50
+ */
+
+/* ------------------------------------------------------------------ */
+/* token：只在 .cd-nocturne 内生效，不污染全局 --accent-brand 等变量      */
+/* ------------------------------------------------------------------ */
+.cd-nocturne {
+  /* 背景层级：应用底 → 面板/侧栏 → 卡片/弹窗 → 浮层 */
+  --cd-bg-app: #0e0f17;
+  --cd-bg-panel: #161826;
+  --cd-bg-card: #1e2033;
+  --cd-bg-overlay: #262940;
+  --cd-bg-sunken: #0d0e16;
+
+  /* 描边 */
+  --cd-border-soft: rgba(50, 54, 83, 0.6);
+  --cd-border-strong: #323653;
+
+  /* 主色与语义色 */
+  --cd-accent: #38bdf8;
+  --cd-accent-strong: #7dd3fc;
+  --cd-accent-2: #6366f1;
+  --cd-success: #10b981;
+  --cd-warning: #f59e0b;
+  --cd-danger: #ef4444;
+
+  /* 文本 */
+  --cd-text: #f8fafc;
+  --cd-text-2: #94a3b8;
+  --cd-text-3: #64748b;
+
+  /* 交互底 */
+  --cd-hover: rgba(255, 255, 255, 0.08);
+  --cd-active: rgba(56, 189, 248, 0.1);
+  --cd-active-strong: rgba(56, 189, 248, 0.16);
+  --cd-danger-bg: rgba(239, 68, 68, 0.14);
+
+  /* 圆角 */
+  --cd-r-ctl: 6px;
+  --cd-r-panel: 8px;
+  --cd-r-dialog: 12px;
+  --cd-r-window: 16px;
+
+  /* 字体：设置稿用 Geist，弹窗稿 Inter，资源管理器稿系统栈 —— 统一 Geist，缺失时回落 Manrope/系统 */
+  --cd-font-ui: 'Geist Variable', Geist, 'Manrope Variable', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --cd-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  /* 字号阶梯（SPEC §0.2） */
+  --cd-fs-h1: 28px;
+  --cd-fs-title: 16.8px;
+  --cd-fs-body: 14px;
+  --cd-fs-sm: 13px;
+  --cd-fs-meta: 12px;
+  --cd-fs-label: 11px;
+
+  /* 阴影 */
+  --cd-shadow-dialog: 0 25px 60px -15px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --cd-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --cd-glow-accent: 0 0 20px -3px rgba(56, 189, 248, 0.25);
+
+  font-family: var(--cd-font-ui);
+  font-size: var(--cd-fs-meta);
+  color: var(--cd-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* 通用工具类                                                          */
+/* ------------------------------------------------------------------ */
+.cd-mono {
+  font-family: var(--cd-font-mono);
+  font-variant-ligatures: none;
+}
+
+.cd-muted {
+  color: var(--cd-text-2);
+}
+
+.cd-dim {
+  color: var(--cd-text-3);
+}
+
+.cd-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* 遮罩 / 弹窗外壳                                                     */
+/* ------------------------------------------------------------------ */
+.cd-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 4vw;
+  background: rgba(5, 6, 10, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.cd-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  font-family: var(--cd-font-ui);
+  color: var(--cd-text);
+  background: color-mix(in srgb, var(--cd-bg-panel) 96%, transparent);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: var(--cd-r-dialog);
+  box-shadow: var(--cd-shadow-dialog);
+}
+
+/* 浏览弹窗外壳：设计稿 r16 / 1400×92vh(max 960) */
+.cd-dialog--window {
+  width: min(1400px, calc(100vw - 8vw));
+  height: min(92vh, 960px);
+  border-radius: var(--cd-r-window);
+}
+
+/* 只读预览 / 选择确认类小弹窗 */
+.cd-dialog--compact {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(78vh, 680px);
+}
+
+.cd-titlebar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 20px;
+  background: color-mix(in srgb, var(--cd-bg-sunken) 70%, transparent);
+  border-bottom: 1px solid var(--cd-border-soft);
+}
+
+.cd-titlebar__title {
+  margin: 0;
+  font-size: var(--cd-fs-body);
+  font-weight: 600;
+  color: var(--cd-text);
+}
+
+.cd-dialog__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cd-dialog__footer {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  background: color-mix(in srgb, var(--cd-bg-sunken) 55%, transparent);
+  border-top: 1px solid var(--cd-border-soft);
+}
+
+/* ------------------------------------------------------------------ */
+/* 按钮                                                               */
+/* ------------------------------------------------------------------ */
+.cd-btn {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  font-family: var(--cd-font-ui);
+  font-size: var(--cd-fs-sm);
+  font-weight: 500;
+  color: var(--cd-text);
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cd-r-panel);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.cd-btn--secondary {
+  background: color-mix(in srgb, var(--cd-bg-card) 80%, transparent);
+  border-color: var(--cd-border-soft);
+}
+
+.cd-btn--secondary:hover:not(:disabled) {
+  background: var(--cd-bg-overlay);
+  border-color: var(--cd-border-strong);
+}
+
+.cd-btn--ghost {
+  color: var(--cd-text-2);
+}
+
+.cd-btn--ghost:hover:not(:disabled) {
+  color: var(--cd-text);
+  background: var(--cd-hover);
+}
+
+.cd-btn--primary {
+  color: #061521;
+  background: var(--cd-accent);
+  box-shadow: var(--cd-glow-accent);
+}
+
+.cd-btn--primary:hover:not(:disabled) {
+  background: var(--cd-accent-strong);
+}
+
+.cd-btn--danger {
+  color: var(--cd-danger);
+  background: var(--cd-danger-bg);
+}
+
+.cd-btn--danger:hover:not(:disabled) {
+  color: #fff;
+  background: var(--cd-danger);
+}
+
+.cd-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.cd-btn:focus-visible {
+  outline: 1px solid var(--cd-accent);
+  outline-offset: 1px;
+}
+
+/* 32×32 纯图标按钮 */
+.cd-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--cd-text-2);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--cd-r-panel);
+}
+
+.cd-icon-btn:hover:not(:disabled) {
+  color: var(--cd-text);
+  background: var(--cd-hover);
+}
+
+/* 关闭按钮：危险色 hover（设计稿） */
+.cd-icon-btn--close:hover:not(:disabled) {
+  color: #fff;
+  background: color-mix(in srgb, var(--cd-danger) 24%, transparent);
+  border-color: color-mix(in srgb, var(--cd-danger) 40%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* 输入 / 搜索框                                                       */
+/* ------------------------------------------------------------------ */
+.cd-input {
+  height: 32px;
+  padding: 0 10px;
+  font-family: var(--cd-font-ui);
+  font-size: var(--cd-fs-meta);
+  color: var(--cd-text);
+  background: var(--cd-bg-sunken);
+  border: 1px solid var(--cd-border-strong);
+  border-radius: var(--cd-r-panel);
+}
+
+.cd-input::placeholder {
+  color: var(--cd-text-3);
+}
+
+.cd-input:focus {
+  border-color: var(--cd-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+/* 带前缀图标的搜索框（设计稿 pl32 pr48 + ⌘K） */
+.cd-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cd-search .cd-search__kbd {
+  position: absolute;
+  right: 8px;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* 徽标 / 胶囊 / kbd                                                   */
+/* ------------------------------------------------------------------ */
+.cd-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-family: var(--cd-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.cd-badge--md {
+  color: var(--cd-accent);
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.cd-badge--doc {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.12);
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.cd-badge--code {
+  color: var(--cd-warning);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.cd-badge--json {
+  color: var(--cd-success);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.cd-badge--img {
+  color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+  border-color: rgba(192, 132, 252, 0.3);
+}
+
+.cd-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-family: var(--cd-font-mono);
+  font-size: var(--cd-fs-label);
+  line-height: 14px;
+  color: var(--cd-text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--cd-border-soft);
+  border-radius: var(--cd-r-ctl);
+}
+
+.cd-chip:hover {
+  color: var(--cd-text);
+  background: var(--cd-hover);
+}
+
+.cd-chip--active {
+  color: var(--cd-text);
+  background: var(--cd-bg-overlay);
+  border-color: var(--cd-border-strong);
+}
+
+.cd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  font-family: var(--cd-font-mono);
+  font-size: 11px;
+  color: var(--cd-text-2);
+  background: var(--cd-bg-card);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: 9999px;
+}
+
+.cd-pill--success {
+  color: var(--cd-success);
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.cd-pill--warning {
+  color: #fde68a;
+  background: rgba(58, 40, 24, 0.6);
+  border-color: rgba(217, 119, 6, 0.3);
+}
+
+.cd-kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  font-family: var(--cd-font-mono);
+  font-size: 10px;
+  color: var(--cd-text-3);
+  background: var(--cd-bg-overlay);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------------ */
+/* 列表：表头 / 行（12 栅格 5-2-1-3-1）                                 */
+/* ------------------------------------------------------------------ */
+.cd-thead {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 5fr 2fr 1fr 3fr 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  font-family: var(--cd-font-mono);
+  font-size: var(--cd-fs-label);
+  letter-spacing: 0.04em;
+  color: var(--cd-text-3);
+  text-transform: uppercase;
+  background: color-mix(in srgb, var(--cd-bg-sunken) 80%, transparent);
+  border-bottom: 1px solid var(--cd-border-soft);
+}
+
+.cd-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 5fr 2fr 1fr 3fr 1fr;
+  gap: 12px;
+  align-items: center;
+  min-height: 40px;
+  padding: 10px 16px;
+  font-size: var(--cd-fs-meta);
+  color: var(--cd-text-2);
+  cursor: pointer;
+  border-bottom: 1px solid color-mix(in srgb, var(--cd-border-soft) 60%, transparent);
+}
+
+.cd-row:hover {
+  background: var(--cd-hover);
+}
+
+.cd-row--selected {
+  background: var(--cd-active);
+  box-shadow: inset 2px 0 0 var(--cd-accent);
+}
+
+.cd-row--selected:hover {
+  background: var(--cd-active-strong);
+}
+
+.cd-row:hover .cd-row__name {
+  color: var(--cd-accent);
+}
+
+.cd-row .cd-row__actions {
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.cd-row:hover .cd-row__actions,
+.cd-row--selected .cd-row__actions {
+  opacity: 1;
+}
+
+.cd-row__name {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  color: var(--cd-text);
+}
+
+.cd-row--selected .cd-row__size {
+  font-weight: 700;
+  color: var(--cd-accent);
+}
+
+.cd-col-right {
+  text-align: right;
+}
+
+.cd-col-center {
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ */
+/* 右键菜单                                                            */
+/* ------------------------------------------------------------------ */
+.cd-menu {
+  z-index: 13000;
+  display: flex;
+  flex-direction: column;
+  min-width: 224px;
+  max-width: 280px;
+  padding: 6px;
+  font-family: var(--cd-font-ui);
+  background: color-mix(in srgb, var(--cd-bg-overlay) 96%, transparent);
+  border: 1px solid var(--cd-border-strong);
+  border-radius: var(--cd-r-panel);
+  box-shadow: var(--cd-shadow-overlay);
+  backdrop-filter: blur(12px);
+}
+
+.cd-menu__header {
+  padding: 4px 8px;
+  font-family: var(--cd-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cd-text-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--cd-border-strong) 60%, transparent);
+}
+
+.cd-menu__item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+  font-size: var(--cd-fs-meta);
+  color: var(--cd-text);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.cd-menu__item:hover:not(:disabled) {
+  color: #061521;
+  background: var(--cd-accent);
+}
+
+.cd-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cd-menu__item--danger {
+  color: var(--cd-danger);
+}
+
+.cd-menu__item--danger:hover:not(:disabled) {
+  color: #fff;
+  background: var(--cd-danger);
+}
+
+.cd-menu__shortcut {
+  margin-left: auto;
+  font-family: var(--cd-font-mono);
+  font-size: 10px;
+  color: var(--cd-text-3);
+}
+
+.cd-menu__item:hover:not(:disabled) .cd-menu__shortcut {
+  color: rgba(6, 21, 33, 0.7);
+}
+
+.cd-menu__divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--cd-border-strong) 80%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* 开关 / 进度条                                                       */
+/* ------------------------------------------------------------------ */
+.cd-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+  background: #33343d;
+  border: 0;
+  border-radius: 9999px;
+  transition: background-color 0.15s ease;
+}
+
+.cd-switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  content: '';
+  background: #f8fafc;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.cd-switch[aria-checked='true'] {
+  background: var(--cd-accent);
+}
+
+.cd-switch[aria-checked='true']::after {
+  transform: translateX(20px);
+}
+
+.cd-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cd-progress {
+  height: 8px;
+  overflow: hidden;
+  background: #33343d;
+  border-radius: 9999px;
+}
+
+.cd-progress__bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cd-accent), #56e5a9);
+  border-radius: 9999px;
+  box-shadow: 0 0 12px -2px rgba(56, 189, 248, 0.55);
+}
+
+/* ------------------------------------------------------------------ */
+/* 三态：加载 / 空 / 错误（设计稿未画，沿用项目骨架换 Nocturne 配色）    */
+/* ------------------------------------------------------------------ */
+.cd-state {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  font-size: 12.5px;
+  color: var(--cd-text-2);
+  text-align: center;
+}
+
+.cd-state__title {
+  margin: 0;
+  font-size: var(--cd-fs-sm);
+  color: var(--cd-text);
+}
+
+.cd-state__hint {
+  margin: 0;
+  font-family: var(--cd-font-mono);
+  font-size: var(--cd-fs-label);
+  color: var(--cd-text-3);
+}
+
+.cd-state--error {
+  color: var(--cd-danger);
+}
+
+.cd-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--cd-accent) 25%, transparent);
+  border-top-color: var(--cd-accent);
+  border-radius: 50%;
+  animation: cd-spin 0.7s linear infinite;
+}
+
+@keyframes cd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 作用域内滚动条                                                      */
+/* ------------------------------------------------------------------ */
+.cd-scroll {
+  overflow-y: auto;
+  scrollbar-color: var(--cd-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.cd-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.cd-scroll::-webkit-scrollbar-thumb {
+  background: var(--cd-border-strong);
+  border-radius: 9999px;
+}
+
+.cd-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-spinner {
+    animation-duration: 2s;
+  }
+}
