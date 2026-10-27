@@ -149,7 +149,12 @@
                     {{ copyText.quotaAttachments }}: {{ attachmentsLabel }}
                   </span>
                 </div>
-                <button type="button" class="cd-sync__legend-link" @click="openUpgradePlan">
+                <button
+                  type="button"
+                  class="cd-sync__legend-link"
+                  data-testid="cloud-sync-upgrade-btn"
+                  @click="openUpgradePlan"
+                >
                   <span>{{ copyText.quotaUpgrade }}</span>
                   <CdGlyph name="external" :size="12" />
                 </button>
@@ -580,12 +585,22 @@
         </div>
       </div>
     </div>
+
+    <!-- 扩容方案：真实用量 + 档位/签到规则提案（支付与积分接口未接入时不做假按钮） -->
+    <CloudUpgradePlanDialog
+      :visible="upgradeVisible"
+      :used-bytes="upgradeUsedBytes"
+      :quota-bytes="upgradeQuotaBytes"
+      @close="upgradeVisible = false"
+      @contact="contactForUpgrade"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch, type PropType } from 'vue';
 import TauIcon from '@/components/icons/TauIcon.vue';
+import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
 import { getCloudSyncSettingsI18n, getSettingsPanelI18n } from '@/i18n/ui';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
@@ -1131,7 +1146,22 @@ const handleRegister = async (): Promise<void> => {
   }
 };
 
-const openUpgradePlan = async (): Promise<void> => {
+/** 扩容方案面板：真实用量取自 /me；档位与签到规则是设计提案，见 docs/plan 方案文档。 */
+const upgradeVisible = ref(false);
+// 预览态没有真实 /me 数据，用设计稿口径的示例值，避免面板显示 0 B / 0 B
+const upgradeUsedBytes = computed(() => (live.value ? cloudSyncStore.space?.usedBytes ?? 0 : 85_300));
+const upgradeQuotaBytes = computed(() =>
+  live.value ? cloudSyncStore.space?.quotaBytes ?? 0 : 8 * 1024 * 1024 * 1024,
+);
+
+const openUpgradePlan = (): void => {
+  // 预览态也允许打开：方案面板本身不依赖 Tauri，方便在浏览器里验收
+  upgradeVisible.value = true;
+};
+
+/** 支付与自助开通接口还没接，先按"联系管理员"走人工，不伪造购买流程。 */
+const contactForUpgrade = async (): Promise<void> => {
+  upgradeVisible.value = false;
   if (!live.value) {
     return;
   }

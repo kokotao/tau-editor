@@ -3189,3 +3189,159 @@ const CLOUD_DOC_EDIT_OPEN_TEXTS: Record<UiLanguage, CloudDocEditOpenText> = {
 export function getCloudDocEditOpenI18n(locale: UiLanguage): CloudDocEditOpenText {
   return CLOUD_DOC_EDIT_OPEN_TEXTS[normalizeUiLanguage(locale)];
 }
+
+// ---------------------------------------------------------------------------
+// 云存储扩容方案（提案展示）：档位 / 定价 / 签到奖励
+// 数值来源：docs/plan/20261027150000000_云存储扩容与会员体系方案.md
+// ---------------------------------------------------------------------------
+
+export interface CloudUpgradeTierText {
+  id: string;
+  name: string;
+  bytes: string;
+  price: string;
+  priceNote: string;
+  perks: string[];
+  current?: boolean;
+  featured?: boolean;
+}
+
+export interface CloudUpgradeRewardText {
+  title: string;
+  desc: string;
+}
+
+export interface CloudUpgradePlanText {
+  title: string;
+  subtitle: string;
+  usedLabel: string;
+  remainingLabel: string;
+  quotaNote: string;
+  tiersTitle: string;
+  tiers: CloudUpgradeTierText[];
+  currentPlan: string;
+  recommended: string;
+  packTitle: string;
+  packDesc: string;
+  packPrice: string;
+  rewardsTitle: string;
+  rewards: CloudUpgradeRewardText[];
+  notice: string;
+  close: string;
+  contact: string;
+}
+
+const CLOUD_UPGRADE_PLAN_TEXTS: Record<UiLanguage, CloudUpgradePlanText> = {
+  'zh-CN': {
+    title: '云存储扩容方案',
+    subtitle: '档位与价格已确认；签到送临时容量（随机增量 + 30 天滑动窗口 + 累计封顶 10 GB）。',
+    usedLabel: '当前用量',
+    remainingLabel: '剩余',
+    quotaNote: '版本历史不计入配额；回收站内的文档不会立即释放空间',
+    tiersTitle: '会员档位',
+    tiers: [
+      {
+        id: 'free',
+        name: '免费版',
+        bytes: '1 GB',
+        price: '¥0',
+        priceNote: '永久免费',
+        perks: ['基础双向同步', '单文件 ≤ 12 MB', '每篇保留 30 个版本'],
+        current: true,
+      },
+      {
+        id: 'plus',
+        name: 'Plus 个人版',
+        bytes: '10 GB',
+        price: '¥6 / 月',
+        priceNote: '¥58 / 年（约 8 折）',
+        perks: ['单文件 ≤ 50 MB', '多设备同步', '签到奖励可叠加'],
+      },
+      {
+        id: 'pro',
+        name: 'Pro 专业版',
+        bytes: '50 GB',
+        price: '¥18 / 月',
+        priceNote: '¥168 / 年（约 8 折）',
+        perks: ['全部 Plus 权益', '全设备历史版本浏览', '附件去重与批量清理'],
+        featured: true,
+      },
+    ],
+    currentPlan: '当前档位',
+    recommended: '推荐',
+    packTitle: '永久扩容包：+10 GB',
+    packDesc: '一次性买断，永久叠加到账号容量，不随订阅到期失效。适合「只缺容量、不想订阅」的场景。',
+    packPrice: '¥39 一次性',
+    rewardsTitle: '签到与奖励',
+    rewards: [
+      { title: '每日签到：随机 +20 ~ 120 MB', desc: '当天容量条立刻可见增长；随机量由服务端生成，客户端不参与计算' },
+      { title: '滑动窗口过期（30 天）', desc: '每份奖励从获得起保留 30 天，逐日滚动过期；稳态有效奖励约 2 GB，不用就自然回落' },
+      { title: '连续签到加成：每 7 天当日翻倍', desc: '连签不设上限，但只影响「当天这一笔」，已过期的不补回' },
+      { title: '累计封顶 10 GB（终身）', desc: '奖励容量累计到 10 GB 后，签到仍记录天数与积分，但不再增加容量' },
+      { title: '奖励容量优先级最低', desc: '永久配额 → 付费档位 → 签到临时容量；临时容量过期不影响已存文档' },
+      { title: '断签不清零已有容量', desc: '已有奖励按自己的 30 天窗口自然过期；断签只让当天的随机基数回落' },
+    ],
+    notice:
+      '说明：档位与价格已按确认表落地；签到采用「随机增量 + 30 天滑动窗口 + 终身累计封顶 10 GB」，奖励只加临时容量、不替代付费。8 GB 老账号容量作为永久配额保留，不参与降级。团队版（¥48/人/月，200 GB 共享池）列入后期规划，本期不做。支付、积分、签到接口尚未接入服务端，因此这里不提供购买或签到按钮（避免点了没反应）；当前用量与配额是真实数据。',
+    close: '关闭',
+    contact: '联系管理员开通',
+  },
+  'en-US': {
+    title: 'Cloud storage plans',
+    subtitle: 'Tiers and prices are approved; check-ins grant temporary capacity (random amount, 30-day sliding window, 10 GB lifetime cap).',
+    usedLabel: 'Used',
+    remainingLabel: 'Free',
+    quotaNote: 'Version history does not count toward quota; trashed documents do not free space until purged',
+    tiersTitle: 'Membership tiers',
+    tiers: [
+      {
+        id: 'free',
+        name: 'Free',
+        bytes: '1 GB',
+        price: '$0',
+        priceNote: 'Free forever',
+        perks: ['Basic two-way sync', 'Single file ≤ 12 MB', '30 versions per document'],
+        current: true,
+      },
+      {
+        id: 'plus',
+        name: 'Plus',
+        bytes: '10 GB',
+        price: '$1 / mo',
+        priceNote: '$9 / yr (about 20% off)',
+        perks: ['Single file ≤ 50 MB', 'Multi-device sync', 'Check-in rewards stack'],
+      },
+      {
+        id: 'pro',
+        name: 'Pro',
+        bytes: '50 GB',
+        price: '$3 / mo',
+        priceNote: '$28 / yr (about 20% off)',
+        perks: ['Everything in Plus', 'Version history on every device', 'Attachment dedupe and cleanup'],
+        featured: true,
+      },
+    ],
+    currentPlan: 'Current plan',
+    recommended: 'Recommended',
+    packTitle: 'Lifetime add-on: +10 GB',
+    packDesc: 'One-time purchase that stacks onto your account permanently, independent of any subscription.',
+    packPrice: '$6 one-time',
+    rewardsTitle: 'Check-ins and rewards',
+    rewards: [
+      { title: 'Daily check-in: a random +20–120 MB', desc: 'The capacity bar grows the same day; the amount is generated server-side' },
+      { title: 'Sliding 30-day expiry', desc: 'Each grant lives 30 days and rolls off day by day; steady state is about 2 GB unless you keep checking in' },
+      { title: 'Streak bonus: double on every 7th day', desc: 'Streaks are unlimited, but only affect that day\u2019s grant; expired grants are not restored' },
+      { title: 'Lifetime accrual cap: 10 GB', desc: 'After 10 GB of rewarded capacity has accumulated, check-ins still count days and points but add no more capacity' },
+      { title: 'Reward capacity ranks lowest', desc: 'Permanent quota → paid plan → check-in capacity; expiry never touches stored documents' },
+      { title: 'Missing a day never deletes capacity', desc: 'Existing grants expire on their own 30-day window; a missed day only resets the random base' },
+    ],
+    notice:
+      'Note: tiers and prices follow the approved table; check-ins use random increments, a 30-day sliding window and a 10 GB lifetime accrual cap, adding temporary capacity only. The 8 GB legacy allowance is kept as permanent quota and exempt from downgrade. Team (200 GB shared pool, $7/seat/mo) is deferred. Payment, points and check-in APIs are not available on the server yet, so no purchase or check-in button is offered here; current usage and quota are real data.',
+    close: 'Close',
+    contact: 'Contact admin to enable',
+  },
+};
+
+export function getCloudUpgradePlanI18n(locale: UiLanguage): CloudUpgradePlanText {
+  return CLOUD_UPGRADE_PLAN_TEXTS[normalizeUiLanguage(locale)];
+}
