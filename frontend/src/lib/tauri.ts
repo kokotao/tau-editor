@@ -1205,6 +1205,108 @@ export interface CloudDocSpace {
   maxVersionPerFile: number;
 }
 
+// ------------------------- 云配额 / 签到 / 积分（会员体系） -------------------------
+
+/** 云存储档位枚举（后端返回大写，前端只做展示映射）。 */
+export type CloudQuotaTier = 'FREE' | 'PLUS' | 'PRO';
+
+/** 套餐计费周期。 */
+export type CloudQuotaCycle = 'MONTH' | 'YEAR' | 'ONE_TIME';
+
+/** 套餐分组：PACK 为一次性永久扩容包。 */
+export type CloudQuotaPlanTier = 'PLUS' | 'PRO' | 'PACK';
+
+/** `GET /miniProgram/cloud/quota/summary`：真实用量 + 配额构成 + 当前档位。 */
+export interface CloudQuotaSummary {
+  usedBytes: number;
+  /** 永久配额（角色能力/全局默认），8 GB 老账号体现在这里 */
+  permanentBytes: number;
+  /** 付费档位授予的容量（未过期） */
+  planBytes: number;
+  /** 签到临时容量（30 天滑动窗口内有效） */
+  rewardBytes: number;
+  /** 有效配额 = permanentBytes + planBytes + rewardBytes */
+  quotaBytes: number;
+  tier: CloudQuotaTier;
+  tierName: string;
+  /** 订阅到期时间，无订阅为 null */
+  renewAt: string | null;
+  /** 签到终身累计封顶 */
+  rewardCapBytes: number;
+  /** 签到终身累计已发放 */
+  rewardLifetimeBytes: number;
+  /** 当前积分余额 */
+  points: number;
+}
+
+/** `GET /miniProgram/cloud/quota/plans` 的单个 SKU（同一档位按月/按年是两行）。 */
+export interface CloudQuotaPlan {
+  planId: number;
+  code: string;
+  tier: CloudQuotaPlanTier;
+  name: string;
+  bytes: number;
+  cycle: CloudQuotaCycle;
+  /** 单位：分 */
+  price: number;
+  originalPrice?: number;
+  sortOrder?: number;
+  featured?: boolean;
+}
+
+/** 订单（创建/查询共用）。 */
+export interface CloudQuotaOrder {
+  orderNo: string;
+  planName?: string;
+  amount: number;
+  status: 'PENDING_PAY' | 'PAID' | 'CLOSED' | 'REFUNDED' | 'PAY_FAILED' | string;
+  paidAt?: string | null;
+}
+
+/** Native 扫码支付参数：`codeUrl` 是 weixin:// 链接，前端渲染成二维码。 */
+export interface CloudQuotaPay {
+  orderNo: string;
+  codeUrl: string;
+  expireAt?: string | null;
+}
+
+/** `GET /miniProgram/cloud/checkin`。 */
+export interface CloudCheckinStatus {
+  todayChecked: boolean;
+  streakDays: number;
+  rewardActiveBytes: number;
+  rewardLifetimeBytes: number;
+  rewardCapBytes: number;
+  nextResetAt?: string | null;
+  points: number;
+}
+
+/** `POST /miniProgram/cloud/checkin`。 */
+export interface CloudCheckinResult {
+  grantedBytes: number;
+  doubled: boolean;
+  streakDays: number;
+  points: number;
+  pointsDelta: number;
+  rewardActiveBytes: number;
+  expiresAt?: string | null;
+  checkinDate?: string | null;
+}
+
+/** 积分流水项。 */
+export interface CloudPointEntry {
+  reason: string;
+  delta: number;
+  createdAt: string;
+}
+
+/** `GET /miniProgram/cloud/points`。 */
+export interface CloudPoints {
+  balance: number;
+  lifetimeEarned: number;
+  recent: CloudPointEntry[];
+}
+
 export interface CloudDocItem {
   fileId: number;
   path: string;
@@ -1628,5 +1730,43 @@ export const cloudCommands = {
       relPath: input.relPath,
       expectedHash: input.expectedHash ?? null,
     });
+  },
+};
+
+/**
+ * 云配额 / 签到 / 积分桥接：会员体系（支付、积分、签到）由 Rust 侧带 JWT 请求，
+ * 前端只传参，不接触令牌。命令名与 `commands/cloud.rs` 一一对应。
+ */
+export const cloudQuotaCommands = {
+  async summary(): Promise<CloudQuotaSummary> {
+    return invokeCommand<CloudQuotaSummary>('cloud_quota_summary');
+  },
+
+  async plans(): Promise<CloudQuotaPlan[]> {
+    return invokeCommand<CloudQuotaPlan[]>('cloud_quota_plans');
+  },
+
+  async createOrder(planId: number, clientOrderNo: string): Promise<CloudQuotaOrder> {
+    return invokeCommand<CloudQuotaOrder>('cloud_quota_order_create', { planId, clientOrderNo });
+  },
+
+  async orderStatus(orderNo: string): Promise<CloudQuotaOrder> {
+    return invokeCommand<CloudQuotaOrder>('cloud_quota_order_status', { orderNo });
+  },
+
+  async payQr(orderNo: string): Promise<CloudQuotaPay> {
+    return invokeCommand<CloudQuotaPay>('cloud_quota_order_pay', { orderNo });
+  },
+
+  async checkinStatus(): Promise<CloudCheckinStatus> {
+    return invokeCommand<CloudCheckinStatus>('cloud_checkin_status');
+  },
+
+  async checkin(): Promise<CloudCheckinResult> {
+    return invokeCommand<CloudCheckinResult>('cloud_checkin_do');
+  },
+
+  async points(): Promise<CloudPoints> {
+    return invokeCommand<CloudPoints>('cloud_points');
   },
 };

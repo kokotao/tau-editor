@@ -1,10 +1,16 @@
 <template>
-  <div
-    v-if="visible"
-    class="cloud-browser-backdrop cd-nocturne cd-backdrop"
-    data-testid="cloud-doc-browser-backdrop"
-    @click.self="emit('close')"
-  >
+  <!--
+    Teleport 到 body：弹窗原先直接挂在编辑器容器里，祖先上的 `transform` / `will-change`
+    会让 `position: fixed` 相对该容器解析，窗口一小就被上下裁掉（标题栏钻到标签栏后面）。
+    挪到 body 后遮罩真正铺满视口；`inline` 仅给 DesignPreview 复用（预览页要求画布内渲染）。
+  -->
+  <Teleport to="body" :disabled="inline">
+    <div
+      v-if="visible"
+      class="cloud-browser-backdrop cd-nocturne cd-backdrop"
+      data-testid="cloud-doc-browser-backdrop"
+      @click.self="emit('close')"
+    >
     <section
       class="cloud-browser cd-dialog cd-dialog--window"
       data-testid="cloud-doc-browser"
@@ -425,7 +431,8 @@
         </aside>
       </div>
     </section>
-  </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -462,7 +469,12 @@ const props = withDefaults(defineProps<{
   previewNodes?: CloudDocTreeNode[] | null;
   /** 开发预览：树对应的云端匹配总数（缺省取树内文件数） */
   previewTotal?: number | null;
-}>(), { visible: true, previewNodes: null, previewTotal: null });
+  /**
+   * 开发预览专用：禁用 Teleport，让遮罩留在画布内渲染（DesignPreview 需要）。
+   * 正式环境必须为 false，否则又会回到「被编辑器容器裁剪」的老问题。
+   */
+  inline?: boolean;
+}>(), { visible: true, previewNodes: null, previewTotal: null, inline: false });
 
 const emit = defineEmits<{
   close: [];
@@ -1066,13 +1078,25 @@ watch(
 }
 
 /* ---------------------------- 标题栏 ---------------------------- */
+/* 高度自适应：窗宽不足时标题栏允许换行（.cd-titlebar 原本写死 height:56px），
+   否则搜索框 + 3 个按钮 + 关闭键会把右侧挤出可视区。 */
 .cloud-browser__header {
-  gap: 16px;
+  gap: 12px 16px;
+  height: auto;
+  min-height: 56px;
+  padding-block: 8px;
+  flex-wrap: wrap;
+}
+
+.cloud-browser__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .cloud-browser__title {
   display: flex;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -1809,10 +1833,128 @@ watch(
   word-break: break-word;
 }
 
-/* 窄屏：与设计稿一致（hidden xl:flex），<1280px 收起右栏检查器 */
+/* ============================== 窗口自适应 ==============================
+   目标：窗口从 1400×900 一路缩到 900×560 时，任何一栏的内容都不被裁切/遮挡。
+   策略：先让右栏检查器让位（<1280），再收窄左栏（<1100），最后压缩竖向留白（矮窗）；
+   三栏内部各自滚动（左栏目录树 / 中间列表 / 检查器），弹窗本身不做整体滚动。 */
+
+/* 中窗：收右栏 + 左栏收窄 + 标题栏容量文案让位 */
 @media (max-width: 1279px) {
   .cloud-browser__inspector {
     display: none;
+  }
+
+  .cloud-browser__sidebar {
+    flex-basis: 232px;
+    width: 232px;
+  }
+
+  .cloud-browser__capacity {
+    display: none;
+  }
+}
+
+/* 窄窗：左栏再收窄、搜索框缩短、格式筛选可横向滚动 */
+@media (max-width: 1100px) {
+  .cloud-browser__sidebar {
+    flex-basis: 208px;
+    width: 208px;
+  }
+
+  .cloud-browser__sidebar-scroll {
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .cloud-browser__search-input {
+    width: clamp(120px, 16vw, 220px);
+  }
+
+  .cloud-browser__formats {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .cloud-browser__formats::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cloud-browser__viewtools {
+    min-width: 0;
+  }
+}
+
+/* 更窄（半屏 / 竖屏）：左栏压到 176，标题栏与列表头贴合视口宽度 */
+@media (max-width: 860px) {
+  .cloud-browser__sidebar {
+    flex-basis: 176px;
+    width: 176px;
+  }
+
+  .cloud-browser__header {
+    padding-inline: 12px;
+  }
+
+  .cloud-browser__subheader {
+    height: auto;
+    min-height: 40px;
+    padding-block: 6px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .cloud-browser__statusbar {
+    height: auto;
+    min-height: 30px;
+    padding-block: 4px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+}
+
+/* 矮窗：压掉标题栏/子头/状态栏的固定高度与竖向留白，把高度还给列表 */
+@media (max-height: 720px) {
+  .cloud-browser__header {
+    min-height: 48px;
+    padding-block: 6px;
+  }
+
+  .cloud-browser__subheader {
+    height: 38px;
+  }
+
+  .cloud-browser__statusbar {
+    height: 30px;
+  }
+
+  .cloud-browser__sidebar-scroll {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .cloud-browser__sidebar-footer {
+    padding: 8px 10px;
+  }
+
+  .cloud-browser__section-head {
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+  }
+}
+
+/* 极矮窗（<560）：隐藏标签筛选与底栏次要信息，保证列表可见高度 */
+@media (max-height: 560px) {
+  .cloud-browser__tags {
+    display: none;
+  }
+
+  .cloud-browser__engine-meta {
+    display: none;
+  }
+
+  .cloud-browser__list {
+    min-height: 96px;
   }
 }
 

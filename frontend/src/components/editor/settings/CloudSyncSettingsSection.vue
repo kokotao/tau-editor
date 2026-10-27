@@ -586,7 +586,7 @@
       </div>
     </div>
 
-    <!-- 扩容方案：真实用量 + 档位/签到规则提案（支付与积分接口未接入时不做假按钮） -->
+    <!-- 扩容方案：真实用量 + 档位/签到/支付（数据取 cloudQuota store，接口不可用时降级人工开通） -->
     <CloudUpgradePlanDialog
       :visible="upgradeVisible"
       :used-bytes="upgradeUsedBytes"
@@ -594,6 +594,9 @@
       @close="upgradeVisible = false"
       @contact="contactForUpgrade"
     />
+
+    <!-- 联系管理员开通：微信二维码（产品需求 ③，不再跳浏览器） -->
+    <WechatContactDialog :visible="wechatVisible" @close="wechatVisible = false" />
   </section>
 </template>
 
@@ -601,7 +604,9 @@
 import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch, type PropType } from 'vue';
 import TauIcon from '@/components/icons/TauIcon.vue';
 import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
+import WechatContactDialog from '@/components/editor/WechatContactDialog.vue';
 import { getCloudSyncSettingsI18n, getSettingsPanelI18n } from '@/i18n/ui';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useNotificationStore } from '@/stores/notification';
@@ -1146,33 +1151,32 @@ const handleRegister = async (): Promise<void> => {
   }
 };
 
-/** 扩容方案面板：真实用量取自 /me；档位与签到规则是设计提案，见 docs/plan 方案文档。 */
+/** 扩容方案面板：用量/档位/签到/支付统一取 `cloudQuota` store，props 只作为降级回退。 */
 const upgradeVisible = ref(false);
+/** 「联系管理员开通」的微信二维码弹窗（产品需求 ③：不再跳浏览器）。 */
+const wechatVisible = ref(false);
+const cloudQuotaStore = useCloudQuotaStore();
 // 预览态没有真实 /me 数据，用设计稿口径的示例值，避免面板显示 0 B / 0 B
 const upgradeUsedBytes = computed(() => (live.value ? cloudSyncStore.space?.usedBytes ?? 0 : 85_300));
 const upgradeQuotaBytes = computed(() =>
   live.value ? cloudSyncStore.space?.quotaBytes ?? 0 : 8 * 1024 * 1024 * 1024,
 );
 
+/** 打开面板时拉一次配额/档位/签到/积分；失败只在面板内降级展示，不阻塞打开。 */
+const loadQuotaPanelData = (): void => {
+  void cloudQuotaStore.loadAll().catch(() => undefined);
+};
+
 const openUpgradePlan = (): void => {
   // 预览态也允许打开：方案面板本身不依赖 Tauri，方便在浏览器里验收
   upgradeVisible.value = true;
+  loadQuotaPanelData();
 };
 
-/** 支付与自助开通接口还没接，先按"联系管理员"走人工，不伪造购买流程。 */
-const contactForUpgrade = async (): Promise<void> => {
+/** 自助支付不可用 / 需要人工开通时，统一走微信二维码（预览态也可见，便于验收）。 */
+const contactForUpgrade = (): void => {
   upgradeVisible.value = false;
-  if (!live.value) {
-    return;
-  }
-  try {
-    await appCommands.openExternalLink(`${resolveCloudOrigin()}/lizi`);
-  } catch (error) {
-    notificationStore.error(
-      copy.value.settingsCloudSync,
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  wechatVisible.value = true;
 };
 
 const handleLogin = async (): Promise<void> => {

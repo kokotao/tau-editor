@@ -49,6 +49,7 @@
             :visible="true"
             :preview-nodes="mockTree"
             :preview-total="MOCK_FILES.length"
+            inline
             @close="noop"
             @open-file="onOpenFile"
           />

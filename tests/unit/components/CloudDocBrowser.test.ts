@@ -6,6 +6,8 @@
  * @date 2026-10-25 14:50
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
@@ -79,8 +81,14 @@ const mountedWrappers: { unmount: () => void }[] = [];
 describe('CloudDocBrowser 打开云端文档', () => {
   let pinia: ReturnType<typeof createPinia>;
 
-  const mountBrowser = () => {
-    const wrapper = mount(CloudDocBrowser, { global: { plugins: [pinia] } });
+  const mountBrowser = (options: { inline?: boolean } = {}) => {
+    const wrapper = mount(CloudDocBrowser, {
+      // 默认 inline（禁用 Teleport）：外壳留在原位，既有 wrapper.find 断言继续成立；
+      // 外壳内部的小浮层（预览/另存为）仍各自 Teleport 到 body，由 bodyQuery 断言。
+      // 验证 Teleport 本身的用例传 inline: false。
+      props: { inline: options.inline ?? true },
+      global: { plugins: [pinia] },
+    });
     mountedWrappers.push(wrapper);
     return wrapper;
   };
@@ -157,6 +165,8 @@ describe('CloudDocBrowser 打开云端文档', () => {
   it('传 previewNodes 时跳过网络请求，并按三栏外壳渲染（开发预览契约）', async () => {
     const wrapper = mount(CloudDocBrowser, {
       props: {
+        // 单测里禁用 Teleport，断言仍走 wrapper.find（真实 Teleport 由专门用例覆盖）
+        inline: true,
         visible: true,
         previewNodes: buildCloudDocTree(
           [
@@ -187,6 +197,8 @@ describe('CloudDocBrowser 打开云端文档', () => {
   it('格式 chips 过滤中间表格；筛完为空时给出筛选空态', async () => {
     const wrapper = mount(CloudDocBrowser, {
       props: {
+        // 单测里禁用 Teleport，断言仍走 wrapper.find（真实 Teleport 由专门用例覆盖）
+        inline: true,
         visible: true,
         previewNodes: buildCloudDocTree(
           [
@@ -226,6 +238,8 @@ describe('CloudDocBrowser 打开云端文档', () => {
   it('预览模式下关键字过滤仍在本地生效（不联网）', async () => {
     const wrapper = mount(CloudDocBrowser, {
       props: {
+        // 单测里禁用 Teleport，断言仍走 wrapper.find（真实 Teleport 由专门用例覆盖）
+        inline: true,
         visible: true,
         previewNodes: buildCloudDocTree(
           [
@@ -259,6 +273,8 @@ describe('CloudDocBrowser 打开云端文档', () => {
   const mountMultiWorkspace = async () => {
     const wrapper = mount(CloudDocBrowser, {
       props: {
+        // 单测里禁用 Teleport，断言仍走 wrapper.find（真实 Teleport 由专门用例覆盖）
+        inline: true,
         visible: true,
         previewNodes: buildCloudDocTree([
           { ...DOC, fileId: 51, path: 'tau/alpha/notes/a.md', title: 'a.md' },
@@ -460,6 +476,8 @@ describe('CloudDocBrowser 打开云端文档', () => {
   it('树 emit edit-cloud-doc 时浏览器原样向上 emit（左栏与中间两处实例都接）', async () => {
     const wrapper = mount(CloudDocBrowser, {
       props: {
+        // 单测里禁用 Teleport，断言仍走 wrapper.find（真实 Teleport 由专门用例覆盖）
+        inline: true,
         visible: true,
         previewNodes: buildCloudDocTree(
           [
@@ -588,5 +606,57 @@ describe('CloudDocBrowser 打开云端文档', () => {
     await flushPromises();
     expect(errorWrapper.find('[data-testid="cloud-browser-error"]').exists()).toBe(true);
     expect(errorWrapper.get('[data-testid="cloud-browser-error"]').text()).toContain('连不上服务器');
+  });
+
+  /**
+   * 窗口自适应（产品需求④）：弹窗必须 Teleport 到 body，否则祖先上的 transform/will-change
+   * 会把 position:fixed 的遮罩限制在编辑器容器里，窗口一小标题栏与底栏就被裁掉。
+   */
+  describe('窗口自适应与挂载层级', () => {
+    it('默认 Teleport 到 body，不再受编辑器容器裁剪', async () => {
+      const wrapper = mountBrowser({ inline: false });
+      await flushPromises();
+      await flushPromises();
+
+      const dialog = document.body.querySelector('[data-testid="cloud-doc-browser"]');
+      expect(dialog).not.toBeNull();
+      // 组件根节点不是弹窗本身，说明内容确实被搬到了 body
+      expect(wrapper.element.contains(dialog as Node)).toBe(false);
+      // 遮罩直接挂在 body 下，才铺满整个视口
+      const backdrop = document.body.querySelector('[data-testid="cloud-doc-browser-backdrop"]');
+      expect(backdrop?.parentElement).toBe(document.body);
+    });
+
+    it('inline 模式留在原地渲染（DesignPreview 画布内预览用）', async () => {
+      const wrapper = mountBrowser({ inline: true });
+      await flushPromises();
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="cloud-doc-browser"]').exists()).toBe(true);
+      expect(document.body.querySelector('[data-testid="cloud-doc-browser"]')).toBeNull();
+    });
+
+    it('样式契约：弹窗外壳限高 + 三档自适应断点都在', () => {
+      // vitest 的 root 是 tau-editor/，直接按工作目录拼路径（import.meta.url 在 vite 下是 http scheme）
+      const css = readFileSync(
+        resolve(process.cwd(), 'frontend/src/assets/clouddoc-nocturne.css'),
+        'utf8',
+      );
+      const sfc = readFileSync(
+        resolve(process.cwd(), 'frontend/src/components/editor/CloudDocBrowser.vue'),
+        'utf8',
+      );
+
+      // 视口再小也不越界：max-width/max-height 取视口可用值
+      expect(css).toMatch(/\.cd-dialog--window\s*\{[^}]*max-height:\s*calc\(100vh - 16px\)/);
+      expect(css).toMatch(/\.cd-dialog--window\s*\{[^}]*max-width:\s*calc\(100vw - 16px\)/);
+
+      // 宽窗降级：右栏让位 → 左栏收窄 → 更窄再收窄；矮窗压缩固定高度
+      for (const breakpoint of ['max-width: 1279px', 'max-width: 1100px', 'max-width: 860px', 'max-height: 720px', 'max-height: 560px']) {
+        expect(sfc).toContain(breakpoint);
+      }
+      // 标题栏允许换行，否则窄窗搜索框+按钮会横向溢出被裁
+      expect(sfc).toMatch(/\.cloud-browser__header\s*\{[^}]*flex-wrap:\s*wrap/);
+    });
   });
 });

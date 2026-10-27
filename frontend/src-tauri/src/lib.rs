@@ -145,6 +145,14 @@ pub fn run() {
             commands::cloud_scratch_workspace,
             commands::cloud_blog_categories,
             commands::cloud_blog_tags,
+            commands::cloud_quota_summary,
+            commands::cloud_quota_plans,
+            commands::cloud_quota_order_create,
+            commands::cloud_quota_order_status,
+            commands::cloud_quota_order_pay,
+            commands::cloud_checkin_status,
+            commands::cloud_checkin_do,
+            commands::cloud_points,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

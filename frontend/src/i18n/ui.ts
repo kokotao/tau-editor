@@ -3211,6 +3211,56 @@ export interface CloudUpgradeRewardText {
   desc: string;
 }
 
+/** 容量构成：永久配额 / 档位容量 / 签到临时容量 */
+export interface CloudUpgradeBreakdownText {
+  permanent: string;
+  plan: string;
+  reward: string;
+  /** 接口未就绪或未登录时的占位值 */
+  unknown: string;
+}
+
+/** 签到卡片文案（今日状态、连签、临时容量、终身累计封顶） */
+export interface CloudUpgradeCheckinText {
+  title: string;
+  todayChecked: string;
+  todayPending: string;
+  streak: string;
+  active: string;
+  lifetime: string;
+  cap: string;
+  button: string;
+  busy: string;
+  /** 成功：已签到 +70 MB */
+  success: (amount: string) => string;
+  /** 重复签到：静默转已签到态，不报错 */
+  already: string;
+  failed: (message: string) => string;
+  /** 终身累计已封顶：仍记天数与积分，但不再加容量 */
+  capReached: string;
+  loginHint: string;
+}
+
+/** 微信 Native 扫码支付弹层文案 */
+export interface CloudUpgradePayText {
+  title: string;
+  hint: string;
+  waiting: string;
+  paid: string;
+  timeout: string;
+  closed: string;
+  retry: string;
+  close: string;
+  done: string;
+  channelUnavailable: string;
+  channelUnavailableHint: string;
+  contactAdmin: string;
+  qrAlt: string;
+  qrFailed: string;
+  failed: (message: string) => string;
+  orderFailed: (message: string) => string;
+}
+
 export interface CloudUpgradePlanText {
   title: string;
   subtitle: string;
@@ -3229,12 +3279,30 @@ export interface CloudUpgradePlanText {
   notice: string;
   close: string;
   contact: string;
+  /** 容量构成（永久 / 档位 / 签到临时） */
+  breakdown: CloudUpgradeBreakdownText;
+  /** 价格后缀：¥6 / 月 */
+  perMonth: string;
+  perYear: string;
+  /** 计费周期切换按钮：按月 / 按年 */
+  cycleMonth: string;
+  cycleYear: string;
+  buyNow: string;
+  buyPack: string;
+  buying: string;
+  /** 配额接口不可用（后端未部署/网络失败）时的自助开通降级提示 */
+  quotaUnavailable: string;
+  loginRequired: string;
+  checkin: CloudUpgradeCheckinText;
+  pointsLabel: string;
+  pointsUnit: string;
+  pay: CloudUpgradePayText;
 }
 
 const CLOUD_UPGRADE_PLAN_TEXTS: Record<UiLanguage, CloudUpgradePlanText> = {
   'zh-CN': {
     title: '云存储扩容方案',
-    subtitle: '档位与价格已确认；签到送临时容量（随机增量 + 30 天滑动窗口 + 累计封顶 10 GB）。',
+    subtitle: '按需选择档位，或通过每日签到领取临时容量；容量叠加到当前配额，已存文档不受影响。',
     usedLabel: '当前用量',
     remainingLabel: '剩余',
     quotaNote: '版本历史不计入配额；回收站内的文档不会立即释放空间',
@@ -3282,13 +3350,64 @@ const CLOUD_UPGRADE_PLAN_TEXTS: Record<UiLanguage, CloudUpgradePlanText> = {
       { title: '断签不清零已有容量', desc: '已有奖励按自己的 30 天窗口自然过期；断签只让当天的随机基数回落' },
     ],
     notice:
-      '说明：档位与价格已按确认表落地；签到采用「随机增量 + 30 天滑动窗口 + 终身累计封顶 10 GB」，奖励只加临时容量、不替代付费。8 GB 老账号容量作为永久配额保留，不参与降级。团队版（¥48/人/月，200 GB 共享池）列入后期规划，本期不做。支付、积分、签到接口尚未接入服务端，因此这里不提供购买或签到按钮（避免点了没反应）；当前用量与配额是真实数据。',
+      '档位容量与签到奖励均可叠加到当前配额；签到容量 30 天滚动过期、终身累计封顶 10 GB，已存文档不受影响。开通成功后容量即时到账，未用完的容量不会被清零。',
     close: '关闭',
     contact: '联系管理员开通',
+    breakdown: {
+      permanent: '永久配额',
+      plan: '档位容量',
+      reward: '签到临时',
+      unknown: '—',
+    },
+    perMonth: '/ 月',
+    perYear: '/ 年',
+    cycleMonth: '按月',
+    cycleYear: '按年',
+    buyNow: '立即开通',
+    buyPack: '购买',
+    buying: '处理中…',
+    quotaUnavailable: '自助开通暂不可用，请联系管理员开通',
+    loginRequired: '登录账号后才能开通，请先完成登录',
+    checkin: {
+      title: '每日签到领取临时容量',
+      todayChecked: '今天已签到',
+      todayPending: '今天还没签到',
+      streak: '连签天数',
+      active: '当前临时容量',
+      lifetime: '终身累计',
+      cap: '封顶',
+      button: '立即签到',
+      busy: '签到中…',
+      success: (amount) => `已签到 +${amount}`,
+      already: '今天已经签到过了',
+      failed: (message) => `签到失败：${message}`,
+      capReached: '签到成功；终身累计已达封顶，本次不再增加容量',
+      loginHint: '登录后即可签到',
+    },
+    pointsLabel: '积分',
+    pointsUnit: '分',
+    pay: {
+      title: '微信扫码支付',
+      hint: '请用微信「扫一扫」完成支付，订单 30 分钟内有效',
+      waiting: '等待支付结果…',
+      paid: '支付成功，容量已到账',
+      timeout: '等待超时，可重新获取二维码',
+      closed: '订单已关闭，请重新下单',
+      retry: '重新获取二维码',
+      close: '关闭',
+      done: '完成',
+      channelUnavailable: '支付通道暂未开通',
+      channelUnavailableHint: '可扫码添加管理员微信，由管理员协助开通',
+      contactAdmin: '联系管理员开通',
+      qrAlt: '微信支付二维码',
+      qrFailed: '二维码生成失败，请关闭后重试',
+      failed: (message) => `支付失败：${message}`,
+      orderFailed: (message) => `下单失败：${message}`,
+    },
   },
   'en-US': {
     title: 'Cloud storage plans',
-    subtitle: 'Tiers and prices are approved; check-ins grant temporary capacity (random amount, 30-day sliding window, 10 GB lifetime cap).',
+    subtitle: 'Pick a plan, or earn temporary capacity with daily check-ins; both stack onto your current quota.',
     usedLabel: 'Used',
     remainingLabel: 'Free',
     quotaNote: 'Version history does not count toward quota; trashed documents do not free space until purged',
@@ -3336,12 +3455,99 @@ const CLOUD_UPGRADE_PLAN_TEXTS: Record<UiLanguage, CloudUpgradePlanText> = {
       { title: 'Missing a day never deletes capacity', desc: 'Existing grants expire on their own 30-day window; a missed day only resets the random base' },
     ],
     notice:
-      'Note: tiers and prices follow the approved table; check-ins use random increments, a 30-day sliding window and a 10 GB lifetime accrual cap, adding temporary capacity only. The 8 GB legacy allowance is kept as permanent quota and exempt from downgrade. Team (200 GB shared pool, $7/seat/mo) is deferred. Payment, points and check-in APIs are not available on the server yet, so no purchase or check-in button is offered here; current usage and quota are real data.',
+      'Plan capacity and check-in rewards both stack onto your current quota. Check-in capacity expires on a rolling 30-day window and accrues up to a 10 GB lifetime cap; stored documents are never affected. Capacity applies as soon as an order is paid, and unused capacity is never wiped.',
     close: 'Close',
     contact: 'Contact admin to enable',
+    breakdown: {
+      permanent: 'Permanent',
+      plan: 'Plan capacity',
+      reward: 'Check-in capacity',
+      unknown: '—',
+    },
+    perMonth: '/ mo',
+    perYear: '/ yr',
+    cycleMonth: 'Monthly',
+    cycleYear: 'Yearly',
+    buyNow: 'Subscribe',
+    buyPack: 'Buy',
+    buying: 'Working…',
+    quotaUnavailable: 'Self-service upgrades are unavailable right now. Contact the admin to enable it.',
+    loginRequired: 'Sign in first to subscribe',
+    checkin: {
+      title: 'Daily check-in for temporary capacity',
+      todayChecked: 'Checked in today',
+      todayPending: 'Not checked in yet',
+      streak: 'Streak',
+      active: 'Active check-in capacity',
+      lifetime: 'Lifetime accrued',
+      cap: 'cap',
+      button: 'Check in',
+      busy: 'Checking in…',
+      success: (amount) => `Checked in +${amount}`,
+      already: 'You have already checked in today',
+      failed: (message) => `Check-in failed: ${message}`,
+      capReached: 'Checked in; the lifetime cap is reached, so no capacity was added',
+      loginHint: 'Sign in to check in',
+    },
+    pointsLabel: 'Points',
+    pointsUnit: 'pts',
+    pay: {
+      title: 'Scan to pay with WeChat',
+      hint: 'Scan the code with WeChat to pay; the order is valid for 30 minutes',
+      waiting: 'Waiting for payment…',
+      paid: 'Payment received, capacity added',
+      timeout: 'Timed out — you can fetch a new QR code',
+      closed: 'The order was closed, please create a new one',
+      retry: 'Fetch a new QR code',
+      close: 'Close',
+      done: 'Done',
+      channelUnavailable: 'Payment channel is not available yet',
+      channelUnavailableHint: 'Scan the admin WeChat QR code and the admin will help you enable it',
+      contactAdmin: 'Contact admin to enable',
+      qrAlt: 'WeChat Pay QR code',
+      qrFailed: 'Could not render the QR code, please retry',
+      failed: (message) => `Payment failed: ${message}`,
+      orderFailed: (message) => `Could not create the order: ${message}`,
+    },
   },
 };
 
 export function getCloudUpgradePlanI18n(locale: UiLanguage): CloudUpgradePlanText {
   return CLOUD_UPGRADE_PLAN_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 扫码添加管理员微信（「联系管理员开通」的人工兜底通道）
+// ---------------------------------------------------------------------------
+
+export interface WechatContactText {
+  title: string;
+  hint: string;
+  note: string;
+  close: string;
+  qrAlt: string;
+  qrFailed: string;
+}
+
+const WECHAT_CONTACT_TEXTS: Record<UiLanguage, WechatContactText> = {
+  'zh-CN': {
+    title: '扫码添加微信开通',
+    hint: '打开微信 → 扫一扫 → 添加好友，备注『扩容』，管理员会协助开通。',
+    note: '二维码仅用于联系管理员，不会扣费或授权任何账号权限。',
+    close: '关闭',
+    qrAlt: '管理员微信二维码',
+    qrFailed: '二维码图片未能加载，请重新打开本弹窗',
+  },
+  'en-US': {
+    title: 'Add us on WeChat to enable it',
+    hint: 'Open WeChat → Scan → Add friend, mention “storage upgrade”, and the admin will help you enable it.',
+    note: 'This QR code only opens a contact; it never charges you or grants account permissions.',
+    close: 'Close',
+    qrAlt: 'Admin WeChat QR code',
+    qrFailed: 'The QR image failed to load, please reopen this dialog',
+  },
+};
+
+export function getWechatContactI18n(locale: UiLanguage): WechatContactText {
+  return WECHAT_CONTACT_TEXTS[normalizeUiLanguage(locale)];
 }

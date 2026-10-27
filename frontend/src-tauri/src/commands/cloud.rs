@@ -34,6 +34,12 @@ const CLOUD_DOCS_PATH: &str = "/miniProgram/cloud/docs";
 const REFRESH_PATH: &str = "/user/refresh";
 /// 分享站点配置接口（分享域名 / 默认分类 / 有效期上限）。
 const SHARE_CONFIG_PATH: &str = "/miniProgram/cloud/share/config";
+/// 云配额接口前缀（汇总 / 套餐 / 下单 / 订单查询 / 扫码支付）。
+const CLOUD_QUOTA_PATH: &str = "/miniProgram/cloud/quota";
+/// 每日签到接口（GET 状态 / POST 签到）。
+const CLOUD_CHECKIN_PATH: &str = "/miniProgram/cloud/checkin";
+/// 积分接口（余额 + 最近流水）。
+const CLOUD_POINTS_PATH: &str = "/miniProgram/cloud/points";
 /// 续期失败后的冷却窗口：期间并发 401 直接复用失败结果，避免刷新风暴。
 const REFRESH_FAILURE_COOLDOWN: Duration = Duration::from_secs(5);
 const HTTP_USER_AGENT: &str = "tau-editor-cloud/1.0";
@@ -2830,6 +2836,478 @@ where
     };
     // 0 / 负数没有意义（分类 id 从 1 开始），统一按「未设置」处理。
     Ok(parsed.filter(|id| *id > 0))
+}
+
+// ---------------------------------------------------------------------------
+// 云配额 / 签到 / 积分（会员体系：容量档位、扫码支付、每日签到、积分）
+//
+// 口径（契约 §1.1）：有效配额 = permanentBytes(永久) + planBytes(档位) + rewardBytes(签到临时)。
+// 所有接口一律「缺字段不炸」：数值缺省按 0、时间与可空字段用 Option，
+// 后端字段增减只会让对应项显示为默认值，不会让整条命令解析失败。
+// ---------------------------------------------------------------------------
+
+/// `GET /quota/summary`：真实用量 + 配额构成 + 当前档位 + 积分。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudQuotaSummary {
+    /// 已用容量（文档正文 + 附件，不含历史版本行）
+    #[serde(default)]
+    pub used_bytes: i64,
+    /// 永久配额（角色能力 / 全局默认）；8 GB 老账号体现在这里
+    #[serde(default)]
+    pub permanent_bytes: i64,
+    /// 付费档位授予的容量（未过期）
+    #[serde(default)]
+    pub plan_bytes: i64,
+    /// 签到临时容量（30 天滑动窗口内有效）
+    #[serde(default)]
+    pub reward_bytes: i64,
+    /// 有效配额 = permanentBytes + planBytes + rewardBytes
+    #[serde(default)]
+    pub quota_bytes: i64,
+    /// FREE / PLUS / PRO
+    #[serde(default)]
+    pub tier: String,
+    /// 档位展示名（前端 i18n 优先，后端名称仅兜底）
+    #[serde(default)]
+    pub tier_name: String,
+    /// 订阅到期时间，无订阅为 null
+    #[serde(default)]
+    pub renew_at: Option<String>,
+    /// 签到终身累计封顶
+    #[serde(default)]
+    pub reward_cap_bytes: i64,
+    /// 签到终身累计已发放
+    #[serde(default)]
+    pub reward_lifetime_bytes: i64,
+    /// 当前积分余额
+    #[serde(default)]
+    pub points: i64,
+}
+
+/// `GET /quota/plans` 的单个 SKU（同一档位按月 / 按年各一行）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudQuotaPlan {
+    #[serde(default)]
+    pub plan_id: i64,
+    /// CLOUD_PLUS_MONTH / CLOUD_PACK_10G …
+    #[serde(default)]
+    pub code: String,
+    /// PLUS / PRO / PACK
+    #[serde(default)]
+    pub tier: String,
+    /// 服务端套餐名（前端展示文案以 i18n 为准）
+    #[serde(default)]
+    pub name: String,
+    /// 授予容量（字节）
+    #[serde(default)]
+    pub bytes: i64,
+    /// MONTH / YEAR / ONE_TIME
+    #[serde(default)]
+    pub cycle: String,
+    /// 单位：分
+    #[serde(default)]
+    pub price: i64,
+    #[serde(default)]
+    pub original_price: Option<i64>,
+    #[serde(default)]
+    pub sort_order: Option<i32>,
+    #[serde(default)]
+    pub featured: bool,
+}
+
+/// 云配额订单（创建与查询共用）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudQuotaOrder {
+    #[serde(default)]
+    pub order_no: String,
+    #[serde(default)]
+    pub plan_name: Option<String>,
+    /// 单位：分
+    #[serde(default)]
+    pub amount: i64,
+    /// PENDING_PAY / PAID / CLOSED / REFUNDED
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub paid_at: Option<String>,
+}
+
+/// `POST /quota/orders/{orderNo}/pay`：微信 Native 扫码支付参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudQuotaPay {
+    #[serde(default)]
+    pub order_no: String,
+    /// weixin://wxpay/bizpayurl?pr=xxxx（前端渲染成二维码）
+    #[serde(default)]
+    pub code_url: String,
+    #[serde(default)]
+    pub expire_at: Option<String>,
+}
+
+/// `GET /checkin`：今日签到状态 + 连签天数 + 临时容量。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudCheckinStatus {
+    #[serde(default)]
+    pub today_checked: bool,
+    #[serde(default)]
+    pub streak_days: i64,
+    /// 当前生效的签到临时容量
+    #[serde(default)]
+    pub reward_active_bytes: i64,
+    #[serde(default)]
+    pub reward_lifetime_bytes: i64,
+    #[serde(default)]
+    pub reward_cap_bytes: i64,
+    /// 次日 0 点（服务端时间）
+    #[serde(default)]
+    pub next_reset_at: Option<String>,
+    #[serde(default)]
+    pub points: i64,
+}
+
+/// `POST /checkin`：本次签到发放结果（服务端权威，客户端不自行计算容量）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudCheckinResult {
+    /// 本次发放容量（终身封顶后为 0）
+    #[serde(default)]
+    pub granted_bytes: i64,
+    /// 连签满 7 天当日翻倍
+    #[serde(default)]
+    pub doubled: bool,
+    #[serde(default)]
+    pub streak_days: i64,
+    /// 签到后的积分余额
+    #[serde(default)]
+    pub points: i64,
+    /// 本次积分增量（翻倍日 +20）
+    #[serde(default)]
+    pub points_delta: i64,
+    #[serde(default)]
+    pub reward_active_bytes: i64,
+    /// 本次签到容量的过期时间（发放 + 30 天）
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub checkin_date: Option<String>,
+}
+
+/// 积分流水项。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudPointEntry {
+    /// CHECKIN / ADJUST …
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub delta: i64,
+    /// 服务端可能给 null（历史数据），统一落成空串，前端仍按字符串处理
+    #[serde(default, deserialize_with = "deserialize_stringish")]
+    pub created_at: String,
+}
+
+/// `GET /points`：积分余额 + 终身累计 + 最近流水。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudPoints {
+    #[serde(default)]
+    pub balance: i64,
+    #[serde(default)]
+    pub lifetime_earned: i64,
+    #[serde(default)]
+    pub recent: Vec<CloudPointEntry>,
+}
+
+/// 下单请求体：`clientOrderNo` 是幂等键（同一值重复下单返回同一订单）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudQuotaOrderPayload {
+    pub plan_id: i64,
+    pub client_order_no: String,
+}
+
+/// 订单号会拼进 URL 路径：只允许字母数字与 `-` / `_`，避免把路径分隔符或查询串带进服务端。
+fn validate_order_no(raw: &str) -> Result<String, CommandError> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(CommandError::new("INVALID_ARGUMENT", "缺少订单号"));
+    }
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(CommandError::new("INVALID_ARGUMENT", "订单号格式不正确"));
+    }
+    Ok(value.to_string())
+}
+
+/// 公开套餐列表的容错解析：`null` / 非数组退化成空列表，单条结构异常只丢该条，
+/// 避免一次字段变更就让整个扩容弹窗空白。
+fn parse_quota_plans(data: &Value) -> Vec<CloudQuotaPlan> {
+    match data {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| serde_json::from_value::<CloudQuotaPlan>(item.clone()).ok())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// 云配额汇总（登录）：用量、永久 / 档位 / 签到构成、当前档位、积分。
+#[tauri::command]
+pub async fn cloud_quota_summary(
+    state: State<'_, CloudState>,
+) -> Result<CloudQuotaSummary, CommandError> {
+    let response = send_authed(&state, "获取云配额汇总", |client, session| {
+        authed(
+            client.get(format!("{}{CLOUD_QUOTA_PATH}/summary", session.base_url)),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "获取云配额汇总").await
+}
+
+/// 云存储套餐列表（**公开接口**：未登录也要能看，因此不带令牌）。
+///
+/// 与博客分类同理：本地可能存着已过期的 token，带上它反而会被 JWT filter 判成 401，
+/// 所以这里只取 base_url（会话 → keyring → 默认值）用普通 client 发送。
+#[tauri::command]
+pub async fn cloud_quota_plans(
+    state: State<'_, CloudState>,
+) -> Result<Vec<CloudQuotaPlan>, CommandError> {
+    let base_url = resolve_base_url(&state).await;
+    let client = http_client()?;
+    let response = client
+        .get(format!("{base_url}{CLOUD_QUOTA_PATH}/plans"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| network_error("获取云配额套餐", error))?;
+    let data = parse_optional_value(response, "获取云配额套餐").await?;
+    Ok(parse_quota_plans(&data))
+}
+
+/// 创建云配额订单（登录）：返回 orderNo + 金额快照 + 待支付状态。
+#[tauri::command]
+pub async fn cloud_quota_order_create(
+    state: State<'_, CloudState>,
+    plan_id: i64,
+    client_order_no: String,
+) -> Result<CloudQuotaOrder, CommandError> {
+    if plan_id <= 0 {
+        return Err(CommandError::new("INVALID_ARGUMENT", "缺少云存储套餐 id"));
+    }
+    let client_order_no = client_order_no.trim().to_string();
+    if client_order_no.is_empty() {
+        return Err(CommandError::new(
+            "INVALID_ARGUMENT",
+            "缺少下单幂等号（clientOrderNo）",
+        ));
+    }
+    let payload = CloudQuotaOrderPayload {
+        plan_id,
+        client_order_no,
+    };
+    let response = send_authed(&state, "创建云配额订单", |client, session| {
+        authed(
+            client.post(format!("{}{CLOUD_QUOTA_PATH}/orders", session.base_url)),
+            session,
+        )
+        .header("Accept", "application/json")
+        .json(&payload)
+    })
+    .await?;
+    parse_result(response, "创建云配额订单").await
+}
+
+/// 查询云配额订单状态（登录，仅本人）：支付轮询用。
+#[tauri::command]
+pub async fn cloud_quota_order_status(
+    state: State<'_, CloudState>,
+    order_no: String,
+) -> Result<CloudQuotaOrder, CommandError> {
+    let order_no = validate_order_no(&order_no)?;
+    let response = send_authed(&state, "查询云配额订单", |client, session| {
+        authed(
+            client.get(format!(
+                "{}{CLOUD_QUOTA_PATH}/orders/{order_no}",
+                session.base_url
+            )),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "查询云配额订单").await
+}
+
+/// 发起微信 Native 扫码支付：成功返回 codeUrl；支付通道未配置时服务端 503，
+/// 前端据可读文案降级成「联系管理员开通」。
+#[tauri::command]
+pub async fn cloud_quota_order_pay(
+    state: State<'_, CloudState>,
+    order_no: String,
+) -> Result<CloudQuotaPay, CommandError> {
+    let order_no = validate_order_no(&order_no)?;
+    let response = send_authed(&state, "获取云配额支付二维码", |client, session| {
+        authed(
+            client.post(format!(
+                "{}{CLOUD_QUOTA_PATH}/orders/{order_no}/pay",
+                session.base_url
+            )),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "获取云配额支付二维码").await
+}
+
+/// 今日签到状态（登录）：是否已签、连签天数、当前临时容量、终身累计与封顶。
+#[tauri::command]
+pub async fn cloud_checkin_status(
+    state: State<'_, CloudState>,
+) -> Result<CloudCheckinStatus, CommandError> {
+    let response = send_authed(&state, "获取签到状态", |client, session| {
+        authed(
+            client.get(format!("{}{CLOUD_CHECKIN_PATH}", session.base_url)),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "获取签到状态").await
+}
+
+/// 每日签到（登录，服务端权威）：重复签到由服务端返回 409「今天已经签到过了」。
+#[tauri::command]
+pub async fn cloud_checkin_do(
+    state: State<'_, CloudState>,
+) -> Result<CloudCheckinResult, CommandError> {
+    let response = send_authed(&state, "签到", |client, session| {
+        authed(
+            client.post(format!("{}{CLOUD_CHECKIN_PATH}", session.base_url)),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "签到").await
+}
+
+/// 积分余额与最近流水（登录）。
+#[tauri::command]
+pub async fn cloud_points(state: State<'_, CloudState>) -> Result<CloudPoints, CommandError> {
+    let response = send_authed(&state, "获取积分", |client, session| {
+        authed(
+            client.get(format!("{}{CLOUD_POINTS_PATH}", session.base_url)),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "获取积分").await
+}
+
+#[cfg(test)]
+mod quota_tests {
+    use super::{parse_quota_plans, validate_order_no};
+    use serde_json::json;
+
+    #[test]
+    fn 订单号校验_拒绝空值与路径分隔符() {
+        assert_eq!(validate_order_no("  ").unwrap_err().code, "INVALID_ARGUMENT");
+        assert_eq!(
+            validate_order_no("CLQ/../pay").unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
+        assert_eq!(
+            validate_order_no("CLQ?a=1").unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
+        // 契约里的订单号形态（CLQ2026...）与前后空白都能过
+        assert_eq!(validate_order_no(" CLQ202610270001 ").unwrap(), "CLQ202610270001");
+    }
+
+    #[test]
+    fn 套餐列表解析_null与非数组退化成空_单条异常只丢该条() {
+        assert!(parse_quota_plans(&json!(null)).is_empty());
+        assert!(parse_quota_plans(&json!({ "planId": 1 })).is_empty());
+
+        let plans = parse_quota_plans(&json!([
+            {
+                "planId": 101, "code": "CLOUD_PLUS_MONTH", "tier": "PLUS", "name": "Plus 个人版",
+                "bytes": 10737418240_i64, "cycle": "MONTH", "price": 600,
+                "originalPrice": 0, "sortOrder": 10, "featured": false
+            },
+            // 缺字段：全部按默认值收下，不能让整页套餐消失
+            { "planId": 105 },
+            // 类型错误：只丢这一条
+            { "planId": "not-a-number" }
+        ]));
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].plan_id, 101);
+        assert_eq!(plans[0].bytes, 10_737_418_240);
+        assert_eq!(plans[1].plan_id, 105);
+        assert_eq!(plans[1].price, 0);
+    }
+
+    #[test]
+    fn 汇总结构体缺字段不炸且出口为驼峰() {
+        let summary: super::CloudQuotaSummary = serde_json::from_value(json!({
+            "usedBytes": 1048576_i64,
+            "quotaBytes": 8589934592_i64,
+            "tier": "FREE",
+            "tierName": "免费版",
+            "renewAt": null,
+            "points": 0
+        }))
+        .expect("后端字段增减不能让汇总整条失败");
+        assert_eq!(summary.used_bytes, 1_048_576);
+        assert_eq!(summary.quota_bytes, 8_589_934_592);
+        assert_eq!(summary.plan_bytes, 0);
+        assert_eq!(summary.tier, "FREE");
+        assert!(summary.renew_at.is_none());
+
+        // 出口必须是 camelCase（前端 CloudQuotaSummary 按此取值）
+        let wire = serde_json::to_value(&summary).unwrap();
+        assert_eq!(wire["quotaBytes"], json!(8_589_934_592_i64));
+        assert!(wire.get("rewardCapBytes").is_some());
+    }
+
+    #[test]
+    fn 签到与积分结构体对接契约字段名() {
+        let result: super::CloudCheckinResult = serde_json::from_value(json!({
+            "grantedBytes": 73400320_i64,
+            "doubled": false,
+            "streakDays": 4,
+            "points": 40,
+            "pointsDelta": 10,
+            "rewardActiveBytes": 73400320_i64,
+            "expiresAt": "2026-11-26 17:00:00",
+            "checkinDate": "2026-10-27"
+        }))
+        .unwrap();
+        assert_eq!(result.granted_bytes, 73_400_320);
+        assert_eq!(result.points_delta, 10);
+
+        // createdAt 为 null 时落成空串，前端不需要判空
+        let points: super::CloudPoints = serde_json::from_value(json!({
+            "balance": 40,
+            "lifetimeEarned": 40,
+            "recent": [{ "reason": "CHECKIN", "delta": 10, "createdAt": null }]
+        }))
+        .unwrap();
+        assert_eq!(points.recent.len(), 1);
+        assert_eq!(points.recent[0].created_at, "");
+    }
 }
 
 #[cfg(test)]
