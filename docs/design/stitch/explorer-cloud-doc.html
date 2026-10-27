@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<!--
+  SOURCE: Stitch screen projects/17516404595924263625/screens/1b363e62613b45f49dc1e6829999443d
+  TITLE : Tau Editor - 资源管理器与结构树系统
+  CANVAS: 2560 x 2048 (DESKTOP)
+
+  TRIM NOTE (裁剪说明): downloaded verbatim from mcp__stitch__download_file
+  `<screen>/fileEntries/html`. Three trims, all documented:
+   1. inner markup of decorative <svg> icons collapsed to <!--icon--> (all other
+      svg attributes such as w-/h-/text-* are kept, so icon size + tint survive).
+   2. the editor's 26 hardcoded line-number <div>s collapsed to one <!--line-numbers 1..26-->.
+   3. the markdown source lines + right-hand live-preview prose (screen filler) are
+      collapsed into a comment block at data-purpose="code-editor" / "live-preview".
+  The ENTIRE left sidebar (workspace switcher, mode tabs, filter bar, cloud section
+  header, tree nodes, selection state, context menu, quota footer), the titlebar and
+  the status bar are kept byte-faithful — that is the part this task specifies.
+-->
+<html class="h-full" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Tau Editor - 资源管理器与结构树系统</title>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              lowest: '#0a0b10',
+              base: '#0d0e16',
+              surface: '#12131b',
+              low: '#1a1b24',
+              mid: '#21222e',
+              border: '#2a2b3d',
+              borderLight: '#36374e',
+              cyan: '#38bdf8',
+              emerald: '#34d399',
+              amber: '#fbbf24',
+              purple: '#c084fc',
+              rose: '#f43f5e'
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: CustomStyles -->
+<style data-purpose="custom-scrollbars">
+    /* Custom thin scrollbar for IDE look */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #272838; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3b3d54; }
+  </style>
+<style data-purpose="ide-effects">
+    .glow-cyan-subtle {
+      box-shadow: 0 0 15px -3px rgba(56, 189, 248, 0.18), inset 0 0 4px 0 rgba(56, 189, 248, 0.1);
+    }
+    .file-tree-guide {
+      background-image: linear-gradient(to bottom, #2b2c3d 50%, rgba(255, 255, 255, 0) 0%);
+      background-position: left;
+      background-size: 1px 6px;
+      background-repeat: repeat-y;
+    }
+  </style>
+<!-- END: CustomStyles -->
+</head>
+<body class="h-full bg-brand-lowest text-slate-200 font-sans text-[13px] antialiased select-none overflow-hidden flex flex-col">
+<!-- BEGIN: WindowTitleBar -->
+<header class="h-10 bg-brand-base border-b border-brand-border flex items-center justify-between px-3 shrink-0 z-30" data-purpose="window-titlebar">
+<!-- Left: macOS Window Controls & Title -->
+<div class="flex items-center space-x-3">
+<!-- Traffic Light Controls -->
+<div class="flex items-center space-x-2 mr-2">
+<div class="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e]/50 cursor-pointer shadow-sm hover:brightness-110"></div>
+<div class="w-3 h-3 rounded-full bg-[#ffbd2e] border border-[#dea123]/50 cursor-pointer shadow-sm hover:brightness-110"></div>
+<div class="w-3 h-3 rounded-full bg-[#27c93f] border border-[#1aab29]/50 cursor-pointer shadow-sm hover:brightness-110"></div>
+</div>
+<!-- App Name & Workspace Breadcrumb -->
+<div class="flex items-center text-xs space-x-2">
+<span class="font-bold text-slate-100 tracking-wide flex items-center gap-1.5">
+<svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" stroke-width="2.2" viewbox="0 0 24 24"><!--icon: terminal--></svg>
+          Tau 编辑器
+        </span>
+<span class="text-slate-600">/</span>
+<span class="text-slate-400 font-mono">workspace</span>
+<span class="text-slate-600">/</span>
+<span class="text-slate-400 font-mono">notes</span>
+<span class="text-slate-600">/</span>
+<span class="text-brand-cyan font-mono font-medium flex items-center gap-1">
+          量化学习路线.md
+          <span class="w-1.5 h-1.5 rounded-full bg-brand-cyan inline-block animate-pulse"></span>
+</span>
+</div>
+</div>
+<!-- Center: Quick Command Palette Trigger -->
+<div class="hidden md:flex items-center">
+<div class="bg-brand-surface border border-brand-border px-3 py-1 rounded-md text-xs text-slate-400 flex items-center space-x-2 shadow-inner hover:border-slate-500 cursor-pointer transition">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><!--icon: search--></svg>
+<span>在项目中搜索与命令...</span>
+<kbd class="bg-brand-mid px-1.5 py-0.5 rounded text-[10px] text-slate-300 font-mono border border-brand-border">⌘K</kbd>
+</div>
+</div>
+<!-- Right: Window Actions & Cloud Status -->
+<div class="flex items-center space-x-3 text-xs">
+<div class="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-brand-emerald/10 border border-brand-emerald/20 text-brand-emerald text-[11px] font-mono">
+<span class="w-1.5 h-1.5 rounded-full bg-brand-emerald"></span>
+<span>已同步到云端</span>
+</div>
+<div class="h-3 w-px bg-brand-border"></div>
+<!-- Action Buttons -->
+<div class="flex items-center space-x-1 text-slate-400">
+<button class="p-1 hover:text-slate-100 hover:bg-brand-mid rounded transition" title="分栏视图">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: columns--></svg>
+</button>
+<button class="p-1 hover:text-slate-100 hover:bg-brand-mid rounded transition" title="专注全屏">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: maximize--></svg>
+</button>
+<button class="p-1 hover:text-slate-100 hover:bg-brand-mid rounded transition" title="首选项">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: settings-gear--></svg>
+</button>
+</div>
+</div>
+</header>
+<!-- END: WindowTitleBar -->
+<!-- BEGIN: MainWorkspaceLayout -->
+<div class="flex-1 flex overflow-hidden" data-purpose="workspace-body">
+<!-- BEGIN: LeftSidebarExplorer -->
+<aside class="w-80 bg-brand-surface border-r border-brand-border flex flex-col shrink-0 relative select-none" data-purpose="file-explorer-sidebar">
+<!-- Top Workspace / Repo Switcher Dropdown -->
+<div class="p-2.5 border-b border-brand-border bg-brand-base/40">
+<div class="flex items-center justify-between text-xs mb-2">
+<div class="flex items-center space-x-2 font-mono text-slate-300 font-semibold truncate">
+<span class="w-2 h-2 rounded-sm bg-brand-cyan"></span>
+<span class="truncate">tau-core-engine</span>
+<span class="text-[10px] bg-brand-mid text-brand-cyan border border-brand-border px-1.5 py-0.2 rounded font-normal">main*</span>
+</div>
+<button class="text-slate-400 hover:text-slate-200 p-0.5">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: more-horizontal--></svg>
+</button>
+</div>
+<!-- Segmented Mode Tabs: Exact match with IMAGE_4 -->
+<div class="grid grid-cols-2 p-0.5 bg-brand-lowest rounded-md border border-brand-border text-xs">
+<button class="py-1 text-center font-medium text-slate-400 hover:text-slate-200 rounded transition flex items-center justify-center gap-1.5">
+<svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: layout-panel--></svg>
+            工作区
+          </button>
+<button class="py-1 text-center font-medium bg-[#3a2818]/60 text-amber-200 border border-amber-600/30 rounded shadow-sm flex items-center justify-center gap-1.5">
+<svg class="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: cloud--></svg>
+            云端文档
+            <span class="bg-amber-500/20 text-amber-300 text-[10px] px-1 rounded font-mono">6</span>
+</button>
+</div>
+</div>
+<!-- Quick Filter / Tree Action Toolbar -->
+<div class="px-3 pt-2.5 pb-2 border-b border-brand-border/60 flex items-center justify-between">
+<div class="relative flex-1 mr-2">
+<input class="w-full bg-brand-lowest border border-brand-border/80 focus:border-brand-cyan/60 rounded px-2 pl-7 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-brand-cyan/50 font-sans" placeholder="快速定位文件或内容..." type="text" value="量化"/>
+<svg class="w-3.5 h-3.5 text-slate-500 absolute left-2 top-1.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><!--icon: search--></svg>
+<span class="absolute right-1.5 top-1 text-[10px] text-slate-500 font-mono">⌘P</span>
+</div>
+<!-- Mini Actions Toolbar -->
+<div class="flex items-center space-x-1 text-slate-400 shrink-0">
+<button class="p-1 hover:text-brand-cyan hover:bg-brand-mid rounded transition" title="新建 Markdown 文件">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: plus--></svg>
+</button>
+<button class="p-1 hover:text-slate-200 hover:bg-brand-mid rounded transition" title="新建文件夹">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: folder-plus--></svg>
+</button>
+<button class="p-1 hover:text-slate-200 hover:bg-brand-mid rounded transition" title="刷新树">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: refresh--></svg>
+</button>
+<button class="p-1 hover:text-slate-200 hover:bg-brand-mid rounded transition" title="全部折叠">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: collapse-all--></svg>
+</button>
+</div>
+</div>
+<!-- Cloud Sync Section Header (As in IMAGE_4) -->
+<div class="px-3 py-1.5 bg-[#171411]/50 border-b border-brand-border/40 flex items-center justify-between text-xs">
+<div class="flex items-center space-x-1.5 text-amber-200/90 font-medium">
+<svg class="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewbox="0 0 24 24"><!--icon: cloud-solid--></svg>
+<span>云端文档库</span>
+</div>
+<div class="flex items-center space-x-2 text-[11px] text-amber-300/60 font-mono">
+<span class="bg-amber-900/40 text-amber-300 px-1.5 py-0.2 rounded-full border border-amber-800/40">6 项文件</span>
+<button class="hover:text-amber-200" title="同步历史">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: clock--></svg>
+</button>
+</div>
+</div>
+<!-- Hierarchical Tree Container -->
+<div class="flex-1 overflow-y-auto px-1 py-1.5 space-y-0.5 font-sans" data-purpose="tree-view-nodes">
+<!-- Root Folder 1: 分享 (Shared) [OPEN] -->
+<div class="group">
+<!-- Folder Node -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300 font-medium">
+<div class="flex items-center space-x-1.5">
+<span class="text-[10px] text-amber-400/80 transition-transform">▼</span>
+<!-- Folder Icon -->
+<svg class="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewbox="0 0 20 20"><!--icon: folder-solid--></svg>
+<span class="text-xs text-amber-100/90 font-medium">分享</span>
+</div>
+<span class="text-[10px] font-mono text-slate-400 bg-brand-lowest px-1 rounded border border-brand-border">6</span>
+</div>
+<!-- Level 1 Children (Indent) -->
+<div class="ml-3 pl-2 border-l border-brand-border/40 space-y-0.5 mt-0.5">
+<!-- Sub Folder: 分享子项 (Open) -->
+<div>
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300">
+<div class="flex items-center space-x-1.5">
+<span class="text-[10px] text-amber-400/80">▼</span>
+<svg class="w-3.5 h-3.5 text-amber-400/90" fill="currentColor" viewbox="0 0 20 20"><!--icon: folder-open-solid--></svg>
+<span class="text-xs text-amber-200/90 font-medium">分享子项</span>
+</div>
+<span class="text-[10px] font-mono text-slate-500 bg-brand-lowest px-1 rounded">1</span>
+</div>
+<!-- Level 2 Sub-child: 镜像管理提示... -->
+<div class="ml-3 pl-2 border-l border-brand-border/40 mt-0.5">
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300 group/sub">
+<div class="flex items-center space-x-1.5 truncate">
+<span class="text-[9px] font-mono font-bold text-brand-purple bg-brand-purple/10 px-1 py-0.2 rounded border border-brand-purple/30">MD</span>
+<span class="text-xs text-slate-300 truncate font-mono">镜像管理提示词.md</span>
+</div>
+<span class="text-[10px] text-slate-500 font-mono hidden group-hover/sub:inline">1.2K</span>
+</div>
+</div>
+</div>
+<!-- Item: 经济相互依存性和... -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300 group/sub">
+<div class="flex items-center space-x-1.5 truncate">
+<span class="text-[9px] font-mono font-bold text-brand-purple bg-brand-purple/10 px-1 py-0.2 rounded border border-brand-purple/30">MD</span>
+<span class="text-xs text-slate-300 truncate font-mono">经济相互依存性和贸易...</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-slate-500/50"></span>
+</div>
+<!-- Item: 量化学习路线.md [ACTIVE SELECTED NODE] -->
+<div class="relative bg-brand-cyan/10 border border-brand-cyan/40 rounded px-2 py-1.5 text-brand-cyan glow-cyan-subtle cursor-pointer group/active">
+<!-- Selection Indicator bar -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-brand-cyan rounded-l"></div>
+<div class="flex items-center justify-between pl-1">
+<div class="flex items-center space-x-1.5 truncate">
+<span class="text-[9px] font-mono font-bold text-brand-cyan bg-brand-cyan/20 px-1 py-0.2 rounded border border-brand-cyan/50">MD</span>
+<span class="text-xs font-mono font-semibold text-slate-100 truncate">量化学习路线.md</span>
+</div>
+<div class="flex items-center space-x-1 font-mono text-[10px]">
+<span class="w-2 h-2 rounded-full bg-brand-emerald animate-pulse"></span>
+<span class="text-brand-cyan/80 text-[10px]">编辑中</span>
+</div>
+</div>
+<!-- Context Menu Trigger simulation indicator -->
+<div class="text-[10px] text-slate-400 mt-1 pl-1 flex items-center justify-between text-slate-400 font-mono">
+<span>Ln 24, Col 1</span>
+<span>2.8 KB</span>
+</div>
+</div>
+<!-- Item: qa-docx-190038.... -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300 group/sub">
+<div class="flex items-center space-x-1.5 truncate">
+<span class="text-[9px] font-mono font-bold text-blue-400 bg-blue-500/10 px-1 py-0.2 rounded border border-blue-500/30">DOC</span>
+<span class="text-xs text-slate-400 truncate font-mono">qa-docx-190038.docx</span>
+</div>
+<span class="text-[10px] text-slate-500 font-mono">36KB</span>
+</div>
+<!-- Item: setup.py -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300 group/sub">
+<div class="flex items-center space-x-1.5 truncate">
+<span class="text-[9px] font-mono font-bold text-amber-400 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/30">&lt;/&gt;</span>
+<span class="text-xs text-slate-300 truncate font-mono">setup.py</span>
+</div>
+<span class="text-[10px] text-slate-500 font-mono">4.3KB</span>
+</div>
+<!-- Item: soft-registers.json -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300 group/sub">
+<div class="flex items-center space-x-1.5 truncate">
+<span class="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/30">{ }</span>
+<span class="text-xs text-slate-400 truncate font-mono">soft-registers.json</span>
+</div>
+<span class="text-[10px] text-slate-500 font-mono">0 B</span>
+</div>
+</div>
+</div>
+<!-- Section 2: Local Project Files (From IMAGE_25) -->
+<div class="pt-2">
+<div class="px-2 py-1 text-[11px] font-semibold text-slate-400 flex items-center justify-between uppercase tracking-wider">
+<span>本地工作区 / workspace</span>
+<span class="text-[10px] font-mono text-slate-400">18 项</span>
+</div>
+<!-- Closed Directory Node: src / core -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-400 hover:text-slate-200">
+<div class="flex items-center space-x-1.5">
+<span class="text-[10px] text-slate-500">▶</span>
+<svg class="w-3.5 h-3.5 text-blue-400" fill="currentColor" viewbox="0 0 20 20"><!--icon: folder-solid--></svg>
+<span class="text-xs font-mono">src / rust-core</span>
+</div>
+<span class="text-[10px] text-slate-400 font-mono">IPC桥接</span>
+</div>
+<!-- Closed Directory Node: docs / architecture -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-400 hover:text-slate-200">
+<div class="flex items-center space-x-1.5">
+<span class="text-[10px] text-slate-500">▶</span>
+<svg class="w-3.5 h-3.5 text-purple-400" fill="currentColor" viewbox="0 0 20 20"><!--icon: folder-solid--></svg>
+<span class="text-xs font-mono">docs / architecture</span>
+</div>
+<span class="text-[10px] text-slate-400 font-mono">架构指南</span>
+</div>
+<!-- File: README.md -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300">
+<div class="flex items-center space-x-1.5 pl-3">
+<span class="text-[9px] font-mono font-bold text-brand-purple bg-brand-purple/10 px-1 py-0.2 rounded border border-brand-purple/30">MD</span>
+<span class="text-xs text-slate-300 font-mono">README.md</span>
+</div>
+<span class="text-[10px] text-slate-400 font-mono">12.3 KB</span>
+</div>
+<!-- File: package.json -->
+<div class="flex items-center justify-between px-2 py-1 rounded hover:bg-brand-low cursor-pointer text-slate-300">
+<div class="flex items-center space-x-1.5 pl-3">
+<span class="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/30">{ }</span>
+<span class="text-xs text-slate-300 font-mono">package.json</span>
+</div>
+<span class="text-[10px] text-slate-400 font-mono">Vue 3 + Tauri</span>
+</div>
+</div>
+</div>
+<!-- BEGIN: ContextMenuPreview -->
+<!-- Floating Mock Context Menu for demonstration on selected node -->
+<div class="absolute top-[215px] right-2 w-56 bg-brand-mid/95 backdrop-blur border border-brand-border rounded-lg shadow-2xl p-1.5 z-40 text-xs text-slate-200 select-none" data-purpose="context-menu-demo">
+<div class="px-2 py-1 text-[10px] font-semibold text-slate-400 border-b border-brand-border/60 mb-1 flex justify-between items-center">
+<span class="tracking-wide">云端文档快捷操作</span>
+<span class="text-brand-cyan font-mono text-[9px] bg-brand-cyan/10 px-1 py-0.2 rounded border border-brand-cyan/30">MD 路线</span>
+</div>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-cyan hover:text-brand-lowest flex items-center justify-between transition group">
+<span class="flex items-center gap-2 font-medium">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: eye--></svg>
+打开
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-brand-lowest font-mono">↵</kbd>
+</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-cyan hover:text-brand-lowest flex items-center justify-between transition group text-brand-emerald">
+<span class="flex items-center gap-2 font-medium">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: cloud-upload--></svg>
+同步至云端
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-brand-lowest font-mono">⌘S</kbd>
+</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-cyan hover:text-brand-lowest flex items-center justify-between transition group text-amber-300">
+<span class="flex items-center gap-2 font-medium">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: share--></svg>
+一键分享
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-brand-lowest font-mono">⌥⌘S</kbd>
+</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-cyan hover:text-brand-lowest flex items-center justify-between transition group">
+<span class="flex items-center gap-2">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: info--></svg>
+属性
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-brand-lowest font-mono">⌘I</kbd>
+</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-cyan hover:text-brand-lowest flex items-center justify-between transition group">
+<span class="flex items-center gap-2">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: clock--></svg>
+历史版本
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-brand-lowest font-mono">⌘H</kbd>
+</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-cyan hover:text-brand-lowest flex items-center justify-between transition group">
+<span class="flex items-center gap-2">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: folder-move--></svg>
+移动到...
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-brand-lowest font-mono">⌥M</kbd>
+</button>
+<div class="h-px bg-brand-border/80 my-1"></div>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-brand-rose hover:text-white flex items-center justify-between text-rose-400 transition group">
+<span class="flex items-center gap-2 font-medium">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: trash--></svg>
+删除云端文档
+</span>
+<kbd class="text-[10px] text-slate-400 group-hover:text-white font-mono">⌘⌫</kbd>
+</button>
+</div>
+<!-- END: ContextMenuPreview -->
+<!-- Sidebar Bottom Telemetry / Quota Panel -->
+<div class="p-3 border-t border-brand-border bg-brand-base/70" data-purpose="sidebar-bottom-info">
+<!-- Storage Quota bar -->
+<div class="mb-2">
+<div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+<span class="flex items-center gap-1">
+<svg class="w-3 h-3 text-brand-emerald" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: upload--></svg>
+              云存储额度 (永久空间)
+            </span>
+<span class="font-mono text-slate-300">83.3 KB / 8.0 GB</span>
+</div>
+<div class="w-full h-1.5 bg-brand-lowest rounded-full overflow-hidden border border-brand-border/60">
+<div class="h-full bg-gradient-to-r from-brand-cyan to-brand-emerald w-[3%] rounded-full"></div>
+</div>
+</div>
+<!-- System & Runtime Metadata -->
+<div class="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1">
+<div class="flex items-center space-x-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-brand-emerald"></span>
+<span>Tauri 2 + Rust Core</span>
+</div>
+<div class="flex items-center space-x-1">
+<span>延迟 &lt;0.8ms</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- END: LeftSidebarExplorer -->
+<!-- BEGIN: CenterAndRightEditorWorkspace -->
+<main class="flex-1 flex flex-col bg-brand-base min-w-0" data-purpose="main-editor-area">
+<!-- TRIM: tab bar (3 tabs: setup.py / 量化学习路线.md [active, border-t-2 brand-cyan, unsaved dot] / 2026093016200000_Tau...),
+     markdown toolbar (H1 H2 | B I S | 代码块 / 数学公式 $ / Mermaid 图表), line-number gutter (1..26, line 24 highlighted),
+     markdown source lines, and the right live-preview pane (progress 68%, 3 metric cards, 3 roadmap stage cards)
+     are collapsed here — they are not part of the cloud-explorer specification. -->
+</main>
+<!-- END: CenterAndRightEditorWorkspace -->
+</div>
+<!-- END: MainWorkspaceLayout -->
+<!-- BEGIN: BottomStatusBar -->
+<footer class="h-6 bg-brand-surface border-t border-brand-border flex items-center justify-between px-3 text-[11px] text-slate-400 font-mono shrink-0 select-none z-30" data-purpose="ide-statusbar">
+<!-- Left Status Telemetry -->
+<div class="flex items-center space-x-3">
+<div class="flex items-center space-x-1.5 text-brand-cyan">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24"><!--icon: sun--></svg>
+<span>行 24, 列 1</span>
+</div>
+<span class="text-brand-border">|</span>
+<span>Ln 24   83 字符</span>
+<span class="text-brand-border">|</span>
+<span class="text-slate-300 hover:text-slate-100 cursor-pointer">作者信息</span>
+<span class="text-brand-border">|</span>
+<div class="flex items-center space-x-1 text-brand-emerald">
+<span class="w-1.5 h-1.5 rounded-full bg-brand-emerald"></span>
+<span>git: main* (+3 -1)</span>
+</div>
+</div>
+<!-- Right Status Settings -->
+<div class="flex items-center space-x-3">
+<div class="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-brand-low border border-brand-border text-slate-300">
+<span>编码: UTF-8</span>
+</div>
+<div class="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-brand-low border border-brand-border text-slate-300">
+<span>主题: 暗夜 (Nocturne)</span>
+</div>
+<div class="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-brand-low border border-brand-border text-brand-cyan font-semibold">
+<span>语言: Markdown</span>
+</div>
+</div>
+</footer>
+<!-- END: BottomStatusBar -->
+</body></html>
