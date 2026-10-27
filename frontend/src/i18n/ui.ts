@@ -1925,12 +1925,14 @@ interface CloudDocBrowserText {
  * 独立成组，避免与树/侧栏共用的 CloudDocBrowserText 顶层字段混淆。
  */
 interface CloudDocBrowserShellText {
-  /** 左栏：工作空间 */
+  /** 左栏：工作空间（数据驱动：由云端路径 `tau/<workspace>/…` 派生，无后端空间实体） */
   workspaceSection: string;
-  workspacePlan: string;
-  spacePersonal: string;
-  spaceTeam: string;
-  spaceArchive: string;
+  /** 首项固定「全部云端文档」 */
+  workspaceAll: string;
+  /** 一份文档都反查不出工作空间时的提示 */
+  workspaceNone: string;
+  /** 计数胶囊里的作用域提示 */
+  workspaceScope: (workspace: string) => string;
   /** 左栏：目录树 */
   treeSection: string;
   collapseAll: string;
@@ -1971,7 +1973,8 @@ interface CloudDocBrowserShellText {
   syncing: string;
   creatorHash: (creator: string, hash: string) => string;
   creatorSelf: string;
-  openInEditor: string;
+  /** 检查器主按钮：与树的选择弹窗同一文案（「在编辑器中打开」） */
+  editInEditor: string;
   downloadCopy: string;
   shareLink: string;
   desktopOnly: string;
@@ -2023,10 +2026,9 @@ const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
     saveAsDone: (path) => `已另存为 ${path}`,
     shell: {
       workspaceSection: '工作空间',
-      workspacePlan: 'Cloud Pro',
-      spacePersonal: '个人云空间',
-      spaceTeam: '团队分享空间',
-      spaceArchive: '归档与历史备份',
+      workspaceAll: '全部云端文档',
+      workspaceNone: '暂无工作空间',
+      workspaceScope: (workspace) => `工作空间 ${workspace}`,
       treeSection: '文件目录树',
       collapseAll: '全部折叠',
       tagsSection: '标签筛选',
@@ -2061,7 +2063,7 @@ const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
       syncing: '云端同步中',
       creatorHash: (creator, hash) => `创建者: ${creator} · SHA-256: ${hash}`,
       creatorSelf: '本地工作台',
-      openInEditor: '在 Tau Editor 中打开编辑',
+      editInEditor: '在编辑器中打开',
       downloadCopy: '下载副本',
       shareLink: '分享链接',
       desktopOnly: '该操作需在 Tau 桌面端使用。',
@@ -2112,10 +2114,9 @@ const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
     saveAsDone: (path) => `Saved as ${path}`,
     shell: {
       workspaceSection: 'Workspaces',
-      workspacePlan: 'Cloud Pro',
-      spacePersonal: 'Personal cloud',
-      spaceTeam: 'Team sharing',
-      spaceArchive: 'Archive & backups',
+      workspaceAll: 'All cloud documents',
+      workspaceNone: 'No workspaces yet',
+      workspaceScope: (workspace) => `workspace ${workspace}`,
       treeSection: 'File tree',
       collapseAll: 'Collapse all',
       tagsSection: 'Filter by tag',
@@ -2150,7 +2151,7 @@ const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
       syncing: 'Syncing to cloud',
       creatorHash: (creator, hash) => `Creator: ${creator} · SHA-256: ${hash}`,
       creatorSelf: 'Local workbench',
-      openInEditor: 'Open & edit in Tau Editor',
+      editInEditor: 'Open for editing',
       downloadCopy: 'Download copy',
       shareLink: 'Share link',
       desktopOnly: 'This action is available in the Tau desktop app.',
@@ -2514,9 +2515,9 @@ interface CloudDocPanelText {
   close: string;
   choiceTitle: string;
   choiceHint: string;
-  choicePreview: string;
   choiceSaveAs: string;
-  previewTitle: (fileName: string) => string;
+  /** 选择题主按钮：在编辑器中打开（替代已移除的只读预览） */
+  editInEditor: string;
   previewUnsupported: string;
   saveAsDone: (path: string) => string;
   saveAsFailed: (message: string) => string;
@@ -2593,10 +2594,9 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     cancel: '取消',
     close: '关闭',
     choiceTitle: '该云文档不在当前工作区',
-    choiceHint: '可以只读预览，或另存到本地任意位置。',
-    choicePreview: '只读预览',
+    choiceHint: '可以直接在编辑器里打开并同步回云端，或另存到本地任意位置。',
     choiceSaveAs: '另存为…',
-    previewTitle: (fileName) => `只读预览 · ${fileName}`,
+    editInEditor: '在编辑器中打开',
     previewUnsupported: '该类型暂不支持应用内预览，请使用「另存为…」或分享页在线预览',
     saveAsDone: (path) => `已另存为 ${path}`,
     saveAsFailed: (message) => `另存失败：${message}`,
@@ -2671,10 +2671,9 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     cancel: 'Cancel',
     close: 'Close',
     choiceTitle: 'This cloud document is outside the current workspace',
-    choiceHint: 'Preview it read-only, or save a copy anywhere on disk.',
-    choicePreview: 'Read-only preview',
+    choiceHint: 'Open it in the editor and sync changes back, or save a copy anywhere on disk.',
     choiceSaveAs: 'Save as…',
-    previewTitle: (fileName) => `Preview - ${fileName}`,
+    editInEditor: 'Open for editing',
     previewUnsupported: 'Preview is not available for this type - use Save as or the share page',
     saveAsDone: (path) => `Saved to ${path}`,
     saveAsFailed: (message) => `Save failed: ${message}`,
@@ -3083,4 +3082,110 @@ const CLOUD_SYNC_SETTINGS_TEXTS: Record<UiLanguage, CloudSyncSettingsText> = {
 
 export function getCloudSyncSettingsI18n(locale: UiLanguage): CloudSyncSettingsText {
   return CLOUD_SYNC_SETTINGS_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 云文档在线编辑：409 冲突三选一 + 「在编辑器中打开」提示
+// ---------------------------------------------------------------------------
+
+/** 云端保存冲突（409）对话框文案。 */
+export interface CloudDocConflictText {
+  title: string;
+  close: string;
+  intro: string;
+  localLabel: string;
+  localValue: string;
+  remoteLabel: string;
+  remoteUnknown: string;
+  saveCopy: string;
+  saveCopyHint: string;
+  keepMine: string;
+  keepMineHint: string;
+  useRemote: string;
+  useRemoteHint: string;
+  later: string;
+  busy: string;
+}
+
+const CLOUD_DOC_CONFLICT_TEXTS: Record<UiLanguage, CloudDocConflictText> = {
+  'zh-CN': {
+    title: '云端版本冲突',
+    close: '关闭',
+    intro: '云端已存在更新的版本，你的这次保存没有覆盖它。请选择怎么处理这两份内容。',
+    localLabel: '你的版本（本地）',
+    localValue: '尚未保存到云端',
+    remoteLabel: '云端版本',
+    remoteUnknown: '未知',
+    saveCopy: '另存为副本',
+    saveCopyHint: '两端都保留：本地内容作为新文档上传，云端原文档不动（推荐）',
+    keepMine: '保留我的修改',
+    keepMineHint: '以云端最新版本为基线重试一次，用你的内容覆盖云端',
+    useRemote: '用云端版本',
+    useRemoteHint: '丢弃本地这份修改，编辑器内容替换为云端最新版本',
+    later: '稍后处理',
+    busy: '处理中…',
+  },
+  'en-US': {
+    title: 'Cloud version conflict',
+    close: 'Close',
+    intro: 'A newer version already exists in the cloud, so this save did not overwrite it. Choose what to do with both versions.',
+    localLabel: 'Your version (local)',
+    localValue: 'Not saved to cloud yet',
+    remoteLabel: 'Cloud version',
+    remoteUnknown: 'unknown',
+    saveCopy: 'Save as a copy',
+    saveCopyHint: 'Keep both: upload the local content as a new document and leave the cloud one untouched (recommended)',
+    keepMine: 'Keep my changes',
+    keepMineHint: 'Retry once on top of the latest cloud version and overwrite it with your content',
+    useRemote: 'Use the cloud version',
+    useRemoteHint: 'Discard the local changes and replace the editor content with the latest cloud version',
+    later: 'Later',
+    busy: 'Working…',
+  },
+};
+
+export function getCloudDocConflictI18n(locale: UiLanguage): CloudDocConflictText {
+  return CLOUD_DOC_CONFLICT_TEXTS[normalizeUiLanguage(locale)];
+}
+
+/** 「在编辑器中打开云文档」相关提示文案。 */
+export interface CloudDocEditOpenText {
+  opened: (fileName: string) => string;
+  openedHint: string;
+  alreadyOpen: (fileName: string) => string;
+  openFailed: (message: string) => string;
+  conflictSavedCopy: (path: string) => string;
+  conflictKeepMineDone: string;
+  conflictUseRemoteDone: string;
+  conflictRetryExhausted: string;
+  conflictFailed: (message: string) => string;
+}
+
+const CLOUD_DOC_EDIT_OPEN_TEXTS: Record<UiLanguage, CloudDocEditOpenText> = {
+  'zh-CN': {
+    opened: (fileName) => `已在编辑器中打开 ${fileName}`,
+    openedHint: '保存即同步：编辑后 2.5 秒自动上传，Ctrl/Cmd + S 立即同步。',
+    alreadyOpen: (fileName) => `${fileName} 已在编辑器中打开`,
+    openFailed: (message) => `无法在编辑器中打开：${message}`,
+    conflictSavedCopy: (path) => `冲突内容已另存为副本：${path}`,
+    conflictKeepMineDone: '已用你的内容覆盖云端（基线已推进到最新版本）',
+    conflictUseRemoteDone: '已用云端版本替换编辑器内容',
+    conflictRetryExhausted: '云端在你重试期间又更新了，请重新选择处理方式',
+    conflictFailed: (message) => `冲突处理失败：${message}`,
+  },
+  'en-US': {
+    opened: (fileName) => `Opened ${fileName} in the editor`,
+    openedHint: 'Saving syncs: edits upload after 2.5s idle, Ctrl/Cmd + S syncs immediately.',
+    alreadyOpen: (fileName) => `${fileName} is already open in the editor`,
+    openFailed: (message) => `Could not open in the editor: ${message}`,
+    conflictSavedCopy: (path) => `Conflicting content saved as a copy: ${path}`,
+    conflictKeepMineDone: 'Your content overwrote the cloud version (baseline advanced)',
+    conflictUseRemoteDone: 'Editor content replaced with the cloud version',
+    conflictRetryExhausted: 'The cloud changed again during the retry, please choose again',
+    conflictFailed: (message) => `Failed to resolve the conflict: ${message}`,
+  },
+};
+
+export function getCloudDocEditOpenI18n(locale: UiLanguage): CloudDocEditOpenText {
+  return CLOUD_DOC_EDIT_OPEN_TEXTS[normalizeUiLanguage(locale)];
 }
