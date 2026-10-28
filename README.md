@@ -59,21 +59,21 @@ npm run build
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.6.12](https://github.com/kokotao/tau-editor/releases/tag/v0.6.12)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.6.26](https://github.com/kokotao/tau-editor/releases/tag/v0.6.26)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| macOS（Apple Silicon / M 系列） | `Tau.Editor_0.6.12_aarch64.dmg` | 原生 arm64 包；首次打开需系统放行一次，见下方说明 |
-| macOS（Intel + Apple Silicon） | `Tau.Editor_0.6.12_universal.dmg` | 通用包；首次打开需系统放行一次，见下方说明 |
-| Windows (x64) | `Tau.Editor_0.6.12_x64-setup.exe` / `Tau.Editor_0.6.12_x64_zh-CN.msi` | 双击安装 |
-| Linux (x64) | `Tau.Editor_0.6.12_amd64.deb` / `Tau.Editor-0.6.12-1.x86_64.rpm` / `Tau.Editor_0.6.12_amd64.AppImage` | AppImage 需先 `chmod +x` |
+| macOS（Apple Silicon / M 系列） | `Tau.Editor_0.6.26_aarch64.dmg` | 原生 arm64 包；首次打开需系统放行一次，见下方说明 |
+| macOS（Intel + Apple Silicon） | `Tau.Editor_0.6.26_universal.dmg` | 通用包；首次打开需系统放行一次，见下方说明 |
+| Windows (x64) | `Tau.Editor_0.6.26_x64-setup.exe` / `Tau.Editor_0.6.26_x64_zh-CN.msi` | 双击安装 |
+| Linux (x64) | `Tau.Editor_0.6.26_amd64.deb` / `Tau.Editor-0.6.26-1.x86_64.rpm` / `Tau.Editor_0.6.26_amd64.AppImage` | AppImage 需先 `chmod +x` |
 
 > **macOS 首次打开说明**：构建流程已在打包前对 `.app` 做 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`），
 > 重新构建的安装包不会再触发「已损坏」类错误。由于尚未使用 Apple Developer ID 公证，首次打开仍需
 > 在「系统设置 → 隐私与安全性」点击一次「仍要打开」（旧版 macOS 也可右键点击 App 选择「打开」）；
 > 如需完全免提示，需配置 Developer ID 签名与公证。
 
-> **macOS 拖拽安装界面**：v0.6.12 的两个 DMG 均使用当前蓝色背景图和最新应用图标，窗口内保留
+> **macOS 拖拽安装界面**：v0.6.26 的两个 DMG 均使用当前蓝色背景图和最新应用图标，窗口内保留
 > “Tau Editor → Applications”的拖拽布局；打包流程会校验 Finder 布局元数据（`.DS_Store`）、背景图和
 > `icon.icns`，避免发布后显示旧背景、旧图标或默认空白窗口。
 >
@@ -85,6 +85,14 @@ npm run build
 > ```
 >
 > 完整说明见 [INSTALL.md](INSTALL.md#macos-安装步骤)。
+
+## ✨ v0.6.26 更新亮点
+
+- **分类树收口**：云端文档分类树不再有「自定义分类」包裹层，历史自由文本分类升级为真实顶层分类，右键重命名即可生效。
+- **多级分类一次创建**：「新建分类 / 新建子分类」与「同步至云端」的新分类输入都支持 `后端/Java/Spring` 路径，一次建三级；已存在层级自动复用，超过三级明确报错而不是静默截断。
+- **云端文档浏览**：按分类树浏览云端文档，支持搜索、分页、大小/更新时间/版本查看，可直接在编辑器打开并同步。
+- **云存储与会员**：容量套餐（Plus / Pro、月付 / 年付 / 永久扩容包）、每日签到扩容、积分兑换与微信扫码开通，用量与配额实时可见。
+- **本地优先同步**：保存即同步，路径与内容哈希一致跳过上传；多设备打开同一份文档不会互相覆盖。
 
 ## ✨ v0.6.12 更新亮点
 
@@ -263,6 +271,13 @@ pnpm build
 ## 📋 功能特性
 
 ### ✨ 核心功能
+
+#### ☁️ 云文档与云存储
+
+- **本地优先同步**：文件保存后按路径 + 内容哈希与云端对齐，一致即跳过上传，冲突给出可见对比。
+- **云端分类树**：学科/自定义分类多层组织，支持重命名、拖拽移动、多级路径一次创建。
+- **容量与会员**：容量套餐、永久扩容包、每日签到、积分兑换与微信扫码开通，配额与用量实时展示。
+- **多端一致**：桌面端与博客/小程序共用同一套云端文档，打开即是最新版本。
 
 #### 📄 文件管理
 - ✅ 新建、打开、保存、另存为
