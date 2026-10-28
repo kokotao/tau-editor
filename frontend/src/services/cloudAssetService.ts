@@ -36,7 +36,7 @@ export interface CloudAssetUploadFailure {
 }
 
 export interface CloudAssetSyncSummary {
-  /** 文档里引用的相对图片总数（不合规的也算在内） */
+  /** 文档里引用的「可同步」相对图片总数（不合规的另计在 unsupported） */
   total: number;
   /** 本地探测通过、需要参与同步的张数 */
   eligible: number;
@@ -48,9 +48,34 @@ export interface CloudAssetSyncSummary {
   failed: number;
   /** 本地不合规被跳过的张数（扩展名/超限/魔数） */
   skipped: number;
+  /**
+   * 引用本身就不可能同步的处数（外链 / 绝对路径 / `..` 跨目录 / svg 等格式不支持）。
+   * 这部分以前完全静默，用户只能看到「图片没传上去」；现在显式计数，供弹窗与提示展示。
+   */
+  unsupported: number;
   failures: CloudAssetUploadFailure[];
   /** 是否因为设置项关闭而没有执行 */
   disabled?: boolean;
+}
+
+/** 引用无法同步的原因（`null` 表示可同步）。 */
+export type UnsupportedImageRefReason =
+  | 'external'
+  | 'absolute'
+  | 'cross-directory'
+  | 'unsupported-extension';
+
+/** 未同步的图片引用（带原因，便于向用户解释「为什么这张图没传」）。 */
+export interface UnsupportedImageRef {
+  /** 原始引用文本（已去掉尖括号与标题） */
+  raw: string;
+  reason: UnsupportedImageRefReason;
+}
+
+/** 解析结果：可同步引用 + 未同步引用（后者用于诊断展示）。 */
+export interface MarkdownImageRefsParsed {
+  refs: MarkdownImageRef[];
+  unsupported: UnsupportedImageRef[];
 }
 
 export interface CloudAssetPullSummary {
@@ -84,7 +109,10 @@ function decodePath(raw: string): string {
   }
 }
 
-/** 是否是可同步的相对路径（跳过 http(s)/data:/绝对路径/锚点）。 */
+/**
+ * 是否是可同步的相对路径（跳过 http(s)/data:/绝对路径/锚点）。
+ * 兼容保留的旧判定；新的「为什么不能同步」请用 `classifyImageRef`（能给出原因）。
+ */
 export function isRelativeImagePath(raw: string): boolean {
   const target = raw.trim().replace(/^<|>$/g, '').trim();
   if (!target) {
@@ -120,32 +148,88 @@ export function docDirectory(filePath: string): string {
   return index > 0 ? normalized.slice(0, index) : '';
 }
 
+/** 去掉尖括号包裹与 `path "标题"` 尾部标题，得到纯目标路径。 */
+function normalizeRefTarget(rawTarget: string): string {
+  const trimmed = (rawTarget ?? '').trim();
+  const angle = /^<([^>]*)>$/.exec(trimmed);
+  if (angle) {
+    return (angle[1] ?? '').trim();
+  }
+  return trimmed.replace(/\s+["'][^"']*["']\s*$/, '').trim();
+}
+
 /**
- * 解析 Markdown 里的相对图片引用（`![](...)` 与 `<img src="...">`）。
- * - 跳过 http(s)/data:/绝对路径/锚点；
- * - 处理尖括号包裹、引号标题、`%xx` 编码与反斜杠；
- * - `..` 越界引用直接丢弃（不同步）。
- * 同一 relPath 只保留一次。
+ * 判断一条图片引用为什么不能同步（`null` = 可以同步）。
+ * 纯函数，供详细解析与单测复用；判定顺序即「原因优先级」。
  */
-export function parseMarkdownImageRefs(markdown: string, filePath: string): MarkdownImageRef[] {
+export function classifyImageRef(rawTarget: string): UnsupportedImageRefReason | null {
+  const target = normalizeRefTarget(rawTarget);
+  if (!target) {
+    // 空引用（`![]()`）不当作「未同步」，直接忽略
+    return null;
+  }
+  // Windows 盘符绝对路径要先判，否则会被下面的 scheme 规则吃成「外链」
+  if (/^[a-zA-Z]:[\\/]/.test(target) || target.startsWith('\\\\')) {
+    return 'absolute';
+  }
+  // 协议相对地址 `//cdn/a.png` 是外链
+  if (target.startsWith('//')) {
+    return 'external';
+  }
+  // 站点/文件系统绝对路径（单个反斜杠开头的仍按相对路径处理，交给规范化去统一分隔符）
+  if (target.startsWith('/')) {
+    return 'absolute';
+  }
+  // 锚点不是本地文件资源
+  if (target.startsWith('#')) {
+    return 'external';
+  }
+  // http(s)/data:/file:/mailto: 等任何带 scheme 的地址
+  if (/^[a-z][a-z0-9+.-]*:/i.test(target)) {
+    return 'external';
+  }
+  const relPath = normalizeRelativeAssetPath(target);
+  if (!relPath) {
+    // `..` 越界：跨目录引用不在文档附件允许范围内
+    return 'cross-directory';
+  }
+  if (!isSupportedImageName(relPath)) {
+    return 'unsupported-extension';
+  }
+  return null;
+}
+
+/**
+ * 解析 Markdown 里的图片引用，并区分「可同步」与「不可同步（带原因）」。
+ * - 可同步：`![](...)` / `<img src>` 中的相对路径，扩展名 png/jpg/jpeg/gif/webp；
+ * - 不可同步：外链、绝对路径、`..` 跨目录、格式不支持（svg/bmp/avif…）；
+ * - 处理尖括号包裹、引号标题、`%xx` 编码与反斜杠；
+ * - 可同步引用按 relPath 去重，不可同步引用按原文去重（同一张图重复引用不重复计数）。
+ */
+export function parseMarkdownImageRefsDetailed(
+  markdown: string,
+  filePath: string,
+): MarkdownImageRefsParsed {
   const text = (markdown ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  const parsed: MarkdownImageRefsParsed = { refs: [], unsupported: [] };
   if (!text) {
-    return [];
+    return parsed;
   }
   const dir = docDirectory(filePath);
   const seen = new Set<string>();
-  const refs: MarkdownImageRef[] = [];
+  const seenUnsupported = new Set<string>();
 
   const push = (rawTarget: string) => {
-    // 兼容三种写法：<带空格路径>、`path "标题"`、纯路径
-    let target = rawTarget.trim();
-    const angle = /^<([^>]*)>$/.exec(target);
-    if (angle) {
-      target = (angle[1] ?? '').trim();
-    } else {
-      target = target.replace(/\s+["'][^"']*["']\s*$/, '').trim();
+    const target = normalizeRefTarget(rawTarget);
+    const reason = classifyImageRef(target);
+    if (reason) {
+      if (!seenUnsupported.has(target)) {
+        seenUnsupported.add(target);
+        parsed.unsupported.push({ raw: target, reason });
+      }
+      return;
     }
-    if (!isRelativeImagePath(target)) {
+    if (!target) {
       return;
     }
     const relPath = normalizeRelativeAssetPath(target);
@@ -153,7 +237,7 @@ export function parseMarkdownImageRefs(markdown: string, filePath: string): Mark
       return;
     }
     seen.add(relPath);
-    refs.push({
+    parsed.refs.push({
       raw: target,
       relPath,
       localPath: dir ? `${dir}/${relPath}` : relPath,
@@ -171,7 +255,18 @@ export function parseMarkdownImageRefs(markdown: string, filePath: string): Mark
     push(match[1] ?? '');
   }
 
-  return refs;
+  return parsed;
+}
+
+/**
+ * 解析 Markdown 里的相对图片引用（`![](...)` 与 `<img src="...">`）。
+ * - 跳过 http(s)/data:/绝对路径/锚点；
+ * - 处理尖括号包裹、引号标题、`%xx` 编码与反斜杠；
+ * - `..` 越界引用直接丢弃（不同步）。
+ * 同一 relPath 只保留一次。
+ */
+export function parseMarkdownImageRefs(markdown: string, filePath: string): MarkdownImageRef[] {
+  return parseMarkdownImageRefsDetailed(markdown, filePath).refs;
 }
 
 export interface AssetUploadPlan {
@@ -280,6 +375,7 @@ export async function syncMarkdownAssets(
     unchanged: 0,
     failed: 0,
     skipped: 0,
+    unsupported: 0,
     failures: [],
   };
   if (!options.enabled) {
@@ -290,8 +386,10 @@ export async function syncMarkdownAssets(
     return summary;
   }
 
-  const refs = parseMarkdownImageRefs(options.content, options.filePath);
+  const parsed = parseMarkdownImageRefsDetailed(options.content, options.filePath);
+  const refs = parsed.refs;
   summary.total = refs.length;
+  summary.unsupported = parsed.unsupported.length;
   if (refs.length === 0) {
     return summary;
   }

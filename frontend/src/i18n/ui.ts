@@ -464,6 +464,24 @@ interface FileTreeText {
   uploadFolderProgress: (done: number, total: number) => string;
   uploadFolderDone: (ok: number) => string;
   uploadFolderPartial: (ok: number, failed: number, skipped: number) => string;
+  /** 上传中：转到后台继续（不中断队列） */
+  uploadBackground: string;
+  uploadBackgroundHint: string;
+  /** 状态栏徽标：云上传 24/460 */
+  uploadRunningBadge: (done: number, total: number) => string;
+  /** 图片附件同步规则说明（png/jpg/jpeg/gif/webp、≤20MB、仅相对路径） */
+  uploadAssetsTitle: string;
+  uploadAssetsRules: string;
+  /** 图片附件结果：已同步 X 张，失败 Y 张，跳过 Z 张 */
+  uploadAssetsSummary: (ok: number, failed: number, skipped: number) => string;
+  /** N 处图片引用未同步（跨目录 / 绝对路径 / 外链 / 格式不支持） */
+  uploadAssetsUnsupported: (count: number) => string;
+  /** 设置里关闭了图片附件同步 */
+  uploadAssetsDisabled: string;
+  /** 后台进行时上传完成的提示 */
+  uploadFinishedInBackground: string;
+  /** 已有上传任务进行中：N/M，已为你打开进度窗口 */
+  uploadFolderBusy: (done: number, total: number) => string;
 }
 
 interface StatusBarText {
@@ -1556,6 +1574,16 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     uploadFolderDone: (ok) => `已上传 ${ok} 个文件到云端`,
     uploadFolderPartial: (ok, failed, skipped) =>
       `上传结束：成功 ${ok}，失败 ${failed}，跳过 ${skipped}`,
+    uploadBackground: '后台进行',
+    uploadBackgroundHint: '关闭窗口不会中断上传，可从底部状态栏查看进度',
+    uploadRunningBadge: (done, total) => `云上传 ${done}/${total}`,
+    uploadAssetsTitle: '图片附件',
+    uploadAssetsRules: 'Markdown 引用的图片会作为文档附件同步：png/jpg/jpeg/gif/webp，单张 ≤20MB，仅同目录或子目录相对路径',
+    uploadAssetsSummary: (ok, failed, skipped) => `图片附件：已同步 ${ok} 张，失败 ${failed} 张，跳过 ${skipped} 张`,
+    uploadAssetsUnsupported: (count) => `${count} 处图片引用未同步（跨目录、绝对路径、外链或格式不支持）`,
+    uploadAssetsDisabled: '设置中已关闭「同步 Markdown 图片附件」，本次不会上传图片',
+    uploadFinishedInBackground: '后台上传已完成',
+    uploadFolderBusy: (done, total) => `已有上传任务进行中（${done}/${total}），已为你打开进度窗口`,
   },
   'en-US': {
     workspace: 'Workspace',
@@ -1599,6 +1627,16 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     uploadFolderDone: (ok) => `${ok} file(s) uploaded to cloud`,
     uploadFolderPartial: (ok, failed, skipped) =>
       `Upload finished: ${ok} succeeded, ${failed} failed, ${skipped} skipped`,
+    uploadBackground: 'Run in background',
+    uploadBackgroundHint: 'Closing this window keeps the upload running; check progress from the status bar',
+    uploadRunningBadge: (done, total) => `Cloud upload ${done}/${total}`,
+    uploadAssetsTitle: 'Image attachments',
+    uploadAssetsRules: 'Images referenced by Markdown sync as document attachments: png/jpg/jpeg/gif/webp, max 20MB each, same or sub-directory relative paths only',
+    uploadAssetsSummary: (ok, failed, skipped) => `Images: ${ok} synced, ${failed} failed, ${skipped} skipped`,
+    uploadAssetsUnsupported: (count) => `${count} image reference(s) not synced (cross-directory, absolute path, external URL or unsupported format)`,
+    uploadAssetsDisabled: 'Image attachment sync is disabled in settings; no images will be uploaded',
+    uploadFinishedInBackground: 'Background upload finished',
+    uploadFolderBusy: (done, total) => `An upload is already running (${done}/${total}); opened its progress window`,
   },
 };
 
@@ -2567,6 +2605,26 @@ interface CloudDocPanelText {
   newFileDuplicate: string;
   /** 没有真实分类 id 的聚合分组不能新建文件 */
   newFileUnsupported: string;
+  /** 分类右键：一键分享文件夹（生成 /s/f/{token} 公共目录页） */
+  menuShareFolder: string;
+  folderShareTitle: string;
+  folderShareHint: string;
+  folderShareCreating: string;
+  folderShareLinkLabel: string;
+  folderShareCopy: string;
+  folderShareCopied: string;
+  folderShareRegenerate: string;
+  folderShareRevoke: string;
+  folderShareRevoked: string;
+  folderSharePasswordLabel: string;
+  folderShareExpiresLabel: string;
+  folderShareIncludeSub: string;
+  folderShareDocs: (count: number) => string;
+  folderShareHasPassword: string;
+  folderShareNoPassword: string;
+  folderShareDone: string;
+  folderShareFailed: (message: string) => string;
+  folderShareUnsupported: string;
   /** 分类右键：批量上传本地文件（R2） */
   menuUploadFiles: string;
   uploadDialogTitle: string;
@@ -2680,6 +2738,25 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     newFileInvalid: '文件名不能为空，且不能包含 / \\ : * ? " < > | 或 ..',
     newFileDuplicate: '云端已存在同名文档，请换一个名字',
     newFileUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接新建文件',
+    menuShareFolder: '一键分享文件夹',
+    folderShareTitle: '分享文件夹',
+    folderShareHint: '生成一个链接，外部打开即可浏览该分类下的文档目录并在线阅读',
+    folderShareCreating: '正在生成分享链接…',
+    folderShareLinkLabel: '分享链接',
+    folderShareCopy: '复制链接',
+    folderShareCopied: '链接已复制',
+    folderShareRegenerate: '重新生成',
+    folderShareRevoke: '撤销分享',
+    folderShareRevoked: '已撤销文件夹分享',
+    folderSharePasswordLabel: '访问密码（可选）',
+    folderShareExpiresLabel: '有效期（天，留空为永久）',
+    folderShareIncludeSub: '包含子分类',
+    folderShareDocs: (count) => `包含 ${count} 篇文档`,
+    folderShareHasPassword: '有密码',
+    folderShareNoPassword: '无密码',
+    folderShareDone: '文件夹分享已创建',
+    folderShareFailed: (message) => `文件夹分享失败：${message}`,
+    folderShareUnsupported: '该分组没有独立分类记录，无法分享',
     menuUploadFiles: '上传文件…',
     uploadDialogTitle: '上传文件到云端',
     uploadDialogTarget: (categoryName) => `目标分类：${categoryName}`,
@@ -2788,6 +2865,25 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     newFileInvalid: 'File name must not be empty or contain / \\ : * ? " < > | or ..',
     newFileDuplicate: 'A cloud document with this name already exists - pick another name',
     newFileUnsupported: 'This group comes from document category text, so no file can be created here',
+    menuShareFolder: 'Share folder',
+    folderShareTitle: 'Share folder',
+    folderShareHint: 'Create a link that opens this category as a public directory with in-browser reading',
+    folderShareCreating: 'Creating share link…',
+    folderShareLinkLabel: 'Share link',
+    folderShareCopy: 'Copy link',
+    folderShareCopied: 'Link copied',
+    folderShareRegenerate: 'Regenerate',
+    folderShareRevoke: 'Revoke sharing',
+    folderShareRevoked: 'Folder sharing revoked',
+    folderSharePasswordLabel: 'Access password (optional)',
+    folderShareExpiresLabel: 'Expires in days (empty = never)',
+    folderShareIncludeSub: 'Include subcategories',
+    folderShareDocs: (count) => `${count} document(s)`,
+    folderShareHasPassword: 'Password protected',
+    folderShareNoPassword: 'No password',
+    folderShareDone: 'Folder sharing created',
+    folderShareFailed: (message) => `Folder sharing failed: ${message}`,
+    folderShareUnsupported: 'This group has no real category record and cannot be shared',
     menuUploadFiles: 'Upload files…',
     uploadDialogTitle: 'Upload files to cloud',
     uploadDialogTarget: (categoryName) => `Target category: ${categoryName}`,

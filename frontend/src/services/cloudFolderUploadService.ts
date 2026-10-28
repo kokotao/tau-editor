@@ -23,6 +23,7 @@ import {
   flattenCategoryTree,
 } from '@/services/cloudCategoryService';
 import type { CloudErrorKind } from '@/services/cloudDocService';
+import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import {
   CLOUD_SYNC_MAX_BYTES,
   resolveCloudDocPathForFile,
@@ -130,7 +131,9 @@ export function classifyFolderFile(
   }
 
   if (isImageFilePath(filePath)) {
-    return { kind: null, skipReason: '图片文件暂不支持作为云文档上传' };
+    // 图片本身不是云文档（后端二进制白名单只有 pdf/office）：它们只能作为
+    // Markdown 的「文档附件」跟着 md 一起同步，所以这里跳过并说明清楚，避免用户以为漏传。
+    return { kind: null, skipReason: '图片会随引用的 Markdown 作为附件上传，不单独作为云文档' };
   }
 
   // 文本白名单与后端逐项对齐（`cloudUploadPolicy`）：后端 `validateTextFile` 只认这 51 项，
@@ -365,6 +368,69 @@ export async function ensureCategoryForFolder(folderName: string): Promise<Folde
 /** 单条上传结果状态。 */
 export type FolderUploadItemStatus = 'uploaded' | 'unchanged' | 'conflict' | 'skipped' | 'failed';
 
+/**
+ * 整目录上传期间「Markdown 图片附件」的聚合汇总。
+ * 图片走的是「文档附件」通道（跟着 md 一起同步），所以不会出现在逐条文件结果里，
+ * 必须单独汇总，否则用户只会看到「图片没上传」却没有任何解释。
+ */
+export interface FolderUploadAssetsSummary {
+  /** 可同步的相对图片引用总数（不含 unsupported） */
+  total: number;
+  /** 新上传/变更 */
+  uploaded: number;
+  /** 云端已是同一张，跳过 */
+  unchanged: number;
+  failed: number;
+  /** 本地不合规被跳过（不存在 / 超 20MB / 魔数不对） */
+  skipped: number;
+  /** 引用本身不可能同步的处数（外链 / 绝对路径 / `..` 跨目录 / 格式不支持） */
+  unsupported: number;
+  /** 设置里关掉了「同步 Markdown 图片附件」 */
+  disabled: boolean;
+}
+
+/** 空汇总（没有 md、或没有图片引用时的默认值）。 */
+export function emptyFolderAssetsSummary(): FolderUploadAssetsSummary {
+  return { total: 0, uploaded: 0, unchanged: 0, failed: 0, skipped: 0, unsupported: 0, disabled: false };
+}
+
+/** 图片附件的「成功」口径：新上传 + 云端已是最新（两者都不需要用户再处理）。 */
+export function folderAssetsOk(assets: FolderUploadAssetsSummary | null | undefined): number {
+  return assets ? assets.uploaded + assets.unchanged : 0;
+}
+
+/**
+ * 是否有图片附件的「计数」需要展示（total / failed / skipped）。
+ * - `unsupported` 是「引用压根不同步」，由调用方单独一行展示（此时 total 往往还是 0，
+ *   展示「已同步 0 张」只会是噪声）；
+ * - 「设置里关掉了图片同步」同样不算计数，由调用方单独提示。
+ */
+export function shouldShowFolderAssets(assets: FolderUploadAssetsSummary | null | undefined): boolean {
+  if (!assets) {
+    return false;
+  }
+  return assets.total > 0 || assets.failed > 0 || assets.skipped > 0;
+}
+
+/** 把单条文档的图片汇总累加进整目录汇总（纯累加，不做格式化）。 */
+function accumulateFolderAssets(
+  target: FolderUploadAssetsSummary,
+  assets: CloudAssetSyncSummary | undefined,
+): void {
+  if (!assets) {
+    return;
+  }
+  target.total += assets.total;
+  target.uploaded += assets.uploaded;
+  target.unchanged += assets.unchanged;
+  target.failed += assets.failed;
+  target.skipped += assets.skipped;
+  target.unsupported += assets.unsupported;
+  if (assets.disabled) {
+    target.disabled = true;
+  }
+}
+
 export interface FolderUploadResultItem {
   path: string;
   relativePath: string;
@@ -375,6 +441,8 @@ export interface FolderUploadResultItem {
   message: string;
   /** 服务端/服务层的原始说明（悬停可见，便于排查） */
   detail?: string;
+  /** 文本文件同步时夹带的图片附件汇总（非 md/失败时没有） */
+  assets?: CloudAssetSyncSummary;
 }
 
 export interface FolderUploadSummary {
@@ -394,6 +462,8 @@ export interface FolderUploadSummary {
   abortKind: CloudErrorKind | null;
   abortMessage: string | null;
   category: FolderCategoryTarget;
+  /** 图片附件（Markdown 相对图片）聚合汇总 */
+  assets: FolderUploadAssetsSummary;
   items: FolderUploadResultItem[];
 }
 
@@ -458,6 +528,7 @@ export async function runFolderUpload(
     abortKind: null,
     abortMessage: null,
     category: { category: null, categoryId: null, created: false, note: null },
+    assets: emptyFolderAssetsSummary(),
     items: [],
   };
 
@@ -469,6 +540,8 @@ export async function runFolderUpload(
     else if (item.status === 'conflict') summary.conflict += 1;
     else if (item.status === 'skipped') summary.skipped += 1;
     else summary.failed += 1;
+    // 图片附件是「跟着 md 走的」，逐条文件结果里看不到，只能在这里累加
+    accumulateFolderAssets(summary.assets, item.assets);
     callbacks.onProgress?.(done, total, item);
   };
 
@@ -509,27 +582,47 @@ export async function runFolderUpload(
       // categoryId 为 null 时不传，避免把「只改分类」的判定误触发成一次覆盖更新
       ...(category.categoryId ? { categoryId: category.categoryId } : {}),
     });
+    // 图片附件（md 相对图片）的同步结果夹在 CloudSyncResult.assets 里，挂到逐条结果上供汇总
+    const assetPatch = result.assets ? { assets: result.assets } : {};
 
     if (result.status === 'synced') {
       return {
-        item: { ...pickFile(file), status: 'uploaded', message: '已上传', detail: result.message },
+        item: { ...pickFile(file), ...assetPatch, status: 'uploaded', message: '已上传', detail: result.message },
         abortKind: null,
       };
     }
     if (result.status === 'skipped') {
       return {
-        item: { ...pickFile(file), status: 'unchanged', message: '云端已是最新，未重复上传', detail: result.message },
+        item: {
+          ...pickFile(file),
+          ...assetPatch,
+          status: 'unchanged',
+          message: '云端已是最新，未重复上传',
+          detail: result.message,
+        },
         abortKind: null,
       };
     }
     if (result.status === 'conflict') {
       return {
-        item: { ...pickFile(file), status: 'conflict', message: '云端已存在且内容不同，未覆盖', detail: result.message },
+        item: {
+          ...pickFile(file),
+          ...assetPatch,
+          status: 'conflict',
+          message: '云端已存在且内容不同，未覆盖',
+          detail: result.message,
+        },
         abortKind: null,
       };
     }
     return {
-      item: { ...pickFile(file), status: 'failed', message: result.message || '上传失败', detail: result.message },
+      item: {
+        ...pickFile(file),
+        ...assetPatch,
+        status: 'failed',
+        message: result.message || '上传失败',
+        detail: result.message,
+      },
       abortKind: result.kind === 'quota' || result.kind === 'unauthorized' ? result.kind : null,
     };
   };

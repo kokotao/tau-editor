@@ -50,12 +50,16 @@ import {
   SKIP_DIR_NAMES,
   classifyFolderFile,
   collectFolderFiles,
+  emptyFolderAssetsSummary,
   ensureCategoryForFolder,
+  folderAssetsOk,
   isHiddenName,
   runFolderUpload,
+  shouldShowFolderAssets,
   shouldSkipEntry,
   type FolderFileEntry,
 } from '@/services/cloudFolderUploadService';
+import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import type { FileEntry } from '@/lib/tauri';
 
 const MB = 1024 * 1024;
@@ -457,7 +461,121 @@ describe('串行上传队列', () => {
 
     expect(summary.total).toBe(0);
     expect(summary.items).toHaveLength(0);
+    expect(summary.assets).toEqual(emptyFolderAssetsSummary());
     expect(mocks.createCategory).not.toHaveBeenCalled();
     expect(mocks.syncDocumentByPath).not.toHaveBeenCalled();
+  });
+});
+
+describe('图片附件汇总（Markdown 相对图片）', () => {
+  const textFile = (name: string): FolderFileEntry => ({
+    path: `/ws/docs/${name}`,
+    relativePath: name,
+    name,
+    size: 1024,
+    kind: 'text',
+  });
+  const binaryFile = (name: string): FolderFileEntry => ({
+    path: `/ws/docs/${name}`,
+    relativePath: name,
+    name,
+    size: 2048,
+    kind: 'binary',
+  });
+
+  /** 构造一份 CloudAssetSyncSummary */
+  const assetSummary = (over: Partial<CloudAssetSyncSummary> = {}): CloudAssetSyncSummary => ({
+    total: 0,
+    eligible: 0,
+    uploaded: 0,
+    unchanged: 0,
+    failed: 0,
+    skipped: 0,
+    unsupported: 0,
+    failures: [],
+    ...over,
+  });
+
+  const run = (files: FolderFileEntry[]) => runFolderUpload(
+    { rootPath: '/ws/docs', folderName: 'docs', files },
+    {},
+    { workspaceName: 'ws', workspacePath: '/ws' },
+  );
+
+  it('文本项的 assets 挂到 item 上，并累加进整目录汇总', async () => {
+    mocks.syncDocumentByPath
+      .mockResolvedValueOnce({
+        ...syncOk(),
+        assets: assetSummary({
+          total: 3,
+          eligible: 2,
+          uploaded: 1,
+          unchanged: 1,
+          skipped: 0,
+          unsupported: 1,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ...syncOk(),
+        assets: assetSummary({ total: 2, eligible: 1, uploaded: 0, unchanged: 0, failed: 1, skipped: 1 }),
+      });
+
+    const summary = await run([textFile('a.md'), textFile('b.md')]);
+
+    expect(summary.assets).toEqual({
+      total: 5,
+      uploaded: 1,
+      unchanged: 1,
+      failed: 1,
+      skipped: 1,
+      unsupported: 1,
+      disabled: false,
+    });
+    // 逐条结果上带着各自的图片汇总（弹窗可悬停排查）
+    expect(summary.items[0]?.assets?.unsupported).toBe(1);
+    expect(summary.items[1]?.assets?.failed).toBe(1);
+
+    // 展示口径：ok = uploaded + unchanged
+    expect(folderAssetsOk(summary.assets)).toBe(2);
+    expect(shouldShowFolderAssets(summary.assets)).toBe(true);
+  });
+
+  it('设置里关闭图片同步时 disabled 透传，计数保持 0 且不展示汇总行', async () => {
+    mocks.syncDocumentByPath.mockResolvedValue({
+      ...syncOk(),
+      assets: assetSummary({ disabled: true }),
+    });
+
+    const summary = await run([textFile('a.md')]);
+
+    expect(summary.assets.disabled).toBe(true);
+    expect(summary.assets.total).toBe(0);
+    expect(shouldShowFolderAssets(summary.assets)).toBe(false);
+  });
+
+  it('二进制项不产生图片汇总；没有 md 的目录汇总是空的', async () => {
+    const summary = await run([binaryFile('a.pdf')]);
+
+    expect(summary.assets).toEqual(emptyFolderAssetsSummary());
+    expect(folderAssetsOk(summary.assets)).toBe(0);
+    expect(shouldShowFolderAssets(summary.assets)).toBe(false);
+  });
+
+  it('展示口径：有计数才展示汇总行，unsupported 单独一行「值得展示」由调用方判断', async () => {
+    expect(shouldShowFolderAssets(assetSummary({ total: 1 }))).toBe(true);
+    expect(shouldShowFolderAssets(assetSummary({ failed: 1 }))).toBe(true);
+    expect(shouldShowFolderAssets(assetSummary({ skipped: 1 }))).toBe(true);
+    // 只有不可同步引用时 total 仍是 0：不展示「已同步 0 张」，但 unsupported 会单独提示
+    expect(shouldShowFolderAssets(assetSummary({ unsupported: 2 }))).toBe(false);
+    expect(shouldShowFolderAssets(emptyFolderAssetsSummary())).toBe(false);
+    expect(shouldShowFolderAssets(null)).toBe(false);
+  });
+
+  it('图片跳过原因说明「随引用的 Markdown 作为附件上传」', () => {
+    const decision = classifyFolderFile('/ws/pic.png', 1024);
+
+    expect(decision.kind).toBeNull();
+    expect(decision.skipReason).toContain('Markdown');
+    expect(decision.skipReason).toContain('附件');
   });
 });

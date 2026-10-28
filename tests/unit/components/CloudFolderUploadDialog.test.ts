@@ -1,6 +1,6 @@
 /**
- * @description 文件夹整目录上传弹窗（R3）：确认页数量/跳过清单、确认后走串行上传并抛 uploaded、
- * 结束页汇总、空中止与关闭按钮。
+ * @description 文件夹整目录上传弹窗（R3）：确认页数量/跳过清单/图片附件规则、确认后走串行上传并抛 uploaded、
+ * 结束页汇总（含图片附件）、空中止与关闭按钮、「后台进行」（只隐藏不 abort）与后台上传中重开不重置。
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-28 15:45
@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import CloudFolderUploadDialog from '@/components/editor/CloudFolderUploadDialog.vue';
+import { useSettingsStore } from '@/stores/settings';
+import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import type { FileEntry } from '@/lib/tauri';
 
 const mocks = vi.hoisted(() => ({
@@ -47,6 +49,21 @@ const mountDialog = (props: Record<string, unknown> = {}) => mount(CloudFolderUp
   // 弹窗本体 Teleport 到 body：测试里就地渲染，才能用 wrapper.find 断言
   global: { stubs: { teleport: true } },
 });
+
+/** 构造一份 CloudAssetSyncSummary（图片附件汇总） */
+const assetSummary = (over: Partial<CloudAssetSyncSummary> = {}): CloudAssetSyncSummary => ({
+  total: 0,
+  eligible: 0,
+  uploaded: 0,
+  unchanged: 0,
+  failed: 0,
+  skipped: 0,
+  unsupported: 0,
+  failures: [],
+  ...over,
+});
+
+const syncedOk = () => ({ status: 'synced' as const, message: '已创建云端文档', fileId: 1, version: 1 });
 
 beforeEach(() => {
   setActivePinia(createPinia());
@@ -148,5 +165,204 @@ describe('CloudFolderUploadDialog', () => {
 
     expect(mocks.listFiles).toHaveBeenCalledWith('/ws/other');
     expect(wrapper.text()).toContain('上传后归入云端分类「other」');
+  });
+});
+
+describe('CloudFolderUploadDialog 后台进行', () => {
+  it('running 阶段有「后台进行」按钮，点击只抛 background，不 abort 队列', async () => {
+    // 手动控制每个文件何时完成，才能稳定停在 running 阶段
+    const pending: Array<(value: unknown) => void> = [];
+    mocks.syncDocumentByPath.mockImplementation(
+      () => new Promise((resolve) => { pending.push(resolve); }),
+    );
+
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-progress"]').exists()).toBe(true);
+    const backgroundButton = wrapper.find('[data-testid="cloud-folder-upload-background"]');
+    expect(backgroundButton.exists()).toBe(true);
+    expect(backgroundButton.text()).toBe('后台进行');
+    expect(backgroundButton.attributes('title')).toContain('状态栏');
+    // 后台按钮排在「中止上传」前面
+    const footerButtons = wrapper.findAll('footer button').map((button) => button.attributes('data-testid'));
+    expect(footerButtons).toEqual(['cloud-folder-upload-background', 'cloud-folder-upload-abort']);
+
+    await backgroundButton.trigger('click');
+
+    expect(wrapper.emitted('background')).toHaveLength(1);
+    // 没有 abort：进度页还在，第一个文件仍在等结果
+    expect(wrapper.find('[data-testid="cloud-folder-upload-progress"]').exists()).toBe(true);
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledTimes(1);
+
+    // 继续跑完剩余文件 → 仍然正常收尾并抛 uploaded
+    pending[0]?.(syncedOk());
+    await flushPromises();
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledTimes(2);
+    pending[1]?.(syncedOk());
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-done"]').exists()).toBe(true);
+    expect(wrapper.emitted('uploaded')).toHaveLength(1);
+  });
+
+  it('每个文件完成后抛 progress（done/total/name），开始跑时先抛 started', async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.emitted('started')?.[0]?.[0]).toEqual({ total: 2 });
+    const progress = wrapper.emitted('progress');
+    expect(progress).toHaveLength(2);
+    expect(progress?.[0]?.[0]).toEqual({ done: 1, total: 2, name: 'a.md' });
+    expect(progress?.[1]?.[0]).toEqual({ done: 2, total: 2, name: 'b.md' });
+  });
+
+  it('后台上传中重新打开弹窗：保留队列与进度，不重新收集', async () => {
+    // 第一个文件立刻完成，第二个挂起 → 停在「已完成 1/2」的 running 状态
+    mocks.syncDocumentByPath
+      .mockResolvedValueOnce(syncedOk())
+      .mockImplementation(() => new Promise(() => {}));
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-progress-text"]').text()).toContain('1/2');
+
+    // 后台进行 → 弹窗隐藏
+    await wrapper.setProps({ visible: false });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="cloud-folder-upload"]').exists()).toBe(false);
+
+    // 从状态栏徽标重新打开
+    await wrapper.setProps({ visible: true });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-progress"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-progress-text"]').text()).toContain('1/2');
+    // 队列没有被清空/重新收集
+    expect(mocks.listFiles).toHaveBeenCalledTimes(1);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-done"]').exists()).toBe(false);
+  });
+
+  it('跑完之后重新打开按新一次上传重来（重新收集并回到确认页）', async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="cloud-folder-upload-done"]').exists()).toBe(true);
+
+    await wrapper.setProps({ visible: false });
+    await wrapper.setProps({ visible: true });
+    await flushPromises();
+
+    expect(mocks.listFiles).toHaveBeenCalledTimes(2);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-confirm"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-done"]').exists()).toBe(false);
+  });
+});
+
+describe('CloudFolderUploadDialog 图片附件', () => {
+  it('确认页展示图片附件规则；设置关闭时展示提示', async () => {
+    useSettingsStore().syncDocumentImages = false;
+
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-rules"]').text()).toContain('20MB');
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-rules"]').text()).toContain('相对路径');
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-disabled"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-disabled"]').text()).toContain('已关闭');
+  });
+
+  it('设置开启时确认页不显示「已关闭」提示', async () => {
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-rules"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-disabled"]').exists()).toBe(false);
+  });
+
+  it('结束页展示图片附件汇总（ok = uploaded + unchanged）与不可同步处数', async () => {
+    // 第一个 md 带图片汇总，第二个没有（非 md 或无图片引用）
+    mocks.syncDocumentByPath
+      .mockResolvedValueOnce({
+        ...syncedOk(),
+        assets: assetSummary({
+          total: 4,
+          eligible: 3,
+          uploaded: 2,
+          unchanged: 1,
+          failed: 1,
+          skipped: 0,
+          unsupported: 2,
+        }),
+      })
+      .mockResolvedValueOnce(syncedOk());
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    const summaryLine = wrapper.find('[data-testid="cloud-folder-upload-assets-summary"]');
+    expect(summaryLine.exists()).toBe(true);
+    // ok = 2 + 1 = 3
+    expect(summaryLine.text()).toContain('已同步 3 张');
+    expect(summaryLine.text()).toContain('失败 1 张');
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-unsupported"]').text())
+      .toContain('2 处图片引用未同步');
+  });
+
+  it('只有不可同步引用时只显示那一行，不显示「已同步 0 张」', async () => {
+    // 两个 md 都返回同一份汇总 → unsupported 累加成 3 × 2
+    mocks.syncDocumentByPath.mockResolvedValue({
+      ...syncedOk(),
+      assets: assetSummary({ unsupported: 3 }),
+    });
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-summary"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-unsupported"]').text())
+      .toContain('6 处图片引用未同步');
+  });
+
+  it('没有图片引用时不占位显示图片汇总行', async () => {
+    mocks.syncDocumentByPath.mockResolvedValue(syncedOk());
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-summary"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-unsupported"]').exists()).toBe(false);
+  });
+
+  it('图片同步被关闭时结束页也提示，且不显示 0 张的汇总行', async () => {
+    useSettingsStore().syncDocumentImages = false;
+    mocks.syncDocumentByPath.mockResolvedValue({
+      ...syncedOk(),
+      assets: assetSummary({ disabled: true }),
+    });
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-disabled-done"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-folder-upload-assets-summary"]').exists()).toBe(false);
   });
 });

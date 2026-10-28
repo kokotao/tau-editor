@@ -96,6 +96,7 @@ import {
   getAppI18n,
   getCloudDocConflictI18n,
   getCloudDocEditOpenI18n,
+  getCloudDocPanelI18n,
   getCommandText,
   getFileTreeI18n,
   getMarkdownPreviewI18n,
@@ -130,6 +131,8 @@ import ShareStatsDialog from './components/editor/ShareStatsDialog.vue';
 import { useCenterToastStore } from './stores/centerToast';
 import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
 import type { CloudSyncResult } from '@/services/cloudSyncService';
+import { folderAssetsOk, shouldShowFolderAssets } from '@/services/cloudFolderUploadService';
+import type { FolderUploadSummary } from '@/services/cloudFolderUploadService';
 import { getShareStatus } from '@/services/cloudShareService';
 import { isBinaryDocPath, uploadBinaryDocument, validateBinaryDocLocal } from '@/services/cloudBinaryService';
 import StatusBar from './components/editor/StatusBar.vue';
@@ -2519,6 +2522,35 @@ const folderUploadDialog = ref<{ visible: boolean; folderName: string; folderPat
   folderPath: '',
 });
 
+/**
+ * 整目录上传的「后台进行」状态：
+ * 队列活在常驻挂载的 CloudFolderUploadDialog 里，弹窗隐藏不影响上传，
+ * 这里只保留一份进度镜像，供状态栏徽标回显与完成后提示。
+ */
+const folderUploadRunning = ref(false);
+const folderUploadProgress = ref<{ done: number; total: number; name: string }>({
+  done: 0,
+  total: 0,
+  name: '',
+});
+
+/** 弹窗开始跑队列：立刻点亮状态栏徽标（0/N） */
+const handleFolderUploadStarted = (payload: { total: number }) => {
+  folderUploadRunning.value = true;
+  folderUploadProgress.value = { done: 0, total: payload.total, name: '' };
+};
+
+/** 每完成一个文件：更新状态栏徽标进度 */
+const handleFolderUploadProgress = (payload: { done: number; total: number; name: string }) => {
+  folderUploadRunning.value = true;
+  folderUploadProgress.value = { ...payload };
+};
+
+/** 点状态栏徽标 / 上传中再次右键文件夹：重新打开弹窗（队列与进度都还在，不会重开一次上传） */
+const reopenFolderUploadDialog = () => {
+  folderUploadDialog.value = { ...folderUploadDialog.value, visible: true };
+};
+
 /** 文件树文件夹右键「上传该文件夹到云端」：未登录先引导登录，没有工作区直接提示。 */
 const handleFileTreeUploadFolder = (entry: FileTreeNode) => {
   if (!cloudSyncStore.signedIn) {
@@ -2533,12 +2565,61 @@ const handleFileTreeUploadFolder = (entry: FileTreeNode) => {
     notificationStore.warning(fileTreeCopy.value.uploadFolderTitle, '请先打开一个工作区文件夹');
     return;
   }
+  if (folderUploadRunning.value) {
+    // 已有队列在跑：只把弹窗叫回来，绝不新建队列（否则会并发跑两份上传）
+    notificationStore.info(
+      fileTreeCopy.value.uploadFolderTitle,
+      fileTreeCopy.value.uploadFolderBusy(folderUploadProgress.value.done, folderUploadProgress.value.total),
+    );
+    reopenFolderUploadDialog();
+    return;
+  }
   folderUploadDialog.value = { visible: true, folderName: entry.name, folderPath: entry.path };
 };
 
-/** 整目录上传跑完（含提前中止）：自增刷新令牌，云端文档树立刻重拉出新分类与文件。 */
-const handleFolderUploaded = () => {
+/**
+ * 整目录上传跑完（含提前中止）：
+ * ① 清掉后台状态；② 自增刷新令牌让云端文档树重拉；③ 无论弹窗是否可见都给一次汇总提示。
+ */
+const handleFolderUploaded = (summary?: FolderUploadSummary) => {
+  const wasBackground = !folderUploadDialog.value.visible;
+  folderUploadRunning.value = false;
   cloudTreeRefreshToken.value += 1;
+
+  const copy = fileTreeCopy.value;
+  const ok = summary ? summary.uploaded + summary.unchanged : 0;
+  const skipped = summary ? summary.skipped + summary.conflict : 0;
+  const failed = summary?.failed ?? 0;
+  const aborted = summary?.aborted ?? false;
+  // 中止的队列不能读成「全部成功」：失败/跳过/中止都走 info，其余走 success
+  const hasIssues = failed > 0 || skipped > 0 || aborted;
+  const parts = [hasIssues ? copy.uploadFolderPartial(ok, failed, skipped) : copy.uploadFolderDone(ok)];
+  if (aborted) {
+    parts.push(getCloudDocPanelI18n(settingsStore.uiLanguage).uploadAborted);
+  }
+
+  // 图片附件（md 相对图片）不在逐条文件结果里：有计数/有问题时补一句
+  if (summary && shouldShowFolderAssets(summary.assets)) {
+    const assets = summary.assets;
+    parts.push(copy.uploadAssetsSummary(folderAssetsOk(assets), assets.failed, assets.skipped));
+  }
+  if (summary && summary.assets.unsupported > 0) {
+    parts.push(copy.uploadAssetsUnsupported(summary.assets.unsupported));
+  }
+  if (summary?.assets.disabled) {
+    parts.push(copy.uploadAssetsDisabled);
+  }
+  if (wasBackground) {
+    // 完成时弹窗是隐藏的：明确告诉用户这份汇总来自后台上传
+    parts.push(copy.uploadFinishedInBackground);
+  }
+
+  const message = parts.join(' · ');
+  if (hasIssues) {
+    notificationStore.info(copy.uploadFolderTitle, message);
+  } else {
+    notificationStore.success(copy.uploadFolderTitle, message);
+  }
 };
 
 const refreshShareHintFor = async (filePath: string) => {
@@ -5497,6 +5578,9 @@ onUnmounted(() => {
           :folder-name="folderUploadDialog.folderName"
           :folder-path="folderUploadDialog.folderPath"
           @close="folderUploadDialog.visible = false"
+          @background="folderUploadDialog.visible = false"
+          @started="handleFolderUploadStarted"
+          @progress="handleFolderUploadProgress"
           @uploaded="handleFolderUploaded"
         />
 
@@ -5609,18 +5693,32 @@ onUnmounted(() => {
       </transition>
     </div>
 
-    <StatusBar
-      :cursor-position="cursorPosition"
-      :encoding="encoding"
-      :language="language"
-      :monaco-theme="settingsStore.monacoTheme"
-      :word-count="wordCount"
-      :auto-save-enabled="autoSaveEnabled"
-      :last-save-time="lastSaveTime"
-      @encoding-change="handleEncodingChange"
-      @language-change="handleLanguageChange"
-      @theme-change="handleThemeChange"
-    />
+    <!-- 状态栏容器：上传在后台跑时，在状态栏左上方浮出一个可点回弹窗的进度徽标 -->
+    <div class="app-status-bar">
+      <button
+        v-if="folderUploadRunning"
+        type="button"
+        class="app-status-bar__upload"
+        data-testid="cloud-folder-upload-indicator"
+        :title="fileTreeCopy.uploadBackgroundHint"
+        @click="reopenFolderUploadDialog"
+      >
+        <span class="app-status-bar__upload-dot" aria-hidden="true"></span>
+        {{ fileTreeCopy.uploadRunningBadge(folderUploadProgress.done, folderUploadProgress.total) }}
+      </button>
+      <StatusBar
+        :cursor-position="cursorPosition"
+        :encoding="encoding"
+        :language="language"
+        :monaco-theme="settingsStore.monacoTheme"
+        :word-count="wordCount"
+        :auto-save-enabled="autoSaveEnabled"
+        :last-save-time="lastSaveTime"
+        @encoding-change="handleEncodingChange"
+        @language-change="handleLanguageChange"
+        @theme-change="handleThemeChange"
+      />
+    </div>
 
   </div>
 </template>
@@ -5689,6 +5787,72 @@ textarea {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+/* 状态栏容器：包一层只为在状态栏上浮出「云上传 24/460」徽标，不改 StatusBar 组件签名 */
+.app-status-bar {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.app-status-bar__upload {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 12px;
+  z-index: 21;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--font-size-ui-xs, 11px);
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  background: var(--panel-elevated, #111827);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.28));
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.32);
+}
+
+.app-status-bar__upload:hover {
+  color: var(--text-primary, #f8fafc);
+  border-color: var(--accent-blue, #7cc7ff);
+}
+
+.app-status-bar__upload:focus-visible {
+  outline: 2px solid var(--accent-blue, #7cc7ff);
+  outline-offset: 2px;
+}
+
+/* 呼吸点：暗示队列仍在跑 */
+.app-status-bar__upload-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-blue, #7cc7ff);
+  border-radius: 50%;
+  animation: app-upload-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes app-upload-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-status-bar__upload-dot {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .app-native-titlebar {

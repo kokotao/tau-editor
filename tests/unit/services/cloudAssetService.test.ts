@@ -33,10 +33,12 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
 import type { CloudAssetInfo, CloudAssetSourceInfo } from '@/lib/tauri';
 import {
   CLOUD_ASSET_MAX_BYTES,
+  classifyImageRef,
   isRelativeImagePath,
   isSupportedImageName,
   normalizeRelativeAssetPath,
   parseMarkdownImageRefs,
+  parseMarkdownImageRefsDetailed,
   planAssetUploads,
   pullMarkdownAssets,
   runWithConcurrency,
@@ -120,8 +122,69 @@ describe('parseMarkdownImageRefs 引用解析', () => {
   });
 });
 
-describe('图片路径与格式判定', () => {
-  it('相对路径判定', () => {
+describe('parseMarkdownImageRefsDetailed 未同步原因', () => {
+  const filePath = '/ws/notes/读书.md';
+
+  it('外链 / 绝对路径 / ../ 跨目录 / 格式不支持 各自给出 reason，正常相对路径进 refs', () => {
+    const md = [
+      '![ok](images/a.png)',
+      '![ext](https://x.com/a.png)',
+      '![proto](//cdn/a.png)',
+      '![abs](/assets/a.png)',
+      '![win](C:\\pics\\a.png)',
+      '![up](../outside.png)',
+      '![svg](images/logo.svg)',
+      '<img src="data:image/png;base64,AAA">',
+    ].join('\n');
+
+    const parsed = parseMarkdownImageRefsDetailed(md, filePath);
+
+    // 只有同目录/子目录的相对位图能同步
+    expect(parsed.refs.map((ref) => ref.relPath)).toEqual(['images/a.png']);
+    expect(parsed.unsupported).toEqual([
+      { raw: 'https://x.com/a.png', reason: 'external' },
+      { raw: '//cdn/a.png', reason: 'external' },
+      { raw: '/assets/a.png', reason: 'absolute' },
+      { raw: 'C:\\pics\\a.png', reason: 'absolute' },
+      { raw: '../outside.png', reason: 'cross-directory' },
+      { raw: 'images/logo.svg', reason: 'unsupported-extension' },
+      { raw: 'data:image/png;base64,AAA', reason: 'external' },
+    ]);
+    // 兼容：原有 parseMarkdownImageRefs 行为不变（只返回可同步引用）
+    expect(parseMarkdownImageRefs(md, filePath).map((ref) => ref.relPath)).toEqual(['images/a.png']);
+  });
+
+  it('同一处未同步引用只计一次，空引用与注释里的图片不算', () => {
+    const md = [
+      '![a](https://x.com/a.png)',
+      '![b](https://x.com/a.png)',
+      '![c](   )',
+      '<!-- ![d](../hidden.png) -->',
+    ].join('\n');
+
+    const parsed = parseMarkdownImageRefsDetailed(md, filePath);
+
+    expect(parsed.refs).toHaveLength(0);
+    expect(parsed.unsupported).toEqual([{ raw: 'https://x.com/a.png', reason: 'external' }]);
+  });
+
+  it('classifyImageRef 对可同步路径返回 null', () => {
+    expect(classifyImageRef('images/a.png')).toBeNull();
+    expect(classifyImageRef('./images/sub/a.JPG')).toBeNull();
+    expect(classifyImageRef('images\\sub\\a.webp')).toBeNull();
+    // 单个反斜杠开头仍按相对路径处理（与 normalizeRelativeAssetPath 一致）
+    expect(classifyImageRef('\\images\\a.png')).toBeNull();
+
+    expect(classifyImageRef('http://a/b.png')).toBe('external');
+    expect(classifyImageRef('#anchor')).toBe('external');
+    expect(classifyImageRef('/abs/a.png')).toBe('absolute');
+    expect(classifyImageRef('\\\\server\\share\\a.png')).toBe('absolute');
+    expect(classifyImageRef('images/../../a.png')).toBe('cross-directory');
+    expect(classifyImageRef('images/a.bmp')).toBe('unsupported-extension');
+  });
+});
+
+describe('图片路径与格式判定', () => {  it('相对路径判定', () => {
     expect(isRelativeImagePath('images/a.png')).toBe(true);
     expect(isRelativeImagePath('http://a/b.png')).toBe(false);
     expect(isRelativeImagePath('/abs.png')).toBe(false);
@@ -268,6 +331,58 @@ describe('syncMarkdownAssets 编排', () => {
     expect(summary.failed).toBe(1);
     expect(summary.failures[0]).toMatchObject({ relPath: 'images/b.png' });
     expect(summary.failures[0]?.reason).toContain('云端空间不足');
+  });
+
+  it('汇总里统计不可同步的引用处数（外链 / ../ / svg）', async () => {
+    const content = [
+      '![a](images/a.png)',
+      '![b](https://x.com/b.png)',
+      '![c](../c.png)',
+      '![d](images/d.svg)',
+    ].join('\n');
+    mocks.inspectAssetSources.mockResolvedValue([
+      sourceInfo({ path: '/ws/images/a.png', contentHash: 'sha256:aaa' }),
+    ]);
+
+    const summary = await syncMarkdownAssets({
+      filePath: '/ws/a.md',
+      fileId: 42,
+      content,
+      enabled: true,
+    });
+
+    // total 只算可同步引用；不可同步的单独计数，供 UI 解释「图片为什么没上传」
+    expect(summary.total).toBe(1);
+    expect(summary.unsupported).toBe(3);
+    expect(summary.uploaded).toBe(1);
+    // 只有不可同步引用时不会去探测/上传
+    expect(mocks.inspectAssetSources).toHaveBeenCalledTimes(1);
+  });
+
+  it('全部引用都不可同步时不发起任何请求，只汇报 unsupported', async () => {
+    const summary = await syncMarkdownAssets({
+      filePath: '/ws/a.md',
+      fileId: 42,
+      content: ['![a](../a.png)', '![b](https://x.com/b.png)'].join('\n'),
+      enabled: true,
+    });
+
+    expect(summary.total).toBe(0);
+    expect(summary.unsupported).toBe(2);
+    expect(mocks.assetsList).not.toHaveBeenCalled();
+    expect(mocks.inspectAssetSources).not.toHaveBeenCalled();
+  });
+
+  it('设置关闭时 unsupported 也保持 0（未做扫描）', async () => {
+    const summary = await syncMarkdownAssets({
+      filePath: '/ws/a.md',
+      fileId: 42,
+      content: '![a](https://x.com/a.png)',
+      enabled: false,
+    });
+
+    expect(summary.disabled).toBe(true);
+    expect(summary.unsupported).toBe(0);
   });
 
   it('并发不超过 3', async () => {

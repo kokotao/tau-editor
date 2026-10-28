@@ -37,6 +37,18 @@
               {{ folderCopy.uploadFolderConfirm(plan.files.length, plan.skipped.length) }}
             </p>
             <p class="folder-upload__hint">{{ folderCopy.uploadFolderCategoryHint(folderName) }}</p>
+            <!-- 图片不会被当作「云文档」单独上传：先说清附件规则，避免用户以为图片漏传 -->
+            <p class="folder-upload__assets-title">{{ folderCopy.uploadAssetsTitle }}</p>
+            <p class="folder-upload__hint" data-testid="cloud-folder-upload-assets-rules">
+              {{ folderCopy.uploadAssetsRules }}
+            </p>
+            <p
+              v-if="syncImagesDisabled"
+              class="folder-upload__hint folder-upload__hint--warn"
+              data-testid="cloud-folder-upload-assets-disabled"
+            >
+              {{ folderCopy.uploadAssetsDisabled }}
+            </p>
             <p
               v-if="plan.truncated && plan.truncatedReason"
               class="folder-upload__hint folder-upload__hint--warn"
@@ -119,6 +131,29 @@
           <p v-if="summary?.category?.note" class="folder-upload__hint">
             {{ summary.category.note }}
           </p>
+          <!-- 图片附件汇总：图片不占逐条文件结果，单独一行说明「传了几张 / 为什么没传」 -->
+          <p
+            v-if="showAssets"
+            class="folder-upload__hint"
+            :class="{ 'folder-upload__hint--warn': assetsFailedOrSkipped }"
+            data-testid="cloud-folder-upload-assets-summary"
+          >
+            {{ folderCopy.uploadAssetsSummary(assetsOk, assetsFailed, assetsSkipped) }}
+          </p>
+          <p
+            v-if="assetsUnsupported > 0"
+            class="folder-upload__hint folder-upload__hint--warn"
+            data-testid="cloud-folder-upload-assets-unsupported"
+          >
+            {{ folderCopy.uploadAssetsUnsupported(assetsUnsupported) }}
+          </p>
+          <p
+            v-if="syncImagesDisabled"
+            class="folder-upload__hint folder-upload__hint--warn"
+            data-testid="cloud-folder-upload-assets-disabled-done"
+          >
+            {{ folderCopy.uploadAssetsDisabled }}
+          </p>
           <ul class="folder-upload__list" data-testid="cloud-folder-upload-done-items">
             <li
               v-for="item in items"
@@ -154,15 +189,26 @@
               {{ panelCopy.confirm }}
             </button>
           </template>
-          <button
-            v-else-if="phase === 'running'"
-            type="button"
-            class="folder-upload__button"
-            data-testid="cloud-folder-upload-abort"
-            @click="abortUpload"
-          >
-            {{ panelCopy.uploadCancel }}
-          </button>
+          <template v-else-if="phase === 'running'">
+            <!-- 后台进行：只关窗口，绝不 abort —— 队列继续跑，宿主用状态栏徽标回显进度 -->
+            <button
+              type="button"
+              class="folder-upload__button"
+              data-testid="cloud-folder-upload-background"
+              :title="folderCopy.uploadBackgroundHint"
+              @click="requestBackground"
+            >
+              {{ folderCopy.uploadBackground }}
+            </button>
+            <button
+              type="button"
+              class="folder-upload__button"
+              data-testid="cloud-folder-upload-abort"
+              @click="abortUpload"
+            >
+              {{ panelCopy.uploadCancel }}
+            </button>
+          </template>
           <button
             v-else
             type="button"
@@ -181,8 +227,12 @@
 <script setup lang="ts">
 /**
  * @description 工作区文件夹右键「上传该文件夹到云端」的三段式弹窗：
- * 确认（将上传数量 + 跳过清单 + 分类提示）→ 进度（进度条 + 逐条结果）→ 汇总（成功/失败/跳过、中止原因）。
- * 文案复用 FileTree 的 uploadFolder* 与云文档面板的通用按钮/状态文案，不新增 i18n 键。
+ * 确认（将上传数量 + 跳过清单 + 图片附件规则）→ 进度（进度条 + 逐条结果）→ 汇总（成功/失败/跳过、
+ * 中止原因、图片附件汇总）。
+ *
+ * 「后台进行」只让宿主把弹窗隐藏，队列本身继续跑（不 abort）；
+ * 弹窗再次显示时，只要队列还在跑就保留当前进度，不清空、不重新收集。
+ * 文案复用 FileTree 的 uploadFolder / uploadAssets 系列与云文档面板的通用按钮/状态文案，不新增 i18n 键。
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-28 15:45
@@ -192,7 +242,10 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { getCloudDocPanelI18n, getFileTreeI18n } from '@/i18n/ui';
 import {
   collectFolderFiles,
+  emptyFolderAssetsSummary,
+  folderAssetsOk,
   runFolderUpload,
+  shouldShowFolderAssets,
   type CollectFolderResult,
   type FolderUploadResultItem,
   type FolderUploadSummary,
@@ -214,6 +267,12 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   close: [];
+  /** 「后台进行」：宿主只需把弹窗隐藏，队列继续（组件内不 abort） */
+  background: [];
+  /** 队列真正开始跑（首个文件之前）→ 宿主据此点亮状态栏徽标 */
+  started: [payload: { total: number }];
+  /** 每完成一个文件回调一次：宿主据此更新状态栏进度 */
+  progress: [payload: { done: number; total: number; name: string }];
   /** 队列跑完（含提前中止）时抛一次汇总，宿主据此刷新云端文档树 */
   uploaded: [summary: FolderUploadSummary];
 }>();
@@ -256,6 +315,19 @@ const resultText = computed(() => {
     ? folderCopy.value.uploadFolderPartial(okCount.value, value.failed, skippedCount.value)
     : folderCopy.value.uploadFolderDone(okCount.value);
 });
+
+/** 设置里关掉了「同步 Markdown 图片附件」：确认页先提醒，结束页再重复一次 */
+const syncImagesDisabled = computed(() => settingsStore.syncDocumentImages === false);
+/** 图片附件聚合汇总（没有跑完时为 null） */
+const folderAssets = computed(() => summary.value?.assets ?? null);
+/** 只有真的有计数（或存在问题）时才展示汇总行 */
+const showAssets = computed(() => shouldShowFolderAssets(folderAssets.value));
+/** 图片附件的「成功」口径：新上传 + 云端已是最新 */
+const assetsOk = computed(() => folderAssetsOk(folderAssets.value));
+const assetsFailed = computed(() => folderAssets.value?.failed ?? 0);
+const assetsSkipped = computed(() => folderAssets.value?.skipped ?? 0);
+const assetsUnsupported = computed(() => folderAssets.value?.unsupported ?? 0);
+const assetsFailedOrSkipped = computed(() => assetsFailed.value > 0 || assetsSkipped.value > 0);
 
 /** 逐条结果的状态文案（冲突/跳过在视觉上同属「没传上去」） */
 const statusLabel = (item: FolderUploadResultItem): string => {
@@ -311,6 +383,8 @@ const start = async (): Promise<void> => {
   items.value = [];
   currentItem.value = null;
   summary.value = null;
+  // 先点亮状态栏徽标（0/N），否则「后台进行」到首个文件完成之间徽标是空的
+  emit('started', { total: plan.value.files.length });
 
   const controller = new AbortController();
   abortController = controller;
@@ -320,10 +394,12 @@ const start = async (): Promise<void> => {
     result = await runFolderUpload(
       { rootPath: props.folderPath, folderName: props.folderName, files: plan.value.files },
       {
-        onProgress: (count, _total, item) => {
+        onProgress: (count, totalCount, item) => {
           done.value = count;
           currentItem.value = item;
           items.value = [...items.value, item];
+          // 状态栏徽标靠这条事件回显（弹窗被「后台进行」隐藏后仍然持续更新）
+          emit('progress', { done: count, total: totalCount, name: item.name });
         },
       },
       {
@@ -345,6 +421,7 @@ const start = async (): Promise<void> => {
       abortKind: null,
       abortMessage: error instanceof Error ? error.message : String(error),
       category: { category: null, categoryId: null, created: false, note: null },
+      assets: emptyFolderAssetsSummary(),
       items: items.value,
     };
   }
@@ -365,8 +442,16 @@ const abortUpload = (): void => {
   abortController?.abort();
 };
 
+/**
+ * 「后台进行」：只通知宿主把弹窗隐藏，**不 abort**。
+ * 队列、进度与结果都还留在这个组件里（App.vue 常驻挂载），重开弹窗即可继续看进度。
+ */
+const requestBackground = (): void => {
+  emit('background');
+};
+
 const requestClose = (): void => {
-  // 上传过程中不允许点遮罩关闭：队列只能通过「中止上传」停下，避免留下半途状态
+  // 上传过程中不允许点遮罩关闭：队列只能通过「后台进行」或「中止上传」停下
   if (busy.value) {
     return;
   }
@@ -377,6 +462,10 @@ watch(
   () => props.visible,
   (visible) => {
     if (!visible) {
+      return;
+    }
+    if (busy.value || phase.value === 'running') {
+      // 后台上传中重新打开：保留当前队列/进度，绝不清空、也不重新收集
       return;
     }
     resetState();
@@ -503,6 +592,15 @@ defineExpose({ start, requestClose });
 
 .folder-upload__hint--warn {
   color: var(--cd-warning, #fbbf24);
+}
+
+/* 图片附件规则的小标题：与正文 hint 同层级但不抢眼 */
+.folder-upload__assets-title {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--cd-text-2, #75829e);
 }
 
 .folder-upload__current {
