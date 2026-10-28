@@ -11,11 +11,34 @@ const capabilities = [
   ['◐', 'Markdown 预览', '编辑与预览并排工作，文档结构一眼可读。'],
   ['⌁', '工作区上下文', '文件树、标签页、任务与链接状态保持在同一条工作流。'],
   ['◫', '主题与快捷键', '主题包、快捷键、圆角和配色都可以按自己的习惯调整。'],
+  ['☁', '云端文档同步', '本地文件保存即同步到云端，多台设备之间按路径与内容哈希自动对齐，冲突给出可视对比。'],
+  ['▤', '云存储与会员', '容量套餐、签到扩容与积分兑换在应用内完成，用量与配额实时可见。'],
 ]
 
 const releases = [
   {
-    version: 'v0.6.11', date: '2026-10-08', label: '工作台导航与编辑器上下文', category: '编辑器体验', latest: true,
+    version: 'v0.6.26', date: '2026-10-28', label: '云文档分类树收口与多级分类', category: '云端协作', latest: true,
+    summary: '云端文档同步体验收口：分类树不再有「自定义分类」包裹层，用户创建的分类直接作为顶层；新建分类支持一次输入多级路径；云端浏览、同步与容量套餐在同一处完成。',
+    highlights: [
+      '分类树去掉「自定义分类」中间层，自由文本分组升级为真实顶层分类',
+      '新建分类 / 新建子分类支持「后端/Java/Spring」一次创建多级（上限三级，超出显式报错）',
+      '「同步至云端」弹窗的新分类输入同样支持多级路径，自动复用已存在层级',
+      '云端文档浏览与容量套餐、签到扩容、微信开通入口整合，用量与配额实时可见',
+      '修复云端分类重命名、拖拽移入等交互的误导提示',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.26',
+    assets: [
+      ['Tau.Editor-0.6.26-1.x86_64.rpm', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor-0.6.26-1.x86_64.rpm'],
+      ['Tau.Editor_0.6.26_aarch64.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor_0.6.26_aarch64.dmg'],
+      ['Tau.Editor_0.6.26_amd64.AppImage', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor_0.6.26_amd64.AppImage'],
+      ['Tau.Editor_0.6.26_amd64.deb', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor_0.6.26_amd64.deb'],
+      ['Tau.Editor_0.6.26_universal.dmg', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor_0.6.26_universal.dmg'],
+      ['Tau.Editor_0.6.26_x64-setup.exe', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor_0.6.26_x64-setup.exe'],
+      ['Tau.Editor_0.6.26_x64_zh-CN.msi', 'https://github.com/kokotao/tau-editor/releases/download/v0.6.26/Tau.Editor_0.6.26_x64_zh-CN.msi'],
+    ].map(([name, url]) => ({ name, url })),
+  },
+  {
+    version: 'v0.6.11', date: '2026-10-08', label: '工作台导航与编辑器上下文', category: '编辑器体验', latest: false,
     summary: '更新安装体验、macOS 工作台导航、编辑器路径上下文和状态栏可访问性，并收口 Markdown 预览、图片预览、主题市场、工具栏与标签页交互。',
     highlights: ['新增编辑器路径面包屑，工作区、文件夹与文件可联动定位', 'macOS 标题栏支持返回/前进、Quick Open、命令面板、资源区、上下文栏和 Markdown 预览入口', '状态栏编码、语言模式和主题改为支持键盘导航的自绘选择器', 'Markdown 预览新增林间薄荷、雾紫信笺和深海蓝调风格并修复外链与主题同步', '更新包改为流式写入并显示下载进度，macOS 标题栏可触发匹配设备安装包下载'],
     releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.11',
@@ -360,7 +383,13 @@ document.querySelector('#app').innerHTML = `
 
     <section class="capabilities container reveal"><div class="capability-intro"><p class="eyebrow">BUILT FOR THE FLOW</p><h2>每一个细节，<br><em>都在帮你前进。</em></h2><p>从第一次打开文件，到完成一次提交，Tau 把高频动作变成自然的节奏。现在，主题市场和可调节外观也加入了这条工作流。</p></div><div class="capability-grid">${capabilities.map(([icon, title, body]) => `<article class="capability"><span>${icon}</span><h3>${title}</h3><p>${body}</p></article>`).join('')}</div></section>
 
-    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>路径面包屑、标签页和沉浸式编辑区，把工作区上下文留在视线之内；从纯文本到完整项目，都能保持专注。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor v0.6.11 路径面包屑与沉浸式编辑工作区预览"><figcaption>Tau Editor · focused workspace with breadcrumbs</figcaption></figure></section>
+    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>路径面包屑、标签页和沉浸式编辑区，把工作区上下文留在视线之内；从纯文本到完整项目，都能保持专注。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor v0.6.26 路径面包屑与沉浸式编辑工作区预览"><figcaption>Tau Editor · focused workspace with breadcrumbs</figcaption></figure></section>
+
+  <section id="cloud" class="preview container reveal"><div><p class="eyebrow">LOCAL FIRST, CLOUD READY</p><h2>本地优先，<br><em>云端随时接管。</em></h2><p>保存即同步：本地路径与云端路径一一对应，内容哈希一致就跳过上传；多台设备打开同一份文档不会互相覆盖。云端分类、容量套餐、签到扩容和积分兑换都在应用内完成，用量与配额一眼可见。</p><a class="text-link" href="https://github.com/kokotao/tau-editor/releases/tag/v0.6.26" target="_blank" rel="noreferrer">查看 v0.6.26 更新 ↗</a></div><figure><img src="./assets/cloud-browser.png" alt="Tau Editor 云端文档浏览面板：按分类树浏览并打开云端文档"><figcaption>Tau Editor · cloud workspace with category tree</figcaption></figure></section>
+
+  <section class="preview container reveal"><div><p class="eyebrow">STORAGE THAT GROWS WITH YOU</p><h2>容量不够，<br><em>当场就能扩容。</em></h2><p>容量套餐、永久扩容包、每日签到与积分兑换整合在同一个面板；有效期、剩余容量与续费入口都在应用内，不用跳转网页。</p></div><figure><img src="./assets/cloud-quota.png" alt="Tau Editor 云存储容量套餐与扩容面板"><figcaption>Tau Editor · storage plans and quota</figcaption></figure></section>
+
+  <section class="preview container reveal"><div><p class="eyebrow">TOUR</p><h2>四屏看完整条链路，<br><em>从写到云。</em></h2><p>工作台、Markdown 预览、云端浏览、容量扩容 —— 一条完整链路，四张真实截图串成一段巡览。</p></div><figure><img src="./assets/tour.gif" alt="Tau Editor 功能巡览：工作台、Markdown 预览、云文档浏览、云存储扩容"><figcaption>Tau Editor · tour：workspace → markdown → cloud → storage</figcaption></figure></section>
 
     <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>把工作台，<br><em>带在手边。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/markdown-preview.png" alt="Tau Editor v0.6.11 Markdown 分栏预览与文档上下文"><figcaption>Markdown preview · split editing and context</figcaption></figure><figure><img src="./assets/command-palette.png" alt="Tau Editor 命令面板与快速导航"><figcaption>Command palette · every action within reach</figcaption></figure><figure><img src="./assets/settings.png" alt="Tau Editor 主题、快捷键与语言服务设置"><figcaption>Settings · themes, keybindings and language services</figcaption></figure></div></section>
 
