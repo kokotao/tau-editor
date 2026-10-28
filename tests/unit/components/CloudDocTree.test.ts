@@ -26,6 +26,10 @@ const mocks = vi.hoisted(() => ({
   createCloudDoc: vi.fn(),
   collectPlan: vi.fn(),
   runBatch: vi.fn(),
+  folderShareStatus: vi.fn(),
+  folderShareCreate: vi.fn(),
+  folderShareRevoke: vi.fn(),
+  folderShareBase: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
@@ -72,6 +76,18 @@ vi.mock('@/services/cloudDocCreateService', async (importOriginal) => {
 vi.mock('@/services/cloudDocBatchUploadService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/cloudDocBatchUploadService')>();
   return { ...actual, collectBatchUploadPlan: mocks.collectPlan, runBatchUpload: mocks.runBatch };
+});
+
+vi.mock('@/services/cloudCategoryShareService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudCategoryShareService')>();
+  return {
+    ...actual,
+    // 弹窗自己会查状态，这里挡掉 IPC，只验证菜单接线
+    getCategoryShareStatus: mocks.folderShareStatus,
+    createCategoryShare: mocks.folderShareCreate,
+    revokeCategoryShare: mocks.folderShareRevoke,
+    resolveFolderShareBaseUrl: mocks.folderShareBase,
+  };
 });
 
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
@@ -211,6 +227,34 @@ beforeEach(() => {
   });
   mocks.collectPlan.mockResolvedValue([]);
   mocks.runBatch.mockResolvedValue({ total: 0, ok: 0, skipped: 0, failed: 0, aborted: false });
+  mocks.folderShareStatus.mockResolvedValue({
+    ok: true,
+    data: {
+      shared: false,
+      token: null,
+      url: null,
+      hasPassword: false,
+      expiresAt: null,
+      includeSubCategories: true,
+      docCount: 0,
+      created: false,
+    },
+  });
+  mocks.folderShareCreate.mockResolvedValue({
+    ok: true,
+    data: {
+      shared: true,
+      token: 'tok1',
+      url: '/s/f/tok1',
+      hasPassword: false,
+      expiresAt: null,
+      includeSubCategories: true,
+      docCount: 2,
+      created: true,
+    },
+  });
+  mocks.folderShareRevoke.mockResolvedValue({ ok: true, data: undefined });
+  mocks.folderShareBase.mockResolvedValue('https://note.lizipro.cn');
 });
 
 afterEach(() => {
@@ -726,7 +770,7 @@ describe('CloudDocTree 多级分类创建（0.6.26）', () => {
 });
 
 describe('CloudDocTree R1 分类右键「新建文件」', () => {
-  it('目录菜单 5 项，「新建文件」「上传文件…」排在「新建子分类」之前', async () => {
+  it('目录菜单 6 项，「新建文件」「上传文件…」「一键分享文件夹」排在「新建子分类」之前', async () => {
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-dir');
 
@@ -736,6 +780,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
     expect(ids).toEqual([
       'cloud-category-menu-new-file',
       'cloud-category-menu-upload',
+      'cloud-category-menu-share-folder',
       'cloud-category-menu-new',
       'cloud-category-menu-rename',
       'cloud-category-menu-delete',
@@ -987,5 +1032,68 @@ describe('CloudDocTree R2 分类右键「上传文件…」', () => {
     await settle();
     expect(q('cloud-doc-upload-dialog')).toBeNull();
     expect(wrapper.emitted('edit-cloud-doc')).toBeUndefined();
+  });
+});
+
+describe('CloudDocTree 分类右键「一键分享文件夹」', () => {
+  it('cat:<id> 节点：菜单项可用，点击打开分享弹窗并带目标分类', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    const button = q<HTMLButtonElement>('cloud-category-menu-share-folder')!;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('title')).toContain('生成一个链接');
+
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+
+    expect(q('folder-share-dialog')).not.toBeNull();
+    expect(q('folder-share-dialog')!.textContent).toContain('笔记');
+    // 弹窗自己查状态；分类 id 来自 cat:<id>
+    expect(mocks.folderShareStatus).toHaveBeenCalledWith('1001');
+    expect(mocks.folderShareBase).toHaveBeenCalled();
+    // 右键菜单已收起
+    expect(q('cloud-doc-tree-menu')).toBeNull();
+  });
+
+  it('custom:* 聚合分组：菜单项禁用并提示无法分享，点击不打开弹窗', async () => {
+    const wrapper = mountTree([CUSTOM_GROUP]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    const button = q<HTMLButtonElement>('cloud-category-menu-share-folder')!;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toContain('没有独立分类记录');
+
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+
+    expect(q('folder-share-dialog')).toBeNull();
+    expect(mocks.folderShareStatus).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="cloud-browser-notice"]').text()).toContain('没有独立分类记录');
+  });
+
+  it('group:uncategorized（未分类）：同样禁用', async () => {
+    const wrapper = mountTree([UNCATEGORIZED]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    expect(q<HTMLButtonElement>('cloud-category-menu-share-folder')!.disabled).toBe(true);
+  });
+
+  it('关闭弹窗后收起，再打开会重新查状态', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+    expect(q('folder-share-dialog')).not.toBeNull();
+
+    clickEl('folder-share-close-button');
+    await settle();
+    expect(q('folder-share-dialog')).toBeNull();
+
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+    expect(q('folder-share-dialog')).not.toBeNull();
+    expect(mocks.folderShareStatus).toHaveBeenCalledTimes(2);
   });
 });

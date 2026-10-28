@@ -1459,6 +1459,34 @@ export interface CloudBinaryUploadResult {
   updatedAt?: string | null;
 }
 
+/** 文件夹（分类）分享创建入参（Rust `CloudCategoryShareCreatePayload`）。 */
+export interface CloudCategoryShareCreatePayload {
+  /** 访问密码；null/缺省 = 不设置密码 */
+  password?: string | null;
+  /** 有效期天数；null/缺省 = 永久 */
+  expiresInDays?: number | null;
+  /** 是否包含子分类文档；null/缺省 = 服务端默认（包含） */
+  includeSubCategories?: boolean | null;
+}
+
+/** 文件夹（分类）分享信息（Rust `CategoryShareInfo`；创建与查询共用）。 */
+export interface CloudCategoryShareInfo {
+  /** 是否已分享；false 时其余字段无意义 */
+  shared: boolean;
+  /** URL 安全 token */
+  token: string | null;
+  /** 后端返回的相对短链 `/s/f/{token}`；完整链接由前端按分享域名拼装 */
+  url: string | null;
+  hasPassword: boolean;
+  /** 过期时间；null = 永久 */
+  expiresAt: string | null;
+  includeSubCategories: boolean;
+  /** 分享范围内的文档数 */
+  docCount: number;
+  /** 仅创建时有意义：true = 新建，false = 重新生成（换了 token） */
+  created: boolean;
+}
+
 /** 分享创建结果（Rust `CloudShareInfo`）。 */
 export interface CloudShareInfo {
   shareUrl: string;
@@ -1674,6 +1702,30 @@ export const cloudCommands = {
   /** 删除分类（DELETE /categories/{id}）。 */
   async categoryDelete(id: string): Promise<void> {
     await invokeCommand<void>('cloud_category_delete', { id });
+  },
+
+  /** 创建（或重新生成）文件夹分享链接（POST /categories/{id}/folder-share）。 */
+  async categoryShareCreate(
+    categoryId: string,
+    payload: CloudCategoryShareCreatePayload = {},
+  ): Promise<CloudCategoryShareInfo> {
+    return invokeCommand<CloudCategoryShareInfo>('cloud_category_share_create', {
+      // 雪花 id 按字符串透传，避免 JSON number 丢精度
+      categoryId,
+      password: payload.password ?? null,
+      expiresInDays: payload.expiresInDays ?? null,
+      includeSubCategories: payload.includeSubCategories ?? null,
+    });
+  },
+
+  /** 查询文件夹分享状态（GET 同路径）；未分享时返回 `shared: false`。 */
+  async categoryShareStatus(categoryId: string): Promise<CloudCategoryShareInfo> {
+    return invokeCommand<CloudCategoryShareInfo>('cloud_category_share_status', { categoryId });
+  },
+
+  /** 撤销文件夹分享（DELETE 同路径）：旧链接立即失效。 */
+  async categoryShareRevoke(categoryId: string): Promise<void> {
+    await invokeCommand<void>('cloud_category_share_revoke', { categoryId });
   },
 
   /** 把云文档移动到指定分类（categoryId 为字符串雪花 id；null 表示取消分类）。 */

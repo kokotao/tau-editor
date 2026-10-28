@@ -688,6 +688,8 @@ pub async fn cloud_docs_share_stats(
 
 /// 分类 CRUD 接口前缀（backend-qa 新增，鉴权接口）。
 const CLOUD_CATEGORIES_PATH: &str = "/miniProgram/cloud/categories";
+/// 分类（文件夹）分享子路径：`/miniProgram/cloud/categories/{id}/folder-share`。
+const CLOUD_CATEGORY_FOLDER_SHARE_SEGMENT: &str = "folder-share";
 
 /// 分类写入请求体：`id` 为空表示新建，否则重命名。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1645,6 +1647,155 @@ pub async fn cloud_share_config(
     })
     .await?;
     parse_result(response, "获取分享配置").await
+}
+
+// ---------------------------------------------------------------------------
+// 云端文件夹（分类）一键分享：/miniProgram/cloud/categories/{id}/folder-share
+// ---------------------------------------------------------------------------
+
+/// 文件夹分享创建请求体。
+///
+/// 三个字段都可缺省：缺省表示「不修改 / 用服务端默认」，因此 `skip_serializing_if` 保证
+/// 「只换 token 重新生成」时发出的是空对象 `{}`，而不是把 password/expiresAt 清空。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudCategoryShareCreatePayload {
+    /// 访问密码；null / 空串 = 不设置密码
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// 有效期天数；null = 永久
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in_days: Option<i64>,
+    /// 是否包含子分类文档（缺省 = 服务端默认，v1 为包含）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_sub_categories: Option<bool>,
+}
+
+/// 文件夹分享信息（创建与查询共用）。
+///
+/// 未分享时服务端只返回 `{ shared: false }`，因此除 `shared` 之外全部带默认值：
+/// 前端只在 `shared === true` 时读取这些字段。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryShareInfo {
+    /// 当前分类是否已分享（false 时其余字段无意义）
+    #[serde(default)]
+    pub shared: bool,
+    /// URL 安全随机 token（32 位）
+    #[serde(default)]
+    pub token: Option<String>,
+    /// 相对短链 `/s/f/{token}`：完整链接由前端按分享域名拼装
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub has_password: bool,
+    /// 过期时间（`yyyy-MM-dd HH:mm:ss`）；null = 永久
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    /// 分享范围是否含子分类
+    #[serde(default)]
+    pub include_sub_categories: bool,
+    /// 分享范围内的文档数
+    #[serde(default)]
+    pub doc_count: i64,
+    /// 仅 POST 有意义：true = 本次新建，false = 重新生成（换了 token）
+    #[serde(default)]
+    pub created: bool,
+}
+
+/// 校验分类 id：雪花 id 按字符串透传（> 2^53，不能过 JSON number）。
+///
+/// 分类接口在分类表为空时会用「分类名」兜底充当 id（见 `cloud_blog_categories` 注释），
+/// 所以这里不做纯数字校验，只挡住会破坏 URL 的字符。
+fn validate_category_share_id(raw: &str) -> Result<String, CommandError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::new("INVALID_ARGUMENT", "缺少分类 id"));
+    }
+    let broken = trimmed.contains('/')
+        || trimmed.contains('?')
+        || trimmed.contains('#')
+        || trimmed.chars().any(|ch| ch.is_control() || ch.is_whitespace());
+    if broken {
+        return Err(CommandError::new(
+            "INVALID_ARGUMENT",
+            "分类 id 格式不正确，无法生成分享链接",
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// 文件夹分享接口地址：`{base}/miniProgram/cloud/categories/{id}/folder-share`。
+fn category_folder_share_url(base_url: &str, category_id: &str) -> String {
+    format!("{base_url}{CLOUD_CATEGORIES_PATH}/{category_id}/{CLOUD_CATEGORY_FOLDER_SHARE_SEGMENT}")
+}
+
+/// 创建（或重新生成）文件夹分享链接（POST，需登录）。
+///
+/// 同一用户对同一分类只有一条分享记录：再次 POST = 换 token，旧链接立即失效。
+#[tauri::command]
+pub async fn cloud_category_share_create(
+    state: State<'_, CloudState>,
+    category_id: String,
+    password: Option<String>,
+    expires_in_days: Option<i64>,
+    include_sub_categories: Option<bool>,
+) -> Result<CategoryShareInfo, CommandError> {
+    let category_id = validate_category_share_id(&category_id)?;
+    let payload = CloudCategoryShareCreatePayload {
+        password: password
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        // 非正数没有意义：归一成「永久」，避免服务端按 0 天立即过期
+        expires_in_days: expires_in_days.filter(|days| *days > 0),
+        include_sub_categories,
+    };
+    let response = send_authed(&state, "生成文件夹分享链接", |client, session| {
+        authed(
+            client.post(category_folder_share_url(&session.base_url, &category_id)),
+            session,
+        )
+        .header("Accept", "application/json")
+        .json(&payload)
+    })
+    .await?;
+    parse_result(response, "生成文件夹分享链接").await
+}
+
+/// 查询文件夹分享状态（GET，需登录）；未分享时返回 `shared: false`。
+#[tauri::command]
+pub async fn cloud_category_share_status(
+    state: State<'_, CloudState>,
+    category_id: String,
+) -> Result<CategoryShareInfo, CommandError> {
+    let category_id = validate_category_share_id(&category_id)?;
+    let response = send_authed(&state, "获取文件夹分享状态", |client, session| {
+        authed(
+            client.get(category_folder_share_url(&session.base_url, &category_id)),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "获取文件夹分享状态").await
+}
+
+/// 撤销文件夹分享（DELETE，需登录）：旧链接立即 404。
+#[tauri::command]
+pub async fn cloud_category_share_revoke(
+    state: State<'_, CloudState>,
+    category_id: String,
+) -> Result<(), CommandError> {
+    let category_id = validate_category_share_id(&category_id)?;
+    let response = send_authed(&state, "撤销文件夹分享", |client, session| {
+        authed(
+            client.delete(category_folder_share_url(&session.base_url, &category_id)),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_unit(response, "撤销文件夹分享").await
 }
 
 /// 博客分类树。

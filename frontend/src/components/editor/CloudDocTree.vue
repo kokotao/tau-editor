@@ -301,6 +301,24 @@
             </svg>
             <span>{{ panel.menuUploadFiles }}</span>
           </button>
+          <!-- 文件夹（分类）一键分享：只有真实分类 cat:<id> 能分享 -->
+          <button
+            type="button"
+            class="cd-menu__item"
+            data-testid="cloud-category-menu-share-folder"
+            role="menuitem"
+            :disabled="!canShareFolder(rowMenu.node)"
+            :title="canShareFolder(rowMenu.node) ? panel.folderShareHint : panel.folderShareUnsupported"
+            @click.stop="menuShareFolder()"
+          >
+            <svg class="cloud-doc-tree__menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="18" cy="5" r="2.6" />
+              <circle cx="6" cy="12" r="2.6" />
+              <circle cx="18" cy="19" r="2.6" />
+              <path d="m8.4 10.8 7.2-4.2M15.6 17.4 8.4 13.2" />
+            </svg>
+            <span>{{ panel.menuShareFolder }}</span>
+          </button>
           <button
             type="button"
             class="cd-menu__item"
@@ -471,6 +489,14 @@
       @cancel="cancelUpload()"
       @close="closeUploadDialog()"
     />
+
+    <!-- 文件夹（分类）一键分享：分类 id 取自右键节点，弹窗内部自己查状态 -->
+    <FolderShareDialog
+      :visible="folderShareVisible"
+      :category-id="folderShareCategoryId"
+      :category-name="folderShareTarget?.name ?? ''"
+      @close="closeFolderShare()"
+    />
   </div>
 </template>
 
@@ -508,6 +534,7 @@ import VersionHistoryDialog from './VersionHistoryDialog.vue';
 import DocPropertiesDialog from './DocPropertiesDialog.vue';
 import CloudDocPreviewDialog from './CloudDocPreviewDialog.vue';
 import CloudDocUploadDialog from './CloudDocUploadDialog.vue';
+import FolderShareDialog from './FolderShareDialog.vue';
 import {
   createCloudDocFile,
   sanitizeNewDocName,
@@ -996,6 +1023,11 @@ const uploadDialog = ref<{
   cancelled: false,
 });
 
+/** 文件夹（分类）一键分享弹窗：目标节点 + 可见性（分类 id 从 `cat:<id>` 里取） */
+const folderShareVisible = ref(false);
+const folderShareTarget = ref<CloudDocTreeNode | null>(null);
+const folderShareCategoryId = computed(() => categoryIdOf(folderShareTarget.value) ?? '');
+
 /** 内联卡片标题：分类新建/重命名沿用原逻辑，新建文件用 R1 的标题 + 目标分类名 */
 const promptTitle = computed(() => {
   const current = prompt.value;
@@ -1076,6 +1108,15 @@ function canCreateFile(node: CloudDocTreeNode | null): boolean {
   return !node.key.startsWith('custom:');
 }
 
+/**
+ * 是否可分享该目录节点（文件夹分享按分类主键走）：
+ * 只有 `cat:<id>`（真实分类）能分享；`custom:<名称>`（无分类主键）与
+ * `group:uncategorized`（未分类不是分类）都禁用并给提示。
+ */
+function canShareFolder(node: CloudDocTreeNode | null): boolean {
+  return (categoryIdOf(node) ?? '').trim().length > 0;
+}
+
 function closeMenus(): void {
   rowMenu.value.visible = false;
   moveMenuVisible.value = false;
@@ -1089,8 +1130,8 @@ const MENU_CHROME_HEIGHT = 47;
 function openRowMenu(row: { node: CloudDocTreeNode }, event: MouseEvent): void {
   const viewportWidth = window.innerWidth || 1024;
   const viewportHeight = window.innerHeight || 768;
-  // 文件菜单 7 项；目录菜单 5 项（新建文件 / 上传文件… / 新建子分类 / 重命名分类 / 删除分类）
-  const itemCount = row.node.kind === 'file' ? 7 : 5;
+  // 文件菜单 7 项；目录菜单 6 项（新建文件 / 上传文件… / 一键分享文件夹 / 新建子分类 / 重命名分类 / 删除分类）
+  const itemCount = row.node.kind === 'file' ? 7 : 6;
   const menuHeight = itemCount * MENU_ITEM_HEIGHT + MENU_CHROME_HEIGHT;
   // 右侧/底部空间不足时翻转，保证浮层不出视口（点击热区跟随视觉位置）
   const flipX = event.clientX + MENU_WIDTH + 8 > viewportWidth;
@@ -1543,6 +1584,27 @@ function closeUploadDialog(): void {
     aborted: false,
     cancelled: false,
   };
+}
+
+/** 文件夹（分类）一键分享：只有 cat:<id> 能打开弹窗，其余给一句提示。 */
+function menuShareFolder(): void {
+  const node = rowMenu.value.node;
+  closeMenus();
+  if (!node || node.kind !== 'dir') {
+    return;
+  }
+  if (!canShareFolder(node)) {
+    notice.value = panel.value.folderShareUnsupported;
+    return;
+  }
+  folderShareTarget.value = node;
+  folderShareVisible.value = true;
+}
+
+/** 分享弹窗关闭：状态由弹窗自己维护，这里只收起并清掉目标节点。 */
+function closeFolderShare(): void {
+  folderShareVisible.value = false;
+  folderShareTarget.value = null;
 }
 
 function menuRenameCategory(): void {
