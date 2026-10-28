@@ -11,6 +11,7 @@ import { createPinia, setActivePinia } from 'pinia';
 const mocks = vi.hoisted(() => ({
   fetchCategories: vi.fn(),
   syncByPath: vi.fn(),
+  ensureCategoryPath: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
@@ -28,6 +29,11 @@ vi.mock('@/services/cloudBlogService', async (importOriginal) => {
 vi.mock('@/services/cloudSyncService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/cloudSyncService')>();
   return { ...actual, syncDocumentByPath: mocks.syncByPath };
+});
+
+vi.mock('@/services/cloudCategoryPathService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudCategoryPathService')>();
+  return { ...actual, ensureCategoryPath: mocks.ensureCategoryPath };
 });
 
 import CloudDocSyncDialog from '@/components/editor/CloudDocSyncDialog.vue';
@@ -409,5 +415,47 @@ describe('CloudDocSyncDialog 云端身份（临时区落位文档的分类回显
     await settle();
 
     expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('随笔');
+  });
+});
+
+describe('CloudDocSyncDialog 新分类多级路径（0.6.26）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    mocks.fetchCategories.mockResolvedValue({ ok: true, data: CATEGORY_TREE });
+    mocks.syncByPath.mockResolvedValue({ status: 'synced', fileId: 42, version: 3 });
+    mocks.ensureCategoryPath.mockResolvedValue({
+      ok: true,
+      data: { id: 'leaf-id', name: 'Java', created: ['后端', 'Java'], reused: false, chain: ['b-id', 'leaf-id'] },
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('新分类输入「后端/Java」：先确保分类路径，再用末级分类同步', async () => {
+    const wrapper = mountDialog();
+    await settle();
+
+    await wrapper.get('[data-testid="cloud-sync-dialog-new-category"]').setValue('后端/Java');
+    await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
+    await settle();
+
+    expect(mocks.ensureCategoryPath).toHaveBeenCalledWith({ path: '后端/Java' });
+    const payload = mocks.syncByPath.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload).toMatchObject({ category: 'Java', categoryId: 'leaf-id' });
+  });
+
+  it('多级分类创建失败时不发起同步，并展示可读错误', async () => {
+    mocks.ensureCategoryPath.mockResolvedValue({ ok: false, kind: 'unknown', message: '分类最多 3 级，当前输入为 4 级，请精简后再试' });
+
+    const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-new-category"]').setValue('A/B/C/D');
+    await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
+    await settle();
+
+    expect(mocks.syncByPath).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="cloud-sync-dialog-error"]').text()).toContain('最多 3 级');
   });
 });

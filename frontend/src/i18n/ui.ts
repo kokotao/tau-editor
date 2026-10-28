@@ -2212,7 +2212,7 @@ const CLOUD_DOC_SYNC_TEXTS: Record<UiLanguage, CloudDocSyncText> = {
     none: '不分类',
     newCategoryLabel: '新建分类',
     newCategoryPlaceholder: '输入新分类名称',
-    newCategoryHint: '选已有分类会清空这里；填了名称则按新分类上传（只作用于本文档）。',
+    newCategoryHint: '选已有分类会清空这里；填了名称则按新分类上传（只作用于本文档）。支持「后端/Java/Spring」一次建多级。',
     conflictTitle: '云端已有该文档',
     conflictHint: '云端内容与本地不同，继续将用本地内容覆盖云端。',
     overwrite: '覆盖云端',
@@ -2237,7 +2237,7 @@ const CLOUD_DOC_SYNC_TEXTS: Record<UiLanguage, CloudDocSyncText> = {
     none: 'No category',
     newCategoryLabel: 'New category',
     newCategoryPlaceholder: 'Type a new category name',
-    newCategoryHint: 'Picking an existing category clears this field; a typed name is uploaded only for this document.',
+    newCategoryHint: 'Picking an existing category clears this field; a typed name is uploaded only for this document. Use A/B/C to create multiple levels at once.',
     conflictTitle: 'The cloud copy already exists',
     conflictHint: 'Cloud content differs from local. Continuing overwrites the cloud copy with local content.',
     overwrite: 'Overwrite cloud',
@@ -2506,10 +2506,15 @@ interface CloudDocPanelText {
   deleteCategory: string;
   deleteCategoryConfirm: string;
   deleteCategoryDone: string;
+  moveToCustomUnsupported: string;
   categoryNamePlaceholder: string;
   maxDepthReached: string;
   createDone: string;
   renameDone: string;
+  /** 聚合分组（来自文档分类文本，非真实分类）不支持重命名 */
+  renameUnsupported: string;
+  /** 聚合分组重命名时部分文档迁移失败 */
+  renamePartial: (failed: number) => string;
   confirm: string;
   cancel: string;
   close: string;
@@ -2586,10 +2591,13 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     deleteCategory: '删除分类',
     deleteCategoryConfirm: '删除后该分类下的文档会变为未分类，确定删除吗？',
     deleteCategoryDone: '已删除分类',
-    categoryNamePlaceholder: '输入分类名称',
+    moveToCustomUnsupported: '该分组来自文档分类文本，暂不支持把文档移入',
+    categoryNamePlaceholder: '输入分类名称（可用 后端/Java 建多级）',
     maxDepthReached: '分类最多三级，不能继续新建子分类',
     createDone: '已新建分类',
     renameDone: '已重命名分类',
+    renameUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接重命名',
+    renamePartial: (failed) => `已重命名分类，但有 ${failed} 篇文档未能迁移，请稍后重试`,
     confirm: '确定',
     cancel: '取消',
     close: '关闭',
@@ -2663,10 +2671,13 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     deleteCategory: 'Delete category',
     deleteCategoryConfirm: 'Documents in this category become uncategorized. Delete it?',
     deleteCategoryDone: 'Category deleted',
-    categoryNamePlaceholder: 'Category name',
+    moveToCustomUnsupported: 'This group comes from document category text; moving documents into it is not supported',
+    categoryNamePlaceholder: 'Category name (use A/B for multiple levels)',
     maxDepthReached: 'Categories support up to three levels',
     createDone: 'Category created',
     renameDone: 'Category renamed',
+    renameUnsupported: 'This group comes from document category text, not a real category row',
+    renamePartial: (failed) => `Category renamed, but ${failed} document(s) could not be moved`,
     confirm: 'OK',
     cancel: 'Cancel',
     close: 'Close',

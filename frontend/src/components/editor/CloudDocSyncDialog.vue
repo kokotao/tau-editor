@@ -173,6 +173,8 @@ import { fetchCloudCategories } from '@/services/cloudBlogService';
 import { syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncService';
 import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import { getCloudDocSyncI18n } from '@/i18n/ui';
+import { isCategoryPath } from '@/lib/categoryPath';
+import { ensureCategoryPath } from '@/services/cloudCategoryPathService';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useWorkspaceStore } from '@/stores/workspace';
 import { resolveCloudDocIdentity, type CloudDocIdentityMeta } from '@/services/cloudSyncService';
@@ -461,7 +463,16 @@ async function confirm(overwrite: boolean): Promise<void> {
   errorText.value = '';
   notice.value = '';
   try {
-    const category = resolveCategory();
+    let category = resolveCategory();
+    // 「新建分类」输入框支持 A/B/C 多级：先确保路径存在，再用末级分类同步
+    if (category.category && isCategoryPath(category.category)) {
+      const ensured = await ensureCategoryPath({ path: category.category });
+      if (!ensured.ok) {
+        errorText.value = copy.value.failed(ensured.message);
+        return;
+      }
+      category = { category: ensured.data.name, categoryId: ensured.data.id };
+    }
     const result = await syncDocumentByPath({
       filePath,
       // 云端身份：临时区落位的文档必须靠 fileId/cloudPath 定位，避免被当成新文档

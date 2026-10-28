@@ -84,7 +84,7 @@ describe('buildCloudDocTreeByCategory 分类分组', () => {
     expect(names(tree[0]!.children)).toEqual(['Rust']);
   });
 
-  it('分类名在树里匹配不到时聚合到「自定义分类」，无分类归到「未分类」', () => {
+  it('分类名匹配不到时直接作为顶层目录（不再包「自定义分类」父节点）', () => {
     const tree = buildCloudDocTreeByCategory(
       [
         doc({ fileId: 1, path: 'tau/ws/x.md', category: '手写分类' }),
@@ -95,9 +95,11 @@ describe('buildCloudDocTreeByCategory 分类分组', () => {
       LABELS,
     );
 
-    expect(names(tree)).toEqual(['自定义分类', '未分类']);
-    expect(names(tree[0]!.children)).toEqual(['手写分类']);
-    expect(tree[0]!.children[0]!.children).toHaveLength(2);
+    // 需求（0.6.26）：游离分组直接是顶层目录，没有任何包裹层
+    expect(names(tree)).toEqual(['手写分类', '未分类']);
+    expect(tree[0]!.children).toHaveLength(2);
+    expect(tree.some((node) => node.key === 'group:custom')).toBe(false);
+    expect(names(tree[0]!.children)).toEqual(['x.md', 'y.md']);
     expect(tree[1]!.children.map((node) => node.name)).toEqual(['z.md']);
   });
 

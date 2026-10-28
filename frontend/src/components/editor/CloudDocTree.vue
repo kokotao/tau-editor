@@ -450,6 +450,8 @@ import {
   type FlatCategory,
 } from '@/services/cloudCategoryService';
 import { getCloudDocPanelI18n } from '@/i18n/ui';
+import { isCategoryPath } from '@/lib/categoryPath';
+import { ensureCategoryPath } from '@/services/cloudCategoryPathService';
 import VersionHistoryDialog from './VersionHistoryDialog.vue';
 import DocPropertiesDialog from './DocPropertiesDialog.vue';
 import CloudDocPreviewDialog from './CloudDocPreviewDialog.vue';
@@ -887,6 +889,8 @@ const prompt = ref<{
   parentId: string | null;
   parentName: string;
   id: string | null;
+  /** 聚合分组节点（key=custom:*，来自文档分类文本，没有真实分类 id） */
+  customNode?: CloudDocTreeNode | null;
   busy: boolean;
   error: string;
 }>({ visible: false, mode: 'create', name: '', parentId: null, parentName: '', id: null, busy: false, error: '' });
@@ -1231,6 +1235,7 @@ function menuRenameCategory(): void {
     parentId: null,
     parentName: '',
     id: categoryIdOf(node),
+    customNode: node && node.key.startsWith('custom:') ? node : null,
     busy: false,
     error: '',
   };
@@ -1251,6 +1256,53 @@ function closePrompt(): void {
   prompt.value.error = '';
 }
 
+/**
+ * 聚合分组重命名：这类分组来自文档的自由文本分类（category），没有真实 category 行。
+ * 做法：先建一个同名正式分类，再把组内文档逐个迁移过去；全部失败则回滚（删除刚建的分类）。
+ * 返回 null 表示成功，否则返回给用户看的错误文案。
+ */
+async function renameCustomGroup(node: CloudDocTreeNode, name: string): Promise<string | null> {
+  const created = await createCategory(name.trim(), null);
+  if (!created.ok) {
+    return created.message;
+  }
+  const newId = created.data?.id ? String(created.data.id) : '';
+  if (!newId) {
+    return panel.value.renameUnsupported;
+  }
+  const files: CloudDocTreeNode[] = [];
+  const collect = (current: CloudDocTreeNode): void => {
+    if (current.kind === 'file') {
+      files.push(current);
+      return;
+    }
+    current.children.forEach(collect);
+  };
+  collect(node);
+  let failed = 0;
+  for (const file of files) {
+    const fileId = file.file?.fileId;
+    if (fileId === undefined) {
+      failed += 1;
+      continue;
+    }
+    const outcome = await moveDocumentToCategory(fileId, newId);
+    if (!outcome.ok) {
+      console.warn('[cloud-category] 聚合分组迁移失败', { fileId, message: outcome.message });
+      failed += 1;
+    }
+  }
+  await refreshCategoryTree();
+  emit('changed');
+  if (failed > 0 && failed === files.length) {
+    // 一篇都没迁成功：把刚建的分类删掉，避免留下空分类
+    await deleteCategory(newId);
+    await refreshCategoryTree();
+    return panel.value.renamePartial(failed);
+  }
+  return failed > 0 ? panel.value.renamePartial(failed) : null;
+}
+
 async function submitPrompt(): Promise<void> {
   const current = prompt.value;
   if (current.busy) {
@@ -1263,6 +1315,44 @@ async function submitPrompt(): Promise<void> {
   current.busy = true;
   current.error = '';
   try {
+    if (current.mode === 'rename' && !current.id) {
+      // 没有真实分类 id：聚合分组（custom:*）走「建正式分类 + 迁移文档」，其它情况直接报错。
+      // 修复前这里会静默降级成 createCategory，于是提示「已重命名分类」但树没变。
+      if (current.customNode) {
+        const message = await renameCustomGroup(current.customNode, current.name);
+        if (message) {
+          current.error = message;
+          return;
+        }
+        prompt.value.visible = false;
+        centerToast.show(panel.value.renameDone, 'success', 3000);
+        return;
+      }
+      current.error = panel.value.renameUnsupported;
+      return;
+    }
+    // 新建：支持「后端/Java/Spring」一次建多级（父级已存在则复用）
+    if (current.mode === 'create' && isCategoryPath(current.name)) {
+      const ensured = await ensureCategoryPath({ path: current.name });
+      if (!ensured.ok) {
+        console.warn('[cloud-category] 多级分类创建失败', { kind: ensured.kind, message: ensured.message });
+        current.error = ensured.message;
+        return;
+      }
+      prompt.value.visible = false;
+      // 展开整条链，方便看到刚建好的层级
+      ensured.data.chain.forEach((id) => collapsedKeys.value.delete(`cat:${id}`));
+      await refreshCategoryTree();
+      emit('changed');
+      centerToast.show(
+        ensured.data.created.length > 1
+          ? `${panel.value.createDone}：${ensured.data.created.join(' / ')}`
+          : panel.value.createDone,
+        'success',
+        3000,
+      );
+      return;
+    }
     const outcome = current.mode === 'rename' && current.id
       ? await renameCategory(current.id, current.name)
       : await createCategory(current.name, current.parentId);
@@ -1339,7 +1429,7 @@ async function handleDrop(row: { node: CloudDocTreeNode }, event: DragEvent): Pr
       await moveDocToCategory(source, null);
       return;
     }
-    notice.value = panel.value.moveFailed(panel.value.maxDepthReached);
+    notice.value = panel.value.moveToCustomUnsupported;
     return;
   }
   await moveDocToCategory(source, categoryId || null);

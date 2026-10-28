@@ -400,6 +400,75 @@ describe('CloudDocTree 分类管理', () => {
     expect(mocks.categoryCreate).not.toHaveBeenCalled();
   });
 
+  it('聚合分组重命名：新建同名正式分类并把组内文档迁过去', async () => {
+    const custom: CloudDocTreeNode = {
+      key: 'custom:agetTest',
+      name: 'agetTest',
+      path: 'custom:agetTest',
+      kind: 'dir',
+      children: [fileNode('c.md', 77)],
+      file: null,
+    };
+    const wrapper = mountTree([custom]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '正式分类');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    // 建的是正式分类（parent 为空），不是把新名字当新分类乱建
+    expect(mocks.categoryCreate).toHaveBeenCalledWith('正式分类', null);
+    expect(mocks.categoryUpdate).not.toHaveBeenCalled();
+    // 组内文档迁移到新分类 id（mock 返回 9）
+    expect(mocks.moveDocCategory).toHaveBeenCalledWith(77, '9');
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('聚合分组重命名失败时提示原因，不再静默降级成新建', async () => {
+    const custom: CloudDocTreeNode = {
+      key: 'custom:agetTest',
+      name: 'agetTest',
+      path: 'custom:agetTest',
+      kind: 'dir',
+      children: [fileNode('c.md', 77)],
+      file: null,
+    };
+    mocks.categoryCreate.mockRejectedValue(
+      Object.assign(new Error('同级分类名称已存在'), { code: 'CONFLICT' }),
+    );
+    const wrapper = mountTree([custom]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '正式分类');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.moveDocCategory).not.toHaveBeenCalled();
+    // 面板仍在，且带错误文案（不再弹「已重命名分类」）
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-category-prompt')!.textContent).toContain('同级分类名称已存在');
+    expect(wrapper.emitted('changed')).toBeUndefined();
+  });
+
+  it('非自定义聚合分组（未分类）重命名：只提示不支持，不新建分类', async () => {
+    const wrapper = mountTree([UNCATEGORIZED]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '随便');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate).not.toHaveBeenCalled();
+    expect(mocks.categoryUpdate).not.toHaveBeenCalled();
+    expect(q('cloud-category-prompt')).not.toBeNull();
+  });
+
   it('删除分类：二次确认后调用 delete 并刷新', async () => {
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-dir');
@@ -561,5 +630,52 @@ describe('CloudDocTree 跨工作区选择题：在编辑器中打开', () => {
     // 树内不发 IPC：不拉正文、不写盘、不直接打开
     expect(mocks.getDoc).not.toHaveBeenCalled();
     expect(wrapper.emitted('open-file')).toBeUndefined();
+  });
+});
+
+
+describe('CloudDocTree 多级分类创建（0.6.26）', () => {
+  beforeEach(() => {
+    mocks.categoriesList.mockResolvedValue([]);
+    mocks.categoryCreate.mockImplementation(async (name: string, parentId?: string | null) => ({
+      id: `${name}-id`,
+      name,
+      parentId: parentId ?? null,
+      children: [],
+    }));
+  });
+
+  it('输入「后端/Java/Spring」一次创建三级，父 id 逐级串起来', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '后端/Java/Spring');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate.mock.calls).toEqual([
+      ['后端', null],
+      ['Java', '后端-id'],
+      ['Spring', 'Java-id'],
+    ]);
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+    // 卡片已关闭
+    expect(document.body.querySelector('[data-testid="cloud-category-prompt"]')).toBeNull();
+  });
+
+  it('超过三级时在卡片里报错且不创建', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', 'A/B/C/D');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="cloud-category-prompt-error"]')?.textContent).toContain('最多 3 级');
   });
 });

@@ -158,8 +158,11 @@ export function buildCloudDocTree(
 export interface CloudCategoryTreeLabels {
   /** 文档没有任何分类时的分组名 */
   uncategorized: string;
-  /** 分类名在分类树里匹配不到时的聚合分组名 */
-  customGroup: string;
+  /**
+   * 旧版「自定义分类」聚合父节点名称。
+   * @deprecated 0.6.26 起不再生成该父节点；分类名匹配不到时按名称直接作为顶层目录。
+   */
+  customGroup?: string;
 }
 
 interface CategoryIndexEntry {
@@ -308,20 +311,15 @@ export function buildCloudDocTreeByCategory(
   const tree = pruneEmptyCategories(rootNodes);
   sortTree(tree);
 
+  // 需求（0.6.26）：用户自建分类就是顶层分类，不再包一层「自定义分类」父节点。
+  // 分类树里匹配不到的「文档自由文本分类」按名称聚合后直接挂在根下（没有就什么都不显示）。
   const customNodes = [...customBuckets.values()]
     .filter((node) => node.children.length > 0)
     .sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN', { sensitivity: 'base' }));
-  customNodes.forEach((node) => sortTree(node.children));
-  if (customNodes.length > 0) {
-    tree.push({
-      key: 'group:custom',
-      name: labels.customGroup,
-      path: 'group:custom',
-      kind: 'dir',
-      children: customNodes,
-      file: null,
-    });
-  }
+  customNodes.forEach((node) => {
+    sortTree(node.children);
+    tree.push(node);
+  });
 
   if (uncategorizedFiles.length > 0) {
     sortTree(uncategorizedFiles);
