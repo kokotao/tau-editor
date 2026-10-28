@@ -2,8 +2,8 @@
 
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
-> 最后更新：2026-10-17
-> 当前稳定版本：`v0.6.13`
+> 最后更新：2026-10-28
+> 当前稳定版本：`v0.6.26`
 
 ---
 
@@ -11,6 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
+| [0.6.26](https://github.com/kokotao/tau-editor/releases/tag/v0.6.26) | 2026-10-28 | 公开 Release     | 本次发布  | 云文档分类树收口、多级分类一次创建、云端文档浏览与同步体验完善 |
 | [0.6.12](https://github.com/kokotao/tau-editor/releases/tag/v0.6.12) | 2026-10-15 | 公开 Release（修复后重发） | `5d76612` | Markdown 独立预览状态、HTML/PDF/Excel 分栏预览、Windows 标题栏与文档预览稳定性修复 |
 | [0.6.11](https://github.com/kokotao/tau-editor/releases/tag/v0.6.11) | 2026-10-08 | 公开 Release     | `321c45b` | 更新下载进度、macOS 标题栏导航、路径面包屑、可访问选择器与编辑器体验收口 |
 | [0.6.10](https://github.com/kokotao/tau-editor/releases/tag/v0.6.10) | 2026-10-06 | 公开 Release（补发资产） | 本次发布  | 更新说明 Markdown 渲染、DMG Finder 布局修复、Universal/aarch64 macOS 安装包 |
