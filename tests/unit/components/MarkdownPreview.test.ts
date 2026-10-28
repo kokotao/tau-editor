@@ -559,6 +559,57 @@ describe('MarkdownPreview', () => {
     expect(state.scrollHeight).toBe(2400);
   });
 
+  it('预览滚动时应按 data-source-line 发出当前标题行（rAF 节流）', async () => {
+    renderMarkdownMock.mockReturnValue(
+      '<h1 data-source-line="1">一</h1><p>甲</p>'
+      + '<h2 data-source-line="2">二</h2><p>乙</p>'
+      + '<h2 data-source-line="3">三</h2><p>丙</p>',
+    );
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '# 一\n\n甲\n\n## 二\n\n乙\n\n## 三\n\n丙', theme: 'dark' },
+    });
+    const preview = wrapper.get('[data-testid="markdown-preview"]').element as HTMLElement;
+    Object.defineProperty(preview, 'clientWidth', { configurable: true, value: 800 });
+
+    // jsdom 没有布局：按 data-source-line 造出间隔 100px 的标题位置。
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const line = Number.parseInt((this as HTMLElement).dataset?.sourceLine ?? '', 10);
+      const top = Number.isFinite(line) ? line * 100 : 0;
+      return { top, left: 0, right: 0, bottom: top, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    });
+
+    try {
+      await flushRender();
+
+      Object.defineProperty(preview, 'scrollTop', { configurable: true, value: 250, writable: true });
+      await wrapper.get('[data-testid="markdown-preview"]').trigger('scroll');
+      await vi.advanceTimersByTimeAsync(40);
+
+      // scrollTop=250 落在第二个标题（200px）之后、第三个标题（300px）之前。
+      expect(wrapper.emitted('active-line')?.[0]).toEqual([2]);
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('预览标题缺少 data-source-line 时不发 active-line', async () => {
+    renderMarkdownMock.mockReturnValue('<h1>标题</h1><p>正文</p>');
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '# 标题\n\n正文', theme: 'dark' },
+    });
+    const preview = wrapper.get('[data-testid="markdown-preview"]').element as HTMLElement;
+    Object.defineProperty(preview, 'clientWidth', { configurable: true, value: 800 });
+    Object.defineProperty(preview, 'scrollHeight', { configurable: true, value: 2400 });
+    Object.defineProperty(preview, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(preview, 'scrollTop', { configurable: true, value: 320, writable: true });
+    await flushRender();
+
+    await wrapper.get('[data-testid="markdown-preview"]').trigger('scroll');
+    await vi.advanceTimersByTimeAsync(40);
+
+    expect(wrapper.emitted('active-line')).toBeUndefined();
+  });
+
   it('取消删除整张表格时不应发出变更', async () => {
     renderMarkdownMock.mockReturnValue('<table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>');
     const wrapper = mount(MarkdownPreview, {

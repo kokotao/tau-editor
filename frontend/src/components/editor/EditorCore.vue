@@ -167,7 +167,7 @@ const SUPPORTED_LANGUAGES = [
 const emit = defineEmits<{
   'content-change': [content: string, modelId: string];
   'cursor-change': [position: { line: number; column: number }];
-  'scroll-change': [state: { top: number; height: number; scrollHeight: number }];
+  'scroll-change': [state: { top: number; height: number; scrollHeight: number; topLine: number }];
   'model-save': [];
   'editor-blur': [modelId: string];
   'markdown-image-request': [];
@@ -260,10 +260,14 @@ const emitScrollState = () => {
     return;
   }
 
+  // topLine 是纯增量字段（目录联动高亮用），既有 top/height/scrollHeight 保持
+  // 原语义，避免影响预览区依据它们做的比例同步。
+  const topLine = editor.value.getVisibleRanges?.()[0]?.startLineNumber ?? 1;
   emit('scroll-change', {
     top: editor.value.getScrollTop(),
     height: editor.value.getLayoutInfo().height,
     scrollHeight: editor.value.getScrollHeight(),
+    topLine: Number.isFinite(topLine) && topLine > 0 ? topLine : 1,
   });
 };
 

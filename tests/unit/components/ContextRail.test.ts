@@ -1,6 +1,19 @@
-import { describe, expect, it } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import ContextRail from '@/components/editor/ContextRail.vue';
+import type { OutlineItem } from '@/services/documentOutlineService';
+
+const outlineFixture = (): OutlineItem[] => [
+  { id: 'heading-overview-1', label: 'Overview', kind: 'heading', level: 1, line: 1 },
+  { id: 'heading-details-5', label: 'Details', kind: 'heading', level: 2, line: 5 },
+  { id: 'heading-appendix-9', label: 'Appendix', kind: 'heading', level: 2, line: 9 },
+];
+
+const flushActiveFollow = async () => {
+  await nextTick();
+  await flushPromises();
+};
 
 describe('ContextRail', () => {
   it('renders the markdown outline and emits its source line when selected', async () => {
@@ -149,5 +162,109 @@ describe('ContextRail', () => {
 
     const plainRail = mount(ContextRail, { props: { language: 'plaintext' } });
     expect(plainRail.find('[data-testid="context-action-insert-image"]').exists()).toBe(false);
+  });
+
+  it('随 activeLine 变化高亮对应大纲项并写入 aria-current', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { language: 'markdown', outline: outlineFixture(), activeLine: 6 },
+    });
+    await flushActiveFollow();
+
+    expect(wrapper.get('[data-testid="context-outline-item-heading-details-5"]').classes())
+      .toContain('context-outline-item--active');
+    expect(wrapper.get('[data-testid="context-outline-item-heading-details-5"]').attributes('aria-current'))
+      .toBe('true');
+
+    await wrapper.setProps({ activeLine: 10 });
+    await flushActiveFollow();
+
+    const appendix = wrapper.get('[data-testid="context-outline-item-heading-appendix-9"]');
+    expect(appendix.classes()).toContain('context-outline-item--active');
+    expect(appendix.attributes('aria-current')).toBe('true');
+    expect(wrapper.get('[data-testid="context-outline-item-heading-details-5"]').attributes('aria-current'))
+      .toBeUndefined();
+    expect(wrapper.findAll('.context-outline-item--active')).toHaveLength(1);
+  });
+
+  it('activeLine 早于首个标题时高亮首项', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { language: 'markdown', outline: outlineFixture(), activeLine: 1 },
+    });
+    await flushActiveFollow();
+
+    const active = wrapper.findAll('.context-outline-item--active');
+    expect(active).toHaveLength(1);
+    expect(active[0].attributes('data-testid')).toBe('context-outline-item-heading-overview-1');
+  });
+
+  it('没有 activeLine 时不高亮任何大纲项', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { language: 'markdown', outline: outlineFixture() },
+    });
+    await flushActiveFollow();
+    expect(wrapper.findAll('.context-outline-item--active')).toHaveLength(0);
+
+    await wrapper.setProps({ activeLine: 0 });
+    await flushActiveFollow();
+    expect(wrapper.findAll('.context-outline-item--active')).toHaveLength(0);
+    expect(wrapper.findAll('[aria-current="true"]')).toHaveLength(0);
+  });
+
+  it('自动跟随在 jsdom 缺少 scrollIntoView / 面板不可见时静默跳过', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { language: 'markdown', outline: outlineFixture(), activeLine: 1 },
+    });
+
+    // jsdom 默认没有 scrollIntoView，也没有布局尺寸：不应抛错。
+    await wrapper.setProps({ activeLine: 9 });
+    await flushActiveFollow();
+    expect(wrapper.get('[data-testid="context-outline-item-heading-appendix-9"]').classes())
+      .toContain('context-outline-item--active');
+
+    // 面板不可见（宽度/高度为 0）时即使有 scrollIntoView 也不自动滚动。
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+    });
+    const list = wrapper.get('[data-testid="context-outline-list"]').element as HTMLElement;
+    Object.defineProperty(list, 'clientWidth', { configurable: true, value: 0 });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 0 });
+
+    await wrapper.setProps({ activeLine: 5 });
+    await flushActiveFollow();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    // 面板可见时把当前项滚动到列表内。
+    Object.defineProperty(list, 'clientWidth', { configurable: true, value: 240 });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 320 });
+    await wrapper.setProps({ activeLine: 1 });
+    await flushActiveFollow();
+    await wrapper.setProps({ activeLine: 9 });
+    await flushActiveFollow();
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  });
+
+  it('用户滚动/悬停大纲列表后 3s 内不自动跟随', async () => {
+    const wrapper = mount(ContextRail, {
+      props: { language: 'markdown', outline: outlineFixture(), activeLine: 1 },
+    });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+    });
+    const list = wrapper.get('[data-testid="context-outline-list"]').element as HTMLElement;
+    Object.defineProperty(list, 'clientWidth', { configurable: true, value: 240 });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 320 });
+
+    await wrapper.get('[data-testid="context-outline-list"]').trigger('wheel');
+    await wrapper.setProps({ activeLine: 9 });
+    await flushActiveFollow();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
   });
 });
