@@ -453,7 +453,7 @@ import {
   formatCloudDocSize,
   type CloudDocTreeNode,
 } from '@/services/cloudBrowserService';
-import { fetchCloudCategories } from '@/services/cloudBlogService';
+import { fetchManagedCategories } from '@/services/cloudCategoryService';
 import { cloudWorkspaceNameFromPath } from '@/services/cloudDocLanding';
 import type { CloudCategoryNode, CloudDocItem } from '@/lib/tauri';
 import { getCloudDocBrowserI18n, getCloudDocPanelI18n } from '@/i18n/ui';
@@ -1018,7 +1018,7 @@ async function reload(): Promise<void> {
   try {
     const [outcome, categoriesOutcome] = await Promise.all([
       fetchAllCloudDocs({ keyword: activeKeyword.value }),
-      fetchCloudCategories(),
+      fetchManagedCategories(),
     ]);
     categories.value = categoriesOutcome.ok ? categoriesOutcome.data : [];
     if (!outcome.ok) {

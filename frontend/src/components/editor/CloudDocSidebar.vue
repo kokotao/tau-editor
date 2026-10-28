@@ -78,7 +78,7 @@ import {
   fetchAllCloudDocs,
   type CloudDocTreeNode,
 } from '@/services/cloudBrowserService';
-import { fetchCloudCategories } from '@/services/cloudBlogService';
+import { fetchManagedCategories } from '@/services/cloudCategoryService';
 import type { CloudCategoryNode, CloudDocItem } from '@/lib/tauri';
 import { getCloudDocBrowserI18n, getCloudDocPanelI18n } from '@/i18n/ui';
 import { useCloudSyncStore } from '@/stores/cloudSync';
@@ -149,7 +149,7 @@ async function reload(): Promise<void> {
   try {
     const [outcome, categoriesOutcome] = await Promise.all([
       fetchAllCloudDocs(),
-      fetchCloudCategories(),
+      fetchManagedCategories(),
     ]);
     categories.value = categoriesOutcome.ok ? categoriesOutcome.data : [];
     if (!outcome.ok) {

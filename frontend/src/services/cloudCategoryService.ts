@@ -1,12 +1,15 @@
 /**
- * @description 云端分类管理：分类树读取（优先管理接口，回退博客公开接口）、新建/重命名、文档移动分类。
+ * @description 云端分类管理：分类树读取（管理接口，按当前用户隔离）、新建/重命名、文档移动分类。
  * 层级上限 3 级（一级/二级/三级），超出时前端直接禁用并给提示，避免无效请求。
+ *
+ * 注意：**不再回退博客公开分类**。博客 category 是全局共享的博客分类表，与用户私有云文档分类
+ * 不是一回事；早期回退会把别人/博客的分类塞进云文档树与同步弹窗（跨用户串分类的根因之一）。
+ *
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-25 19:10
  */
 import { cloudCommands, isTauriApp, type CloudCategoryNode } from '@/lib/tauri';
-import { fetchCloudCategories } from '@/services/cloudBlogService';
 import { normalizeCloudError, type CloudOutcome } from '@/services/cloudDocService';
 
 /** 分类层级上限（一级/二级/三级）。 */
@@ -55,7 +58,7 @@ export function canAddChildCategory(nodes: CloudCategoryNode[], parentId: string
   return findCategoryDepth(nodes, parentId) < CLOUD_CATEGORY_MAX_DEPTH;
 }
 
-/** 读取分类树：优先管理接口（带鉴权、含未分类草稿），失败回退博客公开接口。 */
+/** 读取分类树：只走管理接口（服务端按登录用户隔离），不再回退全局博客分类。 */
 export async function fetchManagedCategories(): Promise<CloudOutcome<CloudCategoryNode[]>> {
   if (!isTauriApp()) {
     return { ok: false, kind: 'unsupported', message: WEB_UNSUPPORTED_MESSAGE };
@@ -65,10 +68,11 @@ export async function fetchManagedCategories(): Promise<CloudOutcome<CloudCatego
     if (Array.isArray(nodes)) {
       return { ok: true, data: nodes };
     }
-  } catch {
-    // 管理接口可能尚未就绪：回退到博客公开分类
+    return { ok: false, kind: 'unknown', message: '分类接口返回格式异常' };
+  } catch (error) {
+    const normalized = normalizeCloudError(error);
+    return { ok: false, kind: normalized.kind, message: normalized.message };
   }
-  return fetchCloudCategories();
 }
 
 /** 新建分类（POST）。 */

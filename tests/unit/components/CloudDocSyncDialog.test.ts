@@ -21,9 +21,9 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
   return { ...actual, isTauriApp: () => true };
 });
 
-vi.mock('@/services/cloudBlogService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/services/cloudBlogService')>();
-  return { ...actual, fetchCloudCategories: mocks.fetchCategories };
+vi.mock('@/services/cloudCategoryService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudCategoryService')>();
+  return { ...actual, fetchManagedCategories: mocks.fetchCategories };
 });
 
 vi.mock('@/services/cloudSyncService', async (importOriginal) => {

@@ -169,7 +169,7 @@
  * @date 2026-10-25 16:10
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { fetchCloudCategories } from '@/services/cloudBlogService';
+import { fetchManagedCategories } from '@/services/cloudCategoryService';
 import { syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncService';
 import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import { getCloudDocSyncI18n } from '@/i18n/ui';
@@ -316,7 +316,7 @@ const categoryOptions = computed(() => {
 
 async function loadCategories(): Promise<void> {
   categoriesState.value = 'loading';
-  const outcome = await fetchCloudCategories();
+  const outcome = await fetchManagedCategories();
   if (outcome.ok) {
     categories.value = outcome.data;
     categoriesState.value = 'ready';
