@@ -18,8 +18,8 @@ import {
 export const BINARY_DOC_MAX_BYTES = 50 * 1024 * 1024;
 /** 允许上传/在线预览的格式。 */
 export const BINARY_DOC_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'] as const;
-/** 宏格式一律拒绝（安全策略）。 */
-export const MACRO_DOC_EXTENSIONS = ['docm', 'xlsm', 'pptm', 'ppsm', 'dotm', 'xltm'] as const;
+/** 宏格式一律拒绝（安全策略，与后端 BinaryFilePolicy 的宏集合逐项对齐）。 */
+export const MACRO_DOC_EXTENSIONS = ['docm', 'xlsm', 'pptm', 'ppsm', 'dotm', 'xltm', 'potm', 'xlam'] as const;
 
 /** 二进制文档类型（用于分享弹窗展示）。 */
 export type BinaryDocKind = 'pdf' | 'office';

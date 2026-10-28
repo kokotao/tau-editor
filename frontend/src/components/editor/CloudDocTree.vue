@@ -269,6 +269,38 @@
           </button>
         </template>
         <template v-else>
+          <!-- R1：分类右键新建云端空文档（custom:* 聚合分组没有真实分类 id，禁用并给提示） -->
+          <button
+            type="button"
+            class="cd-menu__item"
+            data-testid="cloud-category-menu-new-file"
+            role="menuitem"
+            :disabled="!canCreateFile(rowMenu.node)"
+            :title="canCreateFile(rowMenu.node) ? panel.newFileHint : panel.newFileUnsupported"
+            @click.stop="menuCreateFile()"
+          >
+            <svg class="cloud-doc-tree__menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M13.5 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6a1.7 1.7 0 0 0 1.7 1.7h9.6a1.7 1.7 0 0 0 1.7-1.7V8.5z" />
+              <path d="M13.5 3.5v5h5" />
+              <path d="M12 12.6v4.4M9.8 14.8h4.4" />
+            </svg>
+            <span>{{ panel.menuNewFile }}</span>
+          </button>
+          <!-- R2：分类右键批量上传本地文件（多选 → 逐条进度弹窗） -->
+          <button
+            type="button"
+            class="cd-menu__item"
+            data-testid="cloud-category-menu-upload"
+            role="menuitem"
+            @click.stop="menuUploadFiles()"
+          >
+            <svg class="cloud-doc-tree__menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 16.5V4.5" />
+              <path d="m7.8 8.7 4.2-4.2 4.2 4.2" />
+              <path d="M4.5 15.5v3a1.8 1.8 0 0 0 1.8 1.8h11.4a1.8 1.8 0 0 0 1.8-1.8v-3" />
+            </svg>
+            <span>{{ panel.menuUploadFiles }}</span>
+          </button>
           <button
             type="button"
             class="cd-menu__item"
@@ -348,8 +380,13 @@
         data-testid="cloud-category-prompt"
         @keydown.esc.prevent="closePrompt()"
       >
-        <p class="cloud-doc-tree__prompt-title">
-          {{ prompt.mode === 'create' ? (prompt.parentName ? `${panel.newSubCategory} · ${prompt.parentName}` : panel.newCategory) : panel.renameCategory }}
+        <p class="cloud-doc-tree__prompt-title" data-testid="cloud-category-prompt-title">{{ promptTitle }}</p>
+        <p
+          v-if="prompt.mode === 'create-file'"
+          class="cloud-doc-tree__prompt-hint"
+          data-testid="cloud-new-file-hint"
+        >
+          {{ panel.newFileHint }}
         </p>
         <input
           ref="promptInputRef"
@@ -357,7 +394,7 @@
           class="cloud-doc-tree__prompt-input"
           data-testid="cloud-category-name-input"
           type="text"
-          :placeholder="panel.categoryNamePlaceholder"
+          :placeholder="promptPlaceholder"
           @keydown.enter.prevent="submitPrompt()"
         />
         <p v-if="prompt.error" class="cloud-doc-tree__prompt-error" data-testid="cloud-category-prompt-error">{{ prompt.error }}</p>
@@ -419,6 +456,21 @@
       @close="propsVisible = false"
       @saved="emit('changed')"
     />
+
+    <!-- R2 批量上传：计划与串行队列在本组件，弹窗只管画逐条状态与进度 -->
+    <CloudDocUploadDialog
+      :visible="uploadDialog.visible"
+      :rows="uploadDialog.rows"
+      :target-name="uploadDialog.targetName"
+      :done="uploadDialog.done"
+      :total="uploadDialog.total"
+      :busy="uploadDialog.busy"
+      :summary="uploadDialog.summary"
+      :aborted="uploadDialog.aborted"
+      :cancelled="uploadDialog.cancelled"
+      @cancel="cancelUpload()"
+      @close="closeUploadDialog()"
+    />
   </div>
 </template>
 
@@ -434,7 +486,7 @@
  * @date 2026-10-25 15:20
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { save as saveFileDialog } from '@tauri-apps/plugin-dialog';
+import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { cloudCommands, fileCommands, type CloudCategoryNode, type CloudDocOpenTarget } from '@/lib/tauri';
 import { formatCloudDocSize, type CloudDocTreeNode } from '@/services/cloudBrowserService';
 import { deleteCloudDoc, getCloudDoc, normalizeCloudError } from '@/services/cloudDocService';
@@ -455,6 +507,21 @@ import { ensureCategoryPath } from '@/services/cloudCategoryPathService';
 import VersionHistoryDialog from './VersionHistoryDialog.vue';
 import DocPropertiesDialog from './DocPropertiesDialog.vue';
 import CloudDocPreviewDialog from './CloudDocPreviewDialog.vue';
+import CloudDocUploadDialog from './CloudDocUploadDialog.vue';
+import {
+  createCloudDocFile,
+  sanitizeNewDocName,
+  type CloudDocCreateResult,
+} from '@/services/cloudDocCreateService';
+import {
+  BATCH_UPLOAD_MAX_FILES,
+  collectBatchUploadPlan,
+  runBatchUpload,
+  type BatchUploadRow,
+  type BatchUploadSummary,
+  type BatchUploadTarget,
+  type UploadPlanItem,
+} from '@/services/cloudDocBatchUploadService';
 import { getCloudDocBrowserI18n } from '@/i18n/ui';
 import { useSettingsStore } from '@/stores/settings';
 import { useWorkspaceStore } from '@/stores/workspace';
@@ -882,18 +949,74 @@ const dragSource = ref<CloudDocTreeNode | null>(null);
 const categoryRows = ref<FlatCategory[]>([]);
 const categoryTree = ref<CloudCategoryNode[]>([]);
 const promptInputRef = ref<HTMLInputElement | null>(null);
-const prompt = ref<{
+
+/** 内联卡片状态：分类新建/重命名（原有）+ 云端新建文件（R1，mode=create-file） */
+interface PromptState {
   visible: boolean;
-  mode: 'create' | 'rename';
+  mode: 'create' | 'rename' | 'create-file';
   name: string;
   parentId: string | null;
   parentName: string;
   id: string | null;
   /** 聚合分组节点（key=custom:*，来自文档分类文本，没有真实分类 id） */
   customNode?: CloudDocTreeNode | null;
+  /** mode=create-file：目标分类 id（`group:uncategorized` 为 null） */
+  fileCategoryId?: string | null;
+  /** mode=create-file：目标分类自由文本（未分类为空串，保存时归一成 null） */
+  fileCategoryName?: string;
   busy: boolean;
   error: string;
-}>({ visible: false, mode: 'create', name: '', parentId: null, parentName: '', id: null, busy: false, error: '' });
+}
+
+const prompt = ref<PromptState>({ visible: false, mode: 'create', name: '', parentId: null, parentName: '', id: null, busy: false, error: '' });
+
+/** R2 批量上传弹窗状态：队列在 startUpload 里串行推进，弹窗只读它 */
+const uploadDialog = ref<{
+  visible: boolean;
+  rows: BatchUploadRow[];
+  target: BatchUploadTarget | null;
+  targetName: string;
+  done: number;
+  total: number;
+  busy: boolean;
+  summary: BatchUploadSummary | null;
+  aborted: boolean;
+  /** 用户点了「中止上传」：runBatchUpload 每项开始前检查 */
+  cancelled: boolean;
+}>({
+  visible: false,
+  rows: [],
+  target: null,
+  targetName: '',
+  done: 0,
+  total: 0,
+  busy: false,
+  summary: null,
+  aborted: false,
+  cancelled: false,
+});
+
+/** 内联卡片标题：分类新建/重命名沿用原逻辑，新建文件用 R1 的标题 + 目标分类名 */
+const promptTitle = computed(() => {
+  const current = prompt.value;
+  if (current.mode === 'create-file') {
+    return current.fileCategoryName
+      ? `${panel.value.menuNewFile} · ${current.fileCategoryName}`
+      : panel.value.menuNewFile;
+  }
+  if (current.mode === 'create') {
+    return current.parentName
+      ? `${panel.value.newSubCategory} · ${current.parentName}`
+      : panel.value.newCategory;
+  }
+  return panel.value.renameCategory;
+});
+
+const promptPlaceholder = computed(() => (
+  prompt.value.mode === 'create-file'
+    ? panel.value.newFilePlaceholder
+    : panel.value.categoryNamePlaceholder
+));
 
 /** 文件类型徽标（md / 代码 / 图片 / Office / 其他）。 */
 function iconForFile(name: string): string {
@@ -941,6 +1064,18 @@ function canAddChild(node: CloudDocTreeNode | null): boolean {
   return canAddChildCategory(categoryTree.value, categoryIdOf(node));
 }
 
+/**
+ * 是否能在该目录节点下新建云端文件（D3）：
+ * `cat:<id>`（真实分类）与 `group:uncategorized` 可以；`custom:<名称>` 聚合分组
+ * 来自文档的分类自由文本、没有分类主键，无法写入 categoryId，因此禁用并给提示。
+ */
+function canCreateFile(node: CloudDocTreeNode | null): boolean {
+  if (!node || node.kind !== 'dir') {
+    return false;
+  }
+  return !node.key.startsWith('custom:');
+}
+
 function closeMenus(): void {
   rowMenu.value.visible = false;
   moveMenuVisible.value = false;
@@ -954,7 +1089,8 @@ const MENU_CHROME_HEIGHT = 47;
 function openRowMenu(row: { node: CloudDocTreeNode }, event: MouseEvent): void {
   const viewportWidth = window.innerWidth || 1024;
   const viewportHeight = window.innerHeight || 768;
-  const itemCount = row.node.kind === 'file' ? 7 : 3;
+  // 文件菜单 7 项；目录菜单 5 项（新建文件 / 上传文件… / 新建子分类 / 重命名分类 / 删除分类）
+  const itemCount = row.node.kind === 'file' ? 7 : 5;
   const menuHeight = itemCount * MENU_ITEM_HEIGHT + MENU_CHROME_HEIGHT;
   // 右侧/底部空间不足时翻转，保证浮层不出视口（点击热区跟随视觉位置）
   const flipX = event.clientX + MENU_WIDTH + 8 > viewportWidth;
@@ -1226,6 +1362,189 @@ function menuNewSubCategory(): void {
   closeMenus();
 }
 
+/**
+ * R1：分类右键「新建文件」——复用内联卡片（mode=create-file）。
+ * custom:* 聚合分组没有真实分类 id，只提示、不打开卡片（D3）。
+ */
+function menuCreateFile(): void {
+  const node = rowMenu.value.node;
+  closeMenus();
+  if (!node || node.kind !== 'dir') {
+    return;
+  }
+  if (!canCreateFile(node)) {
+    notice.value = panel.value.newFileUnsupported;
+    return;
+  }
+  prompt.value = {
+    visible: true,
+    mode: 'create-file',
+    name: '',
+    parentId: null,
+    parentName: node.name,
+    id: null,
+    fileCategoryId: categoryIdOf(node),
+    // 「未分类」组没有分类文本：留空，保存时归一成 null，避免云端造出假的「未分类」分组
+    fileCategoryName: node.key === 'group:uncategorized' ? '' : node.name,
+    busy: false,
+    error: '',
+  };
+  focusPrompt();
+}
+
+/**
+ * R2：分类右键「上传文件…」——系统多选 → 生成上传计划 → 弹窗里串行上传。
+ *
+ * 目标分类取自右键节点：`cat:<id>` 同时带 categoryId + category；
+ * 「未分类」只把 categoryId/category 都置 null；`custom:<名称>` 只有 category 自由文本
+ * （二进制通道本来也只有 category）。
+ */
+async function menuUploadFiles(): Promise<void> {
+  const node = rowMenu.value.node;
+  closeMenus();
+  if (!node || node.kind !== 'dir') {
+    return;
+  }
+  const target: BatchUploadTarget = {
+    categoryId: categoryIdOf(node),
+    categoryName: node.key === 'group:uncategorized' ? null : node.name,
+    workspaceName: workspaceStore.currentWorkspaceName ?? '',
+    workspacePath: workspaceStore.currentWorkspacePath ?? null,
+  };
+
+  let selected: string | string[] | null = null;
+  try {
+    selected = await openFileDialog({
+      multiple: true,
+      directory: false,
+      // 不加扩展名过滤：不支持的类型会在弹窗里逐条给出跳过原因（D4），
+      // 而不是让系统对话框把它们藏起来、用户以为没选上。
+      title: panel.value.uploadDialogTitle,
+    });
+  } catch (error) {
+    console.warn('[cloud-upload] 选择文件失败', error);
+    notice.value = error instanceof Error ? error.message : String(error);
+    return;
+  }
+
+  const paths = (Array.isArray(selected) ? selected : selected ? [selected] : [])
+    .filter((path): path is string => typeof path === 'string' && path.trim().length > 0);
+  if (paths.length === 0) {
+    return;
+  }
+  if (paths.length > BATCH_UPLOAD_MAX_FILES) {
+    centerToast.show(panel.value.uploadTooMany(BATCH_UPLOAD_MAX_FILES), 'info', 4500);
+  }
+
+  busy.value = true;
+  let plan: UploadPlanItem[] = [];
+  try {
+    plan = await collectBatchUploadPlan(paths.slice(0, BATCH_UPLOAD_MAX_FILES));
+  } catch (error) {
+    console.warn('[cloud-upload] 生成上传计划失败', error);
+    notice.value = error instanceof Error ? error.message : String(error);
+    return;
+  } finally {
+    busy.value = false;
+  }
+
+  uploadDialog.value = {
+    visible: true,
+    rows: plan.map((item) => ({ ...item, status: item.kind === 'skipped' ? 'skipped' : 'pending' })),
+    target,
+    targetName: node.name,
+    done: 0,
+    total: plan.length,
+    busy: false,
+    summary: null,
+    aborted: false,
+    cancelled: false,
+  };
+  await startUpload();
+}
+
+/** 串行执行上传队列：逐条推进状态，结束后汇总 toast 并通知宿主刷新树。 */
+async function startUpload(): Promise<void> {
+  const state = uploadDialog.value;
+  const target = state.target;
+  if (!target || state.rows.length === 0) {
+    return;
+  }
+  state.busy = true;
+  state.summary = null;
+  state.aborted = false;
+  state.done = 0;
+  try {
+    const summary = await runBatchUpload(state.rows, target, {
+      isCancelled: () => uploadDialog.value.cancelled,
+      onItemStart: (index) => {
+        const row = uploadDialog.value.rows[index];
+        if (row) {
+          row.status = 'uploading';
+        }
+      },
+      onItem: (index, result) => {
+        const row = uploadDialog.value.rows[index];
+        if (row) {
+          row.status = result.status;
+          // conflict 表达「云端已有，默认不覆盖」，用专门文案而不是后端原话
+          row.message = result.status === 'skipped' && result.kind === 'conflict'
+            ? panel.value.uploadAlreadyExists
+            : (result.message ?? '');
+        }
+        uploadDialog.value.done = index + 1;
+      },
+    });
+    state.summary = summary;
+    state.aborted = summary.aborted;
+    if (summary.ok > 0) {
+      emit('changed');
+    }
+    const text = panel.value.uploadSummary(summary.ok, summary.skipped, summary.failed);
+    if (summary.aborted) {
+      // 用户主动中止 ≠ 配额/登录失效：两者文案分开，避免把「我点了取消」说成「账号有问题」
+      const abortLabel = state.cancelled ? panel.value.uploadCancelled : panel.value.uploadAborted;
+      centerToast.show(`${abortLabel} · ${text}`, 'info', 5000);
+    } else if (summary.failed > 0) {
+      centerToast.show(text, 'info', 4500);
+    } else {
+      centerToast.show(text, 'success', 3500);
+    }
+  } catch (error) {
+    console.warn('[cloud-upload] 批量上传异常', error);
+    notice.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.busy = false;
+  }
+}
+
+/** 中止上传：每项开始前生效，当前这一项仍会传完（避免留下半截请求）。 */
+function cancelUpload(): void {
+  if (!uploadDialog.value.busy) {
+    return;
+  }
+  uploadDialog.value.cancelled = true;
+}
+
+/** 关闭弹窗：上传中不允许关（否则队列还在跑但没人看得到进度）。 */
+function closeUploadDialog(): void {
+  if (uploadDialog.value.busy) {
+    return;
+  }
+  uploadDialog.value = {
+    visible: false,
+    rows: [],
+    target: null,
+    targetName: '',
+    done: 0,
+    total: 0,
+    busy: false,
+    summary: null,
+    aborted: false,
+    cancelled: false,
+  };
+}
+
 function menuRenameCategory(): void {
   const node = rowMenu.value.node;
   prompt.value = {
@@ -1303,9 +1622,87 @@ async function renameCustomGroup(node: CloudDocTreeNode, name: string): Promise<
   return failed > 0 ? panel.value.renamePartial(failed) : null;
 }
 
+/**
+ * R1 新建文件提交：净化文件名 → 云端保存空正文 → 通知宿主刷新 + 交给宿主落位打开。
+ * 刻意不写本地文件：`materializeCloudDocForEdit` 会按云端内容落位，否则会出现两份不同步的副本。
+ */
+async function submitCreateFile(current: PromptState): Promise<void> {
+  const sanitized = sanitizeNewDocName(current.name);
+  if (!sanitized.ok) {
+    // 空名 / 含 `/ \ : * ? " < > |` / 含 `..` / 超长：前端直接拦住，不发请求
+    current.error = panel.value.newFileInvalid;
+    return;
+  }
+  current.busy = true;
+  current.error = '';
+  try {
+    const categoryId = current.fileCategoryId ?? null;
+    const categoryName = current.fileCategoryName ?? '';
+    const outcome = await createCloudDocFile({
+      fileName: sanitized.name,
+      workspaceName: workspaceStore.currentWorkspaceName ?? '',
+      categoryId,
+      categoryName,
+    });
+    if (!outcome.ok) {
+      console.warn('[cloud-doc] 新建文件失败', { kind: outcome.kind, message: outcome.message });
+      current.error = outcome.kind === 'conflict'
+        ? panel.value.newFileDuplicate
+        : panel.value.newFileFailed(outcome.message);
+      return;
+    }
+    prompt.value.visible = false;
+    emit('changed');
+    emit('edit-cloud-doc', buildCreatedFileNode(outcome.data, sanitized.name, categoryId, categoryName));
+    centerToast.show(panel.value.newFileDone(sanitized.name), 'success', 3000);
+  } catch (error) {
+    console.warn('[cloud-doc] 新建文件异常', error);
+    current.error = panel.value.newFileFailed(error instanceof Error ? error.message : String(error));
+  } finally {
+    current.busy = false;
+  }
+}
+
+/**
+ * 合成「刚创建成功的文件」树节点：宿主（App.vue#handleCloudDocEditOpen）按 fileId + path + name
+ * 落位并打开；其余字段一并填上，避免树内即时展示拿到空值（随后 emit('changed') 会用服务端数据覆盖）。
+ */
+function buildCreatedFileNode(
+  result: CloudDocCreateResult,
+  fileName: string,
+  categoryId: string | null,
+  categoryName: string,
+): CloudDocTreeNode {
+  return {
+    key: result.cloudPath,
+    name: fileName,
+    path: result.cloudPath,
+    kind: 'file',
+    children: [],
+    file: {
+      fileId: result.fileId,
+      path: result.cloudPath,
+      title: fileName,
+      contentHash: result.contentHash,
+      size: result.size,
+      version: result.version,
+      category: categoryName || null,
+      categoryId,
+      tags: null,
+      visibility: null,
+      publishedArticleId: null,
+      updatedAt: result.updatedAt ?? new Date().toISOString(),
+    },
+  };
+}
+
 async function submitPrompt(): Promise<void> {
   const current = prompt.value;
   if (current.busy) {
+    return;
+  }
+  if (current.mode === 'create-file') {
+    await submitCreateFile(current);
     return;
   }
   if (!current.name.trim()) {
@@ -1871,6 +2268,14 @@ defineExpose({ cancelOpen, openCreateCategory, openNode, openByKey, selectByKey 
   margin: 0;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* 新建文件卡片：一句说明（新建后直接在编辑器打开） */
+.cloud-doc-tree__prompt-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cd-text-3, #64748b);
 }
 
 .cloud-doc-tree__prompt-input {

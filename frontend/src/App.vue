@@ -97,6 +97,7 @@ import {
   getCloudDocConflictI18n,
   getCloudDocEditOpenI18n,
   getCommandText,
+  getFileTreeI18n,
   getMarkdownPreviewI18n,
   getSettingsPanelI18n,
   getToolbarI18n,
@@ -122,6 +123,7 @@ import HierarchyPanel, { type HierarchyMode, type HierarchyRow } from './compone
 import CloudDocBrowser from './components/editor/CloudDocBrowser.vue';
 import CloudDocConflictDialog from './components/editor/CloudDocConflictDialog.vue';
 import CloudDocSyncDialog from './components/editor/CloudDocSyncDialog.vue';
+import CloudFolderUploadDialog from './components/editor/CloudFolderUploadDialog.vue';
 import ShareDialog from './components/editor/ShareDialog.vue';
 import CenterToast from './components/ui/CenterToast.vue';
 import ShareStatsDialog from './components/editor/ShareStatsDialog.vue';
@@ -347,6 +349,23 @@ const fileDetailsDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>(
   entry: null,
 });
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
+/**
+ * 目录联动高亮的唯一状态源（D6）：编辑器视口首行 / 预览当前标题行 / 点击大纲项，
+ * 三条路径都写入这里，由 ContextRail 映射到具体大纲项。0 表示暂无当前项。
+ */
+const activeOutlineLine = ref(0);
+/** 预览滚动驱动编辑器比例同步的时间窗，避免编辑器回写的高亮抢走预览当前标题。 */
+let previewDrivingActiveLineUntil = 0;
+/** 点击大纲项后短暂锁定高亮，避免 revealLine / scrollIntoView 引发的事件立刻改写它。 */
+let navigationLockedActiveLineUntil = 0;
+const PREVIEW_DRIVING_WINDOW_MS = 200;
+const NAVIGATION_LOCK_WINDOW_MS = 400;
+const writeActiveOutlineLine = (line: number) => {
+  if (!Number.isFinite(line) || line <= 0) {
+    return;
+  }
+  activeOutlineLine.value = Math.floor(line);
+};
 type EditorCoreExpose = {
   getContent: () => string;
   replaceContent: (content: string) => boolean;
@@ -684,6 +703,8 @@ const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
 const toolbarText = computed(() => getToolbarI18n(settingsStore.uiLanguage));
 const markdownPreviewText = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
 const cloudSyncCopy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
+/** 文件树文案（含 R3「上传该文件夹到云端」的提示与结果文案） */
+const fileTreeCopy = computed(() => getFileTreeI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
     return undefined;
@@ -1614,6 +1635,10 @@ const handleToggleContextRail = () => {
 };
 
 const handleContextNavigate = (line: number) => {
+  // 点击立即高亮：锁定窗口内忽略 revealLine / scrollIntoView 触发的事件回写，
+  // 否则「跳转后视口首行」可能落到上一个标题，看起来像没点中。
+  writeActiveOutlineLine(line);
+  navigationLockedActiveLineUntil = Date.now() + NAVIGATION_LOCK_WINDOW_MS;
   editorCoreRef.value?.revealLine(line);
   markdownPreviewRef.value?.scrollToSourceLine(line);
 };
@@ -2487,6 +2512,35 @@ const syncBinaryDocument = async (entry: FileTreeNode) => {
   );
 };
 
+/** 文件夹整目录上传弹窗（R3）：确认 → 进度 → 汇总都在弹窗里完成。 */
+const folderUploadDialog = ref<{ visible: boolean; folderName: string; folderPath: string }>({
+  visible: false,
+  folderName: '',
+  folderPath: '',
+});
+
+/** 文件树文件夹右键「上传该文件夹到云端」：未登录先引导登录，没有工作区直接提示。 */
+const handleFileTreeUploadFolder = (entry: FileTreeNode) => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(
+      fileTreeCopy.value.uploadFolderTitle,
+      fileTreeCopy.value.uploadFolderLoginRequired,
+    );
+    openCloudSyncSettings();
+    return;
+  }
+  if (!workspaceStore.currentWorkspacePath) {
+    notificationStore.warning(fileTreeCopy.value.uploadFolderTitle, '请先打开一个工作区文件夹');
+    return;
+  }
+  folderUploadDialog.value = { visible: true, folderName: entry.name, folderPath: entry.path };
+};
+
+/** 整目录上传跑完（含提前中止）：自增刷新令牌，云端文档树立刻重拉出新分类与文件。 */
+const handleFolderUploaded = () => {
+  cloudTreeRefreshToken.value += 1;
+};
+
 const refreshShareHintFor = async (filePath: string) => {
   if (!cloudSyncStore.signedIn) {
     return;
@@ -2930,17 +2984,40 @@ const handleCursorChange = (position: { line: number; column: number }) => {
   editorStore.updateCursorPosition(position.line, position.column);
 };
 
-const handleEditorScrollChange = (state: { top: number; height: number; scrollHeight: number }) => {
+const handleEditorScrollChange = (state: {
+  top: number;
+  height: number;
+  scrollHeight: number;
+  topLine: number;
+}) => {
+  // 目录高亮与预览是否开启无关（代码文件的大纲同样要跟随），因此先写入再按预览条件早退。
+  const shouldKeepExternallyDrivenLine = Date.now() < previewDrivingActiveLineUntil
+    || Date.now() < navigationLockedActiveLineUntil;
+  if (!shouldKeepExternallyDrivenLine) {
+    writeActiveOutlineLine(state.topLine);
+  }
   if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
     return;
   }
-  editorScrollState.value = state;
+  editorScrollState.value = {
+    top: state.top,
+    height: state.height,
+    scrollHeight: state.scrollHeight,
+  };
+};
+
+const handlePreviewActiveLine = (line: number) => {
+  if (Date.now() < navigationLockedActiveLineUntil) {
+    return;
+  }
+  writeActiveOutlineLine(line);
 };
 
 const handlePreviewScrollSync = (state: { top: number; height: number; scrollHeight: number }) => {
   if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
     return;
   }
+  previewDrivingActiveLineUntil = Date.now() + PREVIEW_DRIVING_WINDOW_MS;
   editorCoreRef.value?.setScrollTop(state.top);
 };
 
@@ -4572,6 +4649,35 @@ watch(
   },
 );
 
+// 目录高亮的重置点：切换文档、关闭预览、退出预览模式，避免残留上一份文档的行号。
+watch(
+  () => activeTabId.value,
+  () => {
+    activeOutlineLine.value = 0;
+  },
+);
+
+watch(
+  () => [settingsStore.markdownPreviewEnabled, markdownPreviewMode.value],
+  () => {
+    if (!settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
+      activeOutlineLine.value = 0;
+    }
+  },
+);
+
+// 文档内容变化后大纲可能收缩：当前行越界时回到首项，否则保留（避免打字时高亮闪烁）。
+watch(documentOutline, (outline) => {
+  if (!outline.length) {
+    activeOutlineLine.value = 0;
+    return;
+  }
+  const lastLine = outline.reduce((max, item) => Math.max(max, item.line), 0);
+  if (activeOutlineLine.value > lastLine) {
+    activeOutlineLine.value = 1;
+  }
+});
+
 watch(
   () => activeTab.value?.id,
   () => {
@@ -5108,6 +5214,7 @@ onUnmounted(() => {
                   @copy-current-file-path="handleCopyCurrentFilePath"
                   @reveal-current-file-manager="handleRevealCurrentFileInManager"
                   @sync-to-cloud="handleFileTreeSyncToCloud"
+                  @upload-folder="handleFileTreeUploadFolder"
                   @share="handleFileTreeShare"
                   :shared-paths="sharedFilePaths"
                   :synced-paths="syncedBinaryPaths"
@@ -5320,6 +5427,7 @@ onUnmounted(() => {
               @code-language-change="handleMarkdownCodeLanguageChange"
               @markdown-change="handleMarkdownPreviewChange"
               @scroll-sync="handlePreviewScrollSync"
+              @active-line="handlePreviewActiveLine"
               @request-undo="handleUndo"
               @request-redo="handleRedo"
               @open-image="openImageViewer"
@@ -5384,6 +5492,14 @@ onUnmounted(() => {
           @synced="handleCloudDocSynced"
         />
 
+        <CloudFolderUploadDialog
+          :visible="folderUploadDialog.visible"
+          :folder-name="folderUploadDialog.folderName"
+          :folder-path="folderUploadDialog.folderPath"
+          @close="folderUploadDialog.visible = false"
+          @uploaded="handleFolderUploaded"
+        />
+
         <ShareStatsDialog
           :visible="shareStatsTarget.visible"
           :file-id="shareStatsTarget.fileId"
@@ -5443,6 +5559,7 @@ onUnmounted(() => {
           <div class="context-rail-content animate__animated animate__fadeInRight animate__faster">
             <ContextRail
               :outline="documentOutline"
+              :active-line="activeOutlineLine"
               :tasks="markdownContext.tasks"
               :links="markdownContext.links"
               :link-statuses="markdownLinkStatuses"

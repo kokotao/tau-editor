@@ -789,6 +789,50 @@ describe('FileTree.vue', () => {
     })
   })
 
+  describe('文件夹上传到云端（R3）', () => {
+    const uploadMenuItem = () => document.body.querySelector('[data-testid="file-tree-upload-folder"]') as HTMLElement | null
+
+    it('文件夹右键应出现「上传该文件夹到云端」并带提示文案', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: mockFileTree } })
+
+      await wrapper.find('[data-node-path="/project/src"]').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const item = uploadMenuItem()
+      expect(item).not.toBeNull()
+      expect(item?.textContent).toContain('上传该文件夹到云端')
+      expect(item?.getAttribute('title')).toBe('递归同步该文件夹到 lizi 云端（以文件夹名作为分类）')
+    })
+
+    it('点击该项应 emit upload-folder 并关闭菜单', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: mockFileTree } })
+
+      await wrapper.find('[data-node-path="/project/src"]').trigger('contextmenu', { clientX: 100, clientY: 200 })
+      uploadMenuItem()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      expect(wrapper.emitted('upload-folder')?.[0]?.[0]).toEqual(mockFileTree[0])
+      expect(teleportedMenu()).toBeNull()
+    })
+
+    it('文件右键不应出现该菜单项', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: mockFileTree } })
+
+      await wrapper.find('[data-node-path="/project/package.json"]').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      expect(uploadMenuItem()).toBeNull()
+      expect(teleportedMenu()?.textContent).not.toContain('上传该文件夹到云端')
+    })
+
+    it('工作区空白区域右键（无目标条目）不应出现该菜单项', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: [] } })
+
+      await wrapper.find('.file-tree-content').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      expect(teleportedMenu()).not.toBeNull()
+      expect(uploadMenuItem()).toBeNull()
+    })
+  })
+
   describe('刷新功能', () => {
     it('点击刷新按钮应发射 refresh 事件', async () => {
       const wrapper = mount(FileTree, {

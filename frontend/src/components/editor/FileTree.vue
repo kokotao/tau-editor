@@ -239,6 +239,16 @@
       <div v-if="contextMenu.entry" class="context-menu-item" @click="handleRename">
         {{ copy.rename }}
       </div>
+      <!-- 文件夹整目录同步（R3）：以文件夹名为云端分类，逐文件串行上传 -->
+      <div
+        v-if="contextMenu.entry?.type === 'folder'"
+        class="context-menu-item"
+        data-testid="file-tree-upload-folder"
+        :title="copy.uploadFolderHint"
+        @click="handleUploadFolder"
+      >
+        {{ copy.uploadFolder }}
+      </div>
       <div
         v-if="contextMenu.entry?.type === 'file'"
         class="context-menu-item"
@@ -361,6 +371,7 @@ const emit = defineEmits<{
   'details': [entry: FileTreeNode];
   'compare-with-current': [entry: FileTreeNode];
   'sync-to-cloud': [entry: FileTreeNode];
+  'upload-folder': [entry: FileTreeNode];
   'share': [entry: FileTreeNode];
   'run-provider-action': [actionId: string, entry: FileTreeNode];
   'delete': [entry: FileTreeNode];
@@ -708,6 +719,16 @@ const handleSyncToCloud = () => {
     return;
   }
   emit('sync-to-cloud', entry);
+};
+
+/** 文件夹右键「上传该文件夹到云端」：登录态与工作区校验交给 App（与「同步至云端」一致）。 */
+const handleUploadFolder = () => {
+  const entry = contextMenu.value.entry;
+  contextMenu.value.visible = false;
+  if (entry?.type !== 'folder') {
+    return;
+  }
+  emit('upload-folder', entry);
 };
 
 const handleRunProviderAction = (actionId: string) => {

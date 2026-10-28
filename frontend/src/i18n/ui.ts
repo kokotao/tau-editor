@@ -451,6 +451,19 @@ interface FileTreeText {
   copyCurrentFilePath: string;
   revealCurrentFile: string;
   currentFileUnavailable: string;
+  /** 文件夹右键：把整个文件夹同步到云端（R3） */
+  uploadFolder: string;
+  uploadFolderHint: string;
+  uploadFolderTitle: string;
+  /** 确认文案：将上传 N 个、跳过 M 个 */
+  uploadFolderConfirm: (total: number, skipped: number) => string;
+  /** 目标分类提示：同名分类不存在时会新建 */
+  uploadFolderCategoryHint: (categoryName: string) => string;
+  uploadFolderEmpty: string;
+  uploadFolderLoginRequired: string;
+  uploadFolderProgress: (done: number, total: number) => string;
+  uploadFolderDone: (ok: number) => string;
+  uploadFolderPartial: (ok: number, failed: number, skipped: number) => string;
 }
 
 interface StatusBarText {
@@ -1529,6 +1542,20 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     copyCurrentFilePath: '复制当前文件路径',
     revealCurrentFile: '在文件管理器中显示',
     currentFileUnavailable: '当前文件不在工作区',
+    uploadFolder: '上传该文件夹到云端',
+    uploadFolderHint: '递归同步该文件夹到 lizi 云端（以文件夹名作为分类）',
+    uploadFolderTitle: '上传文件夹到云端',
+    uploadFolderConfirm: (total, skipped) =>
+      skipped > 0
+        ? `将上传 ${total} 个文件，另有 ${skipped} 个文件会被跳过。是否继续？`
+        : `将上传 ${total} 个文件。是否继续？`,
+    uploadFolderCategoryHint: (categoryName) => `上传后归入云端分类「${categoryName}」（不存在会自动新建）`,
+    uploadFolderEmpty: '该文件夹没有可上传的文件',
+    uploadFolderLoginRequired: '请先登录 lizi 账号后再上传',
+    uploadFolderProgress: (done, total) => `正在上传 ${done}/${total}`,
+    uploadFolderDone: (ok) => `已上传 ${ok} 个文件到云端`,
+    uploadFolderPartial: (ok, failed, skipped) =>
+      `上传结束：成功 ${ok}，失败 ${failed}，跳过 ${skipped}`,
   },
   'en-US': {
     workspace: 'Workspace',
@@ -1557,6 +1584,21 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     copyCurrentFilePath: 'Copy Current File Path',
     revealCurrentFile: 'Reveal in File Manager',
     currentFileUnavailable: 'Current file is not in the workspace',
+    uploadFolder: 'Upload this folder to cloud',
+    uploadFolderHint: 'Recursively sync this folder to lizi cloud (folder name becomes the category)',
+    uploadFolderTitle: 'Upload folder to cloud',
+    uploadFolderConfirm: (total, skipped) =>
+      skipped > 0
+        ? `${total} file(s) will be uploaded and ${skipped} skipped. Continue?`
+        : `${total} file(s) will be uploaded. Continue?`,
+    uploadFolderCategoryHint: (categoryName) =>
+      `Files will be grouped under cloud category "${categoryName}" (created when missing)`,
+    uploadFolderEmpty: 'No uploadable file in this folder',
+    uploadFolderLoginRequired: 'Sign in to your lizi account before uploading',
+    uploadFolderProgress: (done, total) => `Uploading ${done}/${total}`,
+    uploadFolderDone: (ok) => `${ok} file(s) uploaded to cloud`,
+    uploadFolderPartial: (ok, failed, skipped) =>
+      `Upload finished: ${ok} succeeded, ${failed} failed, ${skipped} skipped`,
   },
 };
 
@@ -2515,6 +2557,38 @@ interface CloudDocPanelText {
   renameUnsupported: string;
   /** 聚合分组重命名时部分文档迁移失败 */
   renamePartial: (failed: number) => string;
+  /** 分类右键：在云端新建空文档并打开（R1） */
+  menuNewFile: string;
+  newFileHint: string;
+  newFilePlaceholder: string;
+  newFileDone: (fileName: string) => string;
+  newFileFailed: (message: string) => string;
+  newFileInvalid: string;
+  newFileDuplicate: string;
+  /** 没有真实分类 id 的聚合分组不能新建文件 */
+  newFileUnsupported: string;
+  /** 分类右键：批量上传本地文件（R2） */
+  menuUploadFiles: string;
+  uploadDialogTitle: string;
+  uploadDialogTarget: (categoryName: string) => string;
+  uploadPickHint: string;
+  uploadProgress: (done: number, total: number) => string;
+  uploadSummary: (ok: number, skipped: number, failed: number) => string;
+  uploadEmpty: string;
+  uploadAlreadyExists: string;
+  uploadAborted: string;
+  /** 用户主动点「中止上传」时的文案（与配额/登录失效区分） */
+  uploadCancelled: string;
+  uploadTooMany: (max: number) => string;
+  uploadCancel: string;
+  uploadClose: string;
+  uploadReasonUnsupported: string;
+  uploadReasonTooLarge: string;
+  uploadStatusPending: string;
+  uploadStatusUploading: string;
+  uploadStatusDone: string;
+  uploadStatusSkipped: string;
+  uploadStatusFailed: string;
   confirm: string;
   cancel: string;
   close: string;
@@ -2598,6 +2672,34 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     renameDone: '已重命名分类',
     renameUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接重命名',
     renamePartial: (failed) => `已重命名分类，但有 ${failed} 篇文档未能迁移，请稍后重试`,
+    menuNewFile: '新建文件',
+    newFileHint: '在云端新建一篇空文档，并直接在编辑器中打开',
+    newFilePlaceholder: '输入文件名，例如 接口设计.md',
+    newFileDone: (fileName) => `已新建并打开：${fileName}`,
+    newFileFailed: (message) => `新建失败：${message}`,
+    newFileInvalid: '文件名不能为空，且不能包含 / \\ : * ? " < > | 或 ..',
+    newFileDuplicate: '云端已存在同名文档，请换一个名字',
+    newFileUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接新建文件',
+    menuUploadFiles: '上传文件…',
+    uploadDialogTitle: '上传文件到云端',
+    uploadDialogTarget: (categoryName) => `目标分类：${categoryName}`,
+    uploadPickHint: '支持 Markdown/文本/代码 与 pdf/office 文档',
+    uploadProgress: (done, total) => `正在上传 ${done}/${total}`,
+    uploadSummary: (ok, skipped, failed) => `上传结束：成功 ${ok}，跳过 ${skipped}，失败 ${failed}`,
+    uploadEmpty: '没有可上传的文件',
+    uploadAlreadyExists: '云端已存在同名文档，未覆盖',
+    uploadAborted: '上传已中止（配额不足或登录状态失效）',
+    uploadCancelled: '上传已中止（你取消了本次上传）',
+    uploadTooMany: (max) => `一次最多上传 ${max} 个文件，已按前 ${max} 个处理`,
+    uploadCancel: '中止上传',
+    uploadClose: '关闭',
+    uploadReasonUnsupported: '该类型不支持上传到云端',
+    uploadReasonTooLarge: '文件超过大小上限',
+    uploadStatusPending: '等待中',
+    uploadStatusUploading: '上传中',
+    uploadStatusDone: '已完成',
+    uploadStatusSkipped: '已跳过',
+    uploadStatusFailed: '失败',
     confirm: '确定',
     cancel: '取消',
     close: '关闭',
@@ -2678,6 +2780,34 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     renameDone: 'Category renamed',
     renameUnsupported: 'This group comes from document category text, not a real category row',
     renamePartial: (failed) => `Category renamed, but ${failed} document(s) could not be moved`,
+    menuNewFile: 'New file',
+    newFileHint: 'Create an empty cloud document and open it in the editor',
+    newFilePlaceholder: 'File name, e.g. api-design.md',
+    newFileDone: (fileName) => `Created and opened: ${fileName}`,
+    newFileFailed: (message) => `Create failed: ${message}`,
+    newFileInvalid: 'File name must not be empty or contain / \\ : * ? " < > | or ..',
+    newFileDuplicate: 'A cloud document with this name already exists - pick another name',
+    newFileUnsupported: 'This group comes from document category text, so no file can be created here',
+    menuUploadFiles: 'Upload files…',
+    uploadDialogTitle: 'Upload files to cloud',
+    uploadDialogTarget: (categoryName) => `Target category: ${categoryName}`,
+    uploadPickHint: 'Markdown/text/code files and pdf/office documents are supported',
+    uploadProgress: (done, total) => `Uploading ${done}/${total}`,
+    uploadSummary: (ok, skipped, failed) => `Finished: ${ok} succeeded, ${skipped} skipped, ${failed} failed`,
+    uploadEmpty: 'No uploadable file selected',
+    uploadAlreadyExists: 'Already exists in cloud and was not overwritten',
+    uploadAborted: 'Upload stopped (quota exceeded or session expired)',
+    uploadCancelled: 'Upload stopped (you cancelled this batch)',
+    uploadTooMany: (max) => `At most ${max} files per batch - only the first ${max} will be processed`,
+    uploadCancel: 'Stop upload',
+    uploadClose: 'Close',
+    uploadReasonUnsupported: 'This file type cannot be uploaded to cloud',
+    uploadReasonTooLarge: 'File exceeds the size limit',
+    uploadStatusPending: 'Pending',
+    uploadStatusUploading: 'Uploading',
+    uploadStatusDone: 'Done',
+    uploadStatusSkipped: 'Skipped',
+    uploadStatusFailed: 'Failed',
     confirm: 'OK',
     cancel: 'Cancel',
     close: 'Close',
