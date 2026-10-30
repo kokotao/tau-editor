@@ -437,6 +437,8 @@ interface FileTreeText {
   emptyHint: string;
   loading: string;
   newFile: string;
+  /** 右键「新建文件」的二级菜单标题（UX-3A） */
+  chooseFileType: string;
   newFolder: string;
   rename: string;
   delete: string;
@@ -1554,6 +1556,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     emptyHint: '右键创建文件/文件夹，或点击右上角刷新',
     loading: '加载文件树...',
     newFile: '新建文件',
+    chooseFileType: '选择文件类型',
     newFolder: '新建文件夹',
     rename: '重命名',
     delete: '删除',
@@ -1606,6 +1609,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     emptyHint: 'Right-click to create files/folders, or click refresh above',
     loading: 'Loading file tree...',
     newFile: 'New File',
+    chooseFileType: 'Choose file type',
     newFolder: 'New Folder',
     rename: 'Rename',
     delete: 'Delete',
@@ -2606,6 +2610,10 @@ interface CloudDocPanelText {
   renamePartial: (failed: number) => string;
   /** 分类右键：在云端新建空文档并打开（R1） */
   menuNewFile: string;
+  /** 分类右键「新建文件」的二级菜单标题（UX-3A） */
+  chooseFileType: string;
+  /** 卡片里展示「将创建的类型（含扩展名）」 */
+  newFileTypeHint: (typeName: string, extension: string) => string;
   newFileHint: string;
   newFilePlaceholder: string;
   newFileDone: (fileName: string) => string;
@@ -2740,6 +2748,8 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     renameUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接重命名',
     renamePartial: (failed) => `已重命名分类，但有 ${failed} 篇文档未能迁移，请稍后重试`,
     menuNewFile: '新建文件',
+    chooseFileType: '选择文件类型',
+    newFileTypeHint: (typeName, extension) => `将创建 ${typeName}（.${extension}），并直接在编辑器中打开`,
     newFileHint: '在云端新建一篇空文档，并直接在编辑器中打开',
     newFilePlaceholder: '输入文件名，例如 接口设计.md',
     newFileDone: (fileName) => `已新建并打开：${fileName}`,
@@ -2867,6 +2877,8 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     renameUnsupported: 'This group comes from document category text, not a real category row',
     renamePartial: (failed) => `Category renamed, but ${failed} document(s) could not be moved`,
     menuNewFile: 'New file',
+    chooseFileType: 'Choose file type',
+    newFileTypeHint: (typeName, extension) => `Create ${typeName} (.${extension}) and open it in the editor`,
     newFileHint: 'Create an empty cloud document and open it in the editor',
     newFilePlaceholder: 'File name, e.g. api-design.md',
     newFileDone: (fileName) => `Created and opened: ${fileName}`,

@@ -15,7 +15,8 @@
 
 /**
  * 允许同步为云文档（文本）的扩展名，小写、不含点。
- * 与后端 `CloudDocPathValidator.TEXT_EXTENSIONS` 一一对应（52 项，含 Tau 原生 `.taumap`）。
+ * 与后端 `CloudDocPathValidator.TEXT_EXTENSIONS` 一一对应（54 项，含 Tau 支持的导图文本格式
+ * `.taumap` / `.mm` / `.opml`）。
  */
 export const TEXT_DOC_EXTENSIONS: readonly string[] = [
   'md', 'markdown', 'mdx', 'txt', 'json', 'yaml', 'yml', 'toml', 'ini', 'conf',
@@ -26,6 +27,8 @@ export const TEXT_DOC_EXTENSIONS: readonly string[] = [
   'cfg',
   // Tau 原生思维导图（UTF-8 JSON 文本），需与 Rust / Java 白名单保持一致
   'taumap',
+  // Tau 支持导入/只读打开的外部导图文本格式（FreeMind .mm / OPML .opml），三端白名单必须同步
+  'mm', 'opml',
 ];
 
 /**

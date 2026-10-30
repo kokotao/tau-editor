@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { useMindmapStore } from '@/stores/mindmap';
+import {
+  DEFAULT_MINDMAP_OUTLINE_WIDTH,
+  DEFAULT_MINDMAP_PROPERTIES_WIDTH,
+  MINDMAP_RIGHT_PANEL_MAX_WIDTH,
+  MINDMAP_RIGHT_PANEL_MIN_WIDTH,
+  useMindmapStore,
+} from '@/stores/mindmap';
 import {
   createEmptyMindMapDocument,
   parseMindMapDocument,
@@ -1059,3 +1065,103 @@ describe('UX-2 持久化：boundary / summary 随文档往返', () => {
     expect(validateMindMapDocument(parsed).ok).toBe(true);
   });
 });
+
+/* ------------- UX-3B 返工：右侧两列（大纲 / 属性）显隐与宽度状态 ------------- */
+
+describe('useMindmapStore UX-3B：右侧两列状态', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('默认：大纲列展开、属性列收起，两列宽度都是 280', () => {
+    const store = useMindmapStore();
+    expect(store.outlineVisible).toBe(true);
+    expect(store.propertiesVisible).toBe(false);
+    expect(store.outlineWidth).toBe(DEFAULT_MINDMAP_OUTLINE_WIDTH);
+    expect(store.propertiesWidth).toBe(DEFAULT_MINDMAP_PROPERTIES_WIDTH);
+    expect(DEFAULT_MINDMAP_OUTLINE_WIDTH).toBe(280);
+    expect(DEFAULT_MINDMAP_PROPERTIES_WIDTH).toBe(280);
+  });
+
+  it('setOutlineVisible / setPropertiesVisible：两列互相独立，同值返回 false', () => {
+    const store = useMindmapStore();
+
+    expect(store.setOutlineVisible(false)).toBe(true);
+    expect(store.outlineVisible).toBe(false);
+    expect(store.setOutlineVisible(false)).toBe(false);
+
+    // 属性列独立：开属性不影响大纲
+    expect(store.setPropertiesVisible(true)).toBe(true);
+    expect(store.propertiesVisible).toBe(true);
+    expect(store.outlineVisible).toBe(false);
+    expect(store.setPropertiesVisible(true)).toBe(false);
+  });
+
+  it('toggle 语义：同一面板开→关、关→开，两列可同时打开', () => {
+    const store = useMindmapStore();
+
+    expect(store.toggleOutlineVisible()).toBe(false);
+    expect(store.outlineVisible).toBe(false);
+    expect(store.toggleOutlineVisible()).toBe(true);
+    expect(store.outlineVisible).toBe(true);
+
+    expect(store.togglePropertiesVisible()).toBe(true);
+    expect(store.propertiesVisible).toBe(true);
+    // 两列同时展开是允许的（旧 Stage 也能同时显示大纲 + 属性）
+    expect(store.outlineVisible).toBe(true);
+    expect(store.propertiesVisible).toBe(true);
+
+    expect(store.togglePropertiesVisible()).toBe(false);
+    expect(store.propertiesVisible).toBe(false);
+  });
+
+  it('setOutlineWidth / setPropertiesWidth：各自 clamp 到 180–420 并取整', () => {
+    const store = useMindmapStore();
+
+    expect(store.setOutlineWidth(320)).toBe(320);
+    expect(store.setOutlineWidth(50)).toBe(MINDMAP_RIGHT_PANEL_MIN_WIDTH);
+    expect(store.setOutlineWidth(9999)).toBe(MINDMAP_RIGHT_PANEL_MAX_WIDTH);
+    expect(store.setOutlineWidth(240.6)).toBe(241);
+    expect(store.setOutlineWidth(Number.NaN)).toBe(DEFAULT_MINDMAP_OUTLINE_WIDTH);
+
+    // 属性列宽度独立，不受大纲列影响
+    expect(store.setPropertiesWidth(360)).toBe(360);
+    expect(store.outlineWidth).toBe(DEFAULT_MINDMAP_OUTLINE_WIDTH);
+    expect(store.propertiesWidth).toBe(360);
+    expect(store.setPropertiesWidth(9999)).toBe(MINDMAP_RIGHT_PANEL_MAX_WIDTH);
+    expect(store.outlineWidth).toBe(DEFAULT_MINDMAP_OUTLINE_WIDTH);
+  });
+
+  it('resetRightPanels：恢复「大纲开、属性关、两列 280」', () => {
+    const store = useMindmapStore();
+    store.setOutlineVisible(false);
+    store.setPropertiesVisible(true);
+    store.setOutlineWidth(400);
+    store.setPropertiesWidth(200);
+
+    store.resetRightPanels();
+    expect(store.outlineVisible).toBe(true);
+    expect(store.propertiesVisible).toBe(false);
+    expect(store.outlineWidth).toBe(DEFAULT_MINDMAP_OUTLINE_WIDTH);
+    expect(store.propertiesWidth).toBe(DEFAULT_MINDMAP_PROPERTIES_WIDTH);
+  });
+
+  it('面板状态是视图偏好：不进历史、不改序列化内容', () => {
+    const store = useMindmapStore();
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const serialized = store.serialized;
+
+    store.togglePropertiesVisible();
+    store.setOutlineWidth(360);
+    store.setPropertiesWidth(200);
+    store.toggleOutlineVisible();
+
+    expect(store.serialized).toBe(serialized);
+    expect(store.canUndo).toBe(false);
+    expect(store.history.past.length).toBe(0);
+    // lastSerialized 也不受影响，避免被误判为自产回写
+    expect(store.lastSerialized).toBe(serialized);
+  });
+});
+

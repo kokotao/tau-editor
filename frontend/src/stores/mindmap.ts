@@ -9,7 +9,10 @@
  * 5. 阶段 4C：节点样式（updateTopicStyle）、标记（toggleMarker/updateTopicMarkers）、
  *    主题模板（setTheme）与独立关系线（addRelation/removeRelation）均为可撤销命令；
  * 6. 阶段 4E：多工作表 / 多中心主题（addSheet/switchSheet/renameSheet/removeSheet），
- *    约定 document.rootTopicId 永远等于「当前工作表」的根。
+ *    约定 document.rootTopicId 永远等于「当前工作表」的根；
+ * 7. UX-3B（返工）：右侧两个独立列（大纲 / 属性）的显隐与宽度
+ *    （outlineVisible/propertiesVisible + outlineWidth/propertiesWidth），
+ *    与 viewport 一样属于视图偏好——不进历史、不改文档、不触发 dirty。
  *
  * 约定：
  * - store 只负责编辑态，不直接写盘；脏状态由组件把序列化结果交给 tabService；
@@ -39,6 +42,7 @@ import {
   type MindmapHistoryState,
 } from '@/services/mindmapHistoryService';
 import { collectSubtreeTopicIds, type MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
+import { expandAncestors, searchMindmap } from '@/services/mindmapSearchService';
 import type { MindmapViewport } from '@/services/mindmapLayoutService';
 import { isMindmapThemeId } from '@/services/mindmapThemeService';
 import type {
@@ -49,10 +53,35 @@ import type {
   MindMapTopic,
   MindMapTopicBoundary,
   MindMapTopicStyle,
+  MindmapOutlineRow,
 } from '@/types/mindmap';
 
 /** 默认视口：世界坐标原点居中、100% 缩放（真实适配由画布调用 fitView 完成）。 */
 export const DEFAULT_MINDMAP_VIEWPORT: MindmapViewport = { x: 0, y: 0, zoom: 1 };
+
+/* --------------------- 右侧面板（UX-3B 返工：双列独立） --------------------- */
+
+/**
+ * 右侧面板（大纲列 / 属性列）：
+ * - 两个独立布尔控制显示（大纲默认展开，属性默认收起）；
+ * - 两列各自有独立宽度（拖 resizer 变化），clamp 到 180–420。
+ * 这些都是纯展示偏好：不进历史、不改文档、不触发 dirty。
+ */
+export const MINDMAP_RIGHT_PANEL_MIN_WIDTH = 180;
+export const MINDMAP_RIGHT_PANEL_MAX_WIDTH = 420;
+/** 大纲列默认宽度。 */
+export const DEFAULT_MINDMAP_OUTLINE_WIDTH = 280;
+/** 属性列默认宽度。 */
+export const DEFAULT_MINDMAP_PROPERTIES_WIDTH = 280;
+
+/** 把某一列宽度夹到 [MIN, MAX] 并取整（NaN/Infinity 回落到大纲默认宽度）。 */
+export function clampMindmapRightPanelWidth(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MINDMAP_OUTLINE_WIDTH;
+  return Math.max(
+    MINDMAP_RIGHT_PANEL_MIN_WIDTH,
+    Math.min(MINDMAP_RIGHT_PANEL_MAX_WIDTH, Math.round(value)),
+  );
+}
 
 /* --------------------------------- 标记 --------------------------------- */
 
@@ -139,6 +168,82 @@ export function isMindMapLayoutMode(value: unknown): value is MindMapLayoutMode 
     && (MINDMAP_LAYOUT_MODES as readonly string[]).includes(value);
 }
 
+/* -------------------- UI 辅助（纯函数，Stage 与右面板共用） -------------------- */
+
+export interface MindmapOutlineRowsResult {
+  /** 可见行（按先序）。 */
+  rows: MindmapOutlineRow[];
+  /** 命中的节点 id（无查询时为空集合）。 */
+  matchIds: Set<string>;
+  /** 是否处于搜索态（搜索时忽略折叠标记）。 */
+  searching: boolean;
+}
+
+/**
+ * 构建大纲可见行（UX-3B：Stage 键盘导航与右侧面板大纲共用）。
+ *
+ * - 无查询：按可见性（折叠的子树不出现）先序遍历；
+ * - 有查询：只保留「命中节点 + 其祖先」，并强制展开，保证命中项可见。
+ *
+ * 纯函数：只读文档，不依赖 store / DOM。
+ */
+export function buildMindmapOutlineRows(
+  document: MindMapDocument,
+  searchQuery = '',
+): MindmapOutlineRowsResult {
+  const query = searchQuery.trim();
+  const searching = query.length > 0;
+  const matchIds = searching
+    ? new Set(searchMindmap(document, query).map((item) => item.id))
+    : new Set<string>();
+
+  const visibleIds: Set<string> | null = searching
+    ? new Set<string>([...matchIds, ...expandAncestors(document, [...matchIds])])
+    : null;
+
+  const rows: MindmapOutlineRow[] = [];
+  const walk = (topicId: string, depth: number) => {
+    const topic = document.topics[topicId];
+    if (!topic) return;
+    if (visibleIds && !visibleIds.has(topic.id)) return;
+    const childIds = topic.childIds ?? [];
+    const hasChildren = childIds.length > 0;
+    // 搜索期间忽略折叠标记，确保命中分支可展开查看。
+    const collapsed = !searching && Boolean(topic.collapsed) && hasChildren;
+    rows.push({
+      id: topic.id,
+      text: topic.text ?? '',
+      depth,
+      hasChildren,
+      collapsed,
+      childCount: childIds.length,
+    });
+    if (collapsed) return;
+    for (const childId of childIds) walk(childId, depth + 1);
+  };
+  walk(document.rootTopicId, 0);
+
+  return { rows, matchIds, searching };
+}
+
+/**
+ * 按文档树序（先序）收集全部节点，供属性面板「关系目标」下拉使用。
+ * 只依赖 childIds，不受折叠影响（折叠只是画布可见性问题）。
+ */
+export function collectMindmapTopicsInOrder(
+  document: MindMapDocument,
+): { id: string; text: string }[] {
+  const result: { id: string; text: string }[] = [];
+  const walk = (topicId: string) => {
+    const topic = document.topics[topicId];
+    if (!topic) return;
+    result.push({ id: topic.id, text: topic.text ?? '' });
+    for (const childId of topic.childIds ?? []) walk(childId);
+  };
+  walk(document.rootTopicId);
+  return result;
+}
+
 export interface MindmapStoreState {
   tabId: string | null;
   document: MindMapDocument | null;
@@ -152,6 +257,17 @@ export interface MindmapStoreState {
    * 视口操作不进入 undo/redo，也不改变文档内容与 dirty 状态。
    */
   viewport: MindmapViewport;
+  /**
+   * 右侧大纲列是否显示（UX-3B 返工：与属性列各自独立）。
+   * 默认展开，与面板外移前的默认行为一致。
+   */
+  outlineVisible: boolean;
+  /** 右侧属性列是否显示；默认收起（需用户显式打开，或选中节点后由工具栏/右键打开）。 */
+  propertiesVisible: boolean;
+  /** 大纲列宽度（px），拖动该列 resizer 时变化，clamp 到 180–420。 */
+  outlineWidth: number;
+  /** 属性列宽度（px），拖动该列 resizer 时变化，clamp 到 180–420。 */
+  propertiesWidth: number;
 }
 
 function snapshotOf(
@@ -171,6 +287,10 @@ export const useMindmapStore = defineStore('mindmap', {
     history: createHistoryState(),
     lastSerialized: '',
     viewport: { ...DEFAULT_MINDMAP_VIEWPORT },
+    outlineVisible: true,
+    propertiesVisible: false,
+    outlineWidth: DEFAULT_MINDMAP_OUTLINE_WIDTH,
+    propertiesWidth: DEFAULT_MINDMAP_PROPERTIES_WIDTH,
   }),
 
   getters: {
@@ -259,6 +379,60 @@ export const useMindmapStore = defineStore('mindmap', {
 
     resetViewport() {
       this.viewport = { ...DEFAULT_MINDMAP_VIEWPORT };
+    },
+
+    /* -------------- 右侧面板（UX-3B 返工：双列独立，纯展示状态） -------------- */
+
+    /**
+     * 设置大纲列显隐。
+     *
+     * 与 viewport 一样属于「视图偏好」：不写文档、不进历史、不改变 dirty。
+     *
+     * @returns 是否真的发生了变化（重复设置返回 false）
+     */
+    setOutlineVisible(visible: boolean): boolean {
+      if (this.outlineVisible === visible) return false;
+      this.outlineVisible = visible;
+      return true;
+    },
+
+    /** 设置属性列显隐；返回是否发生变化。 */
+    setPropertiesVisible(visible: boolean): boolean {
+      if (this.propertiesVisible === visible) return false;
+      this.propertiesVisible = visible;
+      return true;
+    },
+
+    /** 切换大纲列（开→关、关→开），返回切换后的显隐状态。 */
+    toggleOutlineVisible(): boolean {
+      this.outlineVisible = !this.outlineVisible;
+      return this.outlineVisible;
+    },
+
+    /** 切换属性列（开→关、关→开），返回切换后的显隐状态。 */
+    togglePropertiesVisible(): boolean {
+      this.propertiesVisible = !this.propertiesVisible;
+      return this.propertiesVisible;
+    },
+
+    /** 设置大纲列宽度（clamp 到 180–420）；返回实际生效的宽度。 */
+    setOutlineWidth(width: number): number {
+      this.outlineWidth = clampMindmapRightPanelWidth(width);
+      return this.outlineWidth;
+    },
+
+    /** 设置属性列宽度（clamp 到 180–420）；返回实际生效的宽度。 */
+    setPropertiesWidth(width: number): number {
+      this.propertiesWidth = clampMindmapRightPanelWidth(width);
+      return this.propertiesWidth;
+    },
+
+    /** 恢复默认布局：大纲展开、属性收起、两列宽度回到 280。 */
+    resetRightPanels() {
+      this.outlineVisible = true;
+      this.propertiesVisible = false;
+      this.outlineWidth = DEFAULT_MINDMAP_OUTLINE_WIDTH;
+      this.propertiesWidth = DEFAULT_MINDMAP_PROPERTIES_WIDTH;
     },
 
     selectTopic(topicId: string | null) {

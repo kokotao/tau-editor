@@ -279,7 +279,10 @@ test.describe('Mindmap E2E', () => {
 
     await page.locator('[data-testid="mm-props-notes"]').fill('E2E 备注')
     await page.locator('[data-testid="mm-props-apply"]').click()
-    await expect(page.locator('[data-testid="mindmap-notice"]')).toContainText('节点属性已更新')
+    // UX-3B 返工后属性面板独占右侧属性列，成功提示渲染在该列内
+    await expect(
+      page.locator('[data-testid="mm-right-properties"] [data-testid="mm-right-notice"]'),
+    ).toContainText('节点属性已更新')
   })
 
   test('E2E-MM-012: 大纲搜索过滤到命中与祖先', async ({ page }) => {
@@ -451,6 +454,7 @@ test.describe('Mindmap E2E', () => {
     const before = await outline.boundingBox()
     expect(before).toBeTruthy()
 
+    // UX-3B 返工：大纲/属性为两列独立面板，大纲列的 resizer 仍叫 mm-outline-resizer
     const resizer = page.locator('[data-testid="mm-outline-resizer"]')
     const rbox = await resizer.boundingBox()
     expect(rbox).toBeTruthy()

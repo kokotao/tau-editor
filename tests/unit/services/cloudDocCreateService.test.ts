@@ -211,3 +211,64 @@ describe('createCloudDocFile 云端新建', () => {
     expect(outcome).toEqual({ ok: false, kind: 'quota', message: '云端空间不足' });
   });
 });
+
+/* ------------------- UX-3A：按类型新建（mm / opml / 自定义扩展名） ------------------- */
+
+describe('UX-3A 按类型新建', () => {
+  it('sanitizeNewDocName 支持自定义默认扩展名，且尊重用户已写的扩展名', () => {
+    expect(sanitizeNewDocName('大纲', '.opml')).toEqual({ ok: true, name: '大纲.opml' });
+    expect(sanitizeNewDocName('草图', 'mm')).toEqual({ ok: true, name: '草图.mm' });
+    // 已有扩展名时按用户输入（不重复补）
+    expect(sanitizeNewDocName('大纲.md', '.opml')).toEqual({ ok: true, name: '大纲.md' });
+    // 默认仍补 .md
+    expect(sanitizeNewDocName('默认')).toEqual({ ok: true, name: '默认.md' });
+  });
+
+  it('typeId=freemind + 无扩展名：补 .mm 并写入合法 FreeMind 空地图', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '思路',
+      typeId: 'freemind',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(true);
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { title: string; content: string };
+    expect(payload.title).toBe('思路.mm');
+    expect(payload.content).toContain('<map version="0.9.1">');
+    expect(payload.content).toContain('TEXT="思路"');
+  });
+
+  it('typeId=opml + 无扩展名：补 .opml 并写入可导入的 OPML（含 outline）', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '章节大纲',
+      typeId: 'opml',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(true);
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { title: string; content: string };
+    expect(payload.title).toBe('章节大纲.opml');
+    expect(payload.content).toContain('<opml version="2.0">');
+    expect(payload.content).toContain('<outline text="章节大纲"');
+  });
+
+  it('typeId 未知/省略时按 Markdown 处理（兼容旧调用）', async () => {
+    await createCloudDocFile({ fileName: '旧调用', workspaceName: 'ws' });
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { title: string; content: string };
+    expect(payload.title).toBe('旧调用.md');
+    expect(payload.content).toBe('');
+
+    mocks.saveDoc.mockClear();
+    await createCloudDocFile({ fileName: '未知类型', typeId: 'not-a-type', workspaceName: 'ws' });
+    const fallback = mocks.saveDoc.mock.calls[0]![0] as { title: string };
+    expect(fallback.title).toBe('未知类型.md');
+  });
+
+  it('initialCloudDocContent 对 taumap / mm / opml 都返回非空合法模板', async () => {
+    const { initialCloudDocContent } = await import('@/services/cloudDocCreateService');
+    expect(initialCloudDocContent('a.taumap')).toContain('"format": "tau-mindmap"');
+    expect(initialCloudDocContent('a.mm')).toContain('<map version="0.9.1">');
+    expect(initialCloudDocContent('a.opml')).toContain('<opml version="2.0">');
+    expect(initialCloudDocContent('a.md')).toBe('');
+  });
+});

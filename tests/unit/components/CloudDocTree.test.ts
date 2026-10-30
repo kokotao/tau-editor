@@ -176,6 +176,14 @@ async function openMenu(
   await flushPromises();
 }
 
+/** UX-3A：「新建文件」先展开二级类型菜单，选中类型后才打开内联卡片（默认 Markdown）。 */
+async function chooseNewFileType(typeId = 'markdown'): Promise<void> {
+  clickEl('cloud-category-menu-new-file');
+  await flushPromises();
+  clickEl(`cloud-new-file-type-${typeId}`);
+  await flushPromises();
+}
+
 /** 多段 await 的链路（选文件 → 生成计划 → 串行上传 → 汇总）需要多轮微任务 */
 async function settle(): Promise<void> {
   for (let round = 0; round < 5; round += 1) {
@@ -795,8 +803,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('title')).toContain('没有独立分类记录');
 
-    clickEl('cloud-category-menu-new-file');
-    await flushPromises();
+    await chooseNewFileType();
     expect(q('cloud-category-prompt')).toBeNull();
     expect(mocks.createCloudDoc).not.toHaveBeenCalled();
   });
@@ -804,8 +811,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
   it('输入文件名 → 云端保存空正文 → emit changed + edit-cloud-doc（合成节点带云端身份）', async () => {
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-dir');
-    clickEl('cloud-category-menu-new-file');
-    await flushPromises();
+    await chooseNewFileType();
 
     // 卡片复用 prompt：标题是「新建文件 · 笔记」，占位是新文件文案
     expect(q('cloud-category-prompt')).not.toBeNull();
@@ -819,6 +825,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
 
     expect(mocks.createCloudDoc).toHaveBeenCalledWith({
       fileName: '接口设计.md',
+      typeId: 'markdown',
       workspaceName: 'ws',
       categoryId: '1001',
       categoryName: '笔记',
@@ -852,8 +859,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
   it('非法文件名（含 / 或空名）在前端拦截，不发请求', async () => {
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-dir');
-    clickEl('cloud-category-menu-new-file');
-    await flushPromises();
+    await chooseNewFileType();
 
     fillInput('cloud-category-name-input', 'a/b.md');
     clickEl('cloud-category-prompt-confirm');
@@ -876,8 +882,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
     });
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-dir');
-    clickEl('cloud-category-menu-new-file');
-    await flushPromises();
+    await chooseNewFileType();
 
     fillInput('cloud-category-name-input', '接口设计.md');
     clickEl('cloud-category-prompt-confirm');
@@ -893,8 +898,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
     mocks.createCloudDoc.mockResolvedValue({ ok: false, kind: 'quota', message: '云端空间不足' });
     const wrapper = mountTree([CATEGORY]);
     await openMenu(wrapper, 'cloud-browser-dir');
-    clickEl('cloud-category-menu-new-file');
-    await flushPromises();
+    await chooseNewFileType();
 
     fillInput('cloud-category-name-input', 'a');
     clickEl('cloud-category-prompt-confirm');
@@ -907,8 +911,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
   it('「未分类」分组：categoryId/category 都为空（不造假分类）', async () => {
     const wrapper = mountTree([UNCATEGORIZED]);
     await openMenu(wrapper, 'cloud-browser-dir');
-    clickEl('cloud-category-menu-new-file');
-    await flushPromises();
+    await chooseNewFileType();
 
     fillInput('cloud-category-name-input', 'b.md');
     clickEl('cloud-category-prompt-confirm');
@@ -916,6 +919,7 @@ describe('CloudDocTree R1 分类右键「新建文件」', () => {
 
     expect(mocks.createCloudDoc).toHaveBeenCalledWith({
       fileName: 'b.md',
+      typeId: 'markdown',
       workspaceName: 'ws',
       categoryId: null,
       categoryName: '',
@@ -1095,5 +1099,83 @@ describe('CloudDocTree 分类右键「一键分享文件夹」', () => {
     await settle();
     expect(q('folder-share-dialog')).not.toBeNull();
     expect(mocks.folderShareStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ------------------- UX-3A：新建文件二级类型菜单 ------------------- */
+
+describe('CloudDocTree UX-3A：分类右键「新建文件」二级类型菜单', () => {
+  it('展开二级菜单只列云白名单类型（含 mm / opml）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+
+    const typeMenu = q('cloud-new-file-type-menu');
+    expect(typeMenu).not.toBeNull();
+    const ids = Array.from(typeMenu!.querySelectorAll('.cd-menu__item'))
+      .map((item) => item.getAttribute('data-testid'));
+    expect(ids).toEqual([
+      'cloud-new-file-type-markdown',
+      'cloud-new-file-type-taumap',
+      'cloud-new-file-type-freemind',
+      'cloud-new-file-type-opml',
+      'cloud-new-file-type-plaintext',
+      'cloud-new-file-type-json',
+    ]);
+    // 展开二级菜单不打开卡片
+    expect(q('cloud-category-prompt')).toBeNull();
+  });
+
+  it('选择 OPML：卡片预填默认名与类型提示，提交时透传 typeId', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+    clickEl('cloud-new-file-type-opml');
+    await flushPromises();
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    const input = q<HTMLInputElement>('cloud-category-name-input')!;
+    expect(input.value).toBe('未命名大纲.opml');
+    expect(q('cloud-new-file-type-hint')?.textContent).toContain('.opml');
+
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '未命名大纲.opml',
+      typeId: 'opml',
+    }));
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+  });
+
+  it('回填用户输入：选 FreeMind 后只写主名，提交按类型补 .mm', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    await chooseNewFileType('freemind');
+    fillInput('cloud-category-name-input', '重构思路');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '重构思路.mm',
+      typeId: 'freemind',
+    }));
+  });
+
+  it('custom:* 聚合分组：主项禁用，不展开类型菜单', async () => {
+    const wrapper = mountTree([CUSTOM_GROUP]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+
+    expect(q('cloud-new-file-type-menu')).toBeNull();
+    expect(q('cloud-category-prompt')).toBeNull();
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
   });
 });

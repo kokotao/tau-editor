@@ -269,23 +269,56 @@
           </button>
         </template>
         <template v-else>
-          <!-- R1：分类右键新建云端空文档（custom:* 聚合分组没有真实分类 id，禁用并给提示） -->
-          <button
-            type="button"
-            class="cd-menu__item"
-            data-testid="cloud-category-menu-new-file"
-            role="menuitem"
-            :disabled="!canCreateFile(rowMenu.node)"
-            :title="canCreateFile(rowMenu.node) ? panel.newFileHint : panel.newFileUnsupported"
-            @click.stop="menuCreateFile()"
+          <!-- R1/UX-3A：分类右键新建云端空文档；点击/悬停展开二级类型菜单（只列云白名单内类型）。
+               custom:* 聚合分组没有真实分类 id：主项禁用并给提示，不展开子菜单。 -->
+          <div
+            class="cloud-doc-tree__submenu-host"
+            @mouseenter="openNewFileSubmenu"
+            @mouseleave="closeNewFileSubmenu"
           >
-            <svg class="cloud-doc-tree__menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M13.5 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6a1.7 1.7 0 0 0 1.7 1.7h9.6a1.7 1.7 0 0 0 1.7-1.7V8.5z" />
-              <path d="M13.5 3.5v5h5" />
-              <path d="M12 12.6v4.4M9.8 14.8h4.4" />
-            </svg>
-            <span>{{ panel.menuNewFile }}</span>
-          </button>
+            <button
+              type="button"
+              class="cd-menu__item"
+              data-testid="cloud-category-menu-new-file"
+              role="menuitem"
+              :disabled="!canCreateFile(rowMenu.node)"
+              :title="canCreateFile(rowMenu.node) ? panel.newFileHint : panel.newFileUnsupported"
+              aria-haspopup="menu"
+              :aria-expanded="newFileSubmenuVisible ? 'true' : 'false'"
+              @click.stop="toggleNewFileSubmenu()"
+            >
+              <svg class="cloud-doc-tree__menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M13.5 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6a1.7 1.7 0 0 0 1.7 1.7h9.6a1.7 1.7 0 0 0 1.7-1.7V8.5z" />
+                <path d="M13.5 3.5v5h5" />
+                <path d="M12 12.6v4.4M9.8 14.8h4.4" />
+              </svg>
+              <span>{{ panel.menuNewFile }}</span>
+              <span class="cloud-doc-tree__submenu-caret" aria-hidden="true">▸</span>
+            </button>
+            <div
+              v-if="newFileSubmenuVisible"
+              class="cd-menu cd-nocturne cloud-doc-tree__submenu"
+              :class="{ 'is-flip-left': newFileSubmenuFlipLeft }"
+              data-testid="cloud-new-file-type-menu"
+              role="menu"
+              :aria-label="panel.chooseFileType"
+              @click.stop
+            >
+              <div class="cd-menu__header">{{ panel.chooseFileType }}</div>
+              <button
+                v-for="option in cloudNewFileTypeOptions"
+                :key="option.id"
+                type="button"
+                class="cd-menu__item"
+                role="menuitem"
+                :data-testid="`cloud-new-file-type-${option.id}`"
+                @click.stop="menuCreateFile(option.id)"
+              >
+                <span>{{ newFileTypeLabel(option, settingsStore.uiLanguage) }}</span>
+                <span class="cd-menu__shortcut">.{{ option.extension }}</span>
+              </button>
+            </div>
+          </div>
           <!-- R2：分类右键批量上传本地文件（多选 → 逐条进度弹窗） -->
           <button
             type="button"
@@ -405,6 +438,13 @@
           data-testid="cloud-new-file-hint"
         >
           {{ panel.newFileHint }}
+        </p>
+        <p
+          v-if="prompt.mode === 'create-file'"
+          class="cloud-doc-tree__prompt-hint"
+          data-testid="cloud-new-file-type-hint"
+        >
+          {{ promptNewFileTypeHint }}
         </p>
         <input
           ref="promptInputRef"
@@ -540,6 +580,14 @@ import {
   sanitizeNewDocName,
   type CloudDocCreateResult,
 } from '@/services/cloudDocCreateService';
+import {
+  CLOUD_NEW_FILE_TYPE_OPTIONS,
+  DEFAULT_NEW_FILE_TYPE_ID,
+  buildDefaultNewFileName,
+  newFileTypeLabel,
+  resolveNewFileType,
+  type NewFileTypeId,
+} from '@/services/newFileTypeOptions';
 import {
   BATCH_UPLOAD_MAX_FILES,
   collectBatchUploadPlan,
@@ -960,6 +1008,11 @@ const rowMenu = ref<{
 const moveMenuVisible = ref(false);
 /** 两个菜单浮层的根元素（Esc/上下键/初始焦点都限定在各自容器内） */
 const rowMenuRef = ref<HTMLElement | null>(null);
+/** 新建文件二级类型菜单（UX-3A）：hover / 点击主项展开 */
+const newFileSubmenuVisible = ref(false);
+const newFileSubmenuFlipLeft = ref(false);
+/** 云白名单内的类型（白名单收紧时菜单自动少项） */
+const cloudNewFileTypeOptions = CLOUD_NEW_FILE_TYPE_OPTIONS;
 const moveMenuRef = ref<HTMLElement | null>(null);
 const moveTarget = ref<CloudDocTreeNode | null>(null);
 const deleteTarget = ref<CloudDocTreeNode | null>(null);
@@ -987,6 +1040,8 @@ interface PromptState {
   id: string | null;
   /** 聚合分组节点（key=custom:*，来自文档分类文本，没有真实分类 id） */
   customNode?: CloudDocTreeNode | null;
+  /** mode=create-file：新建类型 id（UX-3A，决定默认扩展名与初始正文） */
+  fileTypeId?: NewFileTypeId;
   /** mode=create-file：目标分类 id（`group:uncategorized` 为 null） */
   fileCategoryId?: string | null;
   /** mode=create-file：目标分类自由文本（未分类为空串，保存时归一成 null） */
@@ -1049,6 +1104,13 @@ const promptPlaceholder = computed(() => (
     ? panel.value.newFilePlaceholder
     : panel.value.categoryNamePlaceholder
 ));
+
+/** 新建文件卡片里的类型提示：例如「将创建 OPML 大纲（.opml）…」。 */
+const promptNewFileTypeHint = computed(() => {
+  if (prompt.value.mode !== 'create-file') return '';
+  const option = resolveNewFileType(prompt.value.fileTypeId);
+  return panel.value.newFileTypeHint(newFileTypeLabel(option, settingsStore.uiLanguage), option.extension);
+});
 
 /** 文件类型徽标（md / 代码 / 图片 / Office / 其他）。 */
 function iconForFile(name: string): string {
@@ -1120,6 +1182,38 @@ function canShareFolder(node: CloudDocTreeNode | null): boolean {
 function closeMenus(): void {
   rowMenu.value.visible = false;
   moveMenuVisible.value = false;
+  closeNewFileSubmenu();
+}
+
+/**
+ * 展开「新建文件」二级类型菜单。
+ *
+ * 默认向菜单右侧展开；右侧空间不足时翻转到左侧（happy-dom rect 全 0 → 保持默认方向）。
+ */
+function openNewFileSubmenu(): void {
+  if (!canCreateFile(rowMenu.value.node)) return;
+  newFileSubmenuVisible.value = true;
+  void nextTick(() => {
+    const menu = rowMenuRef.value;
+    if (!menu) return;
+    const host = menu.querySelector('.cloud-doc-tree__submenu-host');
+    const submenu = menu.querySelector('.cloud-doc-tree__submenu');
+    if (!(host instanceof HTMLElement) || !(submenu instanceof HTMLElement)) return;
+    const rect = submenu.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    newFileSubmenuFlipLeft.value = rect.width > 0
+      && hostRect.right + rect.width > (window.innerWidth || 1024) - 8;
+  });
+}
+
+function closeNewFileSubmenu(): void {
+  newFileSubmenuVisible.value = false;
+  newFileSubmenuFlipLeft.value = false;
+}
+
+function toggleNewFileSubmenu(): void {
+  if (newFileSubmenuVisible.value) closeNewFileSubmenu();
+  else openNewFileSubmenu();
 }
 
 // 设计稿三菜单宽度 224px；项高 30px + 头部 26px + 上下内边距 12px + 分隔线 9px
@@ -1407,7 +1501,7 @@ function menuNewSubCategory(): void {
  * R1：分类右键「新建文件」——复用内联卡片（mode=create-file）。
  * custom:* 聚合分组没有真实分类 id，只提示、不打开卡片（D3）。
  */
-function menuCreateFile(): void {
+function menuCreateFile(typeId: NewFileTypeId | string = DEFAULT_NEW_FILE_TYPE_ID): void {
   const node = rowMenu.value.node;
   closeMenus();
   if (!node || node.kind !== 'dir') {
@@ -1417,20 +1511,35 @@ function menuCreateFile(): void {
     notice.value = panel.value.newFileUnsupported;
     return;
   }
+  const option = resolveNewFileType(typeId);
   prompt.value = {
     visible: true,
     mode: 'create-file',
-    name: '',
+    // 预填「类型默认名 + 扩展名」：用户直接回车即可，改名时只选中主干（不含扩展名）
+    name: buildDefaultNewFileName(option),
     parentId: null,
     parentName: node.name,
     id: null,
+    fileTypeId: option.id,
     fileCategoryId: categoryIdOf(node),
     // 「未分类」组没有分类文本：留空，保存时归一成 null，避免云端造出假的「未分类」分组
     fileCategoryName: node.key === 'group:uncategorized' ? '' : node.name,
     busy: false,
     error: '',
   };
-  focusPrompt();
+  focusPromptStem();
+}
+
+/** 打开卡片后聚焦输入框：只选中扩展名之前的主干，保留「.taumap」等后缀。 */
+function focusPromptStem(): void {
+  void nextTick(() => {
+    const input = promptInputRef.value;
+    if (!input) return;
+    input.focus();
+    const dot = input.value.lastIndexOf('.');
+    if (dot > 0) input.setSelectionRange(0, dot);
+    else input.select();
+  });
 }
 
 /**
@@ -1689,7 +1798,9 @@ async function renameCustomGroup(node: CloudDocTreeNode, name: string): Promise<
  * 刻意不写本地文件：`materializeCloudDocForEdit` 会按云端内容落位，否则会出现两份不同步的副本。
  */
 async function submitCreateFile(current: PromptState): Promise<void> {
-  const sanitized = sanitizeNewDocName(current.name);
+  const option = resolveNewFileType(current.fileTypeId);
+  // 无扩展名时按所选类型补（例如 OPML → .opml），有扩展名则尊重用户输入
+  const sanitized = sanitizeNewDocName(current.name, `.${option.extension}`);
   if (!sanitized.ok) {
     // 空名 / 含 `/ \ : * ? " < > |` / 含 `..` / 超长：前端直接拦住，不发请求
     current.error = panel.value.newFileInvalid;
@@ -1702,6 +1813,7 @@ async function submitCreateFile(current: PromptState): Promise<void> {
     const categoryName = current.fileCategoryName ?? '';
     const outcome = await createCloudDocFile({
       fileName: sanitized.name,
+      typeId: option.id,
       workspaceName: workspaceStore.currentWorkspaceName ?? '',
       categoryId,
       categoryName,
@@ -2273,6 +2385,34 @@ defineExpose({ cancelOpen, openCreateCategory, openNode, openByKey, selectByKey 
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
+}
+
+/* UX-3A：新建文件二级类型菜单 */
+.cloud-doc-tree__submenu-host {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.cloud-doc-tree__submenu-caret {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--cd-text-3);
+}
+
+.cloud-doc-tree__submenu {
+  position: absolute;
+  top: -6px;
+  left: 100%;
+  z-index: 13001;
+  margin-left: 4px;
+}
+
+.cloud-doc-tree__submenu.is-flip-left {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 4px;
 }
 
 .cloud-doc-tree__menu-head-title {

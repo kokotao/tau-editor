@@ -76,12 +76,24 @@ const props = withDefaults(
     relationTargets?: PanelRelationTarget[];
     /** 初始宽度（px），拖动 resizer 后由组件内部维护。 */
     initialWidth?: number;
+    /**
+     * 受控宽度（px，UX-3B）：传入时宽度完全由外部决定，拖动 resizer 通过
+     * `update:width` 交回上层，用于外壳统一管理右侧列宽。
+     */
+    width?: number;
+    /**
+     * 是否渲染自带的 resizer（默认 true）。
+     * 外壳（MindmapRightPanel）自己提供 resizer 时传 false，避免同名 testid 重复。
+     */
+    resizable?: boolean;
   }>(),
   {
     readonly: false,
     relations: () => [],
     relationTargets: () => [],
     initialWidth: 260,
+    // Boolean prop 缺省会被 Vue 转换为 false，因此显式声明默认 true
+    resizable: true,
   },
 );
 
@@ -96,6 +108,8 @@ const emit = defineEmits<{
   (event: 'update-boundary', boundary: MindMapTopicBoundary | null): void;
   /** 设置/清除概要：null 或空白表示清除。 */
   (event: 'update-summary', text: string | null): void;
+  /** 受控宽度变化（仅在传了 width 时触发）。 */
+  (event: 'update:width', width: number): void;
 }>();
 
 /** 链接允许的协议白名单（mailto 之外一律拒绝）。 */
@@ -374,18 +388,30 @@ function clearSummary() {
   emit('update-summary', null);
 }
 
-/* ---------------------------- 面板宽度（本地 state） ---------------------------- */
+/* ---------------------------- 面板宽度（本地或受控） ---------------------------- */
 
 /** 面板宽度上下限（与任务约定一致：180–420px）。 */
 const PANEL_MIN_WIDTH = 180;
 const PANEL_MAX_WIDTH = 420;
 
-/** 面板宽度：只影响视图，不写入文档、不进历史。 */
-const panelWidth = ref(clampPanelWidth(props.initialWidth ?? 260));
-
 function clampPanelWidth(value: number): number {
   return Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, Math.round(value)));
 }
+
+/** 本地宽度：只影响视图，不写入文档、不进历史（未传 `width` 时生效）。 */
+const localWidth = ref(clampPanelWidth(props.initialWidth ?? 260));
+
+/**
+ * 对外生效的宽度：
+ * - 传了 `width` → 受控（由外壳如 MindmapRightPanel 管，store.propertiesWidth）；
+ * - 没传 → 用本地宽度（面板独立使用时的既有行为）。
+ */
+const panelWidth = computed(() => (
+  props.width === undefined ? localWidth.value : clampPanelWidth(props.width)
+));
+
+/** 是否渲染自带的 resizer（外壳自己提供 resizer 时关闭，避免 testid 重复）。 */
+const showResizer = computed(() => props.resizable !== false);
 
 let resizeStartX = 0;
 let resizeStartWidth = 0;
@@ -415,7 +441,9 @@ function onResizePointerDown(event: PointerEvent) {
 function onResizePointerMove(event: PointerEvent) {
   if (!resizing) return;
   // 面板位于右侧：向左拖（clientX 变小）应当变宽
-  panelWidth.value = clampPanelWidth(resizeStartWidth + (resizeStartX - event.clientX));
+  const nextWidth = clampPanelWidth(resizeStartWidth + (resizeStartX - event.clientX));
+  if (props.width === undefined) localWidth.value = nextWidth;
+  else emit('update:width', nextWidth);
 }
 
 function endResize() {
@@ -442,6 +470,7 @@ onBeforeUnmount(() => {
     @keydown.esc="onEscape"
   >
     <div
+      v-if="showResizer"
       class="mm-panel-resizer"
       data-testid="mm-props-resizer"
       role="separator"

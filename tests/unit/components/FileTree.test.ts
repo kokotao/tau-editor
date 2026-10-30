@@ -690,7 +690,7 @@ describe('FileTree.vue', () => {
       expect(teleportedMenu()).toBeNull()
     })
 
-    it('点击"新建文件"应发射 new-file 事件', async () => {
+    it('点击"新建文件"展开二级类型菜单，选择 Markdown 后发射带 typeId 的 new-file 事件', async () => {
       const wrapper = mount(FileTree, {
         props: {
           fileTree: mockFileTree,
@@ -703,12 +703,45 @@ describe('FileTree.vue', () => {
         clientY: 200,
       })
 
-      const newFileItem = document.body.querySelector('.context-menu-item') as HTMLElement
+      // UX-3A：主项先展开二级菜单，不直接创建
+      const newFileItem = document.body.querySelector('[data-testid="file-tree-new-file"]') as HTMLElement
+      expect(newFileItem).not.toBeNull()
       newFileItem.click()
+      await nextTick()
+
+      const submenu = document.body.querySelector('[data-testid="file-tree-new-file-submenu"]')
+      expect(submenu).not.toBeNull()
+      expect(wrapper.emitted('new-file')).toBeFalsy()
+
+      const markdownItem = document.body.querySelector('[data-testid="file-tree-new-file-markdown"]') as HTMLElement
+      markdownItem.click()
 
       expect(wrapper.emitted('new-file')).toBeTruthy()
+      expect(wrapper.emitted('new-file')![0]).toEqual(['markdown'])
       await nextTick()
       expect(teleportedMenu()).toBeNull()
+    })
+
+    it('二级菜单列出全部本地类型，选择 opml 时带上对应 typeId', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      // 悬停主项也能展开（任务要求 hover / 点击均可）
+      const newFileItem = document.body.querySelector('[data-testid="file-tree-new-file"]') as HTMLElement
+      newFileItem.dispatchEvent(new MouseEvent('mouseenter'))
+      await nextTick()
+
+      const typeIds = ['markdown', 'taumap', 'freemind', 'opml', 'plaintext', 'json']
+      for (const typeId of typeIds) {
+        expect(document.body.querySelector(`[data-testid="file-tree-new-file-${typeId}"]`)).not.toBeNull()
+      }
+
+      (document.body.querySelector('[data-testid="file-tree-new-file-opml"]') as HTMLElement).click()
+      expect(wrapper.emitted('new-file')![0]).toEqual(['opml'])
     })
 
     it('点击"新建文件夹"应发射 new-folder 事件', async () => {

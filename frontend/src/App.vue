@@ -14,6 +14,7 @@ import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useDiffStore } from '@/stores/diff';
 import { useDiagnosticsStore, type DiagnosticRecord } from '@/stores/diagnostics';
 import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useMindmapStore } from '@/stores/mindmap';
 import {
   loadGitDiffSession,
   loadWorkspaceFileDiffSession,
@@ -91,6 +92,12 @@ import {
 } from '@/lib/tauri';
 import type { MarkdownLinkStatus, WorkspaceTaskResponse } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
+import {
+  buildDefaultNewFileName,
+  newFileTypeLabel,
+  resolveNewFileType,
+  seedContentForFileName,
+} from '@/services/newFileTypeOptions';
 import { guardPersistedScratchWorkspace } from '@/services/scratchWorkspaceGuard';
 import {
   getAppI18n,
@@ -140,6 +147,12 @@ import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
 import MindmapStage from './components/editor/mindmap/MindmapStage.vue';
+import MindmapRightPanel from './components/editor/mindmap/MindmapRightPanel.vue';
+import {
+  DEFAULT_MINDMAP_THEME_ID,
+  listMindmapThemes,
+} from '@/services/mindmapThemeService';
+import type { MindMapLayoutMode } from '@/types/mindmap';
 import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
 import { createAutoSaveScheduler } from '@/utils/autoSaveScheduler';
@@ -172,6 +185,7 @@ const diffStore = useDiffStore();
 const diagnosticsStore = useDiagnosticsStore();
 const cloudSyncStore = useCloudSyncStore();
 const centerToast = useCenterToastStore();
+const mindmapStore = useMindmapStore();
 const pendingLocalWrites = new Map<string, number>();
 const markLocalWritePending = (filePath?: string | null) => {
   if (filePath) pendingLocalWrites.set(normalizeFsPath(filePath), Date.now() + 4000);
@@ -437,6 +451,41 @@ type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean
 const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
 const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
+/**
+ * 思维导图 Stage 暴露的实例方法。
+ *
+ * - UX-3B：右侧面板渲染在外壳层，大纲行右键需要复用 Stage 里那一套统一右键菜单；
+ * - UX-3C：工具栏外移到全局 Toolbar 后，按钮点击经这些方法转发进 Stage，
+ *   保证「改文档的只有 Stage」这一受控约定。
+ */
+type MindmapStageExpose = {
+  openMindmapContextMenu: (payload: {
+    nodeId: string | null;
+    clientX: number;
+    clientY: number;
+  }) => void;
+  addChild: () => void;
+  addSibling: () => void;
+  startRename: (topicId: string) => void;
+  duplicateSelected: () => void;
+  requestDelete: () => void;
+  moveSelected: (offset: -1 | 1) => void;
+  doUndo: () => void;
+  doRedo: () => void;
+  fitView: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+  runLayoutCommand: (mode: MindMapLayoutMode) => boolean;
+  applyTheme: (themeId: string) => boolean;
+  requestReset: () => void;
+  handleImportPick: () => Promise<void>;
+  openExportDialog: () => void;
+  handlePrint: () => Promise<void>;
+  toggleOutlinePanel: () => boolean;
+  togglePropertiesPanel: () => boolean;
+};
+const mindmapStageRef = ref<MindmapStageExpose | null>(null);
 type ImageViewerPayload = {
   src: string;
   alt?: string;
@@ -648,6 +697,15 @@ const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
 const isMindmapTab = computed(() => activeTab.value?.documentKind === 'mindmap' || activeTab.value?.documentKind === 'mindmap-external');
+/**
+ * 思维导图右侧面板（UX-3B 返工：大纲列 / 属性列各自独立）：
+ * 仅当当前是「可编辑的导图标签」且至少一列展开时渲染。
+ * 外部格式只读预览（mindmap-external）不提供大纲/属性编辑，因此不显示。
+ */
+const showMindmapRightPanel = computed(() => (
+  activeTab.value?.documentKind === 'mindmap'
+  && (mindmapStore.outlineVisible || mindmapStore.propertiesVisible)
+));
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
 const isPdfTab = computed(() => isPdfFilePath(activeTab.value?.filePath));
 const isSpreadsheetTab = computed(() => isSpreadsheetFilePath(activeTab.value?.filePath));
@@ -933,6 +991,156 @@ const handleMindmapChange = (json: string) => {
   const tab = tabsStore.activeTab;
   if (!tab || tab.documentKind !== 'mindmap') return;
   tabService.updateTabContent(tab.id, json);
+};
+
+/**
+ * UX-3B：右侧面板大纲行的右键菜单转发给 Stage。
+ *
+ * 菜单本身（条目、动作、定位）只有一份实现，在 MindmapStage 里；
+ * Stage 已通过 defineExpose 暴露 openMindmapContextMenu。
+ */
+const handleMindmapRightPanelContextMenu = (payload: {
+  nodeId: string | null;
+  clientX: number;
+  clientY: number;
+}) => {
+  mindmapStageRef.value?.openMindmapContextMenu(payload);
+};
+
+/* --------------------------- 思维导图全局工具栏（UX-3C） --------------------------- */
+
+/**
+ * 是否渲染全局 Toolbar 里的导图工具组。
+ *
+ * 与旧行为保持一致：外部格式（mindmap-external）与解析失败时 Stage 不渲染工具栏，
+ * 这里同样隐藏，避免出现按不动的按钮。
+ */
+const showMindmapToolbar = computed(() => (
+  activeTab.value?.documentKind === 'mindmap'
+  && Boolean(mindmapStore.document)
+  && !mindmapStore.loadError
+));
+
+/** 传给 Toolbar 的导图工具状态（Toolbar 只做哑展示）。 */
+const mindmapToolbarState = computed(() => {
+  if (!showMindmapToolbar.value) return null;
+  const doc = mindmapStore.document;
+  return {
+    canUndo: mindmapStore.canUndo,
+    canRedo: mindmapStore.canRedo,
+    selectedTopicId: mindmapStore.selectedTopicId,
+    layoutMode: doc?.layoutMode ?? 'mindmap',
+    themeId: doc?.themeId ?? DEFAULT_MINDMAP_THEME_ID,
+    themeOptions: listMindmapThemes().map((theme) => ({ id: theme.id, name: theme.name })),
+    outlineActive: mindmapStore.outlineVisible,
+    propertiesActive: mindmapStore.propertiesVisible,
+  };
+});
+
+/** 导图工具组的无参动作：统一转发到 Stage 暴露的方法。 */
+type MindmapToolbarAction =
+  | 'add-child'
+  | 'add-sibling'
+  | 'rename'
+  | 'duplicate'
+  | 'delete'
+  | 'move-up'
+  | 'move-down'
+  | 'undo'
+  | 'redo'
+  | 'fit'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'reset-view'
+  | 'reset'
+  | 'import'
+  | 'export'
+  | 'print'
+  | 'toggle-outline'
+  | 'toggle-properties';
+
+/**
+ * 转发 Toolbar 的导图工具点击。
+ *
+ * Stage 未挂载（例如标签正在切换）时静默忽略，避免空引用；
+ * 所有需要选中节点的动作在 Stage 内部还有二次守卫。
+ */
+const handleMindmapToolbarAction = (action: MindmapToolbarAction) => {
+  const stage = mindmapStageRef.value;
+  if (!stage) return;
+  switch (action) {
+    case 'add-child':
+      stage.addChild();
+      break;
+    case 'add-sibling':
+      stage.addSibling();
+      break;
+    case 'rename': {
+      const topicId = mindmapStore.selectedTopicId;
+      if (topicId) stage.startRename(topicId);
+      break;
+    }
+    case 'duplicate':
+      stage.duplicateSelected();
+      break;
+    case 'delete':
+      stage.requestDelete();
+      break;
+    case 'move-up':
+      stage.moveSelected(-1);
+      break;
+    case 'move-down':
+      stage.moveSelected(1);
+      break;
+    case 'undo':
+      stage.doUndo();
+      break;
+    case 'redo':
+      stage.doRedo();
+      break;
+    case 'fit':
+      stage.fitView();
+      break;
+    case 'zoom-in':
+      stage.zoomIn();
+      break;
+    case 'zoom-out':
+      stage.zoomOut();
+      break;
+    case 'reset-view':
+      stage.resetView();
+      break;
+    case 'reset':
+      stage.requestReset();
+      break;
+    case 'import':
+      void stage.handleImportPick();
+      break;
+    case 'export':
+      stage.openExportDialog();
+      break;
+    case 'print':
+      void stage.handlePrint();
+      break;
+    case 'toggle-outline':
+      stage.toggleOutlinePanel();
+      break;
+    case 'toggle-properties':
+      stage.togglePropertiesPanel();
+      break;
+    default:
+      break;
+  }
+};
+
+/** 结构布局切换（可撤销命令，由 Stage 写回文档并 emit change）。 */
+const handleMindmapToolbarLayout = (mode: MindMapLayoutMode) => {
+  mindmapStageRef.value?.runLayoutCommand(mode);
+};
+
+/** 主题模板切换（原生 select 的值）。 */
+const handleMindmapToolbarTheme = (themeId: string) => {
+  mindmapStageRef.value?.applyTheme(themeId);
 };
 
 const openFileInEditor = async (filePath: string) => {
@@ -2909,14 +3117,25 @@ const closeTabsByPath = (targetPath: string, targetType: 'file' | 'folder') => {
   }
 };
 
-const handleFileTreeCreateFile = async () => {
+/**
+ * 本地文件树「新建文件」（UX-3A）。
+ *
+ * FileTree 的二级菜单会传入类型 id；旧调用（顶部工具栏 / 之前的单入口）不带类型，
+ * 统一按 Markdown 处理，保持既有行为。类型目录见 `services/newFileTypeOptions`：
+ * 初始正文按最终文件名生成（.taumap / .mm / .opml 都是可直接打开的合法内容）。
+ */
+const handleFileTreeCreateFile = async (typeId?: string) => {
   const baseDir = getContextBaseDirectory();
   if (!baseDir) {
     notificationStore.warning('无法新建文件', '请先打开一个工作区文件夹');
     return;
   }
 
-  const fileName = await requestName('请输入新文件名', 'NewFile.txt');
+  const option = resolveNewFileType(typeId);
+  const fileName = await requestName(
+    `请输入新文件名（${newFileTypeLabel(option, settingsStore.uiLanguage)}）`,
+    buildDefaultNewFileName(option),
+  );
   if (!fileName) {
     return;
   }
@@ -2924,6 +3143,11 @@ const handleFileTreeCreateFile = async () => {
   const targetPath = joinFsPath(baseDir, fileName);
   try {
     await fileSystemStore.createNewFile(targetPath);
+    // 空文件先落盘，再写入类型模板：导图/大纲类是合法空结构，避免打开即报格式错误
+    const seed = seedContentForFileName(fileName);
+    if (seed) {
+      await fileCommands.writeFile(targetPath, seed);
+    }
     await fileSystemStore.refreshFileTree();
     await openFileInEditor(targetPath);
     notificationStore.success('新建文件成功', fileName);
@@ -5230,6 +5454,8 @@ onUnmounted(() => {
       :sidebar-visible="showFileTree"
       :context-rail-visible="showContextRail"
       :is-markdown="isMarkdownTab"
+      :is-mindmap="showMindmapToolbar"
+      :mindmap-tools="mindmapToolbarState"
       :is-document-preview="isDocumentPreviewTab"
       :is-full-document-preview="isFullDocumentPreviewTab"
       :markdown-preview-mode="markdownPreviewMode"
@@ -5249,6 +5475,27 @@ onUnmounted(() => {
       @markdown-heading="handleMarkdownHeading"
       @markdown-code="handleMarkdownCode"
       @markdown-image="handleInsertMarkdownImage"
+      @mm-add-child="handleMindmapToolbarAction('add-child')"
+      @mm-add-sibling="handleMindmapToolbarAction('add-sibling')"
+      @mm-rename="handleMindmapToolbarAction('rename')"
+      @mm-duplicate="handleMindmapToolbarAction('duplicate')"
+      @mm-delete="handleMindmapToolbarAction('delete')"
+      @mm-move-up="handleMindmapToolbarAction('move-up')"
+      @mm-move-down="handleMindmapToolbarAction('move-down')"
+      @mm-undo="handleMindmapToolbarAction('undo')"
+      @mm-redo="handleMindmapToolbarAction('redo')"
+      @mm-fit="handleMindmapToolbarAction('fit')"
+      @mm-zoom-in="handleMindmapToolbarAction('zoom-in')"
+      @mm-zoom-out="handleMindmapToolbarAction('zoom-out')"
+      @mm-reset-view="handleMindmapToolbarAction('reset-view')"
+      @mm-layout="handleMindmapToolbarLayout"
+      @mm-theme="handleMindmapToolbarTheme"
+      @mm-reset="handleMindmapToolbarAction('reset')"
+      @mm-import="handleMindmapToolbarAction('import')"
+      @mm-export="handleMindmapToolbarAction('export')"
+      @mm-print="handleMindmapToolbarAction('print')"
+      @mm-toggle-outline="handleMindmapToolbarAction('toggle-outline')"
+      @mm-toggle-properties="handleMindmapToolbarAction('toggle-properties')"
     />
 
     <div class="main-layout">
@@ -5412,7 +5659,7 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="settingsContainer !== 'workspace'"
+        v-if="settingsContainer !== 'workspace' && !isMindmapTab"
         class="floating-context-controls"
         :class="{ 'is-open': showContextRail }"
         :style="{ '--context-rail-toggle-right': showContextRail ? `${Math.max(21, Math.min(contextRailWidth - 13, Math.max(0, viewportWidth - 30)))}px` : '8px' }"
@@ -5519,6 +5766,7 @@ onUnmounted(() => {
             />
             <MindmapStage
               v-else
+              ref="mindmapStageRef"
               :tab-id="activeTab.id"
               :document-json="activeTab.content"
               :file-name="activeTab.fileName"
@@ -5531,6 +5779,12 @@ onUnmounted(() => {
             :file-path="activeTab.filePath!"
             :file-name="activeTab.fileName"
             @open="openImageViewer"
+          />
+          <!-- UX-3B：大纲 / 属性双 tab 右面板（仅导图标签、且面板展开时） -->
+          <MindmapRightPanel
+            v-if="showMindmapRightPanel"
+            @change="handleMindmapChange"
+            @contextmenu="handleMindmapRightPanelContextMenu"
           />
           <div
             v-if="isPreviewableTab"
@@ -5670,7 +5924,7 @@ onUnmounted(() => {
 
       <transition name="context-rail-shell">
         <div
-          v-if="showContextRail && settingsContainer !== 'workspace'"
+          v-if="showContextRail && settingsContainer !== 'workspace' && !isMindmapTab"
           class="context-rail-shell"
           :class="{ resizing: isResizingContextRail }"
           :style="{ '--context-rail-width': `${contextRailWidth}px` }"

@@ -206,7 +206,7 @@
             @context-menu="handleNestedContextMenu"
             @compare-with-current="(entry) => emit('compare-with-current', entry)"
             @run-provider-action="(actionId, entry) => emit('run-provider-action', actionId, entry)"
-            @new-file="emit('new-file')"
+            @new-file="(typeId?: string) => emit('new-file', typeId)"
             @new-folder="emit('new-folder')"
             @rename="(entry) => emit('rename', entry)"
             @delete="(entry) => emit('delete', entry)"
@@ -229,8 +229,42 @@
         :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
         @click.stop
       >
-      <div class="context-menu-item" @click="handleNewFile">
-        {{ copy.newFile }}
+      <div
+        ref="newFileSubmenuHostRef"
+        class="context-menu-item has-submenu"
+        data-testid="file-tree-new-file"
+        :class="{ 'is-submenu-open': newFileSubmenuVisible }"
+        aria-haspopup="menu"
+        :aria-expanded="newFileSubmenuVisible ? 'true' : 'false'"
+        @mouseenter="openNewFileSubmenu"
+        @mouseleave="closeNewFileSubmenu"
+        @click.stop="toggleNewFileSubmenu"
+      >
+        <span class="context-menu-label">{{ copy.newFile }}</span>
+        <span class="context-menu-caret" aria-hidden="true">▸</span>
+        <div
+          v-if="newFileSubmenuVisible"
+          ref="newFileSubmenuRef"
+          class="context-submenu"
+          :class="{ 'is-flip-left': newFileSubmenuFlipLeft }"
+          data-testid="file-tree-new-file-submenu"
+          role="menu"
+          :aria-label="copy.chooseFileType"
+          @click.stop
+        >
+          <div class="context-submenu-title">{{ copy.chooseFileType }}</div>
+          <div
+            v-for="option in newFileTypeOptions"
+            :key="option.id"
+            class="context-menu-item"
+            role="menuitem"
+            :data-testid="`file-tree-new-file-${option.id}`"
+            @click.stop="handleNewFile(option.id)"
+          >
+            <span class="context-menu-label">{{ newFileTypeLabel(option, settingsStore.uiLanguage) }}</span>
+            <span class="context-menu-shortcut">.{{ option.extension }}</span>
+          </div>
+        </div>
       </div>
       <div class="context-menu-item" @click="handleNewFolder">
         {{ copy.newFolder }}
@@ -313,6 +347,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { getFileTreeI18n } from '@/i18n/ui';
 import { isCloudSyncEligibleFile } from '@/services/cloudSyncService';
 import { isMacroDocPath, validateBinaryDocLocal } from '@/services/cloudBinaryService';
+import { NEW_FILE_TYPE_OPTIONS, newFileTypeLabel } from '@/services/newFileTypeOptions';
 import LoadingSpinner from '../ui/LoadingSpinner.vue';
 
 // Props
@@ -365,7 +400,8 @@ const emit = defineEmits<{
   'folder-toggle': [folderPath: string];
   'contextMenu': [entry: FileTreeNode | null, event: MouseEvent];
   'refresh': [];
-  'new-file': [];
+  /** 新建文件：typeId 取自 newFileTypeOptions（省略时宿主按 Markdown 处理，兼容旧调用） */
+  'new-file': [typeId?: string];
   'new-folder': [];
   'rename': [entry: FileTreeNode];
   'details': [entry: FileTreeNode];
@@ -388,6 +424,15 @@ const contextMenu = ref({
   entry: null as FileTreeNode | null,
 });
 const contextMenuRef = ref<HTMLElement | null>(null);
+/** 新建文件二级菜单（UX-3A）：主项 hover / 点击展开类型列表 */
+const newFileSubmenuVisible = ref(false);
+const newFileSubmenuFlipLeft = ref(false);
+const newFileSubmenuHostRef = ref<HTMLElement | null>(null);
+const newFileSubmenuRef = ref<HTMLElement | null>(null);
+/** 二级菜单与视口右边缘的最小留白 */
+const SUBMENU_VIEWPORT_MARGIN = 8;
+/** 本地可新建的全部类型（目录见 services/newFileTypeOptions） */
+const newFileTypeOptions = NEW_FILE_TYPE_OPTIONS;
 const fileTreeRootRef = ref<HTMLElement | null>(null);
 let revealPulseTimer: ReturnType<typeof setTimeout> | null = null;
 const CONTEXT_MENU_MARGIN = 8;
@@ -629,8 +674,39 @@ const handleRootContextMenu = (event: MouseEvent) => {
   emit('contextMenu', null, event);
 };
 
-const handleNewFile = () => {
-  emit('new-file');
+/**
+ * 展开新建文件二级菜单。
+ *
+ * 默认向右展开；若菜单右侧空间不足则翻转到左侧（happy-dom 里 rect 全为 0，
+ * 此时保持默认方向即可，不影响单测断言）。
+ */
+const openNewFileSubmenu = () => {
+  newFileSubmenuVisible.value = true;
+  void nextTick(() => {
+    const submenu = newFileSubmenuRef.value;
+    const host = newFileSubmenuHostRef.value;
+    if (!submenu || !host) return;
+    const rect = submenu.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    newFileSubmenuFlipLeft.value = rect.width > 0
+      && hostRect.right + rect.width > window.innerWidth - SUBMENU_VIEWPORT_MARGIN;
+  });
+};
+
+const closeNewFileSubmenu = () => {
+  newFileSubmenuVisible.value = false;
+  newFileSubmenuFlipLeft.value = false;
+};
+
+const toggleNewFileSubmenu = () => {
+  if (newFileSubmenuVisible.value) closeNewFileSubmenu();
+  else openNewFileSubmenu();
+};
+
+/** 选中某个类型：带上 typeId 交给宿主创建（默认 Markdown 由宿主兜底）。 */
+const handleNewFile = (typeId?: string) => {
+  closeNewFileSubmenu();
+  emit('new-file', typeId);
   contextMenu.value.visible = false;
 };
 
@@ -749,6 +825,7 @@ const handleDelete = () => {
 // 点击其他地方关闭右键菜单
 const closeContextMenu = () => {
   contextMenu.value.visible = false;
+  closeNewFileSubmenu();
 };
 
 const handleExternalContextMenuOpen = () => {
@@ -1115,6 +1192,64 @@ onUnmounted(() => {
 
 .context-menu-item.danger:hover {
   background: #d84545;
+}
+
+/* 新建文件二级类型菜单（UX-3A） */
+.context-menu-item.has-submenu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-menu-item.is-submenu-open {
+  background: var(--n-hover-color, #2a2d2e);
+}
+
+.context-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.context-menu-caret {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.context-menu-shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.55;
+  font-family: var(--font-code, monospace);
+}
+
+.context-submenu {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  z-index: 20001;
+  min-width: 180px;
+  margin-left: 2px;
+  padding: 4px 0;
+  background: var(--n-color, #252526);
+  border: 1px solid var(--n-border-color, #333);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* 右侧放不下时翻转到左侧 */
+.context-submenu.is-flip-left {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 2px;
+}
+
+.context-submenu-title {
+  padding: 4px 16px 6px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  opacity: 0.55;
 }
 
 .context-menu-divider {

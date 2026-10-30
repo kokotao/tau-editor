@@ -2386,6 +2386,9 @@ pub fn is_openable_text_path(path: &str) -> bool {
         "env", "cfg",
         // Tau 原生思维导图：UTF-8 JSON 文本，云文档可直接打开/保存
         "taumap",
+        // Tau 支持导入/只读打开的外部导图文本格式（FreeMind .mm / OPML .opml），
+        // 需与桌面端 cloudUploadPolicy、后端 CloudDocPathValidator 三端同步
+        "mm", "opml",
     ];
     TEXT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
 }
@@ -3849,6 +3852,9 @@ mod tests {
         assert!(is_openable_text_path("D:\\ws\\a.TSX"));
         assert!(is_openable_text_path("/ws/notes.markdown"));
         assert!(is_openable_text_path("/ws/思维导图.taumap"));
+        // Tau 支持的外部导图文本格式（UX-3A：三端白名单同步新增）
+        assert!(is_openable_text_path("/ws/freemind.mm"));
+        assert!(is_openable_text_path("D:\\ws\\outline.opml"));
         // 二进制 / 无扩展名一律不可打开
         assert!(!is_openable_text_path("/ws/a.png"));
         assert!(!is_openable_text_path("/ws/a.pdf"));

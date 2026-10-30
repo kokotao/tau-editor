@@ -6,14 +6,22 @@
  * 命中时直接返回 conflict，不发起保存（避免产生第二篇同名文档或被静默覆盖）。
  * 创建成功后由宿主（App.vue）走既有落位 + 打开链路，这里不写本地文件。
  *
+ * UX-3A：支持「按类型新建」——类型目录见 `services/newFileTypeOptions.ts`，
+ * 初始正文按最终文件名统一生成（.taumap 空导图 / .mm FreeMind 空地图 / .opml 空大纲 / md/txt/json 最小模板），
+ * 避免出现「新建了导图却打不开」的空正文。
+ *
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-28
  */
 import { findCloudDocByPath, saveCloudDoc, type CloudOutcome } from '@/services/cloudDocService';
 import { toCloudDocPath } from '@/services/cloudSyncService';
-import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
 import { extensionOfPath, isTextDocPath } from '@/services/cloudUploadPolicy';
+import {
+  seedContentForFileName,
+  resolveNewFileType,
+  type NewFileTypeId,
+} from '@/services/newFileTypeOptions';
 
 /** 文件名里禁止出现的字符：Windows 保留字符 `\ / : * ? " < > |`（含路径分隔符）。 */
 const FORBIDDEN_NAME_CHARS = /[\\/:*?"<>|]/;
@@ -43,9 +51,12 @@ function hasExtension(name: string): boolean {
 /**
  * 净化用户输入的文件名：
  * - 去首尾空白；空名、含 `..`、含 Windows 保留字符、超长一律拒绝；
- * - 没有扩展名时自动补 `.md`（设计决策 D1：默认创建 markdown 文档）。
+ * - 没有扩展名时补上 `defaultExtension`（默认 `.md`，设计决策 D1；按类型新建时传该类型的扩展名）。
  */
-export function sanitizeNewDocName(raw: string | null | undefined): NewDocNameResult {
+export function sanitizeNewDocName(
+  raw: string | null | undefined,
+  defaultExtension: string = DEFAULT_NEW_DOC_EXTENSION,
+): NewDocNameResult {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) {
     return { ok: false, reason: 'empty' };
@@ -56,7 +67,8 @@ export function sanitizeNewDocName(raw: string | null | undefined): NewDocNameRe
   if (FORBIDDEN_NAME_CHARS.test(trimmed)) {
     return { ok: false, reason: 'invalid-chars' };
   }
-  const name = hasExtension(trimmed) ? trimmed : `${trimmed}${DEFAULT_NEW_DOC_EXTENSION}`;
+  const extension = defaultExtension.startsWith('.') ? defaultExtension : `.${defaultExtension}`;
+  const name = hasExtension(trimmed) ? trimmed : `${trimmed}${extension}`;
   if (name.length > NEW_DOC_NAME_MAX_LENGTH) {
     return { ok: false, reason: 'too-long' };
   }
@@ -88,8 +100,10 @@ export function buildNewCloudDocPath(
 }
 
 export interface CreateCloudDocFileInput {
-  /** 用户输入的原始文件名（内部会净化并补 `.md`） */
+  /** 用户输入的原始文件名（内部会净化；无扩展名时按 typeId 补对应扩展名） */
   fileName: string;
+  /** 新建类型 id（见 `newFileTypeOptions`）；省略/未知时按 Markdown 处理（兼容旧调用） */
+  typeId?: NewFileTypeId | string | null;
   /** 当前工作区名：没有时按 D2 退回分类名 */
   workspaceName?: string | null;
   /** 目标分类 id（`cat:<id>` 节点）；未分类 / 聚合分组为 null */
@@ -99,17 +113,14 @@ export interface CreateCloudDocFileInput {
 }
 
 /**
- * 新建文件的初始正文。
+ * 新建文件的初始正文（按最终文件名分派到类型目录）。
  *
- * `.taumap` 必须写入一份合法的空思维导图 JSON：空正文会让编辑器打开时
- * 直接报「思维导图文件不是合法的 JSON」，用户无法开始创作。
+ * `.taumap` 必须写入合法的空思维导图 JSON：空正文会让编辑器打开时
+ * 直接报「思维导图文件不是合法的 JSON」；`.mm` / `.opml` 同理需要合法的
+ * FreeMind 地图 / OPML 大纲，否则导入预览会失败。
  */
 export function initialCloudDocContent(fileName: string): string {
-  if (extensionOfPath(fileName) !== 'taumap') {
-    return '';
-  }
-  const title = fileName.replace(/\.taumap$/i, '').trim() || '未命名思维导图';
-  return serializeMindMapDocument(createEmptyMindMapDocument(title));
+  return seedContentForFileName(fileName);
 }
 
 /** 新建结果：fileId/version/contentHash/cloudPath 是宿主落位必需的；size/updatedAt 供合成树节点展示。 */
@@ -132,7 +143,8 @@ export interface CloudDocCreateResult {
 export async function createCloudDocFile(
   input: CreateCloudDocFileInput,
 ): Promise<CloudOutcome<CloudDocCreateResult>> {
-  const sanitized = sanitizeNewDocName(input.fileName);
+  const type = resolveNewFileType(input.typeId);
+  const sanitized = sanitizeNewDocName(input.fileName, `.${type.extension}`);
   if (!sanitized.ok) {
     return { ok: false, kind: 'unknown', message: '文件名不可用' };
   }
@@ -142,7 +154,7 @@ export async function createCloudDocFile(
     return {
       ok: false,
       kind: 'unsupported',
-      message: `云端暂不支持该文件类型（${extensionOfPath(sanitized.name) ? '.' + extensionOfPath(sanitized.name) : '无扩展名'}），请使用文本类扩展名（如 .md / .taumap）`,
+      message: `云端暂不支持该文件类型（${extensionOfPath(sanitized.name) ? '.' + extensionOfPath(sanitized.name) : '无扩展名'}），请使用文本类扩展名（如 .md / .taumap / .mm / .opml）`,
     };
   }
 

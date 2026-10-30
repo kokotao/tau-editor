@@ -1,10 +1,16 @@
 <script setup lang="ts">
 /**
- * MindmapStage（思维导图 阶段 2：画布 + 大纲外壳）
+ * MindmapStage（思维导图 阶段 2：画布 + 工作表条；UX-3B 面板外移）
  *
  * 职责：
- * 1. 组装工具栏、SVG 画布与大纲面板，统一承载编辑命令、键盘操作与确认流程；
- * 2. 画布与大纲共享同一选中态（store.selectedTopicId），实现双向同步；
+ * 1. 组装 SVG 画布、工作表切换条与统计条，统一承载编辑命令、键盘操作与确认流程；
+ *    工具栏（mm-* 按钮）已外移到 App 顶部全局 Toolbar（UX-3C）：本组件通过
+ *    defineExpose 暴露同名方法（addChild / doUndo / fitView / runLayoutCommand …），
+ *    由 App 持有 ref 转发，Stage 仍是唯一真正改文档的地方；
+ * 2. 画布与大纲/属性面板共享同一选中态（store.selectedTopicId），实现双向同步；
+ *    大纲与属性面板已外移到编辑器外壳右侧（MindmapRightPanel，UX-3B），
+ *    这里只保留画布，并通过 store.outlineVisible / store.propertiesVisible
+ *    控制右侧两列的显隐；
  * 3. 视口（平移/缩放/适配）由画布发出、写回 store，不进入文档历史与 dirty；
  * 4. 删除含子树先确认、中心主题删除走「重置」、损坏文件安全失败；
  * 5. 每次成功编辑把序列化 JSON 通过 change 事件交给标签管线。
@@ -13,7 +19,7 @@
  * @date 2026-10-30
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { useMindmapStore } from '@/stores/mindmap';
+import { buildMindmapOutlineRows, useMindmapStore } from '@/stores/mindmap';
 import {
   addChildTopic,
   addSiblingTopic,
@@ -29,22 +35,16 @@ import {
 import type { MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
 import {
   DEFAULT_MINDMAP_THEME_ID,
-  listMindmapThemes,
   resolveMindmapTheme,
 } from '@/services/mindmapThemeService';
 import type {
   MindMapLayoutMode,
   MindMapSheet,
-  MindMapTopicBoundary,
-  MindMapTopicStyle,
   MindmapOutlineRow,
 } from '@/types/mindmap';
 import type { TabDocumentKind } from '@/stores/tabs';
 import MindmapCanvas from './MindmapCanvas.vue';
 import MindmapContextMenu from './MindmapContextMenu.vue';
-import MindmapOutlinePanel from './MindmapOutlinePanel.vue';
-import MindmapPropertiesPanel from './MindmapPropertiesPanel.vue';
-import { expandAncestors, searchMindmap } from '@/services/mindmapSearchService';
 import MindmapImportPreviewDialog from './MindmapImportPreviewDialog.vue';
 import MindmapExportDialog from './MindmapExportDialog.vue';
 import {
@@ -99,7 +99,6 @@ const isExternal = computed(() => props.documentKind === 'mindmap-external');
 
 const stageRef = ref<HTMLElement | null>(null);
 const canvasRef = ref<InstanceType<typeof MindmapCanvas> | null>(null);
-const showOutline = ref(true);
 
 const notice = ref<string | null>(null);
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,17 +119,14 @@ const importPreview = ref<MindmapImportPreview | null>(null);
 const exportDialogVisible = ref(false);
 const exportBusy = ref(false);
 
-/* 阶段 4：属性面板与大纲搜索 */
-const propertiesVisible = ref(false);
-const searchQuery = ref('');
+/* 阶段 4：右侧两列（大纲 / 属性）显隐 —— 状态在 store，不进历史 */
 
 /* 阶段 4C：主题模板 */
-/** 当前主题 id（来自文档正文，切换可撤销）。 */
+/**
+ * 当前主题 id（来自文档正文，切换可撤销）。
+ * UX-3C：主题下拉已移到全局 Toolbar，候选列表由 App 通过 themeService 提供。
+ */
 const themeId = computed(() => document.value?.themeId ?? DEFAULT_MINDMAP_THEME_ID);
-/** 主题候选（工具栏下拉）。 */
-const themeOptions = computed(() => listMindmapThemes());
-/** 当前主题展示名（用于提示文案）。 */
-const currentThemeName = computed(() => resolveMindmapTheme(themeId.value).name);
 
 function showNotice(message: string) {
   notice.value = message;
@@ -177,54 +173,16 @@ function emitIfChanged(before: string) {
 
 /* ------------------------------- 大纲行计算 ------------------------------- */
 
-/** 搜索命中的节点 id 集合（无查询时为空）。 */
-const searchMatchIds = computed<Set<string>>(() => {
-  const doc = document.value;
-  const query = searchQuery.value.trim();
-  if (!doc || !query) return new Set<string>();
-  return new Set(searchMindmap(doc, query).map((item) => item.id));
-});
-
-const isSearching = computed(() => searchQuery.value.trim().length > 0);
-
-/** 传给大纲面板的高亮 id 列表（Set 转数组）。 */
-const searchMatchIdList = computed<string[]>(() => [...searchMatchIds.value]);
-
+/**
+ * 大纲可见行：键盘上下移动与统计文案共用。
+ *
+ * UX-3B 起搜索框在右侧面板内（其搜索态只影响面板显示），
+ * 因此这里按「无搜索」计算，键盘导航覆盖当前工作表的全部可见行。
+ */
 const rows = computed<MindmapOutlineRow[]>(() => {
   const doc = document.value;
   if (!doc) return [];
-
-  const searching = isSearching.value;
-  // 搜索时只保留「命中节点 + 其祖先」，并强制展开，保证命中项可见。
-  const visibleIds: Set<string> | null = searching
-    ? new Set<string>([
-        ...searchMatchIds.value,
-        ...expandAncestors(doc, [...searchMatchIds.value]),
-      ])
-    : null;
-
-  const result: MindmapOutlineRow[] = [];
-  const walk = (topicId: string, depth: number) => {
-    const topic = doc.topics[topicId];
-    if (!topic) return;
-    if (visibleIds && !visibleIds.has(topic.id)) return;
-    const childIds = topic.childIds ?? [];
-    const hasChildren = childIds.length > 0;
-    // 搜索期间忽略折叠标记，确保命中分支可展开查看。
-    const collapsed = !searching && Boolean(topic.collapsed) && hasChildren;
-    result.push({
-      id: topic.id,
-      text: topic.text ?? '',
-      depth,
-      hasChildren,
-      collapsed,
-      childCount: childIds.length,
-    });
-    if (collapsed) return;
-    for (const childId of childIds) walk(childId, depth + 1);
-  };
-  walk(doc.rootTopicId, 0);
-  return result;
+  return buildMindmapOutlineRows(doc).rows;
 });
 
 const selectedIndex = computed(() =>
@@ -482,6 +440,35 @@ function onViewportChange(next: typeof viewport.value) {
   store.setViewport(next);
 }
 
+/* ---------------------- 视口命令（UX-3C：全局工具栏转发） ---------------------- */
+
+/**
+ * 适配/缩放/重置视口走画布实例方法。
+ *
+ * 工具栏外移后按钮在 Stage 之外，点击会把焦点留在 Toolbar 上；这里沿用编辑命令的
+ * 做法在动作后把焦点还给 Stage，保证紧接着的 Ctrl+Z / Tab 等快捷键仍由 Stage 接收
+ * （与「按钮原本就在 Stage 内」时的焦点行为一致）。
+ */
+function fitView() {
+  canvasRef.value?.fitView();
+  void focusStage();
+}
+
+function zoomIn() {
+  canvasRef.value?.zoomIn();
+  void focusStage();
+}
+
+function zoomOut() {
+  canvasRef.value?.zoomOut();
+  void focusStage();
+}
+
+function resetView() {
+  canvasRef.value?.resetView();
+  void focusStage();
+}
+
 function onEditingText(text: string) {
   editingText.value = text;
 }
@@ -500,196 +487,69 @@ function onMove(draggedId: string, targetId: string) {
   runCommand('拖放移动', (current) => moveTopic(current, draggedId, targetId));
 }
 
-/* ------------------------------- 属性面板 / 搜索 ------------------------------- */
-
-/** 属性面板的数据源：只暴露面板需要的字段，避免面板直接持有文档。 */
-const selectedTopicForPanel = computed(() => {
-  const doc = document.value;
-  const id = selectedTopicId.value;
-  if (!doc || !id) return null;
-  const topic = doc.topics[id];
-  if (!topic) return null;
-  return {
-    id: topic.id,
-    text: topic.text ?? '',
-    notes: topic.notes,
-    link: topic.link,
-    labels: topic.labels,
-    style: topic.style,
-    markers: topic.markers ?? [],
-    boundary: topic.boundary,
-    summary: topic.summary,
-  };
-});
+/* ----------------------- 右侧面板（UX-3B：大纲 / 属性） ----------------------- */
 
 /**
- * 按文档树序（先序）收集全部节点，用于「关系目标」下拉与关系目标文本。
- * 只依赖 childIds，不受折叠影响（折叠只是画布可见性问题）。
+ * 右侧两列的显隐由 store.outlineVisible / store.propertiesVisible 统一维护
+ * （App 负责渲染 MindmapRightPanel，开关在全局 Toolbar）。
+ * Stage 只提供开关方法与快捷键入口：
+ * - toggle 语义与旧工具栏一致：同一面板再点一次 = 关掉；
+ * - 两列相互独立，可同时打开。
  */
-const topicsInOrder = computed<{ id: string; text: string }[]>(() => {
-  const doc = document.value;
-  if (!doc) return [];
-  const result: { id: string; text: string }[] = [];
-  const walk = (topicId: string) => {
-    const topic = doc.topics[topicId];
-    if (!topic) return;
-    result.push({ id: topic.id, text: topic.text ?? '' });
-    for (const childId of topic.childIds ?? []) walk(childId);
-  };
-  walk(doc.rootTopicId);
-  return result;
-});
-
-/** 可作为关系终点的候选：排除当前节点自身（自环由面板与 store 双重拦截）。 */
-const relationTargets = computed(() => {
-  const id = selectedTopicId.value;
-  return topicsInOrder.value.filter((topic) => topic.id !== id);
-});
-
-/** 与当前节点相关的关系线（源或目标），已补齐对端节点文本。 */
-const panelRelations = computed(() => {
-  const doc = document.value;
-  const id = selectedTopicId.value;
-  if (!doc || !id) return [];
-  const relations = doc.relations ?? [];
-  const result: {
-    id: string;
-    sourceId: string;
-    targetId: string;
-    targetText: string;
-    label?: string;
-  }[] = [];
-  for (const relation of relations) {
-    if (relation.sourceTopicId !== id && relation.targetTopicId !== id) continue;
-    const otherId = relation.sourceTopicId === id
-      ? relation.targetTopicId
-      : relation.sourceTopicId;
-    result.push({
-      id: relation.id,
-      sourceId: relation.sourceTopicId,
-      targetId: otherId,
-      targetText: doc.topics[otherId]?.text || '（空主题）',
-      label: relation.label,
-    });
-  }
-  return result;
-});
-
-function toggleProperties() {
-  propertiesVisible.value = !propertiesVisible.value;
-}
-
-function closeProperties() {
-  propertiesVisible.value = false;
+function toggleOutlinePanel(): boolean {
+  const visible = store.toggleOutlineVisible();
   void focusStage();
+  return visible;
 }
 
-/** 属性面板提交：作为可撤销命令写入 store，并回写标签内容。 */
-function applyTopicProperties(payload: {
-  notes?: string;
-  link?: string;
-  labels?: string[];
-}) {
+function togglePropertiesPanel(): boolean {
+  const visible = store.togglePropertiesVisible();
+  void focusStage();
+  return visible;
+}
+
+/** 打开属性列（右键菜单「属性面板 / 添加边界 / 添加概要」入口）。 */
+function openPropertiesPanel() {
+  store.setPropertiesVisible(true);
+}
+
+/** 右键菜单「清除边界」：直接清空当前选中节点的边界（可撤销）。 */
+function clearSelectedBoundary() {
   const id = selectedTopicId.value;
   if (!id) return;
   const before = store.serialized;
-  if (store.updateTopicMeta(id, payload)) {
+  if (store.setTopicBoundary(id, null)) {
     emitIfChanged(before);
-    showNotice('节点属性已更新');
+    showNotice('已清除节点边界');
   }
-  void focusStage();
 }
 
-/** 属性面板：更新节点样式（可撤销）。 */
-function applyTopicStyle(style: MindMapTopicStyle) {
+/** 右键菜单「清除概要」：直接清空当前选中节点的概要（可撤销）。 */
+function clearSelectedSummary() {
   const id = selectedTopicId.value;
   if (!id) return;
   const before = store.serialized;
-  if (store.updateTopicStyle(id, style)) {
+  if (store.setTopicSummary(id, null)) {
     emitIfChanged(before);
+    showNotice('已清除节点概要');
   }
-  void focusStage();
-}
-
-/** 属性面板：覆盖节点标记集合（可撤销）。 */
-function applyTopicMarkers(markers: string[]) {
-  const id = selectedTopicId.value;
-  if (!id) return;
-  const before = store.serialized;
-  if (store.updateTopicMarkers(id, markers)) {
-    emitIfChanged(before);
-  }
-  void focusStage();
-}
-
-/** 属性面板（UX-2）：设置/清除边界（可撤销，null 或字段全空即清除）。 */
-function applyTopicBoundary(boundary: MindMapTopicBoundary | null) {
-  const id = selectedTopicId.value;
-  if (!id) return;
-  const before = store.serialized;
-  if (store.setTopicBoundary(id, boundary)) {
-    emitIfChanged(before);
-    showNotice(boundary ? '已更新节点边界' : '已清除节点边界');
-  }
-  void focusStage();
-}
-
-/** 属性面板（UX-2）：设置/清除概要（可撤销，null 或空白即清除）。 */
-function applyTopicSummary(text: string | null) {
-  const id = selectedTopicId.value;
-  if (!id) return;
-  const before = store.serialized;
-  if (store.setTopicSummary(id, text)) {
-    emitIfChanged(before);
-    showNotice(text ? '已更新节点概要' : '已清除节点概要');
-  }
-  void focusStage();
-}
-
-/** 属性面板：以当前选中节点为源添加独立关系线（自环/重复/端点非法由 store 拒绝）。 */
-function addRelationFromPanel(payload: { targetId: string }) {
-  const id = selectedTopicId.value;
-  if (!id || !payload.targetId) return;
-  const before = store.serialized;
-  if (store.addRelation(id, payload.targetId)) {
-    emitIfChanged(before);
-    showNotice('已添加关系线');
-  } else {
-    showNotice('无法添加该关系（不能指向自身，且同一对节点只允许一条关系）');
-  }
-  void focusStage();
-}
-
-/** 属性面板：删除一条关系线（可撤销）。 */
-function removeRelationFromPanel(payload: { relationId: string }) {
-  if (!payload.relationId) return;
-  const before = store.serialized;
-  if (store.removeRelation(payload.relationId)) {
-    emitIfChanged(before);
-    showNotice('已删除关系线');
-  }
-  void focusStage();
 }
 
 /**
- * 切换主题模板（可撤销）。
+ * 应用主题模板（可撤销）。
  *
  * 与布局切换同样沿用「前后序列化对比 → emit change」模式：
  * store.setTheme 负责校验与历史，组件只负责把新内容交回标签管线。
+ * UX-3C：全局 Toolbar 的主题下拉经 App 转发到这里（Stage 内不再有 select）。
  */
-function onThemeSelect(event: Event) {
-  const nextThemeId = (event.target as HTMLSelectElement | null)?.value ?? '';
-  if (!nextThemeId) return;
+function applyTheme(nextThemeId: string): boolean {
+  if (!nextThemeId || nextThemeId === themeId.value) return false;
   const before = store.serialized;
-  if (store.setTheme(nextThemeId)) {
-    emitIfChanged(before);
-    showNotice(`已切换主题：${resolveMindmapTheme(nextThemeId).name}`);
-  }
+  if (!store.setTheme(nextThemeId)) return false;
+  emitIfChanged(before);
+  showNotice(`已切换主题：${resolveMindmapTheme(nextThemeId).name}`);
   void focusStage();
-}
-
-function setSearchQuery(value: string) {
-  searchQuery.value = value;
+  return true;
 }
 
 /* ------------------------------- 右键菜单（UX-1） ------------------------------- */
@@ -810,7 +670,7 @@ function runContextMenuAction(id: string) {
         canvasRef.value?.resetView();
         break;
       case 'toggle-properties':
-        propertiesVisible.value = true;
+        openPropertiesPanel();
         break;
       case 'undo':
         doUndo();
@@ -848,22 +708,22 @@ function runContextMenuAction(id: string) {
       moveSelected(1);
       break;
     case 'toggle-properties':
-      propertiesVisible.value = true;
+      openPropertiesPanel();
       break;
     // UX-2：添加边界/概要需要输入，先打开属性面板（不产生空文档噪音）
     case 'add-boundary':
-      propertiesVisible.value = true;
+      openPropertiesPanel();
       showNotice('可在属性面板中设置边界标签与颜色');
       break;
     case 'clear-boundary':
-      applyTopicBoundary(null);
+      clearSelectedBoundary();
       break;
     case 'add-summary':
-      propertiesVisible.value = true;
+      openPropertiesPanel();
       showNotice('可在属性面板中输入概要文本');
       break;
     case 'clear-summary':
-      applyTopicSummary(null);
+      clearSelectedSummary();
       break;
     case 'delete':
       requestDelete();
@@ -1045,6 +905,18 @@ function onKeydown(event: KeyboardEvent) {
   const meta = event.ctrlKey || event.metaKey;
   const key = event.key;
 
+  // UX-3B：Ctrl+Alt+O 切换大纲面板、Ctrl+Alt+P 切换属性面板
+  if (meta && event.altKey && (key === 'o' || key === 'O')) {
+    event.preventDefault();
+    toggleOutlinePanel();
+    return;
+  }
+  if (meta && event.altKey && (key === 'p' || key === 'P')) {
+    event.preventDefault();
+    togglePropertiesPanel();
+    return;
+  }
+
   if (meta && (key === 'z' || key === 'Z')) {
     event.preventDefault();
     if (event.shiftKey) doRedo();
@@ -1118,6 +990,44 @@ function onKeydown(event: KeyboardEvent) {
       break;
   }
 }
+
+/**
+ * 对外暴露的方法。
+ *
+ * - UX-3B：右侧面板在大纲行右键时复用的正是 Stage 这套统一右键菜单
+ *   （Teleport 到 body，位置为 fixed，因此跨组件复用不会错位）；
+ * - UX-3C：工具栏外移到全局 Toolbar 后，按钮点击经 App 的 ref 转发到这里，
+ *   保证「组件仍是唯一改文档的地方」这一受控约定不被打破。
+ */
+defineExpose({
+  openMindmapContextMenu,
+  // 编辑
+  addChild,
+  addSibling,
+  startRename,
+  duplicateSelected,
+  requestDelete,
+  moveSelected,
+  // 历史
+  doUndo,
+  doRedo,
+  // 视口
+  fitView,
+  zoomIn,
+  zoomOut,
+  resetView,
+  // 文档级切换
+  runLayoutCommand,
+  applyTheme,
+  requestReset,
+  // 导入 / 导出 / 打印
+  handleImportPick,
+  openExportDialog,
+  handlePrint,
+  // 右侧面板开关（store.outlineVisible / store.propertiesVisible）
+  toggleOutlinePanel,
+  togglePropertiesPanel,
+});
 </script>
 
 <template>
@@ -1158,109 +1068,10 @@ function onKeydown(event: KeyboardEvent) {
     </div>
 
     <template v-else-if="document">
-      <div class="mindmap-toolbar" data-testid="mindmap-toolbar">
-        <button type="button" class="mm-btn" data-testid="mm-add-child" :disabled="!selectedTopicId" @click="addChild">
-          子主题
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-add-sibling" :disabled="!selectedTopicId" @click="addSibling">
-          同级
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-rename" :disabled="!selectedTopicId" @click="selectedTopicId && startRename(selectedTopicId)">
-          改名
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-duplicate" :disabled="!selectedTopicId" @click="duplicateSelected">
-          复制
-        </button>
-        <button type="button" class="mm-btn danger" data-testid="mm-delete" :disabled="!selectedTopicId" @click="requestDelete">
-          删除
-        </button>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <button type="button" class="mm-btn" data-testid="mm-move-up" :disabled="!selectedTopicId" title="上移（Alt+↑）" @click="moveSelected(-1)">
-          ↑
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-move-down" :disabled="!selectedTopicId" title="下移（Alt+↓）" @click="moveSelected(1)">
-          ↓
-        </button>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <button type="button" class="mm-btn" data-testid="mm-undo" :disabled="!canUndo" title="撤销（Ctrl+Z）" @click="doUndo">
-          撤销
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-redo" :disabled="!canRedo" title="重做（Ctrl+Shift+Z）" @click="doRedo">
-          重做
-        </button>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <button type="button" class="mm-btn" data-testid="mm-fit" title="适配内容" @click="canvasRef?.fitView()">
-          适配
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-zoom-in" title="放大" @click="canvasRef?.zoomIn()">+</button>
-        <button type="button" class="mm-btn" data-testid="mm-zoom-out" title="缩小" @click="canvasRef?.zoomOut()">−</button>
-        <button type="button" class="mm-btn" data-testid="mm-reset-view" title="重置视口" @click="canvasRef?.resetView()">
-          重置视口
-        </button>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <!-- 结构布局切换（阶段 4A）：当前模式高亮，点击记录为可撤销命令 -->
-        <span class="mm-layout-group" role="group" aria-label="布局模式">
-          <button
-            v-for="option in layoutModeOptions"
-            :key="option.id"
-            type="button"
-            class="mm-btn"
-            :class="{ 'is-active': layoutMode === option.id }"
-            :data-testid="`mm-layout-${option.id}`"
-            :aria-pressed="layoutMode === option.id"
-            :title="option.title"
-            @click="runLayoutCommand(option.id)"
-          >{{ option.label }}</button>
-        </span>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <!-- 主题模板（阶段 4C）：切换即写入 document.themeId，可撤销 -->
-        <label class="mm-theme-field" title="主题模板">
-          <span class="mm-theme-label">主题</span>
-          <select
-            class="mm-theme-select"
-            data-testid="mm-theme-select"
-            :value="themeId"
-            :aria-label="`主题模板：${currentThemeName}`"
-            @change="onThemeSelect"
-          >
-            <option v-for="option in themeOptions" :key="option.id" :value="option.id">
-              {{ option.name }}
-            </option>
-          </select>
-        </label>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <button type="button" class="mm-btn" data-testid="mm-reset" @click="requestReset">重置</button>
-        <span class="mm-divider" aria-hidden="true"></span>
-        <button type="button" class="mm-btn" data-testid="mm-import" :disabled="importBusy" @click="handleImportPick">
-          导入
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-export" :disabled="exportBusy" @click="openExportDialog">
-          导出
-        </button>
-        <button type="button" class="mm-btn" data-testid="mm-print" @click="handlePrint">
-          打印
-        </button>
-        <button
-          type="button"
-          class="mm-btn"
-          data-testid="mm-toggle-outline"
-          :aria-pressed="showOutline"
-          @click="showOutline = !showOutline"
-        >
-          大纲{{ showOutline ? '开' : '关' }}
-        </button>
-        <button
-          type="button"
-          class="mm-btn"
-          data-testid="mm-properties-toggle"
-          :aria-pressed="propertiesVisible"
-          @click="toggleProperties"
-        >
-          属性{{ propertiesVisible ? '开' : '关' }}
-        </button>
-        <span class="mm-spacer"></span>
+      <!-- 统计条（UX-3C）：工具栏已外移到 App 顶部全局 Toolbar，这里只保留只读统计 -->
+      <div class="mindmap-stats-bar">
         <span class="mm-stats">
-          {{ rows.length }} 个可见节点<span v-if="isSearching"> · 命中 {{ searchMatchIdList.length }}</span> · {{ Math.round(viewport.zoom * 100) }}%<span v-if="descendantsOfSelected"> · 选中含 {{ descendantsOfSelected }} 个子节点</span>
+          {{ rows.length }} 个可见节点 · {{ Math.round(viewport.zoom * 100) }}%<span v-if="descendantsOfSelected"> · 选中含 {{ descendantsOfSelected }} 个子节点</span>
         </span>
       </div>
 
@@ -1314,38 +1125,7 @@ function onKeydown(event: KeyboardEvent) {
           @move="onMove"
           @contextmenu="openMindmapContextMenu"
         />
-        <MindmapOutlinePanel
-          v-if="showOutline"
-          :rows="rows"
-          :selected-id="selectedTopicId"
-          :editing-id="editingTopicId"
-          :editing-text="editingText"
-          :search-query="searchQuery"
-          :match-ids="searchMatchIdList"
-          @select="selectTopic"
-          @toggle="toggleCollapse"
-          @start-rename="startRename"
-          @commit-rename="commitRename"
-          @cancel-rename="cancelRename"
-          @update:editing-text="onEditingText"
-          @update:search="setSearchQuery"
-          @move="onMove"
-          @contextmenu="openMindmapContextMenu"
-        />
-        <MindmapPropertiesPanel
-          v-if="propertiesVisible && selectedTopicForPanel"
-          :topic="selectedTopicForPanel"
-          :relations="panelRelations"
-          :relation-targets="relationTargets"
-          @update="applyTopicProperties"
-          @close="closeProperties"
-          @update-style="applyTopicStyle"
-          @update-markers="applyTopicMarkers"
-          @add-relation="addRelationFromPanel"
-          @remove-relation="removeRelationFromPanel"
-          @update-boundary="applyTopicBoundary"
-          @update-summary="applyTopicSummary"
-        />
+        <!-- 大纲 / 属性面板已外移到外壳右侧（MindmapRightPanel，由 App 渲染） -->
       </div>
 
       <div v-if="confirmAction" class="mindmap-confirm" role="alertdialog" data-testid="mindmap-confirm">
@@ -1362,8 +1142,9 @@ function onKeydown(event: KeyboardEvent) {
       <div class="mindmap-stage-note">
         阶段 2：画布与大纲。滚轮缩放 · 空白拖拽平移 · 双击改名 · 拖节点改变父级 · Tab 子主题 · Enter 同级 · F2 改名 · Delete 删除 · Alt+↑↓ 重排 · Ctrl+Z 撤销。
         布局可在「导图 / 逻辑图 / 树形 / 组织图」间切换（可撤销）。
-        阶段 4：节点样式 / 标记 / 关系线可在属性面板中调整，主题模板在工具栏切换（均可撤销）。
+        阶段 4：节点样式 / 标记 / 关系线可在属性面板中调整，主题模板与布局在窗口顶部工具栏切换（均可撤销）。
         阶段 4E：多工作表可新增 / 切换 / 删除（均可撤销，至少保留一个工作表）。右键画布节点或大纲行可打开快捷菜单。边界（包住主题与后代）与概要（子节点括线）可在属性面板中设置。
+        面板：大纲 / 属性在外壳右侧双 tab 面板中查看（Ctrl+Alt+O 大纲、Ctrl+Alt+P 属性，可收起）。
       </div>
     </template>
 
@@ -1409,14 +1190,14 @@ function onKeydown(event: KeyboardEvent) {
   overflow: hidden;
   outline: none;
 }
-.mindmap-toolbar {
+/* UX-3C：工具栏外移后舞台顶部只保留一条只读统计 */
+.mindmap-stats-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  justify-content: flex-end;
+  padding: 4px 12px;
   background: var(--panel-base);
   border-bottom: 1px solid var(--border-soft);
-  flex-wrap: wrap;
 }
 .mm-btn {
   padding: 5px 10px;
@@ -1436,28 +1217,6 @@ function onKeydown(event: KeyboardEvent) {
 }
 .mm-btn.danger:hover:not(:disabled) { background: var(--surface-hover); }
 .mm-divider { width: 1px; height: 18px; background: var(--border-soft); }
-/* 布局模式按钮组：当前模式用强调色高亮 */
-.mm-layout-group { display: flex; gap: 4px; }
-.mm-btn.is-active {
-  border-color: var(--accent-brand);
-  background: var(--surface-active);
-  color: var(--accent-brand-strong);
-  font-weight: 600;
-}
-.mm-spacer { flex: 1; }
-/* 主题模板下拉（阶段 4C） */
-.mm-theme-field { display: inline-flex; align-items: center; gap: 4px; }
-.mm-theme-label { font-size: 11px; color: var(--text-secondary); }
-.mm-theme-select {
-  padding: 4px 6px;
-  font-size: 12px;
-  font-family: var(--font-ui);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--border-soft);
-  background: var(--panel-elevated);
-  color: var(--text-primary);
-  cursor: pointer;
-}
 .mm-stats { font-size: 12px; color: var(--text-muted); }
 .mindmap-notice {
   padding: 6px 14px;

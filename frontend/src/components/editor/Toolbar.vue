@@ -314,6 +314,114 @@
     </div>
 
     <div class="toolbar-zone toolbar-zone-end">
+      <!-- 思维导图工具组（UX-3C）：由 MindmapStage 外移，右侧 zone 内排布，testid 保持 mm-* 不变 -->
+      <template v-if="isMindmap && mindmapTools">
+        <div class="toolbar-group toolbar-group-mindmap" data-testid="mindmap-toolbar">
+          <button type="button" class="mm-btn" data-testid="mm-add-child" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-child')">
+            子主题
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-add-sibling" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-sibling')">
+            同级
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-rename" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-rename')">
+            改名
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-duplicate" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-duplicate')">
+            复制
+          </button>
+          <button type="button" class="mm-btn danger" data-testid="mm-delete" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-delete')">
+            删除
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-move-up" :disabled="!mindmapTools.selectedTopicId" title="上移（Alt+↑）" @click="emit('mm-move-up')">
+            ↑
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-move-down" :disabled="!mindmapTools.selectedTopicId" title="下移（Alt+↓）" @click="emit('mm-move-down')">
+            ↓
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-undo" :disabled="!mindmapTools.canUndo" title="撤销（Ctrl+Z）" @click="emit('mm-undo')">
+            撤销
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-redo" :disabled="!mindmapTools.canRedo" title="重做（Ctrl+Shift+Z）" @click="emit('mm-redo')">
+            重做
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-fit" title="适配内容" @click="emit('mm-fit')">
+            适配
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-zoom-in" title="放大" @click="emit('mm-zoom-in')">+</button>
+          <button type="button" class="mm-btn" data-testid="mm-zoom-out" title="缩小" @click="emit('mm-zoom-out')">−</button>
+          <button type="button" class="mm-btn" data-testid="mm-reset-view" title="重置视口" @click="emit('mm-reset-view')">
+            重置视口
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <!-- 结构布局切换（阶段 4A）：当前模式高亮，点击记录为可撤销命令 -->
+          <span class="mm-layout-group" role="group" aria-label="布局模式">
+            <button
+              v-for="option in mindmapLayoutOptions"
+              :key="option.id"
+              type="button"
+              class="mm-btn"
+              :class="{ 'is-active': mindmapTools.layoutMode === option.id }"
+              :data-testid="`mm-layout-${option.id}`"
+              :aria-pressed="mindmapTools.layoutMode === option.id"
+              :title="option.title"
+              @click="emit('mm-layout', option.id)"
+            >{{ option.label }}</button>
+          </span>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <!-- 主题模板（阶段 4C）：原生 select，切换即写入 document.themeId，可撤销 -->
+          <label class="mm-theme-field" title="主题模板">
+            <span class="mm-theme-label">主题</span>
+            <select
+              class="mm-theme-select"
+              data-testid="mm-theme-select"
+              :value="mindmapTools.themeId"
+              :aria-label="`主题模板：${mindmapTools.themeId}`"
+              @change="onMindmapThemeChange"
+            >
+              <option v-for="option in mindmapTools.themeOptions" :key="option.id" :value="option.id">
+                {{ option.name }}
+              </option>
+            </select>
+          </label>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-reset" @click="emit('mm-reset')">重置</button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-import" @click="emit('mm-import')">
+            导入
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-export" @click="emit('mm-export')">
+            导出
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-print" @click="emit('mm-print')">
+            打印
+          </button>
+          <button
+            type="button"
+            class="mm-btn"
+            data-testid="mm-toggle-outline"
+            :aria-pressed="Boolean(mindmapTools.outlineActive)"
+            title="切换大纲面板（Ctrl+Alt+O）"
+            @click="emit('mm-toggle-outline')"
+          >
+            大纲{{ mindmapTools.outlineActive ? '开' : '关' }}
+          </button>
+          <button
+            type="button"
+            class="mm-btn"
+            data-testid="mm-properties-toggle"
+            :aria-pressed="Boolean(mindmapTools.propertiesActive)"
+            title="切换属性面板（Ctrl+Alt+P）"
+            @click="emit('mm-toggle-properties')"
+          >
+            属性{{ mindmapTools.propertiesActive ? '开' : '关' }}
+          </button>
+        </div>
+        <div class="toolbar-divider"></div>
+      </template>
+
       <div class="toolbar-group toolbar-status-group">
         <span
           v-if="hasActiveTab || isDirty"
@@ -347,12 +455,38 @@ import { useSettingsStore } from '@/stores/settings';
 import { getToolbarI18n } from '@/i18n/ui';
 import TauIcon from '@/components/icons/TauIcon.vue';
 
+/**
+ * 思维导图工具组状态（UX-3C：工具栏从 MindmapStage 外移到全局 Toolbar）。
+ *
+ * Toolbar 保持「哑」展示：只按传入状态渲染禁用/高亮，点击一律 emit 给 App，
+ * 由 App 通过 MindmapStage 的 ref 调用真实命令——改文档的只有 Stage。
+ */
+interface MindmapToolbarState {
+  /** 思维导图历史栈是否可撤销 / 可重做（与编辑器撤销是两套）。 */
+  canUndo: boolean;
+  canRedo: boolean;
+  /** 当前选中节点；null 时编辑类按钮禁用。 */
+  selectedTopicId: string | null;
+  /** 当前结构布局模式。 */
+  layoutMode: 'mindmap' | 'logic' | 'tree' | 'org';
+  /** 当前主题模板 id 与候选列表（原生 select 渲染）。 */
+  themeId: string;
+  themeOptions: Array<{ id: string; name: string }>;
+  /** 右侧面板两个 tab 的激活态（用于 aria-pressed）。 */
+  outlineActive?: boolean;
+  propertiesActive?: boolean;
+}
+
 interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   isDirty: boolean;
   hasActiveTab?: boolean;
   isMarkdown?: boolean;
+  /** 当前标签是思维导图：在 center 区渲染导图专属按钮组。 */
+  isMindmap?: boolean;
+  /** 导图工具组状态；isMindmap 为真时必须提供。 */
+  mindmapTools?: MindmapToolbarState | null;
   isDocumentPreview?: boolean;
   isFullDocumentPreview?: boolean;
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
@@ -489,6 +623,7 @@ const MarkdownActionIcon = defineComponent({
 
 const props = withDefaults(defineProps<ToolbarProps>(), {
   isMarkdown: false,
+  isMindmap: false,
   isDocumentPreview: false,
   isFullDocumentPreview: false,
   hasActiveTab: false,
@@ -547,7 +682,47 @@ const emit = defineEmits<{
   'markdown-heading': [level: number];
   'markdown-code': [language: string];
   'markdown-image': [];
+  // 思维导图工具组（UX-3C）：统一由 App 转发到 MindmapStage 暴露的方法
+  'mm-add-child': [];
+  'mm-add-sibling': [];
+  'mm-rename': [];
+  'mm-duplicate': [];
+  'mm-delete': [];
+  'mm-move-up': [];
+  'mm-move-down': [];
+  'mm-undo': [];
+  'mm-redo': [];
+  'mm-fit': [];
+  'mm-zoom-in': [];
+  'mm-zoom-out': [];
+  'mm-reset-view': [];
+  'mm-layout': [mode: MindmapToolbarState['layoutMode']];
+  'mm-theme': [themeId: string];
+  'mm-reset': [];
+  'mm-import': [];
+  'mm-export': [];
+  'mm-print': [];
+  'mm-toggle-outline': [];
+  'mm-toggle-properties': [];
 }>();
+
+/** 导图结构布局候选（与 MindmapStage 内的布局定义保持一致）。 */
+const mindmapLayoutOptions: Array<{
+  id: MindmapToolbarState['layoutMode'];
+  label: string;
+  title: string;
+}> = [
+  { id: 'mindmap', label: '导图', title: '中心双侧导图（mindmap）' },
+  { id: 'logic', label: '逻辑图', title: '单侧向右的逻辑图（logic）' },
+  { id: 'tree', label: '树形', title: '右侧树形，正交连线（tree）' },
+  { id: 'org', label: '组织图', title: '自上而下的组织图（org）' },
+];
+
+/** 主题下拉：保持原生 select（E2E-MM-013 依赖 selectOption）。 */
+const onMindmapThemeChange = (event: Event) => {
+  const nextThemeId = (event.target as HTMLSelectElement | null)?.value ?? '';
+  if (nextThemeId) emit('mm-theme', nextThemeId);
+};
 
 const handleDocumentPointerDown = (event: MouseEvent) => {
   const target = event.target as Node | null;
@@ -659,6 +834,12 @@ onUnmounted(() => {
   width: 100%;
 }
 
+/* 右侧 zone：导图工具组在右侧靠拢，dirty 指示 / 设置固定在末尾 */
+.toolbar-zone-end {
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .toolbar-group-main .toolbar-btn {
   border-radius: var(--radius-sm);
 }
@@ -671,6 +852,62 @@ onUnmounted(() => {
 
 .toolbar-group-markdown { max-width: min(42vw, 470px); overflow-x: auto; scrollbar-width: none; }
 .toolbar-group-markdown::-webkit-scrollbar { display: none; }
+
+/* ------------------------- 思维导图工具组（UX-3C） -------------------------
+ * 位于 toolbar-zone-end（右侧），Tau 原始工具留在 center/左侧。
+ * 视觉与 MindmapStage 内的 mm-btn 完全一致（同一套主题变量），
+ * 因此 E2E-MM-020 的对比度断言在外移后仍然成立。
+ */
+.toolbar-group-mindmap {
+  gap: 6px;
+  /* 可收缩 + 横向滚动兜底：窄窗口时不挤压 Tau 原始按钮与右侧状态区 */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(52vw, 720px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 2px;
+}
+.toolbar-group-mindmap::-webkit-scrollbar { display: none; }
+.mm-btn {
+  padding: 5px 10px;
+  border-radius: var(--radius-control, 6px);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.3));
+  background: var(--panel-elevated, #151d2d);
+  color: var(--text-primary, #e2e8f0);
+  font-size: 12px;
+  font-family: var(--font-ui, inherit);
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.mm-btn:hover:not(:disabled) { background: var(--surface-hover, rgba(148, 163, 184, 0.16)); }
+.mm-btn:disabled { opacity: 0.45; cursor: default; }
+.mm-btn.danger {
+  border-color: var(--state-danger, #e06c75);
+  color: var(--state-danger, #e06c75);
+}
+.mm-btn.danger:hover:not(:disabled) { background: var(--surface-hover, rgba(148, 163, 184, 0.16)); }
+.mm-btn.is-active {
+  border-color: var(--accent-brand, #4a90e2);
+  background: var(--surface-active, rgba(74, 144, 226, 0.18));
+  color: var(--accent-brand-strong, #7fb3f0);
+  font-weight: 600;
+}
+.mm-divider { width: 1px; height: 18px; background: var(--border-soft, rgba(148, 163, 184, 0.3)); flex: 0 0 auto; }
+.mm-layout-group { display: flex; gap: 4px; flex: 0 0 auto; }
+.mm-theme-field { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.mm-theme-label { font-size: 11px; color: var(--text-secondary, #94a3b8); }
+.mm-theme-select {
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: var(--font-ui, inherit);
+  border-radius: var(--radius-control, 6px);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.3));
+  background: var(--panel-elevated, #151d2d);
+  color: var(--text-primary, #e2e8f0);
+  cursor: pointer;
+}
 .markdown-toolbar-btn { width: 30px; height: 30px; flex: 0 0 auto; }
 .markdown-heading-menu { position: relative; flex: 0 0 auto; }
 .markdown-heading-trigger { width: 42px; gap: 2px; }

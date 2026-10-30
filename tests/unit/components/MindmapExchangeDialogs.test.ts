@@ -23,6 +23,19 @@ vi.mock('@/services/mindmapFileIoService', () => ({
 
 import * as io from '@/services/mindmapFileIoService';
 
+/**
+ * UX-3C：工具栏已外移到全局 Toolbar，Stage 不再渲染 mm-import / mm-export 按钮，
+ * 导入/导出入口改由 defineExpose 暴露的方法调用（App 从 Toolbar 事件转发）。
+ */
+type StageExchangeExpose = {
+  handleImportPick: () => Promise<void>;
+  openExportDialog: () => void;
+};
+
+function stageExpose(wrapper: { vm: unknown }): StageExchangeExpose {
+  return wrapper.vm as StageExchangeExpose;
+}
+
 function treeDoc(): MindMapDocument {
   const doc = createEmptyMindMapDocument('组件测试');
   const root = doc.rootTopicId;
@@ -160,7 +173,7 @@ describe('MindmapStage 导入/导出接线', () => {
       },
     });
 
-    await wrapper.find('[data-testid="mm-import"]').trigger('click');
+    await stageExpose(wrapper).handleImportPick();
     await flushPromises();
 
     expect(wrapper.find('[data-testid="mm-import-dialog"]').exists()).toBe(true);
@@ -195,7 +208,7 @@ describe('MindmapStage 导入/导出接线', () => {
       },
     });
 
-    await wrapper.find('[data-testid="mm-import"]').trigger('click');
+    await stageExpose(wrapper).handleImportPick();
     await flushPromises();
 
     expect(wrapper.find('[data-testid="mm-import-error"]').exists()).toBe(true);
@@ -218,7 +231,8 @@ describe('MindmapStage 导入/导出接线', () => {
       },
     });
 
-    await wrapper.find('[data-testid="mm-export"]').trigger('click');
+    stageExpose(wrapper).openExportDialog();
+    await wrapper.vm.$nextTick();
     expect(wrapper.find('[data-testid="mm-export-dialog"]').exists()).toBe(true);
 
     await wrapper.find('[data-testid="mm-export-format-markdown"]').setValue(true);
@@ -245,7 +259,8 @@ describe('MindmapStage 导入/导出接线', () => {
       },
     });
 
-    await wrapper.find('[data-testid="mm-export"]').trigger('click');
+    stageExpose(wrapper).openExportDialog();
+    await wrapper.vm.$nextTick();
     await wrapper.find('[data-testid="mm-export-confirm"]').trigger('click');
     await flushPromises();
     expect(io.writeMindmapExportFile).not.toHaveBeenCalled();
