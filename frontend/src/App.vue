@@ -1857,10 +1857,6 @@ const handleRevealCurrentFileInManager = async () => {
   }
 };
 
-const handleToggleContextRail = () => {
-  showContextRail.value = !showContextRail.value;
-};
-
 const handleContextNavigate = (line: number) => {
   // 点击立即高亮：锁定窗口内忽略 revealLine / scrollIntoView 触发的事件回写，
   // 否则「跳转后视口首行」可能落到上一个标题，看起来像没点中。
@@ -5448,11 +5444,7 @@ onUnmounted(() => {
       :can-redo="canRedo"
       :is-dirty="isDirty"
       :has-active-tab="Boolean(activeTab)"
-      :can-reveal-current-file="canRevealCurrentFile"
-      :locating-current-file="locatingCurrentFile"
       :app-label="appText.appLabel"
-      :sidebar-visible="showFileTree"
-      :context-rail-visible="showContextRail"
       :is-markdown="isMarkdownTab"
       :is-mindmap="showMindmapToolbar"
       :mindmap-tools="mindmapToolbarState"
@@ -5466,9 +5458,6 @@ onUnmounted(() => {
       @save-as="() => executeCommand('file.saveAs')"
       @undo="handleUndo"
       @redo="handleRedo"
-      @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
-      @locate-current-file="handleRevealCurrentFile"
-      @toggle-context-rail="handleToggleContextRail"
       @toggle-settings="handleToolbarToggleSettings"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
       @markdown-action="handleMarkdownAction"

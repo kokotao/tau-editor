@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * UX-3B / UX-3C 回归（按返工后的目标断言）：
+ * UX-3B / UX-3C 回归（按最新 UI 布局断言）：
  *
- * UX-3C：导图工具组外移到全局 Toolbar 的右侧 zone（`.toolbar-zone-end`，容器 testid 仍为
- *        `mindmap-toolbar`，24 个 mm-* 保留）；Tau 原始工具（新建/打开/撤销…）仍在
- *        `.toolbar-zone-center`；Stage 内部不再渲染工具栏。
+ * UX-3C：导图工具组在全局 Toolbar 的**居中 zone**（`.toolbar-zone-center`，容器 testid 仍为
+ *        `mindmap-toolbar`，24 个 mm-* 保留）；Tau 原始工具（新建/打开/保存/撤销/重做）
+ *        移到最左 `.toolbar-zone-start`；Stage 内部不再渲染工具栏。
  *
  * UX-3B：大纲 / 属性是两列**独立**面板（`mm-right-outline` / `mm-right-properties`），
  *        各自 resizer（`mm-outline-resizer` / `mm-props-resizer`）与显隐开关；
@@ -22,27 +22,30 @@ async function openNewMindmap(page: import('@playwright/test').Page) {
 }
 
 test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
-  test('E2E-UX3-C1: 导图工具组位于全局 Toolbar 右侧 zone，Tau 原始工具留在 center，且按钮能驱动画布', async ({
+  test('E2E-UX3-C1: 导图工具组位于全局 Toolbar 居中 zone，Tau 原始工具在最左 zone，且按钮能驱动画布', async ({
     page,
   }) => {
     await page.goto('/');
     await page.waitForSelector('[data-testid="toolbar"]');
     await openNewMindmap(page);
 
-    // 工具组在全局 Toolbar 右端
+    // 导图工具组在全局 Toolbar 的居中 zone
     const toolbar = page.locator('[data-testid="toolbar"]');
-    await expect(toolbar.locator('.toolbar-zone-end').locator('[data-testid="mindmap-toolbar"]')).toHaveCount(1);
+    await expect(toolbar.locator('.toolbar-zone-center').locator('[data-testid="mindmap-toolbar"]')).toHaveCount(1);
     await expect(toolbar.locator('[data-testid="mindmap-toolbar"]')).toBeVisible();
-    await expect(toolbar.locator('.toolbar-zone-center').locator('[data-testid="mindmap-toolbar"]')).toHaveCount(0);
+    await expect(toolbar.locator('.toolbar-zone-start').locator('[data-testid="mindmap-toolbar"]')).toHaveCount(0);
+    await expect(toolbar.locator('.toolbar-zone-end').locator('[data-testid="mindmap-toolbar"]')).toHaveCount(0);
 
-    // Tau 原始工具仍在中间 zone，没有被导图工具组挤走
-    await expect(toolbar.locator('.toolbar-zone-center').locator('[data-testid="btn-new-file"]')).toBeVisible();
-    await expect(toolbar.locator('.toolbar-zone-center').locator('[data-testid="btn-undo"]')).toBeVisible();
+    // Tau 原始工具已移到最左 zone（新建/打开/保存/撤销/重做），center 内不再有这些按钮
+    for (const testId of ['btn-new-file', 'btn-open-file', 'btn-open-folder', 'btn-save', 'btn-save-as', 'btn-undo', 'btn-redo']) {
+      await expect(toolbar.locator('.toolbar-zone-start').locator(`[data-testid="${testId}"]`)).toBeVisible();
+      await expect(toolbar.locator('.toolbar-zone-center').locator(`[data-testid="${testId}"]`)).toHaveCount(0);
+    }
 
     // Stage 内部不再有导图工具栏（旧位置应为空）
     await expect(page.locator('[data-testid="mindmap-stage"] [data-testid="mindmap-toolbar"]')).toHaveCount(0);
 
-    // 代表性按钮都在右端 zone 内
+    // 代表性按钮都在居中 zone 内
     for (const testId of [
       'mm-add-child',
       'mm-add-sibling',
@@ -57,7 +60,7 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
       'mm-toggle-outline',
       'mm-properties-toggle',
     ]) {
-      await expect(toolbar.locator('.toolbar-zone-end').locator(`[data-testid="${testId}"]`)).toBeVisible();
+      await expect(toolbar.locator('.toolbar-zone-center').locator(`[data-testid="${testId}"]`)).toBeVisible();
     }
 
     // 真实行为：通过全局工具栏新增子主题 / 撤销，画布节点数随之变化
@@ -69,7 +72,7 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
     await expect(nodes).toHaveCount(1);
   });
 
-  test('E2E-UX3-C2: 非导图标签不渲染导图工具组，Tau 原始工具不受影响', async ({ page }) => {
+  test('E2E-UX3-C2: 非导图标签不渲染导图工具组，Tau 原始工具在最左 zone', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('[data-testid="toolbar"]');
     await page.click('[data-testid="btn-new-file"]');
@@ -78,7 +81,7 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
     const toolbar = page.locator('[data-testid="toolbar"]');
     await expect(toolbar.locator('[data-testid="mindmap-toolbar"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="mm-add-child"]')).toHaveCount(0);
-    await expect(toolbar.locator('.toolbar-zone-center').locator('[data-testid="btn-new-file"]')).toBeVisible();
+    await expect(toolbar.locator('.toolbar-zone-start').locator('[data-testid="btn-new-file"]')).toBeVisible();
   });
 
   test('E2E-UX3-B1: 大纲列与属性列独立开合（默认大纲开、属性关），顶部 tab 条已移除', async ({ page }) => {

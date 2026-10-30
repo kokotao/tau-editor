@@ -3,12 +3,10 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 
 const componentStubs = vi.hoisted(() => ({
   toolbar: {
-    emits: ['toggle-settings', 'toggle-file-tree', 'toggle-context-rail', 'cycle-markdown-preview'],
+    emits: ['toggle-settings', 'cycle-markdown-preview'],
     template: `
       <div>
         <button data-testid="btn-settings" @click="$emit('toggle-settings')">toggle settings</button>
-        <button data-testid="btn-toggle-file-tree" @click="$emit('toggle-file-tree')">toggle file tree</button>
-        <button data-testid="btn-toggle-context-rail" @click="$emit('toggle-context-rail')">toggle context rail</button>
         <button data-testid="btn-cycle-preview" @click="$emit('cycle-markdown-preview')">cycle preview</button>
       </div>
     `,
@@ -630,7 +628,7 @@ describe('AppShell', () => {
     expect(preview.props('editorScrollState')).toEqual(nextScrollState)
   })
 
-  it('窄屏默认收起 ContextRail，并允许通过 Toolbar 打开抽屉', async () => {
+  it('窄屏默认收起 ContextRail（展开入口在 Tauri 标题栏，由 E2E 覆盖）', async () => {
     const originalInnerWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 799 })
 
@@ -641,19 +639,10 @@ describe('AppShell', () => {
 
     expect(wrapper.find('[data-testid="context-rail-shell"]').exists()).toBe(false)
 
-    await wrapper.get('[data-testid="btn-toggle-context-rail"]').trigger('click')
-    await flushPromises()
-
-    expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({
-      sidebarCollapsed: true,
-      contextRailCollapsed: false,
-    })
-    expect(wrapper.find('[data-testid="context-rail-shell"]').exists()).toBe(true)
-
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
   })
 
-  it('窄屏默认收起文件树，并允许通过 Toolbar 打开左侧抽屉', async () => {
+  it('窄屏默认收起文件树（展开入口在 Tauri 标题栏，由 E2E 覆盖）', async () => {
     const originalInnerWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 799 })
 
@@ -663,15 +652,6 @@ describe('AppShell', () => {
     await flushPromises()
 
     expect(wrapper.find('.sidebar-shell').exists()).toBe(false)
-
-    await wrapper.get('[data-testid="btn-toggle-file-tree"]').trigger('click')
-    await flushPromises()
-
-    expect(storeMocks.settings.updateSettings).toHaveBeenCalledWith({
-      sidebarCollapsed: false,
-      contextRailCollapsed: true,
-    })
-    expect(wrapper.find('.sidebar-shell').exists()).toBe(true)
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
   })

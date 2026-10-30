@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { selectLanguageMode } from './helpers/status-bar-select';
 import { waitForStableBox } from './helpers/layout';
+import { mockTauriDesktopRuntime } from './helpers/ux3-env';
 
 test.describe('Sidebar & Markdown Preview', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,13 +12,18 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-001: 侧栏可折叠与展开', async ({ page }) => {
-    await expect(page.locator('[data-testid="btn-toggle-file-tree"]')).toBeVisible();
-    await page.click('[data-testid="btn-toggle-file-tree"]');
-    await expect(page.locator('[data-testid="sidebar-panel"]')).toBeHidden();
+    // UX-3：Toolbar 上的 btn-toggle-file-tree 已删除（桌面端等价入口是标题栏
+    // btn-titlebar-toggle-explorer，网页模式走左下角的收起/展开按钮），
+    // 这里用网页模式可见的等价按钮验证同一行为。
+    const sidebar = page.locator('[data-testid="sidebar-panel"]');
+    await expect(sidebar).toBeVisible();
+
+    await page.click('[data-testid="btn-sidebar-collapse"]');
+    await expect(sidebar).toBeHidden();
 
     await expect(page.locator('[data-testid="btn-sidebar-expand"]')).toBeVisible();
     await page.click('[data-testid="btn-sidebar-expand"]');
-    await expect(page.locator('[data-testid="sidebar-panel"]')).toBeVisible();
+    await expect(sidebar).toBeVisible();
   });
 
   test('E2E-UX-002: Markdown 模式可切换并显示预览', async ({ page }) => {
@@ -170,5 +176,33 @@ test.describe('Sidebar & Markdown Preview', () => {
 
     expect(Math.abs(menuBox!.x - expectedX)).toBeLessThanOrEqual(1);
     expect(Math.abs(menuBox!.y - expectedY)).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * 桌面标题栏入口（Tauri-only UI）。
+ *
+ * 纯 Chromium 下 `hasDesktopWindowTitlebar = isTauriApp()` 为 false，标题栏不渲染；
+ * 这里桩掉最小 Tauri 运行时，验证 Toolbar 精简后侧栏开关的桌面端等价入口确实可用。
+ */
+test.describe('Desktop titlebar entries', () => {
+  test('E2E-UX-001b: 标题栏「收起/展开侧栏」按钮可折叠与展开侧栏', async ({ page }) => {
+    await mockTauriDesktopRuntime(page);
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="toolbar"]');
+
+    const titlebarToggle = page.locator('[data-testid="btn-titlebar-toggle-explorer"]');
+    const sidebar = page.locator('[data-testid="sidebar-panel"]');
+    await expect(titlebarToggle).toBeVisible();
+    await expect(titlebarToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(sidebar).toBeVisible();
+
+    await titlebarToggle.click();
+    await expect(sidebar).toBeHidden();
+    await expect(titlebarToggle).toHaveAttribute('aria-pressed', 'false');
+
+    await titlebarToggle.click();
+    await expect(sidebar).toBeVisible();
+    await expect(titlebarToggle).toHaveAttribute('aria-pressed', 'true');
   });
 });

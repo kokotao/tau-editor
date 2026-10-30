@@ -45,19 +45,19 @@ describe('Toolbar.vue', () => {
     it('应渲染所有按钮组', () => {
       const wrapper = mountToolbar()
       const buttonGroups = wrapper.findAll('.toolbar-group')
-      expect(buttonGroups.length).toBeGreaterThanOrEqual(4)
+      expect(buttonGroups.length).toBeGreaterThanOrEqual(3)
     })
 
     it('应渲染分隔线', () => {
       const wrapper = mountToolbar()
       const dividers = wrapper.findAll('.toolbar-divider')
-      expect(dividers.length).toBeGreaterThanOrEqual(2)
+      expect(dividers.length).toBeGreaterThanOrEqual(1)
     })
 
     it('应渲染新建文件按钮', () => {
       const wrapper = mountToolbar()
       const buttons = wrapper.findAll('.toolbar-btn')
-      expect(buttons.length).toBeGreaterThanOrEqual(8)
+      expect(buttons.length).toBeGreaterThanOrEqual(7)
     })
 
     it('Excel 全屏预览时隐藏预览布局切换按钮', () => {
@@ -133,24 +133,6 @@ describe('Toolbar.vue', () => {
       const saveAsBtn = wrapper.get('[data-testid="btn-save-as"]')
       await saveAsBtn.trigger('click')
       expect(wrapper.emitted('save-as')).toBeTruthy()
-    })
-  })
-
-  describe('资源定位按钮', () => {
-    it('有可定位文件时应显示并发射定位事件', async () => {
-      const wrapper = mountToolbar({ canRevealCurrentFile: true })
-      const locateBtn = wrapper.get('[data-testid="btn-locate-current-file"]')
-
-      expect(locateBtn.attributes('title')).toBe('定位当前文件')
-      await locateBtn.trigger('click')
-      expect(wrapper.emitted('locate-current-file')).toBeTruthy()
-    })
-
-    it('没有可定位文件时应禁用定位按钮', () => {
-      const wrapper = mountToolbar()
-      const locateBtn = wrapper.get('[data-testid="btn-locate-current-file"]')
-      expect(locateBtn.attributes('disabled')).toBeDefined()
-      expect(locateBtn.classes()).toContain('disabled')
     })
   })
 
@@ -261,27 +243,6 @@ describe('Toolbar.vue', () => {
   })
 
   describe('视图切换按钮', () => {
-    it('切换文件树按钮应发射 toggle-file-tree 事件', async () => {
-      const wrapper = mountToolbar()
-      const toggleTreeBtn = wrapper.get('[data-testid="btn-toggle-file-tree"]')
-      await toggleTreeBtn.trigger('click')
-      expect(wrapper.emitted('toggle-file-tree')).toBeTruthy()
-    })
-
-    it('切换 ContextRail 按钮应发射 toggle-context-rail 事件', async () => {
-      const wrapper = mountToolbar({ contextRailVisible: false })
-
-      await wrapper.get('[data-testid="btn-toggle-context-rail"]').trigger('click')
-
-      expect(wrapper.emitted('toggle-context-rail')).toEqual([[]])
-    })
-
-    it('ContextRail 收起时仍应保留可重新打开的工具栏按钮', () => {
-      const wrapper = mountToolbar({ contextRailVisible: false })
-
-      expect(wrapper.find('[data-testid="btn-toggle-context-rail"]').exists()).toBe(true)
-    })
-
     it('切换设置按钮应发射 toggle-settings 事件', async () => {
       const wrapper = mountToolbar()
       const toggleSettingsBtn = wrapper.get('[data-testid="btn-settings"]')
@@ -431,8 +392,8 @@ describe('Toolbar.vue', () => {
     it('按钮组应正确分组', () => {
       const wrapper = mountToolbar()
       const groups = wrapper.findAll('.toolbar-group')
-      // 文件操作组、撤销重做组、视图切换组、状态显示组
-      expect(groups.length).toBeGreaterThanOrEqual(4)
+      // 文件操作组、撤销重做组、状态显示组（原视图切换组已移除）
+      expect(groups.length).toBeGreaterThanOrEqual(3)
     })
   })
 
@@ -585,26 +546,21 @@ describe('Toolbar.vue', () => {
       }
     })
 
-    it('导图工具组渲染在右侧 toolbar-zone-end，Tau 原始工具仍留在 center', () => {
+    it('导图工具组渲染在居中 toolbar-zone-center，Tau 原始工具仍留在最左 start', () => {
       const wrapper = mountMindmapToolbar()
       const group = wrapper.get('[data-testid="mindmap-toolbar"]').element
 
-      // 位置：end zone 内，且不在 center
-      expect(group.closest('.toolbar-zone-end')).not.toBeNull()
-      expect(group.closest('.toolbar-zone-center')).toBeNull()
+      // 位置：center zone 内，且不在 end zone
+      expect(group.closest('.toolbar-zone-center')).not.toBeNull()
+      expect(group.closest('.toolbar-zone-end')).toBeNull()
 
-      // 同一 zone 内排在 dirty 指示 / 设置按钮之前（状态区固定在最右）
-      const endZone = wrapper.get('.toolbar-zone-end').element
-      const endIds = Array.from(endZone.querySelectorAll('[data-testid]'))
-        .map(element => element.getAttribute('data-testid'))
-      expect(endIds.indexOf('mindmap-toolbar')).toBeGreaterThanOrEqual(0)
-      expect(endIds.indexOf('mindmap-toolbar')).toBeLessThan(endIds.indexOf('btn-settings'))
-
-      // Tau 原始工具（新建 / 撤销 / 视图）仍在 center 区，且 center 里没有导图组
+      // Tau 原始工具（新建 / 撤销）在最左 start zone，center 里没有它们
+      const start = wrapper.get('.toolbar-zone-start')
+      expect(start.find('[data-testid="btn-new-file"]').exists()).toBe(true)
+      expect(start.find('[data-testid="btn-undo"]').exists()).toBe(true)
       const center = wrapper.get('.toolbar-zone-center')
-      expect(center.find('[data-testid="btn-new-file"]').exists()).toBe(true)
-      expect(center.find('[data-testid="btn-undo"]').exists()).toBe(true)
-      expect(center.find('[data-testid="mindmap-toolbar"]').exists()).toBe(false)
+      expect(center.find('[data-testid="btn-new-file"]').exists()).toBe(false)
+      expect(center.find('[data-testid="btn-undo"]').exists()).toBe(false)
 
       // 24 个控件（23 个 mm-btn + 1 个原生 select）全部在组内
       const groupWrapper = wrapper.get('[data-testid="mindmap-toolbar"]')

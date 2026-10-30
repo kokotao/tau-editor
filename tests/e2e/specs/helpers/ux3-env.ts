@@ -124,3 +124,30 @@ export async function mockTauriCloudBackend(page: Page, options: CloudBackendMoc
     { categoryName, docPath },
   );
 }
+
+/**
+ * 桩掉 Tauri 运行时（最小 `__TAURI_INTERNALS__`），让 Tauri-only 的 UI 在纯 Chromium 里渲染出来，
+ * 例如桌面标题栏 `app-native-titlebar`（其中的 `btn-titlebar-toggle-explorer` 是本次 Toolbar 精简后
+ * 侧栏开关的桌面端等价入口）。
+ *
+ * 所有命令一律返回 null；应用会打几条降级 warning，但界面仍可正常渲染（与真实 Tauri 启动路径一致）。
+ */
+export async function mockTauriDesktopRuntime(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    let callbackId = 0;
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+      invoke: async () => null,
+      transformCallback: (callback: unknown) => {
+        callbackId += 1;
+        (window as unknown as Record<string, unknown>)[`_${callbackId}`] = callback;
+        return callbackId;
+      },
+      unregisterCallback: () => {},
+      convertFileSrc: (value: string) => value,
+      metadata: {
+        currentWindow: { label: 'main' },
+        currentWebview: { windowLabel: 'main', label: 'main' },
+      },
+    };
+  });
+}

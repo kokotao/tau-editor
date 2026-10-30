@@ -86,11 +86,17 @@ test.describe('File Operations', () => {
   })
 
   test('E2E-FILE-005: 文件树切换', async ({ page }) => {
-    // 点击切换文件树
-    await page.click('[data-testid="btn-toggle-file-tree"]')
-    
-    // 验证文件树组件存在
-    // 注意：具体实现可能不同，这里只做基本检查
+    // UX-3：Toolbar 的 btn-toggle-file-tree 已删除（桌面端等价入口是标题栏
+    // btn-titlebar-toggle-explorer，网页模式走左下角收起/展开按钮），用等价入口验证文件树开合。
+    const sidebar = page.locator('[data-testid="sidebar-panel"]')
+    await expect(sidebar).toBeVisible()
+
+    await page.click('[data-testid="btn-sidebar-collapse"]')
+    await expect(sidebar).toBeHidden()
+
+    await page.click('[data-testid="btn-sidebar-expand"]')
+    await expect(sidebar).toBeVisible()
+    await expect(page.locator('[data-testid="sidebar-panel-workspace"]')).toBeVisible()
   })
 
   test('E2E-FILE-006: 状态栏显示', async ({ page }) => {

@@ -32,9 +32,7 @@
           <path class="toolbar-app-icon-tau" d="M302 598c4-18 12-20 29-18l48 4c7 1 10-3 12-11l-5 24c-1 5-5 7-11 6l-24-3-9 63c-3 19 5 33 20 36 11 2 17-4 21-15-3 21-13 31-28 27-22-5-33-26-30-51l8-61-19-2c-7 0-11 4-14 12l2-11Z" />
         </svg>
       </div>
-    </div>
 
-    <div class="toolbar-zone toolbar-zone-center">
       <div class="toolbar-group toolbar-group-main">
         <button
           class="toolbar-btn"
@@ -106,6 +104,41 @@
         </button>
       </div>
 
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group toolbar-group-history">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-undo"
+          @click="emit('undo')"
+          :disabled="!canUndo"
+          :class="{ disabled: !canUndo }"
+          :aria-label="copy.undo"
+          :title="copy.undo"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1,4 1,10 7,10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+        </button>
+        <button
+          class="toolbar-btn"
+          data-testid="btn-redo"
+          @click="emit('redo')"
+          :disabled="!canRedo"
+          :class="{ disabled: !canRedo }"
+          :aria-label="copy.redo"
+          :title="copy.redo"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23,4 23,10 17,10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar-zone toolbar-zone-center">
       <template v-if="isMarkdown">
         <div class="toolbar-divider markdown-toolbar-divider"></div>
         <div class="toolbar-group toolbar-group-markdown" data-testid="markdown-toolbar">
@@ -155,167 +188,23 @@
         </div>
       </template>
 
-      <Teleport to="body">
-        <div
-          v-if="markdownHeadingOpen"
-          ref="markdownHeadingPanelRef"
-          class="markdown-heading-panel"
-          data-testid="markdown-heading-panel"
-          :style="markdownHeadingPanelStyle"
-          @mousedown.stop
-        >
-          <button
-            v-for="level in headingLevels"
-            :key="level"
-            type="button"
-            class="markdown-heading-option"
-            :data-testid="`markdown-heading-${level}`"
-            @mousedown.prevent.stop
-            @click="selectMarkdownHeading(level)"
-          >
-            <span class="markdown-heading-mark">{{ '#'.repeat(level) }}</span>
-            <span>标题 {{ level }}</span>
-          </button>
-        </div>
-      </Teleport>
+      <button
+        v-if="isMarkdown || (isDocumentPreview && !isFullDocumentPreview)"
+        class="toolbar-btn"
+        data-testid="btn-markdown-preview-mode"
+        @click="emit('cycle-markdown-preview')"
+        :aria-label="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
+        :title="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <line x1="8" y1="4" x2="8" y2="20" />
+          <line x1="16" y1="4" x2="16" y2="20" />
+        </svg>
+      </button>
 
-      <Teleport to="body">
-        <div
-          v-if="markdownCodeOpen"
-          ref="markdownCodePanelRef"
-          class="markdown-code-panel"
-          data-testid="markdown-code-panel"
-          :style="markdownCodePanelStyle"
-          @mousedown.stop
-        >
-          <div class="markdown-code-panel-title">代码格式</div>
-          <button
-            type="button"
-            class="markdown-code-option"
-            data-testid="markdown-code-inline"
-            @mousedown.prevent.stop
-            @click="selectMarkdownCode('__inline__')"
-          >
-            <span>行内代码</span><code>`code`</code>
-          </button>
-          <button
-            v-for="language in codeLanguages"
-            :key="language"
-            type="button"
-            class="markdown-code-option"
-            :data-testid="`markdown-code-${language}`"
-            @mousedown.prevent.stop
-            @click="selectMarkdownCode(language)"
-          >
-            <span>{{ language }}</span><code>```{{ language }}</code>
-          </button>
-          <label class="markdown-code-custom">
-            <span>自定义语言</span>
-            <input
-              v-model="customCodeLanguage"
-              data-testid="markdown-code-custom-input"
-              placeholder="例如：cpp"
-              @keydown.enter.prevent="selectMarkdownCode(customCodeLanguage)"
-            />
-          </label>
-        </div>
-      </Teleport>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group toolbar-group-history">
-        <button
-          class="toolbar-btn"
-          data-testid="btn-undo"
-          @click="emit('undo')"
-          :disabled="!canUndo"
-          :class="{ disabled: !canUndo }"
-          :aria-label="copy.undo"
-          :title="copy.undo"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="1,4 1,10 7,10" />
-            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-          </svg>
-        </button>
-        <button
-          class="toolbar-btn"
-          data-testid="btn-redo"
-          @click="emit('redo')"
-          :disabled="!canRedo"
-          :class="{ disabled: !canRedo }"
-          :aria-label="copy.redo"
-          :title="copy.redo"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="23,4 23,10 17,10" />
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group toolbar-group-views">
-        <button
-          class="toolbar-btn"
-          data-testid="btn-toggle-file-tree"
-          @click="emit('toggle-file-tree')"
-          :aria-label="sidebarVisible ? copy.collapseExplorer : copy.expandExplorer"
-          :title="sidebarVisible ? copy.collapseExplorer : copy.expandExplorer"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="9" y1="4" x2="9" y2="20" />
-          </svg>
-        </button>
-        <button
-          class="toolbar-btn"
-          data-testid="btn-locate-current-file"
-          :disabled="!canRevealCurrentFile || locatingCurrentFile"
-          :class="{ disabled: !canRevealCurrentFile || locatingCurrentFile }"
-          :aria-label="copy.locateCurrentFile"
-          :title="copy.locateCurrentFile"
-          @click="emit('locate-current-file')"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="7" />
-            <circle cx="12" cy="12" r="2" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-          </svg>
-        </button>
-        <button
-          v-if="isMarkdown || (isDocumentPreview && !isFullDocumentPreview)"
-          class="toolbar-btn"
-          data-testid="btn-markdown-preview-mode"
-          @click="emit('cycle-markdown-preview')"
-          :aria-label="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
-          :title="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="8" y1="4" x2="8" y2="20" />
-            <line x1="16" y1="4" x2="16" y2="20" />
-          </svg>
-        </button>
-        <button
-          class="toolbar-btn"
-          data-testid="btn-toggle-context-rail"
-          @click="emit('toggle-context-rail')"
-          :aria-label="contextRailVisible ? copy.collapseContext : copy.expandContext"
-          :title="contextRailVisible ? copy.collapseContext : copy.expandContext"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="15" y1="4" x2="15" y2="20" />
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <div class="toolbar-zone toolbar-zone-end">
-      <!-- 思维导图工具组（UX-3C）：由 MindmapStage 外移，右侧 zone 内排布，testid 保持 mm-* 不变 -->
       <template v-if="isMindmap && mindmapTools">
+        <div class="toolbar-divider markdown-toolbar-divider"></div>
         <div class="toolbar-group toolbar-group-mindmap" data-testid="mindmap-toolbar">
           <button type="button" class="mm-btn" data-testid="mm-add-child" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-child')">
             子主题
@@ -419,9 +308,76 @@
             属性{{ mindmapTools.propertiesActive ? '开' : '关' }}
           </button>
         </div>
-        <div class="toolbar-divider"></div>
       </template>
 
+      <Teleport to="body">
+        <div
+          v-if="markdownHeadingOpen"
+          ref="markdownHeadingPanelRef"
+          class="markdown-heading-panel"
+          data-testid="markdown-heading-panel"
+          :style="markdownHeadingPanelStyle"
+          @mousedown.stop
+        >
+          <button
+            v-for="level in headingLevels"
+            :key="level"
+            type="button"
+            class="markdown-heading-option"
+            :data-testid="`markdown-heading-${level}`"
+            @mousedown.prevent.stop
+            @click="selectMarkdownHeading(level)"
+          >
+            <span class="markdown-heading-mark">{{ '#'.repeat(level) }}</span>
+            <span>标题 {{ level }}</span>
+          </button>
+        </div>
+      </Teleport>
+
+      <Teleport to="body">
+        <div
+          v-if="markdownCodeOpen"
+          ref="markdownCodePanelRef"
+          class="markdown-code-panel"
+          data-testid="markdown-code-panel"
+          :style="markdownCodePanelStyle"
+          @mousedown.stop
+        >
+          <div class="markdown-code-panel-title">代码格式</div>
+          <button
+            type="button"
+            class="markdown-code-option"
+            data-testid="markdown-code-inline"
+            @mousedown.prevent.stop
+            @click="selectMarkdownCode('__inline__')"
+          >
+            <span>行内代码</span><code>`code`</code>
+          </button>
+          <button
+            v-for="language in codeLanguages"
+            :key="language"
+            type="button"
+            class="markdown-code-option"
+            :data-testid="`markdown-code-${language}`"
+            @mousedown.prevent.stop
+            @click="selectMarkdownCode(language)"
+          >
+            <span>{{ language }}</span><code>```{{ language }}</code>
+          </button>
+          <label class="markdown-code-custom">
+            <span>自定义语言</span>
+            <input
+              v-model="customCodeLanguage"
+              data-testid="markdown-code-custom-input"
+              placeholder="例如：cpp"
+              @keydown.enter.prevent="selectMarkdownCode(customCodeLanguage)"
+            />
+          </label>
+        </div>
+      </Teleport>
+    </div>
+
+    <div class="toolbar-zone toolbar-zone-end">
       <div class="toolbar-group toolbar-status-group">
         <span
           v-if="hasActiveTab || isDirty"
@@ -490,10 +446,6 @@ interface ToolbarProps {
   isDocumentPreview?: boolean;
   isFullDocumentPreview?: boolean;
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
-  sidebarVisible?: boolean;
-  contextRailVisible?: boolean;
-  canRevealCurrentFile?: boolean;
-  locatingCurrentFile?: boolean;
   appLabel?: string;
 }
 
@@ -628,8 +580,6 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
   isFullDocumentPreview: false,
   hasActiveTab: false,
   markdownPreviewMode: 'split',
-  sidebarVisible: true,
-  contextRailVisible: true,
 });
 
 const settingsStore = useSettingsStore();
@@ -673,9 +623,6 @@ const emit = defineEmits<{
   'save-as': [];
   'undo': [];
   'redo': [];
-  'toggle-file-tree': [];
-  'locate-current-file': [];
-  'toggle-context-rail': [];
   'toggle-settings': [];
   'cycle-markdown-preview': [];
   'markdown-action': [action: MarkdownAction];
@@ -834,7 +781,6 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* 右侧 zone：导图工具组在右侧靠拢，dirty 指示 / 设置固定在末尾 */
 .toolbar-zone-end {
   gap: 8px;
   justify-content: flex-end;
@@ -845,7 +791,6 @@ onUnmounted(() => {
 }
 
 .toolbar-group-history,
-.toolbar-group-views,
 .toolbar-group-markdown {
   gap: 4px;
 }
@@ -854,21 +799,22 @@ onUnmounted(() => {
 .toolbar-group-markdown::-webkit-scrollbar { display: none; }
 
 /* ------------------------- 思维导图工具组（UX-3C） -------------------------
- * 位于 toolbar-zone-end（右侧），Tau 原始工具留在 center/左侧。
+ * 位于 toolbar-zone-center（居中），用户要求导图工具居中、不被右侧遮挡。
  * 视觉与 MindmapStage 内的 mm-btn 完全一致（同一套主题变量），
  * 因此 E2E-MM-020 的对比度断言在外移后仍然成立。
  */
 .toolbar-group-mindmap {
   gap: 6px;
-  /* 可收缩 + 横向滚动兜底：窄窗口时不挤压 Tau 原始按钮与右侧状态区 */
+  /* 可收缩 + 横向滚动兜底：内容过宽时不截断按钮，靠滚动条/触控板横向查看 */
   flex: 0 1 auto;
   min-width: 0;
-  max-width: min(52vw, 720px);
+  max-width: min(80vw, 960px);
   overflow-x: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
   padding: 0 2px;
 }
-.toolbar-group-mindmap::-webkit-scrollbar { display: none; }
+.toolbar-group-mindmap::-webkit-scrollbar { height: 6px; }
+.toolbar-group-mindmap::-webkit-scrollbar-thumb { background: var(--border-strong, rgba(148,163,184,.4)); border-radius: 3px; }
 .mm-btn {
   padding: 5px 10px;
   border-radius: var(--radius-control, 6px);
