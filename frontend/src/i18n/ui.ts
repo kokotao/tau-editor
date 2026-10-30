@@ -33,6 +33,7 @@ export type EditorLanguageMode =
 export type CommandId =
   | 'commandPalette.open'
   | 'file.new'
+  | 'file.newMindmap'
   | 'file.open'
   | 'file.openFolder'
   | 'file.save'
@@ -589,6 +590,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '新建文件',
       keywords: ['新建', '新文件', '空白文件', 'new', 'untitled'],
     },
+    'file.newMindmap': {
+      title: '新建思维导图',
+      keywords: ['思维导图', '导图', '脑图', '新建导图', 'mindmap', 'mind map', 'taumap'],
+    },
     'file.open': {
       title: '打开文件',
       keywords: ['打开', '文件', '选择文件', 'open', 'file'],
@@ -714,6 +719,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'file.new': {
       title: 'New File',
       keywords: ['new', 'untitled', '新建', '新文件'],
+    },
+    'file.newMindmap': {
+      title: 'New Mind Map',
+      keywords: ['mindmap', 'mind map', 'mindmap', 'taumap', '思维导图', '导图'],
     },
     'file.open': {
       title: 'Open File',

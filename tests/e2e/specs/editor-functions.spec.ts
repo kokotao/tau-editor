@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/app'
+import { selectTheme } from './helpers/status-bar-select'
 
 test.describe('Editor Functions', () => {
   test.beforeEach(async ({ page }) => {
@@ -60,10 +61,11 @@ test.describe('Editor Functions', () => {
     await expect(themeSelect).toBeVisible()
     
     // 验证可以选择不同主题
-    await themeSelect.selectOption('vs')
+    // StatusBarSelect 已重构为「trigger 按钮 + 菜单按钮」，原生 selectOption 不再适用
+    await selectTheme(page, 'vs')
     await page.waitForTimeout(500)
     
-    await themeSelect.selectOption('vs-dark')
+    await selectTheme(page, 'vs-dark')
     await page.waitForTimeout(500)
   })
 

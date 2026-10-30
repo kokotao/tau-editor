@@ -11,6 +11,7 @@ export interface AppCommand {
 
 export interface CommandActions {
   newFile: () => Promise<void> | void;
+  newMindmap: () => Promise<void> | void;
   openFile: () => Promise<void> | void;
   openFolder: () => Promise<void> | void;
   save: () => Promise<void> | void;
@@ -50,6 +51,7 @@ function resolveCommandText(language: UiLanguage, commandId: CommandId) {
 export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLanguage): AppCommand[] {
   const commandPalette = resolveCommandText(uiLanguage, 'commandPalette.open');
   const newFile = resolveCommandText(uiLanguage, 'file.new');
+  const newMindmap = resolveCommandText(uiLanguage, 'file.newMindmap');
   const openFile = resolveCommandText(uiLanguage, 'file.open');
   const openFolder = resolveCommandText(uiLanguage, 'file.openFolder');
   const save = resolveCommandText(uiLanguage, 'file.save');
@@ -96,6 +98,13 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       shortcut: 'Ctrl+N',
       keywords: newFile.keywords,
       run: actions.newFile,
+    },
+    {
+      id: 'file.newMindmap',
+      title: newMindmap.title,
+      category: 'file',
+      keywords: newMindmap.keywords,
+      run: actions.newMindmap,
     },
     {
       id: 'file.open',

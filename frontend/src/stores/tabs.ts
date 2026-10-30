@@ -1,11 +1,16 @@
 import { defineStore } from 'pinia';
 import { planScratchTabMoves, type ScratchTabPlan, type ScratchTabSkip } from '@/utils/scratchTabRelocation';
 
+/** 标签的文档类型分支：默认文本，思维导图用独立 kind，不靠伪造语言模式。 */
+export type TabDocumentKind = 'text' | 'mindmap' | 'mindmap-external';
+
 export interface Tab {
   id: string;                   // 唯一标识
   filePath: string | null;      // 文件路径
   fileName: string;             // 文件名
   language: string;             // 语言模式
+  /** 文档类型分支：text | mindmap | mindmap-external（阶段 0 思维导图）。 */
+  documentKind?: TabDocumentKind;
   isDirty: boolean;             // 是否有未保存的更改
   isUntitled: boolean;          // 是否为未保存文件
   isRecoverySaved?: boolean;    // 未命名草稿已写入应用恢复库

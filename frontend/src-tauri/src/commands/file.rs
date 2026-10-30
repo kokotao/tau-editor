@@ -593,6 +593,37 @@ pub async fn write_file(path: String, content: String) -> Result<(), String> {
         .map_err(|e| format!("写入文件失败：{}", e))
 }
 
+/// 以二进制方式写入文件（供 PNG 等图片导出使用）
+///
+/// 与 `write_file` 的字符串入参不同，这里按字节原样落盘，不做任何转码；
+/// 路径校验与父目录创建行为与 `write_file` 保持一致。
+///
+/// # 参数
+/// * `path` - 目标文件路径
+/// * `bytes` - 要写入的原始字节
+///
+/// # 返回
+/// * `Ok(())` - 写入成功
+/// * `Err(String)` - 错误信息
+///
+/// @author Albert_Luo
+/// @date 2026-10-30
+#[tauri::command]
+pub async fn write_file_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    validate_path(&path)?;
+
+    // 确保父目录存在
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("创建目录失败：{}", e))?;
+    }
+
+    fs::write(&path, bytes)
+        .await
+        .map_err(|e| format!("写入文件失败：{}", e))
+}
+
 /// 按字节复制文件（二进制安全）
 ///
 /// 与 `write_file` 的字符串入参不同，这里不做任何转码，docx/pdf 等二进制文件
@@ -1104,5 +1135,26 @@ mod tests {
         assert_eq!(copied, 5);
         assert!(target.is_file());
         assert_eq!(fs::read(&target).unwrap(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_bytes_roundtrip_binary_safe() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("nested").join("image.png");
+        // 含非 UTF-8 字节，验证不会做任何转码
+        let payload: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00, 0xFE];
+
+        write_file_bytes(target.to_string_lossy().to_string(), payload.clone())
+            .await
+            .unwrap();
+
+        assert!(target.is_file());
+        assert_eq!(fs::read(&target).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn test_write_file_bytes_rejects_empty_path() {
+        let result = write_file_bytes(String::new(), vec![1, 2, 3]).await;
+        assert!(result.is_err());
     }
 }

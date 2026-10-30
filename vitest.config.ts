@@ -58,7 +58,10 @@ export default defineConfig({
     },
     server: {
       deps: {
-        inline: ['@vue/test-utils'],
+        // pinia 必须内联：若由 Node 外部加载，它会用另一份 vue 实例，
+        // 与测试里 Vite 别名解析的 vue 分属两个响应式系统，导致
+        // store 状态变更无法触发组件/computed 更新（表现为响应式“失效”）。
+        inline: ['@vue/test-utils', 'pinia'],
       },
     },
   },

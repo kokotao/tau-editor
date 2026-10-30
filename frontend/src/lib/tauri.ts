@@ -902,6 +902,11 @@ export const fileCommands = {
     await invokeCommand<void>('write_file', { path, content });
   },
 
+  /** 以二进制方式写入文件（PNG 等图片导出用），不做任何转码。 */
+  async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+    await invokeCommand<void>('write_file_bytes', { path, bytes: Array.from(bytes) });
+  },
+
   /** 按字节复制文件（二进制安全，目标已存在时后端报错而不是覆盖），返回复制字节数 */
   async copyFile(source: string, target: string): Promise<number> {
     return invokeCommand<number>('copy_file', { source, target });

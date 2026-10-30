@@ -49,6 +49,7 @@ pub fn run() {
             commands::read_file,
             commands::read_file_bytes,
             commands::write_file,
+            commands::write_file_bytes,
             commands::copy_file,
             commands::atomic_write_file,
             commands::list_files,

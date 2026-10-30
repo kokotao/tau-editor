@@ -139,6 +139,7 @@ import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
+import MindmapStage from './components/editor/mindmap/MindmapStage.vue';
 import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
 import { createAutoSaveScheduler } from '@/utils/autoSaveScheduler';
@@ -646,6 +647,7 @@ const autoSaveEnabled = computed(() => settingsStore.autoSaveEnabled);
 const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
+const isMindmapTab = computed(() => activeTab.value?.documentKind === 'mindmap' || activeTab.value?.documentKind === 'mindmap-external');
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
 const isPdfTab = computed(() => isPdfFilePath(activeTab.value?.filePath));
 const isSpreadsheetTab = computed(() => isSpreadsheetFilePath(activeTab.value?.filePath));
@@ -917,6 +919,20 @@ const handleNewFile = () => {
   void nextTick(() => {
     editorCoreRef.value?.focusAtStart();
   });
+};
+
+const handleNewMindmap = () => {
+  workspaceService.createUntitledMindMap();
+};
+
+/**
+ * 思维导图编辑结果回写标签内容：走 tabService.updateTabContent，
+ * 复用现有的 dirty 标记、编辑器 store 同步与后续保存/冲突检测管线。
+ */
+const handleMindmapChange = (json: string) => {
+  const tab = tabsStore.activeTab;
+  if (!tab || tab.documentKind !== 'mindmap') return;
+  tabService.updateTabContent(tab.id, json);
 };
 
 const openFileInEditor = async (filePath: string) => {
@@ -3719,6 +3735,7 @@ const getLocalizedCommandTitle = (id: CommandId) =>
 const createLocalizedCommands = () => {
   const builtInCommands = createCommandRegistry({
   newFile: handleNewFile,
+  newMindmap: handleNewMindmap,
   openFile: handleOpenFile,
   openFolder: handleOpenFolder,
   save: handleSave,
@@ -5462,6 +5479,7 @@ onUnmounted(() => {
         >
           <div v-if="!isImageTab" class="editor-pane">
             <LazyEditorCore
+              v-if="!isMindmapTab"
               ref="editorCoreRef"
               :model-id="activeTab.id"
               :file-path="activeTab.filePath"
@@ -5481,6 +5499,14 @@ onUnmounted(() => {
               @share="handleActiveTabShare"
               @markdown-image-request="handleInsertMarkdownImage"
               @markdown-image-paste="handleMarkdownImagePaste"
+            />
+            <MindmapStage
+              v-else
+              :tab-id="activeTab.id"
+              :document-json="activeTab.content"
+              :file-name="activeTab.fileName"
+              :document-kind="activeTab.documentKind"
+              @change="handleMindmapChange"
             />
           </div>
           <ImagePreview

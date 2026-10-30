@@ -6,6 +6,8 @@ import {
   type WorkspaceRuntimeService,
 } from '@/services/workspaceRuntimeService';
 import { normalizeModifiedTimestamp } from '@/services/externalFileSync';
+import { isMindMapPath, isTaumapPath } from '@/services/documentTypeService';
+import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
 import type { useEditorStore } from '@/stores/editor';
 import type { useFileSystemStore } from '@/stores/fileSystem';
 import type { useNotificationStore } from '@/stores/notification';
@@ -358,6 +360,37 @@ export class WorkspaceService {
     this.editorStore.setLanguage(detectLanguage(fileName));
   }
 
+  /**
+   * 新建空白思维导图（阶段 0）。
+   *
+   * 创建标题为 defaultName 的空 .taumap 文档（含一个可编辑中心主题的正文 JSON），
+   * 以 documentKind: 'mindmap' 的新标签打开，复用现有保存/另存为/冲突/恢复管线。
+   */
+  createUntitledMindMap(defaultName = 'Untitled.taumap'): boolean {
+    if (!this.ensureTabCapacity(defaultName)) {
+      return false;
+    }
+
+    const document = createEmptyMindMapDocument();
+    const content = serializeMindMapDocument(document);
+
+    this.tabsStore.addTab({
+      filePath: null,
+      fileName: defaultName,
+      language: 'json',
+      documentKind: 'mindmap',
+      isDirty: false,
+      isUntitled: true,
+      content,
+    });
+    if (this.workspaceStore.currentWorkspacePath) {
+      this.workspaceStore.setMode('workspace');
+    } else {
+      this.workspaceStore.setMode('single-file');
+    }
+    return true;
+  }
+
   async openFile(filePath: string) {
     const existingTabId = this.tabsStore.getTabIdByPath(filePath);
     if (existingTabId) {
@@ -419,6 +452,11 @@ export class WorkspaceService {
             filePath,
             fileName,
             language: detectLanguage(fileName),
+            documentKind: isTaumapPath(filePath)
+              ? 'mindmap'
+              : isMindMapPath(filePath)
+                ? 'mindmap-external'
+                : undefined,
             isDirty: false,
             isUntitled: false,
             content,
@@ -477,10 +515,19 @@ export class WorkspaceService {
         return;
       }
 
+      // 已知地图扩展名打开时，标记 documentKind；歧义/未知由后续导入流程接管，
+      // 阶段 0 仅对 .taumap 直接以原生文档打开，其余地图格式先走文本显示，不静默改写。
+      const documentKind = isTaumapPath(filePath)
+        ? 'mindmap'
+        : isMindMapPath(filePath)
+          ? 'mindmap-external'
+          : undefined;
+
       this.tabsStore.addTab({
         filePath,
         fileName,
         language: detectLanguage(fileName),
+        documentKind,
         isDirty: false,
         isUntitled: false,
         content,

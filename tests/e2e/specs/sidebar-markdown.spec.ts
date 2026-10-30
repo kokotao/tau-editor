@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { selectLanguageMode } from './helpers/status-bar-select';
+import { waitForStableBox } from './helpers/layout';
 
 test.describe('Sidebar & Markdown Preview', () => {
   test.beforeEach(async ({ page }) => {
@@ -19,7 +21,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-002: Markdown 模式可切换并显示预览', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
     await expect(page.locator('[data-testid="btn-markdown-preview-mode"]')).toBeVisible();
 
     const editor = page.locator('[data-testid="editor-container"]');
@@ -48,7 +50,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-003: 预览区右键链接菜单可用', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
 
     const editor = page.locator('[data-testid="editor-container"]');
     await editor.click();
@@ -97,7 +99,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-006: Markdown 预览主题支持设置面板与右键菜单双入口切换', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
 
     const editor = page.locator('[data-testid="editor-container"]');
     const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
@@ -127,7 +129,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-007: Markdown 预览右键菜单应贴近触发位置', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
 
     const editor = page.locator('[data-testid="editor-container"]');
     const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
@@ -143,7 +145,9 @@ test.describe('Sidebar & Markdown Preview', () => {
       .poll(async () => (await preview.boundingBox())?.width ?? 0)
       .toBeGreaterThan(320);
 
-    const previewBox = await preview.boundingBox();
+    // 分栏切换带有 0.32s 过渡动画：等几何稳定再取坐标，
+    // 否则期望值来自动画中间态，而 Playwright 实际点击的是稳定后的位置。
+    const previewBox = await waitForStableBox(preview);
     expect(previewBox).not.toBeNull();
 
     const clickPosition = { x: 180, y: 160 };
@@ -152,13 +156,19 @@ test.describe('Sidebar & Markdown Preview', () => {
     const menu = page.locator('[data-testid="markdown-preview-context-menu"]');
     await expect(menu).toBeVisible();
 
-    const menuBox = await menu.boundingBox();
+    const menuBox = await waitForStableBox(menu);
     expect(menuBox).not.toBeNull();
 
-    const expectedX = previewBox!.x + clickPosition.x;
-    const expectedY = previewBox!.y + clickPosition.y;
+    // 菜单以 fixed 定位在点击点；当菜单尺寸超出视口时应用会向内收束（MENU_MARGIN = 8px），
+    // 因此期望坐标 = 点击点按视口边界收敛后的位置。
+    const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    const MENU_MARGIN = 8;
+    const clamp = (value: number, size: number, viewportSize: number) =>
+      Math.max(MENU_MARGIN, Math.min(value, Math.max(MENU_MARGIN, viewportSize - size - MENU_MARGIN)));
+    const expectedX = clamp(previewBox!.x + clickPosition.x, menuBox!.width, viewport.width);
+    const expectedY = clamp(previewBox!.y + clickPosition.y, menuBox!.height, viewport.height);
 
-    expect(Math.abs(menuBox!.x - expectedX)).toBeLessThanOrEqual(20);
-    expect(Math.abs(menuBox!.y - expectedY)).toBeLessThanOrEqual(20);
+    expect(Math.abs(menuBox!.x - expectedX)).toBeLessThanOrEqual(1);
+    expect(Math.abs(menuBox!.y - expectedY)).toBeLessThanOrEqual(1);
   });
 });
