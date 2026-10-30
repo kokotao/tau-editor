@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useMindmapStore } from '@/stores/mindmap';
-import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
+import { createEmptyMindMapDocument, serializeMindMapDocument, validateMindMapDocument } from '@/services/mindmapService';
 import { addChildTopic, deleteTopic, moveTopicByOffset } from '@/services/mindmap/mindmapCommands';
 
 function makeContent(): { content: string; rootId: string } {
@@ -397,3 +397,504 @@ describe('useMindmapStore 阶段 4A：setLayoutMode', () => {
     expect(store.updateTopicMeta(rootId, {})).toBe(false);
   });
 });
+
+/* ------------- 阶段 4C：节点样式 / 标记 / 主题 / 独立关系线 ------------- */
+
+describe('useMindmapStore 阶段 4C：updateTopicStyle', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('写入 color/fill/shape 并同步 lastSerialized，可撤销/重做', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const before = store.serialized;
+
+    expect(store.updateTopicStyle(rootId, {
+      color: ' #1f5fbf ',
+      fill: '#e8f1ff',
+      shape: 'rect',
+    })).toBe(true);
+
+    expect(store.document?.topics[rootId]?.style).toEqual({
+      color: '#1f5fbf',
+      fill: '#e8f1ff',
+      shape: 'rect',
+    });
+    expect(store.lastSerialized).toBe(store.serialized);
+    expect(store.canUndo).toBe(true);
+
+    expect(store.undo()).toBe(true);
+    expect(store.serialized).toBe(before);
+    expect(store.document?.topics[rootId]?.style).toBeUndefined();
+
+    expect(store.redo()).toBe(true);
+    expect(store.document?.topics[rootId]?.style?.shape).toBe('rect');
+  });
+
+  it('只更新传入的键，undefined 保持原值（部分更新语义）', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    store.updateTopicStyle(rootId, { color: '#111111', fill: '#222222' });
+
+    expect(store.updateTopicStyle(rootId, { color: '#333333' })).toBe(true);
+    expect(store.document?.topics[rootId]?.style).toEqual({
+      color: '#333333',
+      fill: '#222222',
+    });
+  });
+
+  it('空字符串清除对应键，全部清除后删除 style，可撤销', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    store.updateTopicStyle(rootId, { color: '#111111', fill: '#222222', shape: 'pill' });
+
+    expect(store.updateTopicStyle(rootId, { color: '', shape: '' })).toBe(true);
+    expect(store.document?.topics[rootId]?.style).toEqual({ fill: '#222222' });
+
+    expect(store.updateTopicStyle(rootId, { fill: '' })).toBe(true);
+    expect(store.document?.topics[rootId]?.style).toBeUndefined();
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.topics[rootId]?.style).toEqual({ fill: '#222222' });
+  });
+
+  it('无实际变化时不记历史并返回 false', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    store.updateTopicStyle(rootId, { color: '#111111' });
+    const historyLength = store.history.past.length;
+
+    expect(store.updateTopicStyle(rootId, { color: '#111111' })).toBe(false);
+    expect(store.updateTopicStyle(rootId, {})).toBe(false);
+    expect(store.history.past.length).toBe(historyLength);
+    expect(store.document?.topics[rootId]?.style).toEqual({ color: '#111111' });
+
+    // 纯空白按「清除」处理（与 updateTopicMeta 一致）
+    expect(store.updateTopicStyle(rootId, { color: '   ' })).toBe(true);
+    expect(store.document?.topics[rootId]?.style).toBeUndefined();
+  });
+
+  it('未知节点或无文档时返回 false', () => {
+    const store = useMindmapStore();
+    expect(store.updateTopicStyle('ghost', { color: '#fff' })).toBe(false);
+
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.updateTopicStyle('ghost', { color: '#fff' })).toBe(false);
+  });
+});
+
+describe('useMindmapStore 阶段 4C：标记', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('toggleMarker 先加后删，撤销/重做正确', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.toggleMarker(rootId, 'priority-1')).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toEqual(['priority-1']);
+
+    expect(store.toggleMarker(rootId, 'star')).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toEqual(['priority-1', 'star']);
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toEqual(['priority-1']);
+
+    expect(store.toggleMarker(rootId, 'priority-1')).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toBeUndefined();
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toEqual(['priority-1']);
+    expect(store.redo()).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toBeUndefined();
+  });
+
+  it('updateTopicMarkers 归一化：去空、去重、保序；空数组删除键', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.updateTopicMarkers(rootId, [' star ', 'flag', 'star', '', 'question'])).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toEqual(['star', 'flag', 'question']);
+
+    expect(store.updateTopicMarkers(rootId, [])).toBe(true);
+    expect(store.document?.topics[rootId]?.markers).toBeUndefined();
+    expect(store.serialized).not.toContain('"markers"');
+  });
+
+  it('未知节点、空标记或无实际变化返回 false', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const historyLength = store.history.past.length;
+
+    expect(store.toggleMarker('ghost', 'star')).toBe(false);
+    expect(store.toggleMarker(rootId, '   ')).toBe(false);
+    expect(store.updateTopicMarkers('ghost', ['star'])).toBe(false);
+    expect(store.updateTopicMarkers(rootId, [])).toBe(false);
+    expect(store.history.past.length).toBe(historyLength);
+  });
+});
+
+describe('useMindmapStore 阶段 4C：setTheme', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('切换到内置主题并同步 lastSerialized，可撤销/重做', () => {
+    const store = useMindmapStore();
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const before = store.serialized;
+    expect(store.document?.themeId).toBe('default');
+
+    expect(store.setTheme('ocean')).toBe(true);
+    expect(store.document?.themeId).toBe('ocean');
+    expect(store.lastSerialized).toBe(store.serialized);
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.themeId).toBe('default');
+    expect(store.serialized).toBe(before);
+
+    expect(store.redo()).toBe(true);
+    expect(store.document?.themeId).toBe('ocean');
+  });
+
+  it('未知主题、与当前相同、无文档时返回 false 且不记历史', () => {
+    const store = useMindmapStore();
+    expect(store.setTheme('ocean')).toBe(false);
+
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const historyLength = store.history.past.length;
+
+    expect(store.setTheme('nebula')).toBe(false);
+    expect(store.setTheme('')).toBe(false);
+    expect(store.setTheme('default')).toBe(false);
+    expect(store.document?.themeId).toBe('default');
+    expect(store.history.past.length).toBe(historyLength);
+  });
+
+  it('主题与其它命令的历史互不干扰', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.setTheme('forest')).toBe(true);
+    store.applyCommand('添加子主题', (doc) => addChildTopic(doc, rootId));
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.themeId).toBe('forest');
+    expect(store.undo()).toBe(true);
+    expect(store.document?.themeId).toBe('default');
+  });
+});
+
+describe('useMindmapStore 阶段 4C：独立关系线', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 建一个「根 + 两个子节点」的文档。 */
+  function twoChildContent(): { content: string; rootId: string; childA: string; childB: string; store: ReturnType<typeof useMindmapStore> } {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    store.applyCommand('添加子主题', (doc) => addChildTopic(doc, rootId));
+    const childA = store.selectedTopicId as string;
+    store.applyCommand('添加子主题', (doc) => addChildTopic(doc, rootId));
+    const childB = store.selectedTopicId as string;
+    return { content: store.serialized, rootId, childA, childB, store };
+  }
+
+  it('addRelation 生成唯一 id 并带可选标签，可撤销/重做', () => {
+    const { store, childA, childB } = twoChildContent();
+    const before = store.serialized;
+
+    expect(store.addRelation(childA, childB, ' 依赖 ')).toBe(true);
+    const relations = store.document?.relations ?? [];
+    expect(relations).toHaveLength(1);
+    expect(relations[0]?.sourceTopicId).toBe(childA);
+    expect(relations[0]?.targetTopicId).toBe(childB);
+    expect(relations[0]?.label).toBe('依赖');
+    expect(relations[0]?.id).toMatch(/^rel_/);
+    expect(store.lastSerialized).toBe(store.serialized);
+
+    expect(store.undo()).toBe(true);
+    expect(store.serialized).toBe(before);
+    expect(store.document?.relations).toBeUndefined();
+
+    expect(store.redo()).toBe(true);
+    expect(store.document?.relations).toHaveLength(1);
+  });
+
+  it('关系 id 互不重复', () => {
+    const { store, rootId, childA, childB } = twoChildContent();
+    expect(store.addRelation(childA, childB)).toBe(true);
+    expect(store.addRelation(rootId, childA)).toBe(true);
+    const ids = (store.document?.relations ?? []).map((relation) => relation.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it('拒绝自环、重复对（含反向）、端点不存在与非空校验', () => {
+    const { store, rootId, childA, childB } = twoChildContent();
+    const historyLength = store.history.past.length;
+
+    expect(store.addRelation(childA, childA)).toBe(false);
+    expect(store.addRelation('ghost', childB)).toBe(false);
+    expect(store.addRelation(childA, 'ghost')).toBe(false);
+    expect(store.addRelation('', childB)).toBe(false);
+
+    expect(store.addRelation(childA, childB)).toBe(true);
+    const afterAdd = store.history.past.length;
+    expect(store.addRelation(childA, childB)).toBe(false);
+    expect(store.addRelation(childB, childA)).toBe(false);
+    expect(store.addRelation(rootId, childA)).toBe(true);
+
+    expect(afterAdd).toBe(historyLength + 1);
+    expect(store.document?.relations).toHaveLength(2);
+  });
+
+  it('removeRelation 删除并清理空数组键，可撤销', () => {
+    const { store, childA, childB } = twoChildContent();
+    store.addRelation(childA, childB);
+    const relationId = (store.document?.relations ?? [])[0]?.id as string;
+
+    expect(store.removeRelation(relationId)).toBe(true);
+    expect(store.document?.relations).toBeUndefined();
+    expect(store.serialized).not.toContain('"relations"');
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.relations).toHaveLength(1);
+  });
+
+  it('removeRelation 对不存在的 id、无文档返回 false', () => {
+    const store = useMindmapStore();
+    expect(store.removeRelation('rel_x')).toBe(false);
+
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.removeRelation('rel_x')).toBe(false);
+    expect(store.addRelation('a', 'b')).toBe(false);
+  });
+});
+
+/* ------------------------- 阶段 4E：多工作表 / 多中心主题 ------------------------- */
+
+describe('useMindmapStore 阶段 4E：多工作表', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 加载单工作表文档后新增一张工作表，返回两表状态的关键 id。 */
+  function storeWithTwoSheets() {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.addSheet('第二张')).toBe(true);
+    const secondRootId = store.document?.rootTopicId as string;
+    const secondSheetId = store.currentSheetId as string;
+    const firstSheetId = store.sheets[0]?.id as string;
+    return { store, firstRootId: rootId, firstSheetId, secondRootId, secondSheetId };
+  }
+
+  it('sheets getter：旧文档（无 sheets）兜底为唯一工作表且 id 稳定', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.sheets).toHaveLength(1);
+    expect(store.sheets[0]?.rootTopicId).toBe(rootId);
+    // 兜底 id 由根 id 派生：多次读取必须一致，否则切换/重命名无法定位
+    const firstId = store.sheets[0]?.id;
+    expect(store.sheets[0]?.id).toBe(firstId);
+    expect(store.currentSheetId).toBe(firstId);
+  });
+
+  it('无文档时 sheets 为空、currentSheetId 为 null', () => {
+    const store = useMindmapStore();
+    expect(store.sheets).toEqual([]);
+    expect(store.currentSheetId).toBeNull();
+  });
+
+  it('addSheet：新增中心主题并切为当前，视口复位、同步 lastSerialized，可撤销/重做', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const before = store.serialized;
+    const firstSheetId = store.currentSheetId;
+    store.setViewport({ x: 30, y: 40, zoom: 1.5 });
+
+    expect(store.addSheet('第二张')).toBe(true);
+
+    const newRootId = store.document?.rootTopicId as string;
+    expect(newRootId).not.toBe(rootId);
+    expect(store.sheets).toHaveLength(2);
+    expect(store.sheets[1]?.title).toBe('第二张');
+    expect(store.sheets[1]?.rootTopicId).toBe(newRootId);
+
+    // 新中心主题：无父、无子、文本与工作表标题一致
+    const newRoot = store.document?.topics[newRootId];
+    expect(newRoot?.parentId).toBeNull();
+    expect(newRoot?.childIds).toEqual([]);
+    expect(newRoot?.text).toBe('第二张');
+
+    expect(store.selectedTopicId).toBe(newRootId);
+    expect(store.currentSheetId).toBe(store.sheets[1]?.id);
+    expect(store.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(store.lastSerialized).toBe(store.serialized);
+    expect(store.canUndo).toBe(true);
+    // 新增后文档仍合法（多根 + rootTopicId 指向当前工作表）
+    expect(validateMindMapDocument(store.document as NonNullable<typeof store.document>).ok).toBe(true);
+
+    expect(store.undo()).toBe(true);
+    expect(store.serialized).toBe(before);
+    expect(store.document?.rootTopicId).toBe(rootId);
+    expect(store.sheets).toHaveLength(1);
+    expect(store.currentSheetId).toBe(firstSheetId);
+
+    expect(store.redo()).toBe(true);
+    expect(store.document?.rootTopicId).toBe(newRootId);
+    expect(store.sheets).toHaveLength(2);
+  });
+
+  it('addSheet 默认按序号命名；无文档时返回 false', () => {
+    const store = useMindmapStore();
+    expect(store.addSheet()).toBe(false);
+
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.addSheet()).toBe(true);
+    expect(store.sheets[1]?.title).toBe('工作表 2');
+    expect(store.addSheet()).toBe(true);
+    expect(store.sheets[2]?.title).toBe('工作表 3');
+  });
+
+  it('switchSheet：切换 rootTopicId / 选中 / 视口，可撤销；未知与当前返回 false', () => {
+    const { store, firstRootId, firstSheetId, secondRootId } = storeWithTwoSheets();
+    store.setViewport({ x: 5, y: 6, zoom: 2 });
+
+    expect(store.switchSheet(firstSheetId)).toBe(true);
+    expect(store.document?.rootTopicId).toBe(firstRootId);
+    expect(store.selectedTopicId).toBe(firstRootId);
+    expect(store.currentSheetId).toBe(firstSheetId);
+    expect(store.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(store.lastSerialized).toBe(store.serialized);
+
+    const historyLength = store.history.past.length;
+    expect(store.switchSheet(firstSheetId)).toBe(false); // 已经是当前工作表
+    expect(store.switchSheet('sheet-ghost')).toBe(false); // 未知工作表
+    expect(store.history.past.length).toBe(historyLength);
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.rootTopicId).toBe(secondRootId);
+    expect(store.redo()).toBe(true);
+    expect(store.document?.rootTopicId).toBe(firstRootId);
+  });
+
+  it('renameSheet：trim 标题并记住历史；空标题 / 未知 / 无变化返回 false', () => {
+    const { store, secondSheetId } = storeWithTwoSheets();
+    const before = store.serialized;
+
+    expect(store.renameSheet(secondSheetId, '  重命名后的表  ')).toBe(true);
+    expect(store.sheets.find((sheet) => sheet.id === secondSheetId)?.title)
+      .toBe('重命名后的表');
+    expect(store.lastSerialized).toBe(store.serialized);
+
+    const historyLength = store.history.past.length;
+    expect(store.renameSheet(secondSheetId, '重命名后的表')).toBe(false); // 无变化
+    expect(store.renameSheet(secondSheetId, '   ')).toBe(false); // 空标题
+    expect(store.renameSheet('sheet-ghost', 'x')).toBe(false);
+    expect(store.history.past.length).toBe(historyLength);
+
+    expect(store.undo()).toBe(true);
+    expect(store.serialized).toBe(before);
+    expect(store.sheets.find((sheet) => sheet.id === secondSheetId)?.title).toBe('第二张');
+  });
+
+  it('removeSheet：至少保留一个工作表，仅剩一个时返回 false', () => {
+    const store = useMindmapStore();
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const before = store.serialized;
+
+    expect(store.removeSheet(store.currentSheetId as string)).toBe(false);
+    expect(store.sheets).toHaveLength(1);
+    expect(store.serialized).toBe(before);
+    expect(store.canUndo).toBe(false);
+  });
+
+  it('removeSheet 删除当前工作表：切到剩余第一个、清理子树与关系，可撤销', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.addSheet('第二张')).toBe(true);
+
+    const secondSheetId = store.currentSheetId as string;
+    const secondRootId = store.document?.rootTopicId as string;
+
+    store.applyCommand('添加子主题', (doc) => addChildTopic(doc, secondRootId));
+    const childId = store.selectedTopicId as string;
+    store.applyCommand('添加子主题', (doc) => addChildTopic(doc, childId));
+    const grandChildId = store.selectedTopicId as string;
+    // 跨工作表关系线：删除第二张后该关系端点失效，必须一并清理
+    expect(store.addRelation(secondRootId, rootId, '跨表')).toBe(true);
+
+    const beforeRemove = store.serialized;
+    expect(store.removeSheet(secondSheetId)).toBe(true);
+
+    expect(store.sheets).toHaveLength(1);
+    expect(store.document?.rootTopicId).toBe(rootId);
+    expect(store.selectedTopicId).toBe(rootId);
+    expect(store.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(store.document?.topics[secondRootId]).toBeUndefined();
+    expect(store.document?.topics[childId]).toBeUndefined();
+    expect(store.document?.topics[grandChildId]).toBeUndefined();
+    expect(store.document?.relations).toBeUndefined();
+    expect(store.serialized).not.toContain('"relations"');
+    expect(validateMindMapDocument(store.document as NonNullable<typeof store.document>).ok).toBe(true);
+
+    expect(store.undo()).toBe(true);
+    expect(store.serialized).toBe(beforeRemove);
+    expect(store.document?.topics[secondRootId]).toBeDefined();
+    expect(store.document?.relations).toHaveLength(1);
+
+    expect(store.redo()).toBe(true);
+    expect(store.document?.topics[secondRootId]).toBeUndefined();
+  });
+
+  it('removeSheet 删除非当前工作表时保持当前工作表与选中不变', () => {
+    const { store, firstSheetId, firstRootId, secondSheetId, secondRootId } = storeWithTwoSheets();
+    // 切回第一张，选中第一张的根
+    expect(store.switchSheet(firstSheetId)).toBe(true);
+    expect(store.selectedTopicId).toBe(firstRootId);
+
+    expect(store.removeSheet(secondSheetId)).toBe(true);
+    expect(store.sheets).toHaveLength(1);
+    expect(store.sheets[0]?.id).toBe(firstSheetId);
+    expect(store.document?.rootTopicId).toBe(firstRootId);
+    expect(store.selectedTopicId).toBe(firstRootId);
+    expect(store.document?.topics[secondRootId]).toBeUndefined();
+  });
+
+  it('removeSheet：选中节点落在被删子树时退回当前工作表根（不留悬空选中）', () => {
+    const { store, firstSheetId, firstRootId, secondSheetId, secondRootId } = storeWithTwoSheets();
+    expect(store.switchSheet(firstSheetId)).toBe(true);
+    // 人为把选中放到另一张工作表的根（如跨表关系端点的场景）
+    store.selectTopic(secondRootId);
+    expect(store.selectedTopicId).toBe(secondRootId);
+
+    expect(store.removeSheet(secondSheetId)).toBe(true);
+    expect(store.selectedTopicId).toBe(firstRootId);
+    expect(store.document?.rootTopicId).toBe(firstRootId);
+  });
+});
+

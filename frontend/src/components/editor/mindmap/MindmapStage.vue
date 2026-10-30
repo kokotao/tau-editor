@@ -27,7 +27,12 @@ import {
   setTopicCollapsed,
 } from '@/services/mindmap/mindmapCommands';
 import type { MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
-import type { MindMapLayoutMode, MindmapOutlineRow } from '@/types/mindmap';
+import {
+  DEFAULT_MINDMAP_THEME_ID,
+  listMindmapThemes,
+  resolveMindmapTheme,
+} from '@/services/mindmapThemeService';
+import type { MindMapLayoutMode, MindMapSheet, MindMapTopicStyle, MindmapOutlineRow } from '@/types/mindmap';
 import type { TabDocumentKind } from '@/stores/tabs';
 import MindmapCanvas from './MindmapCanvas.vue';
 import MindmapOutlinePanel from './MindmapOutlinePanel.vue';
@@ -38,12 +43,14 @@ import MindmapExportDialog from './MindmapExportDialog.vue';
 import {
   MINDMAP_EXPORT_FORMATS,
   buildExportFileName,
+  exportMindmapPdfFile,
   exportMindmapText,
   previewMindmapImport,
   type MindmapExportFormatId,
   type MindmapImportPreview,
 } from '@/services/mindmap/importExportService';
 import { exportMindmapPng } from '@/services/mindmapSvgService';
+import { printMindmap } from '@/services/mindmapPdfService';
 import {
   pickMindmapExportPath,
   pickMindmapImportFile,
@@ -109,6 +116,14 @@ const exportBusy = ref(false);
 /* 阶段 4：属性面板与大纲搜索 */
 const propertiesVisible = ref(false);
 const searchQuery = ref('');
+
+/* 阶段 4C：主题模板 */
+/** 当前主题 id（来自文档正文，切换可撤销）。 */
+const themeId = computed(() => document.value?.themeId ?? DEFAULT_MINDMAP_THEME_ID);
+/** 主题候选（工具栏下拉）。 */
+const themeOptions = computed(() => listMindmapThemes());
+/** 当前主题展示名（用于提示文案）。 */
+const currentThemeName = computed(() => resolveMindmapTheme(themeId.value).name);
 
 function showNotice(message: string) {
   notice.value = message;
@@ -260,6 +275,55 @@ function runLayoutCommand(mode: MindMapLayoutMode): boolean {
 
 function selectTopic(topicId: string) {
   store.selectTopic(topicId);
+}
+
+/* ------------------------------- 工作表（阶段 4E） ------------------------------- */
+
+/** 全部工作表（旧文档没有 sheets 时，store 会兜底为「唯一工作表」）。 */
+const sheets = computed(() => store.sheets);
+
+/** 当前工作表 id，用于切换条的激活态判定。 */
+const currentSheetId = computed(() => store.currentSheetId);
+
+/**
+ * 切换工作表。
+ *
+ * 与布局/主题切换一致：store 负责校验、记历史、换选中的根并复位视口，
+ * 组件只按「前后序列化对比」决定是否 emit change。
+ */
+function switchSheet(sheet: MindMapSheet): boolean {
+  if (sheet.id === currentSheetId.value) return false;
+  const before = store.serialized;
+  if (!store.switchSheet(sheet.id)) return false;
+  emitIfChanged(before);
+  showNotice(`已切换到工作表「${sheet.title}」`);
+  void focusStage();
+  return true;
+}
+
+/** 新增工作表（自动切到新工作表，可撤销）。 */
+function addSheet() {
+  const before = store.serialized;
+  if (!store.addSheet()) return;
+  emitIfChanged(before);
+  showNotice('已新增工作表，可撤销');
+  void focusStage();
+}
+
+/**
+ * 删除当前工作表（含其中心主题与整棵子树，可撤销）。
+ *
+ * 「至少保留一个」在按钮 disabled 与 store.removeSheet 两处双重拦截。
+ * TODO(阶段 5)：双击工作表标签重命名（store.renameSheet 已就绪，缺 UI 入口）。
+ */
+function removeCurrentSheet() {
+  const sheetId = currentSheetId.value;
+  if (!sheetId) return;
+  const before = store.serialized;
+  if (!store.removeSheet(sheetId)) return;
+  emitIfChanged(before);
+  showNotice('已删除工作表（含其中心主题与子树），可撤销');
+  void focusStage();
 }
 
 function selectByIndex(index: number) {
@@ -444,7 +508,62 @@ const selectedTopicForPanel = computed(() => {
     notes: topic.notes,
     link: topic.link,
     labels: topic.labels,
+    style: topic.style,
+    markers: topic.markers ?? [],
   };
+});
+
+/**
+ * 按文档树序（先序）收集全部节点，用于「关系目标」下拉与关系目标文本。
+ * 只依赖 childIds，不受折叠影响（折叠只是画布可见性问题）。
+ */
+const topicsInOrder = computed<{ id: string; text: string }[]>(() => {
+  const doc = document.value;
+  if (!doc) return [];
+  const result: { id: string; text: string }[] = [];
+  const walk = (topicId: string) => {
+    const topic = doc.topics[topicId];
+    if (!topic) return;
+    result.push({ id: topic.id, text: topic.text ?? '' });
+    for (const childId of topic.childIds ?? []) walk(childId);
+  };
+  walk(doc.rootTopicId);
+  return result;
+});
+
+/** 可作为关系终点的候选：排除当前节点自身（自环由面板与 store 双重拦截）。 */
+const relationTargets = computed(() => {
+  const id = selectedTopicId.value;
+  return topicsInOrder.value.filter((topic) => topic.id !== id);
+});
+
+/** 与当前节点相关的关系线（源或目标），已补齐对端节点文本。 */
+const panelRelations = computed(() => {
+  const doc = document.value;
+  const id = selectedTopicId.value;
+  if (!doc || !id) return [];
+  const relations = doc.relations ?? [];
+  const result: {
+    id: string;
+    sourceId: string;
+    targetId: string;
+    targetText: string;
+    label?: string;
+  }[] = [];
+  for (const relation of relations) {
+    if (relation.sourceTopicId !== id && relation.targetTopicId !== id) continue;
+    const otherId = relation.sourceTopicId === id
+      ? relation.targetTopicId
+      : relation.sourceTopicId;
+    result.push({
+      id: relation.id,
+      sourceId: relation.sourceTopicId,
+      targetId: otherId,
+      targetText: doc.topics[otherId]?.text || '（空主题）',
+      label: relation.label,
+    });
+  }
+  return result;
 });
 
 function toggleProperties() {
@@ -468,6 +587,70 @@ function applyTopicProperties(payload: {
   if (store.updateTopicMeta(id, payload)) {
     emitIfChanged(before);
     showNotice('节点属性已更新');
+  }
+  void focusStage();
+}
+
+/** 属性面板：更新节点样式（可撤销）。 */
+function applyTopicStyle(style: MindMapTopicStyle) {
+  const id = selectedTopicId.value;
+  if (!id) return;
+  const before = store.serialized;
+  if (store.updateTopicStyle(id, style)) {
+    emitIfChanged(before);
+  }
+  void focusStage();
+}
+
+/** 属性面板：覆盖节点标记集合（可撤销）。 */
+function applyTopicMarkers(markers: string[]) {
+  const id = selectedTopicId.value;
+  if (!id) return;
+  const before = store.serialized;
+  if (store.updateTopicMarkers(id, markers)) {
+    emitIfChanged(before);
+  }
+  void focusStage();
+}
+
+/** 属性面板：以当前选中节点为源添加独立关系线（自环/重复/端点非法由 store 拒绝）。 */
+function addRelationFromPanel(payload: { targetId: string }) {
+  const id = selectedTopicId.value;
+  if (!id || !payload.targetId) return;
+  const before = store.serialized;
+  if (store.addRelation(id, payload.targetId)) {
+    emitIfChanged(before);
+    showNotice('已添加关系线');
+  } else {
+    showNotice('无法添加该关系（不能指向自身，且同一对节点只允许一条关系）');
+  }
+  void focusStage();
+}
+
+/** 属性面板：删除一条关系线（可撤销）。 */
+function removeRelationFromPanel(payload: { relationId: string }) {
+  if (!payload.relationId) return;
+  const before = store.serialized;
+  if (store.removeRelation(payload.relationId)) {
+    emitIfChanged(before);
+    showNotice('已删除关系线');
+  }
+  void focusStage();
+}
+
+/**
+ * 切换主题模板（可撤销）。
+ *
+ * 与布局切换同样沿用「前后序列化对比 → emit change」模式：
+ * store.setTheme 负责校验与历史，组件只负责把新内容交回标签管线。
+ */
+function onThemeSelect(event: Event) {
+  const nextThemeId = (event.target as HTMLSelectElement | null)?.value ?? '';
+  if (!nextThemeId) return;
+  const before = store.serialized;
+  if (store.setTheme(nextThemeId)) {
+    emitIfChanged(before);
+    showNotice(`已切换主题：${resolveMindmapTheme(nextThemeId).name}`);
   }
   void focusStage();
 }
@@ -539,6 +722,9 @@ async function confirmExport(payload: {
     const path = await pickMindmapExportPath(defaultName, extension);
     if (!path) return;
 
+    // 多工作表时，非原生格式只会导出当前工作表，明确告知避免误解
+    const sheetSuffix = store.sheets.length > 1 ? '（仅当前工作表）' : '';
+
     if (payload.formatId === 'png') {
       showNotice('正在导出 PNG…');
       const { blob, width, height } = await exportMindmapPng(current, {
@@ -547,20 +733,45 @@ async function confirmExport(payload: {
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       await writeMindmapExportFile(path, { kind: 'binary', bytes });
-      showNotice(`已导出 PNG（${width}×${height}）`);
+      showNotice(`已导出 PNG（${width}×${height}）${sheetSuffix}`);
+    } else if (payload.formatId === 'pdf') {
+      showNotice('正在导出 PDF…');
+      const result = await exportMindmapPdfFile(current, {
+        background: '#ffffff',
+        scale: 1,
+      });
+      if (!result.ok || !result.bytes) {
+        throw new Error(result.error?.message ?? 'PDF 导出失败');
+      }
+      await writeMindmapExportFile(path, { kind: 'binary', bytes: result.bytes });
+      showNotice(`已导出 PDF（${result.width}×${result.height}）${sheetSuffix}`);
     } else {
       const result = exportMindmapText(payload.formatId, current);
       if (!result.ok) throw new Error(result.error?.message ?? '导出失败');
       await writeMindmapExportFile(path, { kind: 'text', text: result.output });
-      showNotice(result.lossy && result.lossy.length > 0
+      const baseMessage = result.lossy && result.lossy.length > 0
         ? `已导出（${result.lossy.length} 项有损）`
-        : '已导出');
+        : '已导出';
+      showNotice(`${baseMessage}${sheetSuffix}`);
     }
     exportDialogVisible.value = false;
   } catch (error) {
     showNotice(error instanceof Error ? error.message : '导出失败');
   } finally {
     exportBusy.value = false;
+  }
+}
+
+/** 打印当前导图：把 SVG 放进隐藏 iframe 调起系统打印对话框。 */
+async function handlePrint() {
+  const current = document.value;
+  if (!current) return;
+  try {
+    showNotice('正在准备打印…');
+    const { width, height } = await printMindmap(current, { background: 'transparent' });
+    showNotice(`已调起打印（${width}×${height}）`);
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : '打印失败');
   }
 }
 
@@ -751,6 +962,22 @@ function onKeydown(event: KeyboardEvent) {
           >{{ option.label }}</button>
         </span>
         <span class="mm-divider" aria-hidden="true"></span>
+        <!-- 主题模板（阶段 4C）：切换即写入 document.themeId，可撤销 -->
+        <label class="mm-theme-field" title="主题模板">
+          <span class="mm-theme-label">主题</span>
+          <select
+            class="mm-theme-select"
+            data-testid="mm-theme-select"
+            :value="themeId"
+            :aria-label="`主题模板：${currentThemeName}`"
+            @change="onThemeSelect"
+          >
+            <option v-for="option in themeOptions" :key="option.id" :value="option.id">
+              {{ option.name }}
+            </option>
+          </select>
+        </label>
+        <span class="mm-divider" aria-hidden="true"></span>
         <button type="button" class="mm-btn" data-testid="mm-reset" @click="requestReset">重置</button>
         <span class="mm-divider" aria-hidden="true"></span>
         <button type="button" class="mm-btn" data-testid="mm-import" :disabled="importBusy" @click="handleImportPick">
@@ -758,6 +985,9 @@ function onKeydown(event: KeyboardEvent) {
         </button>
         <button type="button" class="mm-btn" data-testid="mm-export" :disabled="exportBusy" @click="openExportDialog">
           导出
+        </button>
+        <button type="button" class="mm-btn" data-testid="mm-print" @click="handlePrint">
+          打印
         </button>
         <button
           type="button"
@@ -784,6 +1014,36 @@ function onKeydown(event: KeyboardEvent) {
       </div>
 
       <div v-if="notice" class="mindmap-notice" role="status" data-testid="mindmap-notice">{{ notice }}</div>
+
+      <!-- 工作表切换条（阶段 4E）：切换 / 新增 / 删除均以可撤销命令写回文档并 emit change -->
+      <div class="mindmap-sheet-bar" data-testid="mm-sheet-bar" role="tablist" aria-label="工作表">
+        <button
+          v-for="(sheet, index) in sheets"
+          :key="sheet.id"
+          type="button"
+          role="tab"
+          class="mm-sheet-tab"
+          :class="{ 'is-active': sheet.id === currentSheetId }"
+          :data-testid="`mm-sheet-tab-${index}`"
+          :aria-selected="sheet.id === currentSheetId"
+          :title="sheet.title"
+          @click="switchSheet(sheet)"
+        >{{ sheet.title }}</button>
+        <span class="mm-divider" aria-hidden="true"></span>
+        <button type="button" class="mm-btn" data-testid="mm-sheet-add" title="新增工作表" @click="addSheet">
+          ＋ 工作表
+        </button>
+        <button
+          type="button"
+          class="mm-btn danger"
+          data-testid="mm-sheet-remove"
+          :disabled="sheets.length <= 1"
+          title="删除当前工作表（至少保留一个）"
+          @click="removeCurrentSheet"
+        >
+          删除工作表
+        </button>
+      </div>
 
       <div class="mindmap-workspace">
         <MindmapCanvas
@@ -822,8 +1082,14 @@ function onKeydown(event: KeyboardEvent) {
         <MindmapPropertiesPanel
           v-if="propertiesVisible && selectedTopicForPanel"
           :topic="selectedTopicForPanel"
+          :relations="panelRelations"
+          :relation-targets="relationTargets"
           @update="applyTopicProperties"
           @close="closeProperties"
+          @update-style="applyTopicStyle"
+          @update-markers="applyTopicMarkers"
+          @add-relation="addRelationFromPanel"
+          @remove-relation="removeRelationFromPanel"
         />
       </div>
 
@@ -841,6 +1107,8 @@ function onKeydown(event: KeyboardEvent) {
       <div class="mindmap-stage-note">
         阶段 2：画布与大纲。滚轮缩放 · 空白拖拽平移 · 双击改名 · 拖节点改变父级 · Tab 子主题 · Enter 同级 · F2 改名 · Delete 删除 · Alt+↑↓ 重排 · Ctrl+Z 撤销。
         布局可在「导图 / 逻辑图 / 树形 / 组织图」间切换（可撤销）。
+        阶段 4：节点样式 / 标记 / 关系线可在属性面板中调整，主题模板在工具栏切换（均可撤销）。
+        阶段 4E：多工作表可新增 / 切换 / 删除（均可撤销，至少保留一个工作表）。
       </div>
     </template>
 
@@ -902,6 +1170,18 @@ function onKeydown(event: KeyboardEvent) {
   font-weight: 600;
 }
 .mm-spacer { flex: 1; }
+/* 主题模板下拉（阶段 4C） */
+.mm-theme-field { display: inline-flex; align-items: center; gap: 4px; }
+.mm-theme-label { font-size: 11px; opacity: 0.6; }
+.mm-theme-select {
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border, #d8dee9);
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
 .mm-stats { font-size: 12px; opacity: 0.6; }
 .mindmap-notice {
   padding: 6px 14px;
@@ -913,6 +1193,32 @@ function onKeydown(event: KeyboardEvent) {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+/* 工作表切换条（阶段 4E） */
+.mindmap-sheet-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  overflow-x: auto;
+}
+.mm-sheet-tab {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mm-sheet-tab:hover { background: var(--hover, rgba(74, 144, 226, 0.08)); }
+.mm-sheet-tab.is-active {
+  border-color: var(--accent, #4a90e2);
+  background: var(--accent-soft, rgba(74, 144, 226, 0.14));
+  color: var(--accent, #4a90e2);
+  font-weight: 600;
 }
 .mindmap-confirm {
   display: flex;

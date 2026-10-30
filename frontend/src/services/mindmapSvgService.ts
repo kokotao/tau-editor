@@ -138,6 +138,54 @@ export interface PngBlobOptions extends SvgRenderOptions {
   scale?: number;
 }
 
+/** 画布渲染结果：PNG / PDF 等二进制导出共用。 */
+export interface MindmapPngCanvasResult {
+  canvas: HTMLCanvasElement;
+  width: number;
+  height: number;
+}
+
+/**
+ * 把文档渲染到离屏画布（SVG → Image → canvas）。
+ *
+ * PNG 与 PDF 导出共用该能力：先按 {@link planPngExport} 规划尺寸并校验上限，
+ * 再把 SVG 绘制到同尺寸画布上。调用方可继续 canvas.toBlob（PNG）
+ * 或 canvas.getContext('2d').getImageData（PDF）。
+ *
+ * @throws Error 当尺寸超限、环境不支持画布渲染时。
+ */
+export async function renderMindmapPngCanvas(
+  document: MindMapDocument,
+  options: PngBlobOptions = {},
+): Promise<MindmapPngCanvasResult> {
+  // 注意：SVG 必须按自然尺寸渲染，倍率只由 planPngExport 应用一次，
+  // 否则调用方传 scale=2 时会被「SVG 放大 + 画布再放大」乘成 4 倍。
+  const rendered = renderMindmapSvg(document, { ...options, scale: 1 });
+  // 尺寸规划与上限校验放在最前：超限时不必承担画布内存开销
+  const plan = planPngExport(rendered.width, rendered.height, options.scale);
+
+  if (typeof window === 'undefined' || typeof window.document?.createElement !== 'function') {
+    throw new Error('当前环境不支持画布渲染，无法导出图片');
+  }
+
+  const canvas = window.document.createElement('canvas');
+  canvas.width = plan.width;
+  canvas.height = plan.height;
+  // happy-dom 等环境可能根本没有 getContext，不做能力检查会抛 TypeError 而非可读错误
+  if (typeof canvas.getContext !== 'function') {
+    throw new Error('当前环境不支持画布渲染，无法导出图片');
+  }
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('当前环境不支持 2D 画布，无法导出图片');
+  }
+
+  const image = await loadSvgImage(rendered.svg);
+  context.drawImage(image, 0, 0, plan.width, plan.height);
+
+  return { canvas, width: plan.width, height: plan.height };
+}
+
 /**
  * 把文档渲染成 PNG Blob。
  *
@@ -147,26 +195,10 @@ export async function exportMindmapPng(
   document: MindMapDocument,
   options: PngBlobOptions = {},
 ): Promise<{ blob: Blob; width: number; height: number }> {
-  const rendered = renderMindmapSvg(document, options);
-  const plan = planPngExport(rendered.width, rendered.height, options.scale);
-
-  if (typeof window === 'undefined' || typeof window.document?.createElement !== 'function') {
-    throw new Error('当前环境不支持画布渲染，无法导出 PNG');
-  }
-
-  const canvas = window.document.createElement('canvas');
-  canvas.width = plan.width;
-  canvas.height = plan.height;
-  const context = canvas.getContext('2d');
-  if (!context) {
-    throw new Error('当前环境不支持 2D 画布，无法导出 PNG');
-  }
-
-  const image = await loadSvgImage(rendered.svg);
-  context.drawImage(image, 0, 0, plan.width, plan.height);
-
+  // 复用共享画布渲染流程，保证 PNG / PDF 的尺寸规划与绘制完全一致
+  const { canvas, width, height } = await renderMindmapPngCanvas(document, options);
   const blob = await canvasToBlob(canvas);
-  return { blob, width: plan.width, height: plan.height };
+  return { blob, width, height };
 }
 
 function loadSvgImage(svg: string): Promise<HTMLImageElement> {

@@ -190,7 +190,7 @@ test.describe('Mindmap E2E', () => {
     await page.locator('[data-testid="mm-export"]').click()
     const dialog = page.locator('[data-testid="mm-export-dialog"]')
     await expect(dialog).toBeVisible()
-    await expect(page.locator('input[name="mm-export-format"]')).toHaveCount(6)
+    await expect(page.locator('input[name="mm-export-format"]')).toHaveCount(7)
 
     await page.locator('[data-testid="mm-export-format-png"]').check()
     await expect(page.locator('[data-testid="mm-export-png-options"]')).toBeVisible()
@@ -300,5 +300,75 @@ test.describe('Mindmap E2E', () => {
 
     await page.locator('[data-testid="mm-outline-search"]').fill('')
     await expect(page.locator('.mindmap-row')).toHaveCount(2)
+  })
+
+  test('E2E-MM-013: 切换主题后画布应用主题标识', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+
+    const canvas = page.locator('[data-testid="mindmap-canvas"]')
+    await page.locator('[data-testid="mm-theme-select"]').selectOption('ocean')
+    await expect(canvas).toHaveAttribute('data-theme-id', 'ocean')
+
+    await page.locator('[data-testid="mm-theme-select"]').selectOption('default')
+    await expect(canvas).toHaveAttribute('data-theme-id', 'default')
+  })
+
+  test('E2E-MM-014: 属性面板添加标记后画布出现徽章', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+    await focusStage(page)
+
+    await page.locator('[data-testid="mm-properties-toggle"]').click()
+    await expect(page.locator('[data-testid="mm-props"]')).toBeVisible()
+    await page.locator('[data-testid="mm-props-marker-star"]').click()
+
+    await expect(page.locator('.mm-marker')).toHaveCount(1)
+    // 标记按钮进入激活态（面板受控反映文档）
+    await expect(page.locator('[data-testid="mm-props-marker-star"]')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('E2E-MM-015: 属性面板添加独立关系线后画布渲染', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+    await focusStage(page)
+
+    // 先建一个子节点作为关系目标，并选中中心主题
+    await page.keyboard.press('Tab')
+    await expect(page.locator('.mm-node')).toHaveCount(2)
+    await page.locator('.mm-node.is-root').click()
+    await page.locator('[data-testid="mm-properties-toggle"]').click()
+
+    await page.locator('[data-testid="mm-props-relation-target"]').selectOption({ index: 1 })
+    await page.locator('[data-testid="mm-props-relation-add"]').click()
+
+    await expect(page.locator('[data-testid="mm-relation"]')).toHaveCount(1)
+  })
+
+  test('E2E-MM-016: 多工作表新增与切换', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+    await focusStage(page)
+
+    await page.keyboard.press('Tab')
+    await expect(page.locator('.mm-node')).toHaveCount(2)
+
+    await page.locator('[data-testid="mm-sheet-add"]').click()
+    await expect(page.locator('[data-testid="mm-sheet-tab-1"]')).toBeVisible()
+    await expect(page.locator('.mm-node')).toHaveCount(1)
+
+    await page.locator('[data-testid="mm-sheet-tab-0"]').click()
+    await expect(page.locator('.mm-node')).toHaveCount(2)
+  })
+
+  test('E2E-MM-017: 打印入口存在', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+    await expect(page.locator('[data-testid="mm-print"]')).toBeVisible()
   })
 })

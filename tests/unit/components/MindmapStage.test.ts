@@ -304,3 +304,257 @@ describe('MindmapStage 阶段 4A', () => {
     expect(wrapper.findAll('.mindmap-row')).toHaveLength(0);
   });
 });
+
+/* ------------- 阶段 4C：样式 / 标记 / 关系线 / 主题模板接线 ------------- */
+
+describe('MindmapStage 阶段 4C', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 取最近一次 change 事件里的文档。 */
+  function lastDocument(wrapper: ReturnType<typeof mountStage>): MindMapDocument {
+    const emitted = wrapper.emitted('change');
+    expect(emitted).toBeTruthy();
+    return JSON.parse(emitted![emitted!.length - 1]![0] as string) as MindMapDocument;
+  }
+
+  it('属性面板改样式：emit change 且写入 topic.style', async () => {
+    const doc = treeDocument();
+    const rootId = doc.rootTopicId;
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+
+    await wrapper.find('[data-testid="mm-props-style-fill"]').setValue('#e8f1ff');
+    await wrapper.vm.$nextTick();
+
+    const style = lastDocument(wrapper).topics[rootId]?.style;
+    expect(style?.fill).toBe('#e8f1ff');
+    // 受控：面板控件跟随 store 回填
+    expect((wrapper.find('[data-testid="mm-props-style-fill"]').element as HTMLSelectElement).value)
+      .toBe('#e8f1ff');
+
+    // 再改形状 → 新的 change，且保留已有填充（空值键不写入文档）
+    await wrapper.find('[data-testid="mm-props-style-shape"]').setValue('pill');
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).topics[rootId]?.style).toEqual({
+      fill: '#e8f1ff',
+      shape: 'pill',
+    });
+  });
+
+  it('属性面板样式改动可撤销', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    await wrapper.find('[data-testid="mm-props-style-fill"]').setValue('#e8f1ff');
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="mindmap-tree"]').trigger('keydown', { key: 'z', ctrlKey: true });
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).topics[treeDocument().rootTopicId]?.style).toBeUndefined();
+  });
+
+  it('属性面板切换标记：emit change，画布出现徽章，再次点击清除', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="mm-marker"]')).toHaveLength(0);
+
+    await wrapper.find('[data-testid="mm-props-marker-priority-1"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const rootId = lastDocument(wrapper).rootTopicId;
+    expect(lastDocument(wrapper).topics[rootId]?.markers).toEqual(['priority-1']);
+    expect(wrapper.findAll('[data-testid="mm-marker"]')).toHaveLength(1);
+
+    await wrapper.find('[data-testid="mm-props-marker-priority-1"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).topics[rootId]?.markers).toBeUndefined();
+    expect(wrapper.findAll('[data-testid="mm-marker"]')).toHaveLength(0);
+  });
+
+  it('属性面板添加关系：emit change、画布渲染关系线，随后可删除', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="mm-relation"]')).toHaveLength(0);
+
+    // 中心主题为源，选择节点 A 作为目标
+    await wrapper.find('[data-testid="mm-props-relation-target"]').setValue('a');
+    await wrapper.find('[data-testid="mm-props-relation-add"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const changed = lastDocument(wrapper);
+    const rootId = changed.rootTopicId;
+    expect(changed.relations).toHaveLength(1);
+    expect(changed.relations?.[0]?.sourceTopicId).toBe(rootId);
+    expect(changed.relations?.[0]?.targetTopicId).toBe('a');
+    expect(wrapper.findAll('[data-testid="mm-relation"]')).toHaveLength(1);
+
+    // 删除关系
+    const relationId = changed.relations?.[0]?.id as string;
+    await wrapper.find(`[data-testid="mm-props-relation-remove-${relationId}"]`).trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(lastDocument(wrapper).relations).toBeUndefined();
+    expect(wrapper.findAll('[data-testid="mm-relation"]')).toHaveLength(0);
+  });
+
+  it('添加关系被拒绝时（自环/重复）不产生 change，并给出提示', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    await wrapper.find('[data-testid="mm-props-relation-target"]').setValue('a');
+    await wrapper.find('[data-testid="mm-props-relation-add"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    const changeCount = wrapper.emitted('change')?.length ?? 0;
+
+    // 同一对节点再添加一次（重复）：store 拒绝，不 emit change
+    await wrapper.find('[data-testid="mm-props-relation-target"]').setValue('a');
+    await wrapper.find('[data-testid="mm-props-relation-add"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('change')?.length ?? 0).toBe(changeCount);
+    expect(wrapper.find('[data-testid="mindmap-notice"]').text()).toContain('无法添加该关系');
+  });
+
+  it('工具栏切换主题：emit change、画布换色、可撤销', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const canvas = wrapper.find('[data-testid="mindmap-canvas"]');
+    expect(canvas.attributes('data-theme-id')).toBe('default');
+
+    const select = wrapper.find('[data-testid="mm-theme-select"]');
+    expect(select.findAll('option').map((option) => option.attributes('value')))
+      .toEqual(['default', 'ocean', 'forest', 'sunset']);
+
+    await select.setValue('ocean');
+    await wrapper.vm.$nextTick();
+
+    expect(lastDocument(wrapper).themeId).toBe('ocean');
+    expect(wrapper.find('[data-testid="mindmap-canvas"]').attributes('data-theme-id')).toBe('ocean');
+    expect(wrapper.find('[data-testid="mindmap-canvas"]').attributes('style')).toContain('--mindmap-node-bg');
+
+    await wrapper.find('[data-testid="mindmap-tree"]').trigger('keydown', { key: 'z', ctrlKey: true });
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).themeId).toBe('default');
+    expect(wrapper.find('[data-testid="mindmap-canvas"]').attributes('data-theme-id')).toBe('default');
+  });
+
+  it('主题切换是幂等的：选中当前主题不产生 change', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-theme-select"]').setValue('default');
+    expect(wrapper.emitted('change')).toBeFalsy();
+  });
+});
+
+/* ---------------------- 阶段 4E：多工作表 / 多中心主题 ---------------------- */
+
+describe('MindmapStage 阶段 4E', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 取最近一次 change 事件里的文档。 */
+  function lastDocument(wrapper: ReturnType<typeof mountStage>): MindMapDocument {
+    const emitted = wrapper.emitted('change');
+    expect(emitted).toBeTruthy();
+    return JSON.parse(emitted![emitted!.length - 1]![0] as string) as MindMapDocument;
+  }
+
+  /** 两张工作表的文档：工作表 1 = treeDocument 的根，工作表 2 = 独立根 + 一个子节点。 */
+  function multiSheetDocument(): MindMapDocument {
+    const doc = treeDocument();
+    doc.topics.sheet2 = { id: 'sheet2', parentId: null, childIds: ['s2a'], text: '第二张' };
+    doc.topics.s2a = { id: 's2a', parentId: 'sheet2', childIds: [], text: 'S2A' };
+    doc.sheets = [
+      { id: 'sheet-1', title: '工作表 1', rootTopicId: doc.rootTopicId },
+      { id: 'sheet-2', title: '第二张', rootTopicId: 'sheet2' },
+    ];
+    return doc;
+  }
+
+  it('切换条渲染：旧文档兜底为单个工作表，仅剩一个时删除按钮禁用', () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+
+    expect(wrapper.find('[data-testid="mm-sheet-bar"]').exists()).toBe(true);
+    const tabs = wrapper.findAll('[data-testid^="mm-sheet-tab-"]');
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]?.text()).toBe('工作表 1');
+    expect(tabs[0]?.classes()).toContain('is-active');
+    expect(tabs[0]?.attributes('aria-selected')).toBe('true');
+
+    expect(wrapper.find('[data-testid="mm-sheet-add"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="mm-sheet-remove"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('点击工作表标签切换：emit change、激活态切换、画布渲染新工作表的根', async () => {
+    const doc = multiSheetDocument();
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    expect(wrapper.find('[data-testid="mm-sheet-tab-0"]').classes()).toContain('is-active');
+
+    await wrapper.find('[data-testid="mm-sheet-tab-1"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const changed = lastDocument(wrapper);
+    expect(changed.rootTopicId).toBe('sheet2');
+    expect(wrapper.find('[data-testid="mm-sheet-tab-1"]').classes()).toContain('is-active');
+    expect(wrapper.find('[data-testid="mm-sheet-tab-0"]').classes()).not.toContain('is-active');
+    // 画布/大纲只渲染当前工作表的子树（第二张：根 + 1 个子节点）
+    expect(wrapper.findAll('.mm-node')).toHaveLength(2);
+    expect(wrapper.findAll('.mindmap-row')).toHaveLength(2);
+    expect(wrapper.find('.mm-node.is-selected').attributes('data-node-id')).toBe('sheet2');
+  });
+
+  it('切换工作表可撤销（Ctrl+Z 回到原工作表）', async () => {
+    const doc = multiSheetDocument();
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+
+    await wrapper.find('[data-testid="mm-sheet-tab-1"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).rootTopicId).toBe('sheet2');
+
+    await wrapper.find('[data-testid="mindmap-tree"]').trigger('keydown', { key: 'z', ctrlKey: true });
+    await wrapper.vm.$nextTick();
+
+    expect(lastDocument(wrapper).rootTopicId).toBe(doc.rootTopicId);
+    expect(wrapper.find('[data-testid="mm-sheet-tab-0"]').classes()).toContain('is-active');
+  });
+
+  it('mm-sheet-add 新增工作表：数量 +1、切到新根、emit change', async () => {
+    const doc = treeDocument();
+    const originalRoot = doc.rootTopicId;
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    expect(wrapper.findAll('[data-testid^="mm-sheet-tab-"]')).toHaveLength(1);
+
+    await wrapper.find('[data-testid="mm-sheet-add"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findAll('[data-testid^="mm-sheet-tab-"]')).toHaveLength(2);
+    const changed = lastDocument(wrapper);
+    expect(changed.sheets).toHaveLength(2);
+    expect(changed.sheets?.[1]?.title).toBe('工作表 2');
+    expect(changed.rootTopicId).not.toBe(originalRoot);
+    // 新工作表只有中心主题本身
+    expect(wrapper.findAll('.mm-node')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="mm-sheet-tab-1"]').classes()).toContain('is-active');
+    // 已有两个工作表 → 删除按钮可用
+    expect(wrapper.find('[data-testid="mm-sheet-remove"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('mm-sheet-remove 删除当前工作表：数量 -1、切回剩余工作表并 emit change', async () => {
+    const doc = multiSheetDocument();
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+
+    await wrapper.find('[data-testid="mm-sheet-tab-1"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-testid="mm-sheet-remove"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const changed = lastDocument(wrapper);
+    expect(changed.sheets).toHaveLength(1);
+    expect(changed.rootTopicId).toBe(doc.rootTopicId);
+    expect(changed.topics.sheet2).toBeUndefined();
+    expect(wrapper.findAll('[data-testid^="mm-sheet-tab-"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="mm-sheet-tab-0"]').classes()).toContain('is-active');
+    expect(wrapper.find('[data-testid="mm-sheet-remove"]').attributes('disabled')).toBeDefined();
+  });
+});
+

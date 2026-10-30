@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PNG_EXPORT_LIMITS,
+  exportMindmapPng,
   planPngExport,
+  renderMindmapPngCanvas,
   renderMindmapSvg,
 } from '@/services/mindmapSvgService';
 import { createEmptyMindMapDocument } from '@/services/mindmapService';
@@ -81,6 +83,133 @@ describe('planPngExport', () => {
   it('总像素超限抛错', () => {
     const side = 9000;
     expect(() => planPngExport(side, side, 1)).toThrow(/像素总量/);
+  });
+});
+
+/* ------------------------- canvas 渲染（PNG/PDF 共用） ------------------------- */
+
+interface CanvasStub {
+  canvas: { width: number; height: number };
+  drawImage: ReturnType<typeof vi.fn>;
+  restore: () => void;
+}
+
+/**
+ * 用假 canvas + 假 Image 替代真实浏览器渲染：
+ * happy-dom 没有 2D 画布，无法直接跑 SVG→canvas 流程。
+ */
+function stubCanvasEnvironment(withToBlob = false): CanvasStub {
+  const drawImage = vi.fn();
+  const canvas: {
+    width: number;
+    height: number;
+    getContext: () => unknown;
+    toBlob?: (callback: (blob: Blob | null) => void, type: string) => void;
+  } = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ drawImage }),
+  };
+  if (withToBlob) {
+    canvas.toBlob = (callback: (blob: Blob | null) => void) => {
+      callback(new Blob(['png-bytes'], { type: 'image/png' }));
+    };
+  }
+  const nativeCreate = document.createElement.bind(document);
+  const createSpy = vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => (
+    tagName === 'canvas' ? canvas : nativeCreate(tagName)
+  )) as typeof document.createElement);
+
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    set src(_value: string) {
+      setTimeout(() => this.onload?.(), 0);
+    }
+  }
+  vi.stubGlobal('Image', FakeImage);
+
+  return {
+    canvas,
+    drawImage,
+    restore: () => {
+      createSpy.mockRestore();
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
+describe('renderMindmapPngCanvas', () => {
+  it('尺寸超限时在创建画布前就抛错', async () => {
+    await expect(renderMindmapPngCanvas(treeDoc(), { scale: 100000 })).rejects.toThrow(/单边上限/);
+  });
+
+  it('环境没有画布能力时抛明确错误', async () => {
+    // happy-dom 的 canvas 没有 getContext
+    await expect(renderMindmapPngCanvas(treeDoc())).rejects.toThrow(/不支持画布渲染/);
+  });
+
+  it('按 planPngExport 规划尺寸创建画布并绘制 SVG', async () => {
+    const stub = stubCanvasEnvironment();
+    try {
+      const doc = treeDoc();
+      const rendered = renderMindmapSvg(doc);
+      const plan = planPngExport(rendered.width, rendered.height);
+
+      const result = await renderMindmapPngCanvas(doc);
+
+      expect(result.canvas).toBe(stub.canvas);
+      expect(result.width).toBe(plan.width);
+      expect(result.height).toBe(plan.height);
+      expect(stub.canvas.width).toBe(plan.width);
+      expect(stub.canvas.height).toBe(plan.height);
+      expect(stub.drawImage).toHaveBeenCalledTimes(1);
+    } finally {
+      stub.restore();
+    }
+  });
+});
+
+describe('exportMindmapPng（复用 canvas 渲染）', () => {
+  it('无画布环境抛出可读错误而非 TypeError', async () => {
+    await expect(exportMindmapPng(treeDoc())).rejects.toThrow(/不支持画布渲染/);
+  });
+
+  it('尺寸超限沿用 planPngExport 错误', async () => {
+    await expect(exportMindmapPng(treeDoc(), { scale: 100000 })).rejects.toThrow(/单边上限/);
+  });
+
+  it('显式倍率只应用一次（不再被二次相乘）', async () => {
+    const stub = stubCanvasEnvironment(true);
+    try {
+      const doc = treeDoc();
+      const rendered = renderMindmapSvg(doc);
+      const height = Math.ceil((rendered.height - 0) * 2);
+
+      const result = await exportMindmapPng(doc, { scale: 2 });
+
+      expect(result.width).toBe(rendered.width * 2);
+      expect(result.height).toBe(height);
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('成功时返回 blob 与画布尺寸（对外签名不变）', async () => {
+    const stub = stubCanvasEnvironment(true);
+    try {
+      const doc = treeDoc();
+      const rendered = renderMindmapSvg(doc);
+      const plan = planPngExport(rendered.width, rendered.height);
+
+      const result = await exportMindmapPng(doc);
+
+      expect(result.blob).toBeInstanceOf(Blob);
+      expect(result.width).toBe(plan.width);
+      expect(result.height).toBe(plan.height);
+    } finally {
+      stub.restore();
+    }
   });
 });
 

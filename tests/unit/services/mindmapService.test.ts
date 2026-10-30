@@ -264,3 +264,76 @@ describe('parse 结构校验集成', () => {
     }
   });
 });
+
+/* --------------------- 阶段 4E：多工作表 / 多中心主题 --------------------- */
+
+describe('validateMindMapDocument 阶段 4E：多工作表', () => {
+  /** 构造「两张工作表」的合法文档：rootTopicId 指向工作表 1 的根。 */
+  function multiSheetDocument(): MindMapDocument {
+    const document = makeValidDocument();
+    const rootId = document.rootTopicId;
+    document.topics.s2 = { id: 's2', parentId: null, childIds: ['s2a'], text: '第二张' };
+    document.topics.s2a = { id: 's2a', parentId: 's2', childIds: [], text: 'S2A' };
+    document.sheets = [
+      { id: 'sheet-1', title: '工作表 1', rootTopicId: rootId },
+      { id: 'sheet-2', title: '工作表 2', rootTopicId: 's2' },
+    ];
+    return document;
+  }
+
+  it('多个工作表根（parentId 为空）均视为合法根', () => {
+    const result = validateMindMapDocument(multiSheetDocument());
+    expect(result.ok).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
+  it('sheets 中 rootTopicId 不存在 → INVALID_SHEET_REF', () => {
+    const document = multiSheetDocument();
+    document.sheets = [
+      ...(document.sheets ?? []).slice(0, 1),
+      { id: 'sheet-ghost', title: '幽灵', rootTopicId: 'ghost_root' },
+    ];
+    const result = validateMindMapDocument(document);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.code === 'INVALID_SHEET_REF')).toBe(true);
+  });
+
+  it('工作表 id 重复 → DUPLICATE_SHEET_ID', () => {
+    const document = multiSheetDocument();
+    document.sheets = [
+      { id: 'sheet-same', title: '工作表 1', rootTopicId: document.rootTopicId },
+      { id: 'sheet-same', title: '工作表 2', rootTopicId: 's2' },
+    ];
+    const result = validateMindMapDocument(document);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.code === 'DUPLICATE_SHEET_ID')).toBe(true);
+  });
+
+  it('无 sheets 的旧文档仍按单根校验：多出的无父节点不合法', () => {
+    const document = makeValidDocument();
+    document.topics.extra = { id: 'extra', parentId: null, childIds: [], text: '多出来的根' };
+    const result = validateMindMapDocument(document);
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.code === 'ROOT_HAS_PARENT')).toBe(true);
+  });
+
+  it('rootTopicId 指向的工作表未在 sheets 中时按唯一工作表处理（不报错）', () => {
+    const document = makeValidDocument();
+    const otherRoot = 'other';
+    document.topics[otherRoot] = { id: otherRoot, parentId: null, childIds: [], text: '另一张' };
+    // sheets 只列了 other，未列当前 root；但 root 本身也允许无父
+    document.sheets = [{ id: 'sheet-other', title: '另一张', rootTopicId: otherRoot }];
+    const result = validateMindMapDocument(document);
+    expect(result.ok).toBe(true);
+    expect(result.issues.filter((issue) => issue.code === 'ROOT_HAS_PARENT')).toEqual([]);
+  });
+
+  it('sheets 通过 parse 往返后完整保留', () => {
+    const document = multiSheetDocument();
+    const restored = parseMindMapDocument(serializeMindMapDocument(document));
+    expect(restored.sheets).toEqual(document.sheets);
+    expect(restored.rootTopicId).toBe(document.rootTopicId);
+    // 不升 schemaVersion：保持 v1 往返兼容
+    expect(restored.schemaVersion).toBe(1);
+  });
+});

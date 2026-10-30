@@ -3,6 +3,7 @@ import {
   MINDMAP_EXPORT_FORMATS,
   buildExportFileName,
   canExportFormat,
+  exportMindmapPdfFile,
   exportMindmapSvgText,
   exportMindmapText,
   previewMindmapImport,
@@ -117,12 +118,17 @@ describe('previewMindmapImport', () => {
 });
 
 describe('导出', () => {
-  it('清单包含 taumap/markdown/opml/freemind/png/svg 共 6 种', () => {
+  it('清单包含 taumap/markdown/opml/freemind/png/svg/pdf 共 7 种', () => {
     const ids = MINDMAP_EXPORT_FORMATS.map((format) => format.id).sort();
-    expect(ids).toEqual(['freemind', 'markdown', 'opml', 'png', 'svg', 'taumap']);
+    expect(ids).toEqual(['freemind', 'markdown', 'opml', 'pdf', 'png', 'svg', 'taumap']);
+    expect(MINDMAP_EXPORT_FORMATS).toHaveLength(7);
     const svg = MINDMAP_EXPORT_FORMATS.find((format) => format.id === 'svg');
     expect(svg?.extension).toBe('svg');
     expect(svg?.label).toContain('SVG');
+
+    const pdf = MINDMAP_EXPORT_FORMATS.find((format) => format.id === 'pdf');
+    expect(pdf?.extension).toBe('pdf');
+    expect(pdf?.label).toBe('PDF 文档（.pdf）');
   });
 
   it('文本导出覆盖四种格式且内容可用', () => {
@@ -144,10 +150,11 @@ describe('导出', () => {
     expect(mm.output).toContain('TEXT="分支 A"');
   });
 
-  it('XMind 不可导出，PNG 与 SVG 可导出', () => {
+  it('XMind 不可导出，PNG / SVG / PDF 可导出', () => {
     expect(canExportFormat('xmind')).toBe(false);
     expect(canExportFormat('png')).toBe(true);
     expect(canExportFormat('svg')).toBe(true);
+    expect(canExportFormat('pdf')).toBe(true);
     expect(canExportFormat('markdown')).toBe(true);
   });
 
@@ -180,7 +187,7 @@ describe('导出', () => {
     expect(filled.output).toContain('fill="#ffffff"');
   });
 
-  it('exportMindmapText 对 svg 委托矢量导出、对 png 返回明确错误', () => {
+  it('exportMindmapText 对 svg 委托矢量导出、对 png/pdf 返回明确错误', () => {
     const doc = sampleDoc();
     const viaText = exportMindmapText('svg', doc);
     expect(viaText.ok).toBe(true);
@@ -190,6 +197,28 @@ describe('导出', () => {
     expect(png.ok).toBe(false);
     expect(png.output).toBe('');
     expect(png.error?.code).toBe('BINARY_EXPORT_REQUIRED');
+
+    const pdf = exportMindmapText('pdf', doc);
+    expect(pdf.ok).toBe(false);
+    expect(pdf.output).toBe('');
+    expect(pdf.error?.code).toBe('BINARY_EXPORT_REQUIRED');
+    expect(pdf.error?.message).toContain('exportMindmapPdfFile');
+  });
+
+  it('exportMindmapPdfFile 在无画布环境返回分类错误而非抛异常', async () => {
+    // happy-dom 无 2D 画布能力：必须优雅失败，绝不返回坏字节
+    const result = await exportMindmapPdfFile(sampleDoc());
+    expect(result.ok).toBe(false);
+    expect(result.bytes).toBeUndefined();
+    expect(result.error?.code).toBe('PDF_UNSUPPORTED_ENV');
+    expect(result.error?.message).toMatch(/不支持/);
+  });
+
+  it('exportMindmapPdfFile 尺寸超限归类为 PDF_SIZE_LIMIT', async () => {
+    const result = await exportMindmapPdfFile(sampleDoc(), { scale: 100000 });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('PDF_SIZE_LIMIT');
+    expect(result.error?.category).toBe('invalid-structure');
   });
 
   it('导出文件名清理非法字符并补扩展名', () => {

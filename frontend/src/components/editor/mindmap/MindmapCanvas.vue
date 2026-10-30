@@ -11,6 +11,14 @@
  * 5. 连线完全按布局产出的 path 渲染，不假设方向；edge.orientation 仅用于样式标记，
  *    因此 mindmap/logic/tree（水平）与 org（竖直）可共用同一套渲染逻辑。
  *
+ * 阶段 4C 扩展：
+ * - 主题模板：按 `document.themeId` 取色，通过内联 CSS 变量整体换色；
+ *   默认主题（未选择 / default）不写任何内联变量，完全沿用既有 CSS，观感不变；
+ * - 节点样式：`topic.style.fill/color/shape` 覆盖单节点填充、文字色与圆角形状；
+ * - 标记：`topic.markers` 在节点左上角渲染徽章；
+ * - 独立关系线：`document.relations` 在父子连线之外渲染虚线 + 箭头 + 可选标签，
+ *   只读取布局产出的节点坐标，不参与布局计算。
+ *
  * @author Albert_Luo
  * @date 2026-10-30
  */
@@ -21,7 +29,16 @@ import {
   type MindmapNodeBox,
   type MindmapViewport,
 } from '@/services/mindmapLayoutService';
-import type { MindMapDocument } from '@/types/mindmap';
+import {
+  DEFAULT_MARKER_BADGE_FILL,
+  DEFAULT_MARKER_BADGE_TEXT,
+  DEFAULT_MINDMAP_THEME_ID,
+  isMindmapThemeId,
+  mindmapThemeCssVariables,
+  resolveMindmapTheme,
+} from '@/services/mindmapThemeService';
+import { mindmapMarkerBadge } from '@/stores/mindmap';
+import type { MindMapDocument, MindMapTopicStyle } from '@/types/mindmap';
 
 const props = defineProps<{
   document: MindMapDocument | null;
@@ -41,6 +58,14 @@ const emit = defineEmits<{
   (event: 'update:editing-text', text: string): void;
   (event: 'move', draggedId: string, targetId: string): void;
 }>();
+
+/** 关系线箭头 marker 的固定 id（同页多画布共用同一份定义，不影响渲染）。 */
+const RELATION_ARROW_MARKER = 'url(#mm-relation-arrow)';
+/** 标记徽章边长（世界坐标，随画布缩放）。 */
+const MARKER_BADGE_SIZE = 14;
+/** 默认节点圆角；shape 未声明时使用，保持与既有观感一致。 */
+const DEFAULT_NODE_RADIUS = 9;
+
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3;
@@ -345,6 +370,151 @@ function toggleOffsetX(node: MindmapNodeBox): number {
   return node.side === 'left' ? -node.width / 2 - 10 : node.width / 2 + 10;
 }
 
+/* ------------------------------ 派生：主题 ------------------------------- */
+
+/** 当前主题 id（缺失时按 default 处理）。 */
+const themeId = computed(() => props.document?.themeId ?? DEFAULT_MINDMAP_THEME_ID);
+
+/** 当前主题配色；未知 id 由 resolveMindmapTheme 回退 default。 */
+const currentTheme = computed(() => resolveMindmapTheme(themeId.value));
+
+/**
+ * 画布根节点的内联 CSS 变量。
+ *
+ * 仅在「已选择非默认主题」时输出：default（或未设置）时保持为空对象，
+ * 完全沿用既有 CSS 与暗色模式变量，确保未选主题时观感与改动前一致。
+ */
+const canvasThemeStyle = computed<Record<string, string>>(() => {
+  if (!isMindmapThemeId(themeId.value)) return {};
+  if (themeId.value === DEFAULT_MINDMAP_THEME_ID) return {};
+  return mindmapThemeCssVariables(currentTheme.value);
+});
+
+/* ------------------------------ 派生：节点样式 ------------------------------- */
+
+function topicStyle(id: string): MindMapTopicStyle | undefined {
+  return props.document?.topics[id]?.style;
+}
+
+/** 节点矩形内联样式：仅当节点声明了 fill 时覆盖（其余交给主题 CSS 变量）。 */
+function nodeRectStyle(node: MindmapNodeBox): Record<string, string> {
+  const style = topicStyle(node.id);
+  return style?.fill ? { fill: style.fill } : {};
+}
+
+/** 节点文字内联样式：仅当节点声明了 color 时覆盖。 */
+function nodeTextStyle(node: MindmapNodeBox): Record<string, string> {
+  const style = topicStyle(node.id);
+  return style?.color ? { fill: style.color } : {};
+}
+
+/** 圆角半径：shape 支持 rounded（默认）/ rect / pill，未知值按默认处理。 */
+function nodeRx(node: MindmapNodeBox): number {
+  const shape = topicStyle(node.id)?.shape;
+  if (shape === 'rect') return 2;
+  if (shape === 'pill') return Math.min(node.width, node.height) / 2;
+  return DEFAULT_NODE_RADIUS;
+}
+
+/* ------------------------------ 派生：标记 ------------------------------- */
+
+function markersOf(id: string): string[] {
+  return props.document?.topics[id]?.markers ?? [];
+}
+
+/* ------------------------------ 派生：关系线 ------------------------------- */
+
+interface RenderedRelation {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  path: string;
+  label?: string;
+  labelX: number;
+  labelY: number;
+  color: string;
+}
+
+/** 把「中心 → 指定方向」的射线裁剪到节点矩形边界（含少量内缩留白）。 */
+function clipToNodeBoundary(
+  node: MindmapNodeBox,
+  dx: number,
+  dy: number,
+): { x: number; y: number } {
+  const halfWidth = node.width / 2 + 3;
+  const halfHeight = node.height / 2 + 3;
+  const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : Math.abs(halfWidth / dx);
+  const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : Math.abs(halfHeight / dy);
+  const ratio = Math.min(scaleX, scaleY);
+  return { x: node.x + dx * ratio, y: node.y + dy * ratio };
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/**
+ * 关系线几何：两端各裁到矩形边界，直连两节点中心，标签落在中点上方。
+ * 端点重合（同位置节点）时返回 null，跳过渲染。
+ */
+function relationGeometry(
+  source: MindmapNodeBox,
+  target: MindmapNodeBox,
+): { path: string; labelX: number; labelY: number } | null {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  if (dx === 0 && dy === 0) return null;
+  const start = clipToNodeBoundary(source, dx, dy);
+  const end = clipToNodeBoundary(target, -dx, -dy);
+  return {
+    path: `M ${round1(start.x)} ${round1(start.y)} L ${round1(end.x)} ${round1(end.y)}`,
+    labelX: round1((start.x + end.x) / 2),
+    labelY: round1((start.y + end.y) / 2 - 6),
+  };
+}
+
+/**
+ * 需要渲染的关系线：端点必须同时可见（折叠/不存在则不渲染），
+ * 且不参与布局——只读取布局产出的节点中心与尺寸。
+ */
+const renderedRelations = computed<RenderedRelation[]>(() => {
+  const document = props.document;
+  const currentLayout = layout.value;
+  if (!document || !currentLayout) return [];
+  const relations = document.relations ?? [];
+  if (relations.length === 0) return [];
+
+  const byId = new Map(currentLayout.nodes.map((node) => [node.id, node]));
+  const color = currentTheme.value.accent;
+  const result: RenderedRelation[] = [];
+  for (const relation of relations) {
+    const source = byId.get(relation.sourceTopicId);
+    const target = byId.get(relation.targetTopicId);
+    if (!source || !target) continue;
+    const geometry = relationGeometry(source, target);
+    if (!geometry) continue;
+    result.push({
+      id: relation.id,
+      sourceId: relation.sourceTopicId,
+      targetId: relation.targetTopicId,
+      path: geometry.path,
+      label: relation.label,
+      labelX: geometry.labelX,
+      labelY: geometry.labelY,
+      color,
+    });
+  }
+  return result;
+});
+
+/** 标记徽章配色（跟随主题，缺省用内置兜底色）。 */
+const markerBadgeFill = computed(
+  () => currentTheme.value.markerBadgeFill ?? DEFAULT_MARKER_BADGE_FILL,
+);
+const markerBadgeText = computed(
+  () => currentTheme.value.markerBadgeText ?? DEFAULT_MARKER_BADGE_TEXT,
+);
+
 /* 文档切换（rootTopicId 变化）时自动适配内容；编辑不改变 root，不会反复跳动。 */
 let lastRootId: string | null = null;
 watch(
@@ -365,6 +535,8 @@ watch(
     ref="containerRef"
     class="mindmap-canvas"
     data-testid="mindmap-canvas"
+    :data-theme-id="themeId"
+    :style="canvasThemeStyle"
     @wheel="onWheel"
     @pointerdown.self="onBackgroundPointerDown"
   >
@@ -376,6 +548,20 @@ watch(
       role="group"
       aria-label="思维导图画布"
     >
+      <!-- 关系线箭头定义：独立关系线（阶段 4C）复用同一份 marker -->
+      <defs>
+        <marker
+          id="mm-relation-arrow"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0 0 L 10 5 L 0 10 z" :fill="currentTheme.accent" />
+        </marker>
+      </defs>
       <g :transform="`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`">
         <!--
           连线路径完全由布局服务生成，画布不假设方向：
@@ -391,6 +577,37 @@ watch(
           :d="edge.path"
           fill="none"
         />
+
+        <!--
+          独立关系线（阶段 4C）：虚线 + 箭头 + 可选标签。
+          只读取布局产出的节点坐标，不参与布局，因此缩放/适配行为与父子连线一致。
+        -->
+        <g
+          v-for="relation in renderedRelations"
+          :key="relation.id"
+          class="mm-relation"
+          data-testid="mm-relation"
+          :data-relation-id="relation.id"
+          :data-source-id="relation.sourceId"
+          :data-target-id="relation.targetId"
+        >
+          <path
+            class="mm-relation-path"
+            :d="relation.path"
+            fill="none"
+            stroke-dasharray="6 4"
+            :marker-end="RELATION_ARROW_MARKER"
+            :style="{ stroke: relation.color }"
+          />
+          <text
+            v-if="relation.label"
+            class="mm-relation-label"
+            :x="relation.labelX"
+            :y="relation.labelY"
+            text-anchor="middle"
+            :style="{ fill: relation.color }"
+          >{{ relation.label }}</text>
+        </g>
 
         <g
           v-for="node in layout.nodes"
@@ -415,9 +632,10 @@ watch(
             :y="-node.height / 2"
             :width="node.width"
             :height="node.height"
-            rx="9"
+            :rx="nodeRx(node)"
+            :style="nodeRectStyle(node)"
           />
-          <text class="mm-node-text" text-anchor="middle">
+          <text class="mm-node-text" text-anchor="middle" :style="nodeTextStyle(node)">
             <tspan
               v-for="(line, index) in node.lines"
               :key="index"
@@ -425,6 +643,34 @@ watch(
               :y="lineBaselineY(index, node.lines.length)"
             >{{ line }}</tspan>
           </text>
+          <!-- 标记徽章（阶段 4C）：节点左上角外侧，数量与 topic.markers 顺序一致 -->
+          <g
+            v-if="markersOf(node.id).length > 0"
+            class="mm-markers"
+            :transform="`translate(${-node.width / 2} ${-node.height / 2 - 12})`"
+          >
+            <g
+              v-for="(marker, index) in markersOf(node.id)"
+              :key="marker"
+              class="mm-marker"
+              data-testid="mm-marker"
+              :data-marker="marker"
+              :transform="`translate(${index * (MARKER_BADGE_SIZE + 3)} 0)`"
+            >
+              <rect
+                :width="MARKER_BADGE_SIZE"
+                :height="MARKER_BADGE_SIZE"
+                rx="4"
+                :style="{ fill: markerBadgeFill, stroke: currentTheme.accent }"
+              />
+              <text
+                :x="MARKER_BADGE_SIZE / 2"
+                :y="MARKER_BADGE_SIZE - 4"
+                text-anchor="middle"
+                :style="{ fill: markerBadgeText }"
+              >{{ mindmapMarkerBadge(marker) }}</text>
+            </g>
+          </g>
           <g
             v-if="node.hasChildren"
             class="mm-toggle"
@@ -490,7 +736,7 @@ watch(
 .mm-node-text {
   font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
   font-size: 13px;
-  fill: var(--text-primary, #1f2329);
+  fill: var(--mindmap-node-text, var(--text-primary, #1f2329));
   pointer-events: none;
 }
 .mm-node.is-root .mm-node-box {
@@ -520,6 +766,33 @@ watch(
 .mm-toggle text {
   font-size: 9px;
   fill: var(--text-secondary, #5b6675);
+  pointer-events: none;
+}
+/* 独立关系线（阶段 4C）：虚线 + 箭头；不参与布局，仅作语义补充 */
+.mm-relation-path {
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.mm-relation-label {
+  font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: var(--background, #ffffff);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+/* 标记徽章（阶段 4C）：节点左上角，小圆角块 + 徽章字符 */
+.mm-marker rect {
+  fill: var(--mindmap-marker-bg, #fff5e0);
+  stroke-width: 1;
+}
+.mm-marker text {
+  font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  fill: var(--mindmap-marker-text, #8a5a00);
   pointer-events: none;
 }
 .mm-inline-editor {

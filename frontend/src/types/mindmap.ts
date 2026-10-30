@@ -83,7 +83,15 @@ export interface MindMapAssetRef {
   sizeBytes?: number;
 }
 
-/** P1：多工作表 / 多中心主题。首期单工作表。 */
+/**
+ * P1：多工作表 / 多中心主题。
+ *
+ * 约定（阶段 4E）：
+ * - `document.sheets` 列出全部工作表的根节点；每个 rootTopicId 必须存在于 topics；
+ * - `document.rootTopicId` 永远等于「当前工作表」的根（布局/编辑/导出沿用这条路径）；
+ * - 旧文档没有 `sheets` 时视为单工作表，`rootTopicId` 即唯一工作表；
+ * - `rootTopicId` 指向的工作表不在 `sheets` 中时，同样按唯一工作表处理（不报错）。
+ */
 export interface MindMapSheet {
   id: string;
   title: string;
@@ -131,7 +139,11 @@ export type MindMapIssueCode =
   | 'RELATION_ENDPOINT'
   | 'INVALID_SCHEMA'
   | 'INVALID_ROOT_REF'
-  | 'EMPTY_TOPICS';
+  | 'EMPTY_TOPICS'
+  /** sheets[i].rootTopicId 不存在（阶段 4E）。 */
+  | 'INVALID_SHEET_REF'
+  /** sheets 中工作表 id 重复（阶段 4E）。 */
+  | 'DUPLICATE_SHEET_ID';
 
 export interface MindMapValidationIssue {
   code: MindMapIssueCode;

@@ -1,15 +1,20 @@
 /**
- * 思维导图编辑态 store（阶段 1）
+ * 思维导图编辑态 store（阶段 1；阶段 4C 扩展样式/标记/主题/关系；阶段 4E 多工作表）
  *
  * 职责：
  * 1. 持有当前标签的 MindMapDocument、选中节点与历史快照；
  * 2. 统一入口 applyCommand 应用领域命令：成功才记录历史并更新选中；
  * 3. 提供 undo/redo 与重置文档；序列化结果供标签 content/dirty 同步；
- * 4. 解析失败只记录 loadError，不改写原内容。
+ * 4. 解析失败只记录 loadError，不改写原内容；
+ * 5. 阶段 4C：节点样式（updateTopicStyle）、标记（toggleMarker/updateTopicMarkers）、
+ *    主题模板（setTheme）与独立关系线（addRelation/removeRelation）均为可撤销命令；
+ * 6. 阶段 4E：多工作表 / 多中心主题（addSheet/switchSheet/renameSheet/removeSheet），
+ *    约定 document.rootTopicId 永远等于「当前工作表」的根。
  *
  * 约定：
  * - store 只负责编辑态，不直接写盘；脏状态由组件把序列化结果交给 tabService；
- * - 快照历史有界（MINDMAP_HISTORY_LIMIT）。
+ * - 快照历史有界（MINDMAP_HISTORY_LIMIT）；
+ * - 所有「原地小改」命令共用 commitDocumentChange：序列化无变化时不记历史。
  *
  * @author Albert_Luo
  * @date 2026-10-29
@@ -17,7 +22,9 @@
 
 import { defineStore } from 'pinia';
 import {
+  collectDocumentSheets,
   createEmptyMindMapDocument,
+  generateTopicId,
   isMindMapError,
   parseMindMapDocument,
   serializeMindMapDocument,
@@ -31,12 +38,91 @@ import {
   type MindmapHistorySnapshot,
   type MindmapHistoryState,
 } from '@/services/mindmapHistoryService';
-import type { MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
+import { collectSubtreeTopicIds, type MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
 import type { MindmapViewport } from '@/services/mindmapLayoutService';
-import type { MindMapDocument, MindMapLayoutMode, MindMapTopic } from '@/types/mindmap';
+import { isMindmapThemeId } from '@/services/mindmapThemeService';
+import type {
+  MindMapDocument,
+  MindMapLayoutMode,
+  MindMapRelation,
+  MindMapSheet,
+  MindMapTopic,
+  MindMapTopicStyle,
+} from '@/types/mindmap';
 
 /** 默认视口：世界坐标原点居中、100% 缩放（真实适配由画布调用 fitView 完成）。 */
 export const DEFAULT_MINDMAP_VIEWPORT: MindmapViewport = { x: 0, y: 0, zoom: 1 };
+
+/* --------------------------------- 标记 --------------------------------- */
+
+/**
+ * 内置标记定义（阶段 4C）。
+ *
+ * 标记以字符串 id 存在 `topic.markers` 中，展示形态（徽章文字）由这里统一声明，
+ * 画布（徽章）与属性面板（多选按钮）共用同一份表，避免两处文案漂移。
+ * 导入的外部标记允许出现表外 id：渲染时取 id 前两个字符作为兜底徽章。
+ */
+export interface MindmapMarkerDefinition {
+  /** 存储用 id，例如 'priority-1'。 */
+  id: string;
+  /** 中文名（属性面板按钮文案）。 */
+  label: string;
+  /** 徽章文字（画布上显示）。 */
+  badge: string;
+}
+
+export const MINDMAP_MARKER_DEFINITIONS: readonly MindmapMarkerDefinition[] = [
+  { id: 'priority-1', label: '优先级 1', badge: '1' },
+  { id: 'priority-2', label: '优先级 2', badge: '2' },
+  { id: 'priority-3', label: '优先级 3', badge: '3' },
+  { id: 'star', label: '星标', badge: '★' },
+  { id: 'flag', label: '旗标', badge: '⚑' },
+  { id: 'question', label: '疑问', badge: '?' },
+];
+
+/** 内置标记 id 列表。 */
+export const MINDMAP_MARKER_IDS: readonly string[] = MINDMAP_MARKER_DEFINITIONS.map(
+  (marker) => marker.id,
+);
+
+/** 取标记的徽章文字；表外 id 退化为前两个字符。 */
+export function mindmapMarkerBadge(marker: string): string {
+  const found = MINDMAP_MARKER_DEFINITIONS.find((item) => item.id === marker);
+  return found ? found.badge : marker.slice(0, 2);
+}
+
+/** 生成关系线 id（与节点 id 前缀区分，避免混淆）。 */
+function generateRelationId(existing: readonly MindMapRelation[]): string {
+  const used = new Set(existing.map((relation) => relation.id));
+  let candidate = '';
+  do {
+    candidate = `rel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  } while (used.has(candidate));
+  return candidate;
+}
+
+/** 生成工作表 id（与节点 / 关系 id 前缀区分，避免混淆）。 */
+function generateSheetId(existing: readonly MindMapSheet[]): string {
+  const used = new Set(existing.map((sheet) => sheet.id));
+  let candidate = '';
+  do {
+    candidate = `sheet_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  } while (used.has(candidate));
+  return candidate;
+}
+
+/** 归一化标记数组：去空、去重、保序。 */
+function normalizeMarkers(markers: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const marker of markers) {
+    const value = String(marker ?? '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
 
 /** 合法的结构布局模式（用于 setLayoutMode 的运行时校验）。 */
 export const MINDMAP_LAYOUT_MODES: readonly MindMapLayoutMode[] = [
@@ -92,6 +178,22 @@ export const useMindmapStore = defineStore('mindmap', {
     rootTopic: (state): MindMapTopic | null => {
       if (!state.document) return null;
       return state.document.topics[state.document.rootTopicId] ?? null;
+    },
+    /**
+     * 全部工作表（阶段 4E）。
+     *
+     * 旧文档没有 sheets 时由 collectDocumentSheets 兜底为「唯一工作表」，
+     * 因此 UI 可以无条件按列表渲染，无需到处判空。
+     */
+    sheets: (state): MindMapSheet[] =>
+      (state.document ? collectDocumentSheets(state.document) : []),
+    /** 当前工作表 id（rootTopicId 所属的工作表）；无文档时为 null。 */
+    currentSheetId: (state): string | null => {
+      const doc = state.document;
+      if (!doc) return null;
+      const current = collectDocumentSheets(doc)
+        .find((sheet) => sheet.rootTopicId === doc.rootTopicId);
+      return current?.id ?? null;
     },
     serialized: (state): string =>
       state.document ? serializeMindMapDocument(state.document) : '',
@@ -262,6 +364,329 @@ export const useMindmapStore = defineStore('mindmap', {
       this.document = next;
       this.lastSerialized = after;
       return true;
+    },
+
+    /**
+     * 内部：提交一份新文档——只有序列化结果真的变化才记录历史并写回。
+     *
+     * 样式 / 标记 / 主题 / 关系等「原地小改」命令共用它，
+     * 保证「无实际变化不污染历史」与 lastSerialized 同步的规则完全一致。
+     *
+     * @param options.selectionId  指定提交后的选中节点（工作表切换/删除等需要换根的命令）；
+     *                             传 null 表示清空选中，省略则保持原选中
+     * @param options.resetViewport 提交后是否把画布视口复位（换根后必须复位，否则旧视口
+     *                             会落在新工作表的空白处）
+     */
+    commitDocumentChange(
+      label: string,
+      next: MindMapDocument,
+      options: { selectionId?: string | null; resetViewport?: boolean } = {},
+    ): boolean {
+      if (!this.document) return false;
+      const before = serializeMindMapDocument(this.document);
+      const after = serializeMindMapDocument(next);
+      if (after === before) return false;
+
+      this.history = pushHistory(
+        this.history,
+        snapshotOf(this.document, this.selectedTopicId, label),
+      );
+      this.document = next;
+      this.lastSerialized = after;
+      if (options.selectionId !== undefined) {
+        this.selectedTopicId = options.selectionId;
+      }
+      if (options.resetViewport) {
+        this.viewport = { ...DEFAULT_MINDMAP_VIEWPORT };
+      }
+      return true;
+    },
+
+    /**
+     * 更新节点样式（`topic.style`：color / fill / shape），可撤销。
+     *
+     * 语义与 updateTopicMeta 对齐：
+     * - 未出现在 payload 里的键保持不动（undefined = 不改）；
+     * - 空字符串表示清除该键（写回时删除，避免 `color: ""` 噪音）；
+     * - 三个键全被清除时整体删除 `style`，无实际变化返回 false 且不记历史。
+     */
+    updateTopicStyle(topicId: string, style: MindMapTopicStyle): boolean {
+      if (!this.document) return false;
+      const current = this.document.topics[topicId];
+      if (!current) return false;
+
+      const nextStyle: MindMapTopicStyle = { ...(current.style ?? {}) };
+      const apply = (key: keyof MindMapTopicStyle, value: string | undefined) => {
+        if (value === undefined) return;
+        const trimmed = String(value).trim();
+        if (trimmed) nextStyle[key] = trimmed;
+        else delete nextStyle[key];
+      };
+      apply('color', style.color);
+      apply('fill', style.fill);
+      apply('shape', style.shape);
+
+      const nextTopic: MindMapTopic = { ...current };
+      if (Object.keys(nextStyle).length > 0) nextTopic.style = nextStyle;
+      else delete nextTopic.style;
+
+      return this.commitDocumentChange('更新节点样式', {
+        ...this.document,
+        topics: { ...this.document.topics, [topicId]: nextTopic },
+      });
+    },
+
+    /**
+     * 覆盖节点标记集合（`topic.markers`），可撤销。
+     *
+     * 归一化：去空、去重、保序；空数组表示清除该属性（删除键）。
+     */
+    updateTopicMarkers(topicId: string, markers: readonly string[]): boolean {
+      if (!this.document) return false;
+      const current = this.document.topics[topicId];
+      if (!current) return false;
+
+      const normalized = normalizeMarkers(markers);
+      const nextTopic: MindMapTopic = { ...current };
+      if (normalized.length > 0) nextTopic.markers = normalized;
+      else delete nextTopic.markers;
+
+      return this.commitDocumentChange('更新节点标记', {
+        ...this.document,
+        topics: { ...this.document.topics, [topicId]: nextTopic },
+      });
+    },
+
+    /**
+     * 切换单个标记（有则删、无则加），可撤销。
+     *
+     * @param marker 标记 id（如 priority-1 / star / flag / question）
+     */
+    toggleMarker(topicId: string, marker: string): boolean {
+      if (!this.document) return false;
+      const current = this.document.topics[topicId];
+      if (!current) return false;
+      const value = String(marker ?? '').trim();
+      if (!value) return false;
+
+      const existing = current.markers ?? [];
+      const next = existing.includes(value)
+        ? existing.filter((item) => item !== value)
+        : [...existing, value];
+      return this.updateTopicMarkers(topicId, next);
+    },
+
+    /**
+     * 切换主题模板（写 `document.themeId`），可撤销。
+     *
+     * 未知主题 id 直接拒绝（渲染层虽会回退 default，但不应把非法值写进文档，
+     * 否则导出/再次打开时主题与观感不一致）。
+     */
+    setTheme(themeId: string): boolean {
+      if (!this.document) return false;
+      if (!isMindmapThemeId(themeId)) return false;
+      if (this.document.themeId === themeId) return false;
+      return this.commitDocumentChange('切换主题', { ...this.document, themeId });
+    },
+
+    /**
+     * 添加独立关系线（`document.relations`），可撤销。
+     *
+     * 拒绝：自环（源 = 目标）、端点不存在、同一对节点间已存在关系（无向判重，
+     * 避免 A→B 与 B→A 两条线在画布上互相重叠难以点击）。
+     *
+     * @returns 成功返回 true；被拒绝时文档、历史均不变
+     */
+    addRelation(sourceId: string, targetId: string, label?: string): boolean {
+      if (!this.document) return false;
+      if (!sourceId || !targetId) return false;
+      if (sourceId === targetId) return false;
+      if (!this.document.topics[sourceId] || !this.document.topics[targetId]) return false;
+
+      const existing = this.document.relations ?? [];
+      const duplicated = existing.some((relation) => (
+        (relation.sourceTopicId === sourceId && relation.targetTopicId === targetId)
+        || (relation.sourceTopicId === targetId && relation.targetTopicId === sourceId)
+      ));
+      if (duplicated) return false;
+
+      const relation: MindMapRelation = {
+        id: generateRelationId(existing),
+        sourceTopicId: sourceId,
+        targetTopicId: targetId,
+      };
+      const trimmed = label?.trim();
+      if (trimmed) relation.label = trimmed;
+
+      return this.commitDocumentChange('添加关系', {
+        ...this.document,
+        relations: [...existing, relation],
+      });
+    },
+
+    /** 删除一条关系线，可撤销；不存在的 id 返回 false。 */
+    removeRelation(id: string): boolean {
+      if (!this.document) return false;
+      const existing = this.document.relations ?? [];
+      if (!existing.some((relation) => relation.id === id)) return false;
+
+      const remaining = existing.filter((relation) => relation.id !== id);
+      const next: MindMapDocument = { ...this.document };
+      // 清空后删除键，避免文档里留下 `relations: []`
+      if (remaining.length > 0) next.relations = remaining;
+      else delete next.relations;
+      return this.commitDocumentChange('删除关系', next);
+    },
+
+    /* ---------------------- 阶段 4E：多工作表 / 多中心主题 ---------------------- */
+
+    /**
+     * 新增工作表（空白中心主题），并切换为当前工作表，可撤销。
+     *
+     * 完整流程：
+     * 1. 新建一个只含中心节点的根主题（text 与工作表标题一致）；
+     * 2. 追加到 sheets（旧文档第一次新增时会把兜底单工作表显式写入）；
+     * 3. 更新 rootTopicId、选中新根，并把画布视口复位到默认视口。
+     *
+     * @param title 工作表标题；为空时自动命名「工作表 N」
+     */
+    addSheet(title?: string): boolean {
+      if (!this.document) return false;
+      const sheets = collectDocumentSheets(this.document);
+      const sheetTitle = (title ?? '').trim() || `工作表 ${sheets.length + 1}`;
+
+      const rootId = generateTopicId();
+      const rootTopic: MindMapTopic = {
+        id: rootId,
+        parentId: null,
+        childIds: [],
+        text: sheetTitle,
+      };
+      const sheet: MindMapSheet = {
+        id: generateSheetId(sheets),
+        title: sheetTitle,
+        rootTopicId: rootId,
+      };
+
+      const next: MindMapDocument = {
+        ...this.document,
+        rootTopicId: rootId,
+        topics: { ...this.document.topics, [rootId]: rootTopic },
+        sheets: [...sheets, sheet],
+      };
+
+      return this.commitDocumentChange('新增工作表', next, {
+        selectionId: rootId,
+        resetViewport: true,
+      });
+    },
+
+    /**
+     * 切换当前工作表：更新 rootTopicId 与选中，并复位视口，可撤销。
+     *
+     * @returns 未知工作表 id、或已经是当前工作表时返回 false（不记历史）
+     */
+    switchSheet(sheetId: string): boolean {
+      if (!this.document) return false;
+      const target = collectDocumentSheets(this.document)
+        .find((sheet) => sheet.id === sheetId);
+      if (!target) return false;
+      if (this.document.rootTopicId === target.rootTopicId) return false;
+      if (!this.document.topics[target.rootTopicId]) return false;
+
+      return this.commitDocumentChange('切换工作表', {
+        ...this.document,
+        rootTopicId: target.rootTopicId,
+      }, { selectionId: target.rootTopicId, resetViewport: true });
+    },
+
+    /**
+     * 重命名工作表（只改 sheets[i].title，不动中心主题文本），可撤销。
+     *
+     * 说明：标题是「工作表的名字」，中心主题文本属于节点正文，两者刻意分开维护，
+     * 避免改工作表名时意外改动导图内容；空标题（trim 后为空）视为非法输入。
+     */
+    renameSheet(sheetId: string, title: string): boolean {
+      if (!this.document) return false;
+      const trimmed = (title ?? '').trim();
+      if (!trimmed) return false;
+
+      const sheets = collectDocumentSheets(this.document);
+      const index = sheets.findIndex((sheet) => sheet.id === sheetId);
+      if (index < 0) return false;
+      const current = sheets[index];
+      if (!current || current.title === trimmed) return false;
+
+      const nextSheets = sheets.map((sheet, i) => (
+        i === index ? { ...sheet, title: trimmed } : sheet
+      ));
+      return this.commitDocumentChange('重命名工作表', {
+        ...this.document,
+        sheets: nextSheets,
+      });
+    },
+
+    /**
+     * 删除工作表：删除该根及其整棵子树 + 从 sheets 移除 + 清理相关关系线，可撤销。
+     *
+     * 约束：
+     * - 至少保留一个工作表（仅剩一个时返回 false）；
+     * - 删除的是当前工作表时，切换到剩余的第一个工作表并复位视口；
+     * - 关系线端点落在被删子树里的整条关系一并清理（否则文档立即变成非法）。
+     *
+     * @returns 未知 id、仅剩一个工作表或无文档时返回 false
+     */
+    removeSheet(sheetId: string): boolean {
+      if (!this.document) return false;
+      const sheets = collectDocumentSheets(this.document);
+      if (sheets.length <= 1) return false;
+
+      const index = sheets.findIndex((sheet) => sheet.id === sheetId);
+      if (index < 0) return false;
+      const target = sheets[index];
+      if (!target) return false;
+
+      const removedIds = collectSubtreeTopicIds(this.document, target.rootTopicId);
+      const remainingSheets = sheets.filter((_, i) => i !== index);
+      const firstRemaining = remainingSheets[0];
+      if (!firstRemaining) return false;
+
+      const removingCurrent = this.document.rootTopicId === target.rootTopicId;
+      const nextRootId = removingCurrent
+        ? firstRemaining.rootTopicId
+        : this.document.rootTopicId;
+
+      const topics: Record<string, MindMapTopic> = {};
+      for (const [topicId, topic] of Object.entries(this.document.topics)) {
+        if (!removedIds.has(topicId)) topics[topicId] = topic;
+      }
+
+      const next: MindMapDocument = {
+        ...this.document,
+        rootTopicId: nextRootId,
+        topics,
+        sheets: remainingSheets,
+      };
+      // 清理端点落在被删子树里的关系线；清空后删除键，避免留下 `relations: []`
+      const remainingRelations = (this.document.relations ?? []).filter((relation) => (
+        !removedIds.has(relation.sourceTopicId) && !removedIds.has(relation.targetTopicId)
+      ));
+      if (remainingRelations.length > 0) next.relations = remainingRelations;
+      else delete next.relations;
+
+      // 只有删掉的是当前工作表时才换根/换选中/复位视口；
+      // 删除其它工作表不该打断当前编辑位置。若选中的节点恰好落在被删子树里
+      // （例如跨表关系的端点），则退回到当前工作表的根，避免留下悬空选中。
+      if (removingCurrent) {
+        return this.commitDocumentChange('删除工作表', next, {
+          selectionId: nextRootId,
+          resetViewport: true,
+        });
+      }
+      const selectionDangling = this.selectedTopicId !== null
+        && !topics[this.selectedTopicId];
+      return this.commitDocumentChange('删除工作表', next,
+        selectionDangling ? { selectionId: nextRootId } : {});
     },
 
     undo(): boolean {

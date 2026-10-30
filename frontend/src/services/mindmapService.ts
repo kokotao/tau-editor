@@ -22,6 +22,7 @@ import {
   type MindMapDocument,
   type MindMapErrorCategory,
   type MindMapIssueCode,
+  type MindMapSheet,
   type MindMapTopic,
   type MindMapValidationIssue,
   type MindMapValidationResult,
@@ -75,6 +76,33 @@ export function createEmptyMindMapDocument(title = '未命名思维导图'): Min
       [rootId]: root,
     },
   };
+}
+
+/** 旧文档（无 sheets）兜底的单工作表标题（阶段 4E）。 */
+export const DEFAULT_SHEET_TITLE = '工作表 1';
+
+/**
+ * 读取文档的工作表列表（阶段 4E：多工作表 / 多中心主题）。
+ *
+ * - 有 `sheets` 时原样返回（过滤掉明显非法的条目），保持文档内的顺序；
+ * - 无 `sheets`（阶段 0–4D 的旧文档）时按「唯一工作表」兜底：以当前
+ *   `rootTopicId` 合成一条工作表，id 由根 id 派生，保证同一文档多次调用
+ *   得到一致结果（可安全用于切换/重命名判定）。
+ *
+ * 注意：这里只做读取，不修改文档，也不代表校验通过——结构校验见
+ * `validateMindMapDocument`。
+ */
+export function collectDocumentSheets(document: MindMapDocument): MindMapSheet[] {
+  const sheets = document.sheets;
+  if (Array.isArray(sheets) && sheets.length > 0) {
+    return sheets.filter((sheet) => Boolean(sheet) && typeof sheet.rootTopicId === 'string');
+  }
+  if (!document.rootTopicId) return [];
+  return [{
+    id: `sheet_${document.rootTopicId}`,
+    title: DEFAULT_SHEET_TITLE,
+    rootTopicId: document.rootTopicId,
+  }];
 }
 
 /**
@@ -213,7 +241,10 @@ export function mapIssueCodeToCategory(code: MindMapIssueCode | undefined): Mind
     case 'ORPHAN_SUBTREE':
     case 'RELATION_ENDPOINT':
     case 'ROOT_HAS_PARENT':
+    case 'INVALID_SHEET_REF':
       return 'inconsistent-reference';
+    case 'DUPLICATE_SHEET_ID':
+      return 'invalid-structure';
     default:
       return 'invalid-structure';
   }
@@ -222,11 +253,12 @@ export function mapIssueCodeToCategory(code: MindMapIssueCode | undefined): Mind
 /**
  * 结构校验。
  *
- * 规则（与规格 §5 一致）：
- * 1. root 存在且 parentId 为空；
+ * 规则（与规格 §5 一致，阶段 4E 起支持多工作表）：
+ * 1. root 存在且 parentId 为空；多工作表时，每个 sheets[].rootTopicId 也是合法根；
  * 2. 父子引用互相一致：父节点 childIds 包含该子 id，子节点 parentId 指向父 id；
  * 3. 无重复 child id、无悬空 child/parent 引用；
- * 4. 无循环；关系端点存在。
+ * 4. 无循环；关系端点存在；
+ * 5. sheets：每项 rootTopicId 必须存在于 topics，且工作表 id 不重复。
  */
 export function validateMindMapDocument(document: MindMapDocument): MindMapValidationResult {
   const issues: MindMapValidationIssue[] = [];
@@ -253,6 +285,53 @@ export function validateMindMapDocument(document: MindMapDocument): MindMapValid
     });
   }
 
+  // 1b. 多工作表的根 + 工作表自身校验（阶段 4E）。
+  // 约定：parentId 为空的节点，只要它是当前根或任意工作表的根就是合法的。
+  const sheetRootIds = new Set<string>();
+  const sheetIds = new Set<string>();
+  const sheets = Array.isArray(document.sheets) ? document.sheets : [];
+  for (let i = 0; i < sheets.length; i += 1) {
+    const sheet = sheets[i];
+    if (!sheet || typeof sheet !== 'object' || typeof sheet.rootTopicId !== 'string'
+      || !sheet.rootTopicId) {
+      issues.push({
+        code: 'INVALID_SHEET_REF',
+        severity: 'error',
+        path: `sheets.${i}`,
+        message: `工作表 ${i} 缺少合法的 rootTopicId`,
+      });
+      continue;
+    }
+    sheetRootIds.add(sheet.rootTopicId);
+    if (!topicIds.has(sheet.rootTopicId)) {
+      issues.push({
+        code: 'INVALID_SHEET_REF',
+        severity: 'error',
+        path: `sheets.${i}.rootTopicId`,
+        message: `工作表 ${i} 的根节点 ${sheet.rootTopicId} 不存在`,
+      });
+    }
+
+    const sheetId = typeof sheet.id === 'string' ? sheet.id.trim() : '';
+    if (!sheetId) {
+      issues.push({
+        code: 'INVALID_SHEET_REF',
+        severity: 'error',
+        path: `sheets.${i}.id`,
+        message: `工作表 ${i} 缺少合法的 id`,
+      });
+    } else if (sheetIds.has(sheetId)) {
+      issues.push({
+        code: 'DUPLICATE_SHEET_ID',
+        severity: 'error',
+        path: `sheets.${i}.id`,
+        message: `工作表 id ${sheetId} 重复`,
+      });
+    } else {
+      sheetIds.add(sheetId);
+    }
+  }
+
   // 2. 父子的 childIds 引用
   for (const [topicId, topic] of Object.entries(topics)) {
     if (!topic || typeof topic !== 'object') {
@@ -265,12 +344,13 @@ export function validateMindMapDocument(document: MindMapDocument): MindMapValid
       continue;
     }
     if (topic.parentId === null) {
-      if (topicId !== document.rootTopicId) {
+      // 当前工作表根 / 其它工作表的根都允许 parentId 为空
+      if (topicId !== document.rootTopicId && !sheetRootIds.has(topicId)) {
         issues.push({
           code: 'ROOT_HAS_PARENT',
           severity: 'error',
           path: `topics.${topicId}.parentId`,
-          message: `节点 ${topicId} 的 parentId 为空但又不是 root`,
+          message: `节点 ${topicId} 的 parentId 为空但又不是 root 或工作表根`,
         });
       }
     } else if (!topicIds.has(topic.parentId)) {

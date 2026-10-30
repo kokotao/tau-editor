@@ -241,3 +241,151 @@ describe('MindmapCanvas 阶段 4A', () => {
     }
   });
 });
+/* ------------ 阶段 4C：节点样式 / 标记 / 关系线 / 主题模板 ------------ */
+
+/** 把颜色归一化后再比较（不同 DOM 实现可能把 #rrggbb 序列化为 rgb()）。 */
+function expectColor(styleText: string, hex: string) {
+  const normalized = hex.replace('#', '');
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  const rgb = `rgb(${r}, ${g}, ${b})`;
+  expect(styleText.toLowerCase()).toMatch(
+    new RegExp(`${hex.toLowerCase()}|${rgb.replace(/[()]/g, '\\$&')}`),
+  );
+}
+
+describe('MindmapCanvas 阶段 4C', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('节点 style.fill / color 渲染为内联样式，shape=rect 变为小圆角', () => {
+    const doc = buildDoc();
+    doc.topics.a = {
+      ...doc.topics.a!,
+      style: { fill: '#ffe8e6', color: '#c0451c', shape: 'rect' },
+    };
+    const wrapper = mountCanvas({ document: doc });
+
+    const rect = wrapper.find('.mm-node[data-node-id="a"] .mm-node-box');
+    expect(rect.exists()).toBe(true);
+    expectColor(rect.attributes('style') ?? '', '#ffe8e6');
+    expect(rect.attributes('rx')).toBe('2');
+
+    const text = wrapper.find('.mm-node[data-node-id="a"] .mm-node-text');
+    expectColor(text.attributes('style') ?? '', '#c0451c');
+  });
+
+  it('shape=pill 使用半高圆角，未声明样式时回落到默认 9', () => {
+    const doc = buildDoc();
+    doc.topics.a = { ...doc.topics.a!, style: { shape: 'pill' } };
+    const wrapper = mountCanvas({ document: doc });
+
+    const pillRx = Number(wrapper.find('.mm-node[data-node-id="a"] .mm-node-box').attributes('rx'));
+    expect(pillRx).toBeGreaterThan(2);
+    expect(Number.isFinite(pillRx)).toBe(true);
+
+    // 未声明样式的节点：既无内联填充，也保持默认圆角
+    const plainRect = wrapper.find('.mm-node[data-node-id="b"] .mm-node-box');
+    expect(plainRect.attributes('rx')).toBe('9');
+    expect(plainRect.attributes('style')).toBeUndefined();
+  });
+
+  it('topic.markers 渲染徽章，数量与顺序一致，未标记节点无徽章', () => {
+    const doc = buildDoc();
+    doc.topics.b = { ...doc.topics.b!, markers: ['priority-1', 'star'] };
+    const wrapper = mountCanvas({ document: doc });
+
+    const markers = wrapper.findAll('[data-testid="mm-marker"]');
+    expect(markers).toHaveLength(2);
+    expect(markers[0]?.attributes('data-marker')).toBe('priority-1');
+    expect(markers[1]?.attributes('data-marker')).toBe('star');
+    // 内置标记的徽章文字来自统一标记表
+    expect(markers[1]?.text()).toBe('★');
+
+    // 未标记的节点（a）不渲染徽章
+    expect(wrapper.find('.mm-node[data-node-id="a"] .mm-marker').exists()).toBe(false);
+  });
+
+  it('表外标记 id 退化为前两个字符作为徽章', () => {
+    const doc = buildDoc();
+    doc.topics.b = { ...doc.topics.b!, markers: ['custom-urgent'] };
+    const wrapper = mountCanvas({ document: doc });
+    expect(wrapper.find('[data-testid="mm-marker"]').text()).toBe('cu');
+  });
+
+  it('document.relations 渲染独立关系线：虚线 + 箭头 + 标签', () => {
+    const doc = buildDoc();
+    doc.relations = [
+      { id: 'r1', sourceTopicId: 'a1', targetTopicId: 'b', label: '依赖' },
+      { id: 'r2', sourceTopicId: 'a', targetTopicId: 'b' },
+    ];
+    const wrapper = mountCanvas({ document: doc });
+
+    const relations = wrapper.findAll('[data-testid="mm-relation"]');
+    expect(relations).toHaveLength(2);
+    expect(relations[0]?.attributes('data-relation-id')).toBe('r1');
+    expect(relations[0]?.attributes('data-source-id')).toBe('a1');
+    expect(relations[0]?.attributes('data-target-id')).toBe('b');
+
+    const path = relations[0]!.find('.mm-relation-path');
+    expect(path.exists()).toBe(true);
+    expect(path.attributes('stroke-dasharray')).toBe('6 4');
+    expect(path.attributes('marker-end')).toContain('mm-relation-arrow');
+    expect(path.attributes('d')?.startsWith('M ')).toBe(true);
+    expect(path.attributes('d')).toContain(' L ');
+
+    // 标签只出现在声明了 label 的关系线上
+    expect(relations[0]?.find('.mm-relation-label').text()).toBe('依赖');
+    expect(relations[1]?.find('.mm-relation-label').exists()).toBe(false);
+  });
+
+  it('关系线不参与布局：节点位置与父子连线数量不受影响', () => {
+    const plain = mountCanvas();
+    const withRelations = mountCanvas({
+      document: (() => {
+        const doc = buildDoc();
+        doc.relations = [{ id: 'r1', sourceTopicId: 'a1', targetTopicId: 'b' }];
+        return doc;
+      })(),
+    });
+
+    expect(withRelations.findAll('.mm-edge')).toHaveLength(3);
+    for (const id of ['a', 'a1', 'b']) {
+      expect(withRelations.find(`.mm-node[data-node-id="${id}"]`).attributes('transform'))
+        .toBe(plain.find(`.mm-node[data-node-id="${id}"]`).attributes('transform'));
+    }
+  });
+
+  it('折叠后端点不可见的关系线不渲染', () => {
+    const doc = buildDoc();
+    doc.topics.a = { ...doc.topics.a!, collapsed: true };
+    doc.relations = [{ id: 'r1', sourceTopicId: 'a1', targetTopicId: 'b' }];
+    const wrapper = mountCanvas({ document: doc });
+    expect(wrapper.findAll('[data-testid="mm-relation"]')).toHaveLength(0);
+  });
+
+  it('主题模板通过内联 CSS 变量换色，默认主题不覆盖既有变量', () => {
+    const themed = buildDoc();
+    themed.themeId = 'ocean';
+    const wrapper = mountCanvas({ document: themed });
+    const canvas = wrapper.find('[data-testid="mindmap-canvas"]');
+    expect(canvas.attributes('data-theme-id')).toBe('ocean');
+    const style = canvas.attributes('style') ?? '';
+    expect(style).toContain('--mindmap-node-bg');
+    expect(style).toContain('--mindmap-edge');
+
+    const plain = mountCanvas();
+    const plainCanvas = plain.find('[data-testid="mindmap-canvas"]');
+    expect(plainCanvas.attributes('data-theme-id')).toBe('default');
+    // 未选主题时不写内联变量，完全沿用既有 CSS 观感
+    expect(plainCanvas.attributes('style')).toBeUndefined();
+
+    // 未知主题 id 按 default 处理，同样不输出内联变量
+    const unknown = buildDoc();
+    unknown.themeId = 'nebula';
+    const unknownCanvas = mountCanvas({ document: unknown }).find('[data-testid="mindmap-canvas"]');
+    expect(unknownCanvas.attributes('style')).toBeUndefined();
+  });
+});

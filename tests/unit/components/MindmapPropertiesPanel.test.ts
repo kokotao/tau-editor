@@ -173,3 +173,190 @@ describe('MindmapPropertiesPanel', () => {
     expect(topic.labels).toEqual(['重点', '待办']);
   });
 });
+
+/* ------------------ 阶段 4C：样式 / 标记 / 关系区块 ------------------ */
+
+interface PanelRelationRow {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  targetText: string;
+  label?: string;
+}
+
+const styleTopic: PanelTopic & { style?: { color?: string; fill?: string; shape?: string }; markers?: string[] } = {
+  id: 's1',
+  text: '样式节点',
+  style: { color: '#1f5fbf', fill: '#e8f1ff', shape: 'rect' },
+  markers: ['star', 'flag'],
+};
+
+const relationTargets = [
+  { id: 'a', text: '分支 A' },
+  { id: 'b', text: '分支 B' },
+];
+
+/** 带关系与新区块 props 的面板挂载。 */
+function mountRichPanel(options: {
+  topic?: typeof styleTopic | null;
+  readonly?: boolean;
+  relations?: PanelRelationRow[];
+  relationTargets?: { id: string; text: string }[];
+} = {}) {
+  return mount(MindmapPropertiesPanel, {
+    props: {
+      topic: options.topic === undefined ? styleTopic : options.topic,
+      readonly: options.readonly ?? false,
+      relations: options.relations ?? [],
+      relationTargets: options.relationTargets ?? relationTargets,
+    },
+  });
+}
+
+describe('MindmapPropertiesPanel 阶段 4C', () => {
+  it('样式控件回填既有 style', () => {
+    const wrapper = mountRichPanel();
+    expect(valueOf(wrapper, 'mm-props-style-color')).toBe('#1f5fbf');
+    expect(valueOf(wrapper, 'mm-props-style-fill')).toBe('#e8f1ff');
+    expect(valueOf(wrapper, 'mm-props-style-shape')).toBe('rect');
+  });
+
+  it('改变填充即发出完整 style（受控，不改文档）', async () => {
+    const wrapper = mountRichPanel();
+    await wrapper.find('[data-testid="mm-props-style-fill"]').setValue('#e7f7ec');
+    expect(wrapper.emitted('update-style')?.[0]?.[0]).toEqual({
+      color: '#1f5fbf',
+      fill: '#e7f7ec',
+      shape: 'rect',
+    });
+    expect(styleTopic.style?.fill).toBe('#e8f1ff');
+  });
+
+  it('改变文字色与形状分别发出 update-style，空值表示清除', async () => {
+    const wrapper = mountRichPanel();
+    await wrapper.find('[data-testid="mm-props-style-color"]').setValue('#c0451c');
+    expect(wrapper.emitted('update-style')?.[0]?.[0]).toMatchObject({ color: '#c0451c' });
+
+    await wrapper.find('[data-testid="mm-props-style-shape"]').setValue('');
+    const emitted = wrapper.emitted('update-style')!;
+    expect(emitted[emitted.length - 1]?.[0]).toMatchObject({ shape: '' });
+  });
+
+  it('缺失 style 时样式控件为空值（默认档）', () => {
+    const wrapper = mountRichPanel({ topic: { id: 'p1', text: '无样式' } });
+    expect(valueOf(wrapper, 'mm-props-style-color')).toBe('');
+    expect(valueOf(wrapper, 'mm-props-style-fill')).toBe('');
+    expect(valueOf(wrapper, 'mm-props-style-shape')).toBe('');
+  });
+
+  it('标记徽章按钮：未选中点击加入，已选中点击移除', async () => {
+    const empty = mountRichPanel({ topic: { id: 'm1', text: '标记节点' } });
+    expect(empty.find('[data-testid="mm-props-markers"]').exists()).toBe(true);
+    await empty.find('[data-testid="mm-props-marker-star"]').trigger('click');
+    expect(empty.emitted('update-markers')?.[0]?.[0]).toEqual(['star']);
+
+    const selected = mountRichPanel();
+    expect(selected.find('[data-testid="mm-props-marker-star"]').classes()).toContain('is-active');
+    expect(selected.find('[data-testid="mm-props-marker-star"]').attributes('aria-pressed')).toBe('true');
+    await selected.find('[data-testid="mm-props-marker-star"]').trigger('click');
+    expect(selected.emitted('update-markers')?.[0]?.[0]).toEqual(['flag']);
+
+    await selected.find('[data-testid="mm-props-marker-question"]').trigger('click');
+    expect(selected.emitted('update-markers')?.[1]?.[0]).toEqual(['star', 'flag', 'question']);
+  });
+
+  it('内置标记按钮齐全（优先级 1-3 / 星标 / 旗标 / 疑问）', () => {
+    const wrapper = mountRichPanel();
+    for (const id of ['priority-1', 'priority-2', 'priority-3', 'star', 'flag', 'question']) {
+      expect(wrapper.find(`[data-testid="mm-props-marker-${id}"]`).exists()).toBe(true);
+    }
+  });
+
+  it('关系区块：列出现有关系并可逐条删除', async () => {
+    const wrapper = mountRichPanel({
+      relations: [
+        { id: 'rel_1', sourceId: 's1', targetId: 'a', targetText: '分支 A', label: '依赖' },
+        { id: 'rel_2', sourceId: 's1', targetId: 'b', targetText: '分支 B' },
+      ],
+    });
+    const rows = wrapper.findAll('[data-testid="mm-props-relation"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.text()).toContain('依赖');
+    expect(rows[0]?.text()).toContain('分支 A');
+
+    await wrapper.find('[data-testid="mm-props-relation-remove-rel_1"]').trigger('click');
+    expect(wrapper.emitted('remove-relation')?.[0]?.[0]).toEqual({ relationId: 'rel_1' });
+  });
+
+  it('无关系时显示空提示', () => {
+    const wrapper = mountRichPanel();
+    expect(wrapper.find('[data-testid="mm-props-relation-empty"]').exists()).toBe(true);
+    expect(wrapper.findAll('[data-testid="mm-props-relation"]')).toHaveLength(0);
+  });
+
+  it('选择目标节点后点「添加」发出 add-relation', async () => {
+    const wrapper = mountRichPanel();
+    const addButton = wrapper.find('[data-testid="mm-props-relation-add"]');
+    // 未选择目标时不可添加
+    expect(addButton.attributes('disabled')).toBeDefined();
+
+    await wrapper.find('[data-testid="mm-props-relation-target"]').setValue('a');
+    expect(wrapper.find('[data-testid="mm-props-relation-add"]').attributes('disabled')).toBeUndefined();
+
+    await wrapper.find('[data-testid="mm-props-relation-add"]').trigger('click');
+    expect(wrapper.emitted('add-relation')?.[0]?.[0]).toEqual({ targetId: 'a' });
+  });
+
+  it('候选目标为空时下拉与添加按钮不可用', () => {
+    const wrapper = mountRichPanel({ relationTargets: [] });
+    expect(wrapper.find('[data-testid="mm-props-relation-target"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-relation-add"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('只读模式禁用新交互（样式/标记/关系）且不发事件', async () => {
+    const wrapper = mount(MindmapPropertiesPanel, {
+      props: {
+        topic: styleTopic,
+        readonly: true,
+        relations: [{ id: 'rel_1', sourceId: 's1', targetId: 'a', targetText: '分支 A' }],
+        relationTargets,
+      },
+    });
+    expect(wrapper.find('[data-testid="mm-props-style-fill"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-marker-star"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-relation-remove-rel_1"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-relation-add"]').attributes('disabled')).toBeDefined();
+
+    await wrapper.find('[data-testid="mm-props-marker-star"]').trigger('click');
+    expect(wrapper.emitted('update-markers')).toBeUndefined();
+  });
+
+  it('切换节点时样式草稿重置', async () => {
+    const wrapper = mountRichPanel();
+    await wrapper.find('[data-testid="mm-props-style-fill"]').setValue('#e7f7ec');
+    await wrapper.setProps({
+      topic: { id: 'other', text: '另一个节点', style: { color: '#2f7d4f', fill: '#fff6e0', shape: 'pill' } },
+    });
+    expect(valueOf(wrapper, 'mm-props-style-color')).toBe('#2f7d4f');
+    expect(valueOf(wrapper, 'mm-props-style-fill')).toBe('#fff6e0');
+    expect(valueOf(wrapper, 'mm-props-style-shape')).toBe('pill');
+  });
+});
+
+describe('MindmapPropertiesPanel 阶段 4C：非候选样式值', () => {
+  it('导入的自定义样式值保留在候选中并原样回填', async () => {
+    const wrapper = mountRichPanel({
+      topic: {
+        id: 'custom',
+        text: '自定义样式',
+        style: { color: '#123abc', fill: '#abcdef', shape: 'diamond' },
+      },
+    });
+    expect(valueOf(wrapper, 'mm-props-style-color')).toBe('#123abc');
+    expect(valueOf(wrapper, 'mm-props-style-fill')).toBe('#abcdef');
+    expect(valueOf(wrapper, 'mm-props-style-shape')).toBe('diamond');
+    // 自定义项以「自定义（…）」展示，避免误认为已被重置为默认
+    const colorSelect = wrapper.find('[data-testid="mm-props-style-color"]');
+    expect(colorSelect.text()).toContain('自定义（#123abc）');
+  });
+});

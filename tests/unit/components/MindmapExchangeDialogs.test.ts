@@ -101,10 +101,10 @@ describe('MindmapImportPreviewDialog', () => {
 });
 
 describe('MindmapExportDialog', () => {
-  it('列出 6 种导出格式，默认 taumap', () => {
+  it('列出 7 种导出格式，默认 taumap', () => {
     const wrapper = mount(MindmapExportDialog, { props: { visible: true } });
     const radios = wrapper.findAll('input[name="mm-export-format"]');
-    expect(radios).toHaveLength(6);
+    expect(radios).toHaveLength(7);
     expect(wrapper.find('[data-testid="mm-export-png-options"]').exists()).toBe(false);
   });
 

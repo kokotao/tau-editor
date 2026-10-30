@@ -5,7 +5,7 @@
  * 1. 统一入口：探测格式 → 选择适配器 → 解析为临时 Canonical 文档 → 校验 → 产出预览；
  * 2. 预览包含格式、版本、支持等级、有损字段与结构告警，供 UI 在确认前展示；
  * 3. 失败时返回分类错误，调用方保持当前文档/选中/历史不变（不触碰 store）；
- * 4. 文本导出（含 SVG 矢量文本）与 PNG 导出入口、默认文件名与导出格式清单。
+ * 4. 文本导出（含 SVG 矢量文本）与 PNG / PDF 二进制导出入口、默认文件名与导出格式清单。
  *
  * 设计约束：本模块不修改 store、不写盘；落盘与替换由 UI 层执行。
  *
@@ -21,6 +21,7 @@ import { xmindAdapter } from '@/services/mindmap/adapters/xmindAdapter';
 import { detectMindMapFormat, type MindMapDetectionResult } from '@/services/mindmap/fileFormatDetector';
 import { getMindMapFormatEntry } from '@/services/mindmap/formatRegistry';
 import type { MindMapAdapter, MindMapExportResult } from '@/services/mindmap/mindmapAdapter';
+import { exportMindmapPdf } from '@/services/mindmapPdfService';
 import { renderMindmapSvg } from '@/services/mindmapSvgService';
 import type { MindMapDocument, MindMapErrorCategory, MindMapValidationIssue } from '@/types/mindmap';
 
@@ -187,9 +188,16 @@ export async function previewMindmapImport(
 }
 
 /** 导出格式 id。 */
-export type MindmapExportFormatId = 'taumap' | 'markdown' | 'opml' | 'freemind' | 'png' | 'svg';
+export type MindmapExportFormatId =
+  | 'taumap'
+  | 'markdown'
+  | 'opml'
+  | 'freemind'
+  | 'png'
+  | 'svg'
+  | 'pdf';
 
-/** 可导出格式清单（PNG 走二进制分支，SVG 走矢量文本分支）。 */
+/** 可导出格式清单（PNG/PDF 走二进制分支，SVG 走矢量文本分支）。 */
 export interface MindmapExportFormat {
   id: MindmapExportFormatId;
   label: string;
@@ -203,6 +211,7 @@ export const MINDMAP_EXPORT_FORMATS: MindmapExportFormat[] = [
   { id: 'freemind', label: 'FreeMind（.mm）', extension: 'mm' },
   { id: 'png', label: 'PNG 图片（.png）', extension: 'png' },
   { id: 'svg', label: 'SVG 矢量图（.svg）', extension: 'svg' },
+  { id: 'pdf', label: 'PDF 文档（.pdf）', extension: 'pdf' },
 ];
 
 /** SVG 导出选项。 */
@@ -245,25 +254,90 @@ export function exportMindmapSvgText(
   }
 }
 
+/** PDF 导出选项（背景默认纯白，scale 与 PNG 共用尺寸规划）。 */
+export interface MindmapPdfExportOptions {
+  background?: 'transparent' | string;
+  padding?: number;
+  scale?: number;
+}
+
+/** PDF 二进制导出结果：失败时只给分类错误，绝不返回半成品字节。 */
+export interface MindmapPdfFileResult {
+  ok: boolean;
+  bytes?: Uint8Array;
+  width?: number;
+  height?: number;
+  lossy?: string[];
+  error?: {
+    category: MindMapErrorCategory;
+    message: string;
+    code?: string;
+  };
+}
+
+/**
+ * PDF 二进制导出：委托 mindmapPdfService 渲染并组装单页 PDF。
+ *
+ * 失败按原因分类（不抛异常）：
+ * - 尺寸超限 → invalid-structure / PDF_SIZE_LIMIT（提示降低倍率）；
+ * - 环境不支持画布或压缩 → unsupported-format / PDF_UNSUPPORTED_ENV；
+ * - 其他 → io-error / PDF_EXPORT_FAILED。
+ */
+export async function exportMindmapPdfFile(
+  document: MindMapDocument,
+  options: MindmapPdfExportOptions = {},
+): Promise<MindmapPdfFileResult> {
+  try {
+    const { bytes, width, height } = await exportMindmapPdf(document, options);
+    return {
+      ok: true,
+      bytes,
+      width,
+      height,
+      lossy: ['打印/PDF 不包含折叠状态、选中与视口等交互信息'],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'PDF 导出失败';
+    if (message.includes('上限') || message.includes('超出')) {
+      return {
+        ok: false,
+        error: { category: 'invalid-structure', message, code: 'PDF_SIZE_LIMIT' },
+      };
+    }
+    if (message.includes('不支持')) {
+      return {
+        ok: false,
+        error: { category: 'unsupported-format', message, code: 'PDF_UNSUPPORTED_ENV' },
+      };
+    }
+    return {
+      ok: false,
+      error: { category: 'io-error', message, code: 'PDF_EXPORT_FAILED' },
+    };
+  }
+}
+
 /**
  * 文本导出：返回序列化结果与有损说明。
  *
  * - 'taumap' | 'markdown' | 'opml' | 'freemind' 走对应适配器；
  * - 'svg' 委托 {@link exportMindmapSvgText}（矢量文本）；
- * - 'png' 为二进制格式，这里返回明确错误，调用方应改用 exportMindmapPng。
+ * - 'png' / 'pdf' 为二进制格式，这里返回明确错误，调用方应改用
+ *   exportMindmapPng / {@link exportMindmapPdfFile}。
  */
 export function exportMindmapText(
   formatId: MindmapExportFormatId,
   document: MindMapDocument,
 ): MindMapExportResult {
   if (formatId === 'svg') return exportMindmapSvgText(document);
-  if (formatId === 'png') {
+  if (formatId === 'png' || formatId === 'pdf') {
+    const entry = formatId === 'png' ? 'exportMindmapPng' : 'exportMindmapPdfFile';
     return {
       ok: false,
       output: '',
       error: {
         category: 'unsupported-format',
-        message: 'PNG 为二进制导出，请使用 exportMindmapPng',
+        message: `${formatId.toUpperCase()} 为二进制导出，请使用 ${entry}`,
         code: 'BINARY_EXPORT_REQUIRED',
       },
     };
@@ -289,10 +363,11 @@ export function buildExportFileName(title: string, extension: string): string {
   return `${base}.${extension}`;
 }
 
-/** 判断某格式是否支持导出（XMind 目前仅读；SVG 由本地渲染管线写入）。 */
+/** 判断某格式是否支持导出（XMind 目前仅读；SVG/PDF 由本地渲染管线写入）。 */
 export function canExportFormat(formatId: string): boolean {
   if (formatId === 'png') return true;
   if (formatId === 'svg') return true;
+  if (formatId === 'pdf') return true;
   const entry = getMindMapFormatEntry(formatId);
   return Boolean(entry && entry.capabilities.write !== 'none');
 }
