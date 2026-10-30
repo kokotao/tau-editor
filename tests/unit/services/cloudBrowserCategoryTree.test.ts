@@ -1,5 +1,5 @@
 /**
- * @description 云端文档树「分类 → 文件」分组：categoryId 挂载、名称唯一匹配、自定义分类聚合、未分类兜底、空分类隐藏。
+ * @description 云端文档树「分类 → 文件」分组：categoryId 挂载、名称唯一匹配、自定义分类聚合、未分类兜底、空分类保留（新建分类可见）。
  * @author Albert_Luo
  * @email 480199976@qq.com
  * @date 2026-10-25 17:35
@@ -65,8 +65,9 @@ describe('buildCloudDocTreeByCategory 分类分组', () => {
       LABELS,
     );
 
-    expect(names(tree)).toEqual(['后端', '前端']);
-    expect(names(tree[0]!.children)).toEqual(['Java']);
+    // 受管分类即使为空也保留：空分类 / Rust 子分类都会出现在树里
+    expect(names(tree)).toEqual(['后端', '空分类', '前端']);
+    expect(names(tree[0]!.children)).toEqual(['Java', 'Rust']);
     expect(tree[0]!.children[0]!.children[0]!.name).toBe('java.md');
     // 节点 path 仍是完整云端路径（打开/同步依赖它）
     expect(tree[0]!.children[0]!.children[0]!.path).toBe('tau/ws/java.md');
@@ -80,8 +81,8 @@ describe('buildCloudDocTreeByCategory 分类分组', () => {
       LABELS,
     );
 
-    expect(names(tree)).toEqual(['后端']);
-    expect(names(tree[0]!.children)).toEqual(['Rust']);
+    expect(names(tree)).toEqual(['后端', '空分类', '前端']);
+    expect(names(tree[0]!.children)).toEqual(['Java', 'Rust']);
   });
 
   it('分类名匹配不到时直接作为顶层目录（不再包「自定义分类」父节点）', () => {
@@ -96,18 +97,37 @@ describe('buildCloudDocTreeByCategory 分类分组', () => {
     );
 
     // 需求（0.6.26）：游离分组直接是顶层目录，没有任何包裹层
-    expect(names(tree)).toEqual(['手写分类', '未分类']);
-    expect(tree[0]!.children).toHaveLength(2);
+    expect(names(tree)).toEqual(['后端', '空分类', '前端', '手写分类', '未分类']);
     expect(tree.some((node) => node.key === 'group:custom')).toBe(false);
-    expect(names(tree[0]!.children)).toEqual(['x.md', 'y.md']);
-    expect(tree[1]!.children.map((node) => node.name)).toEqual(['z.md']);
+    const custom = tree.find((node) => node.name === '手写分类');
+    expect(names(custom!.children)).toEqual(['x.md', 'y.md']);
+    const uncategorized = tree.find((node) => node.name === '未分类');
+    expect(names(uncategorized!.children)).toEqual(['z.md']);
   });
 
-  it('空分类不显示', () => {
+  it('空分类保留显示（新建分类必须立即可见）', () => {
     const tree = buildCloudDocTreeByCategory([doc({ categoryId: 1002, category: 'Java' })], CATEGORIES, LABELS);
-    const flat = JSON.stringify(tree);
-    expect(flat).not.toContain('空分类');
-    expect(flat).not.toContain('前端');
+    expect(names(tree)).toEqual(['后端', '空分类', '前端']);
+    // 空分类节点仍可被展开（children 为空数组而非缺失）
+    const empty = tree.find((node) => node.name === '空分类');
+    expect(empty?.kind).toBe('dir');
+    expect(empty?.children).toEqual([]);
+    expect(countCloudDocFiles(tree)).toBe(1);
+  });
+
+  it('新建的空子分类也会显示（含父分类）', () => {
+    const categories: CloudCategoryNode[] = [
+      {
+        id: '9001',
+        name: '面试题笔记',
+        parentId: null,
+        children: [{ id: '9002', name: '新建子分类', parentId: '9001', children: [] }],
+      },
+    ];
+    const tree = buildCloudDocTreeByCategory([], categories, LABELS);
+    expect(names(tree)).toEqual(['面试题笔记']);
+    expect(names(tree[0]!.children)).toEqual(['新建子分类']);
+    expect(countCloudDocFiles(tree)).toBe(0);
   });
 
   it('分类树加载失败（空分类树）时全部落到未分类', () => {

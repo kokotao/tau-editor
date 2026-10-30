@@ -129,8 +129,8 @@ import ShareDialog from './components/editor/ShareDialog.vue';
 import CenterToast from './components/ui/CenterToast.vue';
 import ShareStatsDialog from './components/editor/ShareStatsDialog.vue';
 import { useCenterToastStore } from './stores/centerToast';
-import { resolveCloudDocPathForFile } from '@/services/cloudSyncService';
-import type { CloudSyncResult } from '@/services/cloudSyncService';
+import { resolveCloudDocPathForFile, resolveEditorSyncIdentity } from '@/services/cloudSyncService';
+import type { CloudDocIdentityMeta, CloudSyncResult } from '@/services/cloudSyncService';
 import { folderAssetsOk, shouldShowFolderAssets } from '@/services/cloudFolderUploadService';
 import type { FolderUploadSummary } from '@/services/cloudFolderUploadService';
 import { getShareStatus } from '@/services/cloudShareService';
@@ -2426,7 +2426,15 @@ const cloudSyncDialog = ref<{
   categoryId: null,
 });
 
-const handleFileTreeSyncToCloud = (entry: FileTreeNode) => {
+const handleFileTreeSyncToCloud = (
+  entry: FileTreeNode,
+  identity?: {
+    cloudFileId?: number | null;
+    cloudPath?: string | null;
+    category?: string | null;
+    categoryId?: string | number | null;
+  },
+) => {
   if (!cloudSyncStore.signedIn) {
     notificationStore.warning(
       cloudSyncCopy.value.settingsCloudSync,
@@ -2444,10 +2452,10 @@ const handleFileTreeSyncToCloud = (entry: FileTreeNode) => {
     visible: true,
     filePath: entry.path,
     fileName: entry.name,
-    cloudFileId: null,
-    cloudPath: null,
-    category: null,
-    categoryId: null,
+    cloudFileId: identity?.cloudFileId ?? null,
+    cloudPath: identity?.cloudPath ?? null,
+    category: identity?.category ?? null,
+    categoryId: identity?.categoryId ?? null,
   };
 };
 
@@ -2682,7 +2690,16 @@ const handleActiveTabSyncToCloud = () => {
     );
     return;
   }
-  handleFileTreeSyncToCloud(entry);
+  // 编辑器的本地路径可能是临时落位文件，按路径反推云端分类不可靠；
+  // 优先用标签上的 cloudFileId 在 docMap 中找回云端身份与分类（修「编辑器入口分类不回显」）。
+  const identity = resolveEditorSyncIdentity({
+    cloudFileId: tabsStore.activeTab?.cloudFileId ?? null,
+    filePath: entry.path,
+    docMap: cloudSyncStore.docMap as unknown as Record<string, CloudDocIdentityMeta>,
+    workspaceName: workspaceStore.currentWorkspaceName,
+    workspacePath: workspaceStore.currentWorkspacePath,
+  });
+  handleFileTreeSyncToCloud(entry, identity);
 };
 
 const handleActiveTabShare = () => {

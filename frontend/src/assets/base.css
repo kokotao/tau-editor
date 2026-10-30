@@ -42,8 +42,12 @@
 *::after {
   box-sizing: border-box;
   margin: 0;
-  font-weight: normal;
 }
+/*
+ * 注意：不要在这里重置 font-weight。
+ * 早期的 `font-weight: normal` 会以作者样式覆盖浏览器默认的 strong/b 加粗，
+ * 导致 Markdown 预览里的 `**加粗**` 与普通文字完全没区别（历史 bug）。
+ */
 
 body {
   min-height: 100vh;

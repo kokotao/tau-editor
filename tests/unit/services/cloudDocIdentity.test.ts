@@ -7,7 +7,7 @@
  * @date 2026-10-27 14:00
  */
 import { describe, expect, it } from 'vitest';
-import { resolveCloudDocIdentity } from '@/services/cloudSyncService';
+import { resolveCloudDocIdentity, resolveEditorSyncIdentity } from '@/services/cloudSyncService';
 
 const docMap = {
   'tau/分享/notes/a.md': { fileId: 42, version: 7, contentHash: 'sha256:a', category: '分享子项', categoryId: '1790000000000000001' },
@@ -92,5 +92,66 @@ describe('resolveCloudDocIdentity 身份优先级', () => {
     expect(identity.cloudPath).toBe('tau/分享/renamed/a.md');
     expect(identity.fileId).toBe(42);
     expect(identity.meta?.fileId).toBe(42);
+  });
+});
+
+describe('resolveEditorSyncIdentity 编辑器入口的云端身份回显', () => {
+  it('临时区路径 + cloudFileId：按 docMap 找回云端路径与分类（修分类不回显）', () => {
+    const identity = resolveEditorSyncIdentity({
+      cloudFileId: 42,
+      // 临时落位文件，按路径推导不出 tau/分享/notes/a.md
+      filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/分享/notes/a.md',
+      docMap,
+      workspaceName: '我的工作区',
+      workspacePath: 'D:/my-workspace',
+    });
+
+    expect(identity.cloudFileId).toBe(42);
+    expect(identity.cloudPath).toBe('tau/分享/notes/a.md');
+    expect(identity.category).toBe('分享子项');
+    expect(identity.categoryId).toBe('1790000000000000001');
+  });
+
+  it('无 cloudFileId 且是临时区路径：不误报分类', () => {
+    const identity = resolveEditorSyncIdentity({
+      cloudFileId: null,
+      filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/随手记.md',
+      docMap,
+      workspaceName: '我的工作区',
+      workspacePath: 'D:/my-workspace',
+    });
+
+    expect(identity.cloudFileId).toBeNull();
+    expect(identity.category).toBeNull();
+    expect(identity.categoryId).toBeNull();
+  });
+
+  it('cloudFileId 不在 docMap 时保留身份但不猜云端路径', () => {
+    const identity = resolveEditorSyncIdentity({
+      cloudFileId: 777,
+      filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/未知.md',
+      docMap,
+      workspaceName: '我的工作区',
+      workspacePath: 'D:/my-workspace',
+    });
+
+    expect(identity.cloudFileId).toBe(777);
+    expect(identity.cloudPath).toBeNull();
+    expect(identity.category).toBeNull();
+  });
+
+  it('老场景（文件就在当前工作区）：路径推导命中 docMap 后回显分类', () => {
+    const identity = resolveEditorSyncIdentity({
+      cloudFileId: null,
+      filePath: 'D:/study/量化学习路线.md',
+      docMap,
+      workspaceName: '学习',
+      workspacePath: 'D:/study',
+    });
+
+    expect(identity.cloudFileId).toBe(99);
+    expect(identity.cloudPath).toBe('tau/学习/量化学习路线.md');
+    expect(identity.category).toBe('未分类');
+    expect(identity.categoryId).toBeNull();
   });
 });

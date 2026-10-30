@@ -278,6 +278,30 @@ describe('CloudDocSyncDialog 分类下拉与成功提示（0.6.23）', () => {
     expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('笔记');
   });
 
+  it('编辑器入口：临时区文件按 cloudFileId 回显分类（回归）', async () => {
+    // 编辑器里的临时落位文件推导不出 tau/ws/...，只能靠标签上的 cloudFileId 找回记录
+    useCloudSyncStore().docMap['tau/ws/notes/a.md'] = {
+      fileId: 42,
+      version: 3,
+      contentHash: 'sha256:x',
+      updatedAt: null,
+      category: '笔记',
+      categoryId: 1001,
+    } as never;
+
+    const wrapper = mount(CloudDocSyncDialog, {
+      props: {
+        visible: true,
+        filePath: 'C:/Users/x/AppData/Local/Temp/tau-scratch/notes/a.md',
+        fileName: 'a.md',
+        cloudFileId: 42,
+      },
+    });
+    await settle();
+
+    expect(wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').text()).toContain('笔记');
+  });
+
   it('分类下拉默认收起，点击展开并可用搜索过滤，选中后收起', async () => {
     const wrapper = mountDialog();
     await settle();

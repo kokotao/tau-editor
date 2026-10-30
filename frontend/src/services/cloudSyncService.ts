@@ -215,6 +215,49 @@ export interface CloudDocIdentity {
   meta: CloudDocIdentityMeta | null;
 }
 
+/**
+ * 编辑器右键「同步至云端」的云端身份与分类回显。
+ *
+ * 编辑器里的本地路径可能是临时落位文件（按路径反推云端路径不可靠，
+ * 也是「编辑器入口同步时分类不回显」的根因）；优先用标签上的 cloudFileId
+ * 在 docMap 中定位云端记录，再退回路径推导。
+ */
+export interface EditorSyncIdentity {
+  cloudFileId: number | null;
+  cloudPath: string | null;
+  category: string | null;
+  categoryId: string | number | null;
+}
+
+export interface EditorSyncIdentityInput {
+  cloudFileId?: number | null;
+  filePath?: string | null;
+  docMap?: Record<string, CloudDocIdentityMeta>;
+  workspaceName?: string | null;
+  workspacePath?: string | null;
+}
+
+export function resolveEditorSyncIdentity(input: EditorSyncIdentityInput): EditorSyncIdentity {
+  const identity = resolveCloudDocIdentity({
+    filePath: input.filePath ?? null,
+    cloudFileId: input.cloudFileId ?? null,
+    cloudPath: null,
+    docMap: input.docMap ?? {},
+    workspaceName: input.workspaceName ?? null,
+    workspacePath: input.workspacePath ?? null,
+  });
+  // 只有 docMap 命中才算「已知云端路径」；否则保留 null，交给同步对话框按原逻辑推导，
+  // 避免把临时区文件推导出的路径误当成真实云端位置。
+  const knownCloudPath = identity.meta ? identity.cloudPath || null : null;
+  return {
+    // 标签上的 cloudFileId 即使暂时不在 docMap 里也要保留（它是权威身份）
+    cloudFileId: identity.fileId ?? input.cloudFileId ?? null,
+    cloudPath: knownCloudPath,
+    category: identity.meta?.category ?? null,
+    categoryId: identity.meta?.categoryId ?? null,
+  };
+}
+
 export interface CloudDocIdentityInput {
   filePath?: string | null;
   /** 标签上的云端 fileId：一旦存在就是权威身份 */

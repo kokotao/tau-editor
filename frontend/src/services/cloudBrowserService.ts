@@ -199,7 +199,14 @@ function indexCategoryTree(
   }
 }
 
-/** 只保留有文件（含后代）的分类节点，空分类隐藏。 */
+/**
+ * 收集显示用的分类节点。
+ *
+ * 受管分类（`cat:<id>`，来自服务端分类表）**即使没有任何文件也保留**：
+ * 用户新建的空分类 / 空子分类必须在树里立即可见，否则无法在它下面新建文件，
+ * 看起来就像「新建分类没成功」。
+ * 仅非受管目录（自定义文本分类聚合、未分类分组等）按是否有内容过滤。
+ */
 function pruneEmptyCategories(nodes: CloudDocTreeNode[]): CloudDocTreeNode[] {
   const kept: CloudDocTreeNode[] = [];
   for (const node of nodes) {
@@ -208,7 +215,8 @@ function pruneEmptyCategories(nodes: CloudDocTreeNode[]): CloudDocTreeNode[] {
       kept.push(node);
       continue;
     }
-    if (children.length > 0) {
+    const isManagedCategory = node.key.startsWith('cat:');
+    if (children.length > 0 || isManagedCategory) {
       kept.push({ ...node, children });
     }
   }
@@ -224,7 +232,7 @@ function pruneEmptyCategories(nodes: CloudDocTreeNode[]): CloudDocTreeNode[] {
  * 3. 名称匹配不到（或重名）→ 归入「自定义分类」下按名称聚合的子分组；
  * 4. 完全没有分类 → 归入「未分类」。
  *
- * 顺序：官方分类保持后端返回顺序，自定义分类与未分类排在最后；空分类不显示。
+ * 顺序：同级目录优先并按名称排序；受管分类（即使为空）都显示，自定义聚合与未分类排在最后且仅有内容时出现。
  */
 export function buildCloudDocTreeByCategory(
   records: CloudDocItem[],
