@@ -12,7 +12,7 @@
  * @author Albert_Luo
  * @date 2026-10-30
  */
-import { ref } from 'vue';
+import { onBeforeUnmount, ref } from 'vue';
 import type { MindmapOutlineRow } from '@/types/mindmap';
 
 const props = defineProps<{
@@ -24,6 +24,8 @@ const props = defineProps<{
   searchQuery?: string;
   /** 命中节点的 id 列表，用于高亮。 */
   matchIds?: string[];
+  /** 初始宽度（px），拖动 resizer 后由组件内部维护。 */
+  initialWidth?: number;
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +37,12 @@ const emit = defineEmits<{
   (event: 'update:editing-text', text: string): void;
   (event: 'update:search', query: string): void;
   (event: 'move', draggedId: string, targetId: string): void;
+  /** 右键一行：由上层构造并打开统一右键菜单。 */
+  (event: 'contextmenu', payload: {
+    nodeId: string | null;
+    clientX: number;
+    clientY: number;
+  }): void;
 }>();
 
 function onSearchInput(event: Event) {
@@ -98,10 +106,93 @@ function onRenameKeydown(event: KeyboardEvent) {
     emit('cancel-rename');
   }
 }
+
+/* ---------------------------- 面板宽度（本地 state） ---------------------------- */
+
+/** 面板宽度上下限（与任务约定一致：180–420px）。 */
+const PANEL_MIN_WIDTH = 180;
+const PANEL_MAX_WIDTH = 420;
+const DEFAULT_PANEL_WIDTH = 240;
+
+/**
+ * 面板宽度：纯本地 state，拖动 resizer 时变化。
+ * 不进文档、不触发 change、不进历史——宽度是「视图偏好」而不是内容。
+ */
+const panelWidth = ref(clampWidth(props.initialWidth ?? DEFAULT_PANEL_WIDTH));
+
+function clampWidth(value: number): number {
+  return Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, Math.round(value)));
+}
+
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+let resizing = false;
+
+function restoreResizeCursor() {
+  if (typeof document === 'undefined') return;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
+
+function onResizePointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  resizing = true;
+  resizeStartX = event.clientX;
+  resizeStartWidth = panelWidth.value;
+  window.addEventListener('pointermove', onResizePointerMove);
+  window.addEventListener('pointerup', endResize, { once: true });
+  window.addEventListener('pointercancel', endResize, { once: true });
+  if (typeof document !== 'undefined') {
+    // 拖动期间固定 col-resize 光标并禁止选中
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+}
+
+function onResizePointerMove(event: PointerEvent) {
+  if (!resizing) return;
+  // 面板位于右侧：向左拖（clientX 变小）应当变宽
+  panelWidth.value = clampWidth(resizeStartWidth + (resizeStartX - event.clientX));
+}
+
+function endResize() {
+  resizing = false;
+  window.removeEventListener('pointermove', onResizePointerMove);
+  window.removeEventListener('pointerup', endResize);
+  window.removeEventListener('pointercancel', endResize);
+  restoreResizeCursor();
+}
+
+onBeforeUnmount(() => {
+  endResize();
+});
+
+/* ------------------------------ 右键菜单 ------------------------------ */
+
+/** 行内右键：阻止浏览器默认菜单，把节点信息交给上层统一处理。 */
+function onRowContextMenu(event: MouseEvent, rowId: string) {
+  event.preventDefault();
+  event.stopPropagation();
+  emit('contextmenu', { nodeId: rowId, clientX: event.clientX, clientY: event.clientY });
+}
 </script>
 
 <template>
-  <aside class="mindmap-outline" data-testid="mindmap-outline">
+  <aside
+    class="mindmap-outline"
+    data-testid="mindmap-outline"
+    :style="{ width: `${panelWidth}px`, flex: `0 0 ${panelWidth}px` }"
+  >
+    <div
+      class="mm-panel-resizer"
+      data-testid="mm-outline-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖动调整大纲宽度"
+      title="拖动调整宽度"
+      @pointerdown="onResizePointerDown"
+    ></div>
     <div class="mindmap-outline-header">
       <span class="mindmap-outline-title">大纲</span>
       <input
@@ -135,6 +226,7 @@ function onRenameKeydown(event: KeyboardEvent) {
         @dragover="onDragOver($event, row.id)"
         @drop="onDrop($event, row.id)"
         @dragend="onDragEnd"
+        @contextmenu="onRowContextMenu($event, row.id)"
       >
         <button
           v-if="row.hasChildren"
@@ -168,40 +260,67 @@ function onRenameKeydown(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+/* 配色使用 Tau 主题 token，明暗主题 / 皮肤切换下都保持可读 */
 .mindmap-outline {
-  width: 240px;
-  flex: 0 0 240px;
+  position: relative;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border, #e5e7eb);
-  background: var(--surface, #ffffff);
+  border-left: 1px solid var(--border-soft);
+  background: var(--panel-base);
+  color: var(--text-primary);
   overflow: hidden;
+}
+/* 可拖拽调宽的左边缘（命中区域比视觉更宽，便于抓取） */
+.mm-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+  background: transparent;
+}
+.mm-panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+}
+.mm-panel-resizer:hover::after,
+.mm-panel-resizer:active::after {
+  background: var(--accent-brand);
 }
 .mindmap-outline-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border-soft);
 }
 .mindmap-outline-title {
   font-size: 12px;
   font-weight: 600;
-  opacity: 0.7;
+  color: var(--text-secondary);
   flex: 0 0 auto;
 }
 .mm-outline-search {
   flex: 1;
   min-width: 0;
   font-size: 12px;
+  font-family: var(--font-ui);
   padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border, #d8dee9);
-  background: var(--surface, #fff);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   outline: none;
 }
-.mm-outline-search:focus { border-color: rgba(74, 144, 226, 0.7); }
+.mm-outline-search::placeholder { color: var(--text-muted); }
+.mm-outline-search:focus { border-color: var(--accent-brand); }
 .mindmap-tree {
   flex: 1;
   overflow: auto;
@@ -213,18 +332,19 @@ function onRenameKeydown(event: KeyboardEvent) {
   gap: 6px;
   padding: 4px 10px 4px 0;
   margin: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   cursor: default;
   min-height: 26px;
+  color: var(--text-primary);
 }
-.mindmap-row:hover { background: var(--hover, rgba(74, 144, 226, 0.06)); }
+.mindmap-row:hover { background: var(--surface-hover); }
 .mindmap-row.is-selected {
-  background: var(--selected, rgba(74, 144, 226, 0.18));
-  box-shadow: inset 0 0 0 1px rgba(74, 144, 226, 0.45);
+  background: var(--surface-active);
+  box-shadow: inset 0 0 0 1px var(--accent-brand);
 }
-.mindmap-row.is-drag-over { box-shadow: inset 0 2px 0 0 rgba(58, 167, 109, 0.9); }
+.mindmap-row.is-drag-over { box-shadow: inset 0 2px 0 0 var(--state-success); }
 .mindmap-row.is-match .mm-row-text {
-  color: #b26a00;
+  color: var(--state-warning);
   font-weight: 600;
 }
 .mm-toggle {
@@ -233,30 +353,37 @@ function onRenameKeydown(event: KeyboardEvent) {
   flex: 0 0 16px;
   border: none;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   font-size: 10px;
   cursor: pointer;
-  opacity: 0.7;
+  opacity: 0.8;
   padding: 0;
 }
-.mm-toggle.is-placeholder { cursor: default; opacity: 0.35; text-align: center; }
-.mm-row-text { flex: 1; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.mm-toggle.is-placeholder { cursor: default; opacity: 0.4; text-align: center; }
+.mm-row-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .mm-row-count {
   font-size: 10px;
-  opacity: 0.5;
+  color: var(--text-secondary);
   padding: 0 4px;
-  border-radius: 6px;
-  background: var(--chip-bg, rgba(0, 0, 0, 0.05));
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
 }
 .mm-rename-input {
   flex: 1;
   font-size: 12px;
+  font-family: var(--font-ui);
   padding: 2px 6px;
-  border-radius: 6px;
-  border: 1px solid rgba(74, 144, 226, 0.7);
-  background: var(--surface, #fff);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--accent-brand);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   outline: none;
 }
-.mindmap-empty { opacity: 0.6; padding: 14px; font-size: 12px; }
+.mindmap-empty { color: var(--text-muted); padding: 14px; font-size: 12px; }
 </style>

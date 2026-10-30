@@ -9,6 +9,11 @@
  * 4. 阶段 4C：样式（文字色 / 填充 / 形状）、标记（多选徽章）、
  *    关系（列出当前节点相关关系 + 选择目标节点添加 + 逐条删除）。
  *
+ * UX-2 扩展：新增「边界」与「概要」两个区块——
+ * - 边界：label / color 输入 + 应用 / 清除，emit `update-boundary({label,color})` 或 `update-boundary(null)`；
+ * - 概要：多行文本 + 应用 / 清除，emit `update-summary(text)` 或 `update-summary(null)`；
+ * 均为受控 + readonly 兼容，组件自身不写文档。
+ *
  * 说明：本组件保持「受控」——不直接修改文档，所有改动经事件交给上层命令层，
  * 由上层决定是否写入 store 与历史；`topic` 为 null 时不渲染任何内容。
  * 备注/链接/标签沿用「应用」按钮提交；样式/标记/关系即改即发（交互控件本身就是确认动作）。
@@ -28,9 +33,9 @@
  * @author Albert_Luo
  * @date 2026-10-30
  */
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { MINDMAP_MARKER_DEFINITIONS } from '@/stores/mindmap';
-import type { MindMapTopicStyle } from '@/types/mindmap';
+import type { MindMapTopicBoundary, MindMapTopicStyle } from '@/types/mindmap';
 
 /** 与当前节点相关的一条关系线（展示用，已由上层补齐目标文本）。 */
 interface PanelRelation {
@@ -58,6 +63,10 @@ const props = withDefaults(
       labels?: string[];
       style?: MindMapTopicStyle;
       markers?: string[];
+      /** 边界（可选）：包住该主题 + 可见后代的框。 */
+      boundary?: MindMapTopicBoundary;
+      /** 概要（可选）：子节点范围的括线文本。 */
+      summary?: string;
     } | null;
     /** 只读模式：禁用输入并隐藏提交按钮。 */
     readonly?: boolean;
@@ -65,11 +74,14 @@ const props = withDefaults(
     relations?: PanelRelation[];
     /** 可添加关系的候选目标（已排除自身）。 */
     relationTargets?: PanelRelationTarget[];
+    /** 初始宽度（px），拖动 resizer 后由组件内部维护。 */
+    initialWidth?: number;
   }>(),
   {
     readonly: false,
     relations: () => [],
     relationTargets: () => [],
+    initialWidth: 260,
   },
 );
 
@@ -80,6 +92,10 @@ const emit = defineEmits<{
   (event: 'update-markers', markers: string[]): void;
   (event: 'add-relation', payload: { targetId: string }): void;
   (event: 'remove-relation', payload: { relationId: string }): void;
+  /** 设置/清除边界：null 或字段全空表示清除。 */
+  (event: 'update-boundary', boundary: MindMapTopicBoundary | null): void;
+  /** 设置/清除概要：null 或空白表示清除。 */
+  (event: 'update-summary', text: string | null): void;
 }>();
 
 /** 链接允许的协议白名单（mailto 之外一律拒绝）。 */
@@ -105,6 +121,16 @@ const FILL_OPTIONS: { value: string; label: string }[] = [
   { value: '#ffe8e6', label: '浅红' },
 ];
 
+/** 边界颜色预设：点一下即写文档（默认色为「留空，跟随主题强调色」）。 */
+const BOUNDARY_COLOR_PRESETS: { value: string; label: string }[] = [
+  { value: '', label: '主题色' },
+  { value: '#2563eb', label: '蓝' },
+  { value: '#16a34a', label: '绿' },
+  { value: '#d97706', label: '橙' },
+  { value: '#dc2626', label: '红' },
+  { value: '#7c3aed', label: '紫' },
+];
+
 /** 形状候选：rounded / rect / pill（空值回落到默认圆角）。 */
 const SHAPE_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: '默认' },
@@ -124,6 +150,10 @@ const styleColorDraft = ref('');
 const styleFillDraft = ref('');
 const styleShapeDraft = ref('');
 const relationTargetDraft = ref('');
+/** UX-2：边界 / 概要草稿（应用按钮提交，避免每次按键都记一条撤销历史）。 */
+const boundaryLabelDraft = ref('');
+const boundaryColorDraft = ref('');
+const summaryDraft = ref('');
 
 const isReadonly = computed(() => props.readonly === true);
 
@@ -161,6 +191,9 @@ function resetDraft() {
   styleFillDraft.value = props.topic?.style?.fill ?? '';
   styleShapeDraft.value = props.topic?.style?.shape ?? '';
   relationTargetDraft.value = '';
+  boundaryLabelDraft.value = props.topic?.boundary?.label ?? '';
+  boundaryColorDraft.value = props.topic?.boundary?.color ?? '';
+  summaryDraft.value = props.topic?.summary ?? '';
 }
 
 watch(
@@ -172,6 +205,9 @@ watch(
     props.topic?.style?.color ?? '',
     props.topic?.style?.fill ?? '',
     props.topic?.style?.shape ?? '',
+    props.topic?.boundary?.label ?? '',
+    props.topic?.boundary?.color ?? '',
+    props.topic?.summary ?? '',
   ].join('\u0001'),
   () => resetDraft(),
   { immediate: true },
@@ -283,6 +319,116 @@ function removeRelation(relationId: string) {
   if (isReadonly.value) return;
   emit('remove-relation', { relationId });
 }
+
+/* ------------------------- UX-2：边界 / 概要 ------------------------- */
+
+function onBoundaryLabelInput(event: Event) {
+  boundaryLabelDraft.value = (event.target as HTMLInputElement | null)?.value ?? '';
+}
+
+function onBoundaryColorInput(event: Event) {
+  boundaryColorDraft.value = (event.target as HTMLInputElement | null)?.value ?? '';
+}
+
+function onSummaryInput(event: Event) {
+  summaryDraft.value = (event.target as HTMLTextAreaElement | null)?.value ?? '';
+}
+
+/** 应用边界：字段全空等价于清除（由 store 统一处理空值语义）。 */
+function applyBoundary() {
+  if (isReadonly.value) return;
+  emit('update-boundary', {
+    label: boundaryLabelDraft.value.trim(),
+    color: boundaryColorDraft.value.trim(),
+  });
+}
+
+/** 清除边界。 */
+function clearBoundary() {
+  if (isReadonly.value) return;
+  boundaryLabelDraft.value = '';
+  boundaryColorDraft.value = '';
+  emit('update-boundary', null);
+}
+
+/** 预设颜色：立即写文档，便于一键得到可见边界。 */
+function pickBoundaryColor(color: string) {
+  if (isReadonly.value) return;
+  boundaryColorDraft.value = color;
+  emit('update-boundary', {
+    label: boundaryLabelDraft.value.trim(),
+    color: color.trim(),
+  });
+}
+
+/** 应用概要：空白等价于清除。 */
+function applySummary() {
+  if (isReadonly.value) return;
+  emit('update-summary', summaryDraft.value.trim());
+}
+
+/** 清除概要。 */
+function clearSummary() {
+  if (isReadonly.value) return;
+  summaryDraft.value = '';
+  emit('update-summary', null);
+}
+
+/* ---------------------------- 面板宽度（本地 state） ---------------------------- */
+
+/** 面板宽度上下限（与任务约定一致：180–420px）。 */
+const PANEL_MIN_WIDTH = 180;
+const PANEL_MAX_WIDTH = 420;
+
+/** 面板宽度：只影响视图，不写入文档、不进历史。 */
+const panelWidth = ref(clampPanelWidth(props.initialWidth ?? 260));
+
+function clampPanelWidth(value: number): number {
+  return Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, Math.round(value)));
+}
+
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+let resizing = false;
+
+function restoreResizeCursor() {
+  if (typeof document === 'undefined') return;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
+
+function onResizePointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  resizing = true;
+  resizeStartX = event.clientX;
+  resizeStartWidth = panelWidth.value;
+  window.addEventListener('pointermove', onResizePointerMove);
+  window.addEventListener('pointerup', endResize, { once: true });
+  window.addEventListener('pointercancel', endResize, { once: true });
+  if (typeof document !== 'undefined') {
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+}
+
+function onResizePointerMove(event: PointerEvent) {
+  if (!resizing) return;
+  // 面板位于右侧：向左拖（clientX 变小）应当变宽
+  panelWidth.value = clampPanelWidth(resizeStartWidth + (resizeStartX - event.clientX));
+}
+
+function endResize() {
+  resizing = false;
+  window.removeEventListener('pointermove', onResizePointerMove);
+  window.removeEventListener('pointerup', endResize);
+  window.removeEventListener('pointercancel', endResize);
+  restoreResizeCursor();
+}
+
+onBeforeUnmount(() => {
+  endResize();
+});
 </script>
 
 <template>
@@ -292,8 +438,18 @@ function removeRelation(relationId: string) {
     data-testid="mm-props"
     role="complementary"
     aria-label="节点属性"
+    :style="{ width: `${panelWidth}px`, flex: `0 0 ${panelWidth}px` }"
     @keydown.esc="onEscape"
   >
+    <div
+      class="mm-panel-resizer"
+      data-testid="mm-props-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖动调整属性面板宽度"
+      title="拖动调整宽度"
+      @pointerdown="onResizePointerDown"
+    ></div>
     <header class="mm-props-header">
       <span class="mm-props-heading">节点属性</span>
       <button
@@ -379,6 +535,111 @@ function removeRelation(relationId: string) {
             <span class="mm-props-marker-label">{{ marker.label }}</span>
           </button>
         </div>
+      </section>
+
+      <!-- 边界（UX-2）：包住该主题及其全部可见后代的框；标签/颜色均可留空 -->
+      <section class="mm-props-section" data-testid="mm-props-boundary">
+        <span class="mm-props-section-title">边界</span>
+        <label class="mm-props-field">
+          <span class="mm-props-label">标签</span>
+          <input
+            class="mm-props-input"
+            data-testid="mm-props-boundary-label"
+            type="text"
+            autocomplete="off"
+            placeholder="边界标签（可留空）"
+            :value="boundaryLabelDraft"
+            :disabled="isReadonly"
+            @input="onBoundaryLabelInput"
+          />
+        </label>
+        <label class="mm-props-field">
+          <span class="mm-props-label">颜色</span>
+          <input
+            class="mm-props-input"
+            data-testid="mm-props-boundary-color"
+            type="text"
+            autocomplete="off"
+            placeholder="如 #2563eb（留空跟随主题色）"
+            :value="boundaryColorDraft"
+            :disabled="isReadonly"
+            @input="onBoundaryColorInput"
+          />
+        </label>
+        <div class="mm-props-color-presets">
+          <button
+            v-for="preset in BOUNDARY_COLOR_PRESETS"
+            :key="preset.value || 'theme'"
+            type="button"
+            class="mm-props-color-preset"
+            :class="{ 'is-active': boundaryColorDraft === preset.value }"
+            :data-testid="`mm-props-boundary-color-${preset.value || 'theme'}`"
+            :title="`边界颜色：${preset.label}`"
+            :disabled="isReadonly"
+            @click="pickBoundaryColor(preset.value)"
+          >
+            <span
+              class="mm-props-color-dot"
+              :style="{ background: preset.value || 'var(--accent-brand)' }"
+            ></span>
+            {{ preset.label }}
+          </button>
+        </div>
+        <div class="mm-props-actions">
+          <button
+            type="button"
+            class="mm-props-action"
+            data-testid="mm-props-boundary-apply"
+            :disabled="isReadonly"
+            @click="applyBoundary"
+          >
+            应用
+          </button>
+          <button
+            type="button"
+            class="mm-props-action danger"
+            data-testid="mm-props-boundary-clear"
+            :disabled="isReadonly"
+            @click="clearBoundary"
+          >
+            清除
+          </button>
+        </div>
+      </section>
+
+      <!-- 概要（UX-2）：该主题子节点范围的括线 + 文本 -->
+      <section class="mm-props-section" data-testid="mm-props-summary">
+        <span class="mm-props-section-title">概要</span>
+        <textarea
+          class="mm-props-textarea"
+          data-testid="mm-props-summary-text"
+          rows="2"
+          placeholder="概括这组子主题（留空清除）"
+          :value="summaryDraft"
+          :disabled="isReadonly"
+          @input="onSummaryInput"
+        />
+        <div class="mm-props-actions">
+          <button
+            type="button"
+            class="mm-props-action"
+            data-testid="mm-props-summary-apply"
+            :disabled="isReadonly"
+            @click="applySummary"
+          >
+            应用
+          </button>
+          <button
+            type="button"
+            class="mm-props-action danger"
+            data-testid="mm-props-summary-clear"
+            :disabled="isReadonly"
+            @click="clearSummary"
+          >
+            清除
+          </button>
+        </div>
+        <span class="mm-props-hint">概要绘制在该节点子主题旁；无可见子节点时不显示</span>
       </section>
 
       <!-- 关系（阶段 4C）：列出现有关系 + 选择目标添加 + 逐条删除 -->
@@ -505,96 +766,135 @@ function removeRelation(relationId: string) {
 </template>
 
 <style scoped>
+/* 配色使用 Tau 主题 token；按钮/输入框显式声明文字色，避免暗色主题下「白底浅字」 */
 .mm-props {
-  width: 260px;
-  flex: 0 0 260px;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 0 0 10px;
-  border-left: 1px solid var(--border, #e5e7eb);
-  background: var(--surface, #ffffff);
-  color: inherit;
+  border-left: 1px solid var(--border-soft);
+  background: var(--panel-base);
+  color: var(--text-primary);
   overflow: auto;
+}
+/* 可拖拽调宽的左边缘 */
+.mm-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+  background: transparent;
+}
+.mm-panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+}
+.mm-panel-resizer:hover::after,
+.mm-panel-resizer:active::after {
+  background: var(--accent-brand);
 }
 .mm-props-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border-soft);
 }
-.mm-props-heading { font-size: 12px; font-weight: 600; opacity: 0.7; }
+.mm-props-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 .mm-props-close {
   border: none;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   font-size: 16px;
   line-height: 1;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   cursor: pointer;
-  opacity: 0.65;
 }
-.mm-props-close:hover { opacity: 1; background: var(--hover, rgba(0, 0, 0, 0.06)); }
+.mm-props-close:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
 .mm-props-topic {
   margin: 0;
   padding: 0 12px;
   font-size: 12px;
   font-weight: 600;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.85;
 }
 .mm-props-body { display: flex; flex-direction: column; gap: 10px; padding: 0 12px; }
 .mm-props-field { display: flex; flex-direction: column; gap: 4px; }
-.mm-props-label { font-size: 11px; opacity: 0.65; }
+.mm-props-label { font-size: 11px; color: var(--text-secondary); }
 .mm-props-input,
 .mm-props-textarea,
 .mm-props-select {
   width: 100%;
   box-sizing: border-box;
   font-size: 12px;
-  font-family: inherit;
+  font-family: var(--font-ui);
   padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border, #d8dee9);
-  background: var(--surface-input, #fff);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   outline: none;
 }
+.mm-props-input::placeholder,
+.mm-props-textarea::placeholder { color: var(--text-muted); }
 .mm-props-textarea { resize: vertical; min-height: 62px; }
 .mm-props-input:focus,
 .mm-props-textarea:focus,
-.mm-props-select:focus { border-color: rgba(74, 144, 226, 0.8); }
-.mm-props-input.is-invalid { border-color: #d9534f; }
+.mm-props-select:focus { border-color: var(--accent-brand); }
+.mm-props-input.is-invalid { border-color: var(--state-danger); }
 .mm-props-input:disabled,
 .mm-props-textarea:disabled,
 .mm-props-select:disabled { opacity: 0.6; cursor: not-allowed; }
-.mm-props-error { font-size: 11px; color: #d9534f; }
-.mm-props-hint { font-size: 11px; opacity: 0.55; }
+.mm-props-error { font-size: 11px; color: var(--state-danger); }
+.mm-props-hint { font-size: 11px; color: var(--text-muted); }
 .mm-props-footer { padding: 4px 12px 0; }
 .mm-props-apply {
   width: 100%;
   padding: 6px 10px;
   font-size: 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(74, 144, 226, 0.55);
-  background: rgba(74, 144, 226, 0.12);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--accent-brand);
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
   cursor: pointer;
 }
-.mm-props-apply:hover { background: rgba(74, 144, 226, 0.2); }
+.mm-props-apply:hover {
+  background: var(--accent-brand);
+  color: var(--bg-app);
+}
 /* 阶段 4C：分区容器 */
 .mm-props-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 0 2px;
-  border-top: 1px dashed var(--border, #e5e7eb);
+  border-top: 1px dashed var(--border-soft);
 }
-.mm-props-section-title { font-size: 11px; font-weight: 600; opacity: 0.75; }
+.mm-props-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 /* 标记多选徽章 */
 .mm-props-markers { display: flex; flex-wrap: wrap; gap: 4px; }
 .mm-props-marker {
@@ -603,20 +903,67 @@ function removeRelation(relationId: string) {
   gap: 4px;
   padding: 3px 7px;
   font-size: 11px;
-  border-radius: 999px;
-  border: 1px solid var(--border, #d8dee9);
-  background: transparent;
-  color: inherit;
+  font-family: var(--font-ui);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   cursor: pointer;
 }
-.mm-props-marker:hover:not(:disabled) { background: var(--hover, rgba(74, 144, 226, 0.08)); }
+.mm-props-marker:hover:not(:disabled) { background: var(--surface-hover); }
 .mm-props-marker.is-active {
-  border-color: var(--accent, #4a90e2);
-  background: var(--accent-soft, rgba(74, 144, 226, 0.14));
+  border-color: var(--accent-brand);
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
   font-weight: 600;
 }
 .mm-props-marker:disabled { opacity: 0.5; cursor: not-allowed; }
 .mm-props-marker-badge { font-weight: 700; }
+/* UX-2：边界 / 概要的按钮与颜色预设 */
+.mm-props-actions { display: flex; gap: 6px; }
+.mm-props-action {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-ui);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.mm-props-action:hover:not(:disabled) { background: var(--surface-hover); }
+.mm-props-action.danger {
+  border-color: var(--state-danger);
+  color: var(--state-danger);
+}
+.mm-props-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.mm-props-color-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.mm-props-color-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-family: var(--font-ui);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.mm-props-color-preset:hover:not(:disabled) { background: var(--surface-hover); }
+.mm-props-color-preset.is-active {
+  border-color: var(--accent-brand);
+  color: var(--text-primary);
+}
+.mm-props-color-preset:disabled { opacity: 0.5; cursor: not-allowed; }
+.mm-props-color-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--border-soft);
+}
 /* 关系列表 */
 .mm-props-relation-list {
   list-style: none;
@@ -634,34 +981,41 @@ function removeRelation(relationId: string) {
 }
 .mm-props-relation-text {
   flex: 1;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.8;
 }
 .mm-props-relation-remove {
   border: none;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1;
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  opacity: 0.6;
 }
-.mm-props-relation-remove:hover:not(:disabled) { opacity: 1; background: var(--hover, rgba(0, 0, 0, 0.06)); }
-.mm-props-relation-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.mm-props-relation-remove:hover:not(:disabled) {
+  color: var(--state-danger);
+  background: var(--surface-hover);
+}
+.mm-props-relation-remove:disabled { opacity: 0.35; cursor: not-allowed; }
 .mm-props-relation-add-row { display: flex; gap: 6px; }
 .mm-props-relation-add {
   flex: 0 0 auto;
   padding: 5px 10px;
   font-size: 11px;
-  border-radius: 6px;
-  border: 1px solid rgba(74, 144, 226, 0.55);
-  background: rgba(74, 144, 226, 0.12);
-  color: inherit;
+  font-family: var(--font-ui);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--accent-brand);
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
   cursor: pointer;
+}
+.mm-props-relation-add:hover:not(:disabled) {
+  background: var(--accent-brand);
+  color: var(--bg-app);
 }
 .mm-props-relation-add:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>

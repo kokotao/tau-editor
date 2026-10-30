@@ -12,6 +12,8 @@
  */
 import { findCloudDocByPath, saveCloudDoc, type CloudOutcome } from '@/services/cloudDocService';
 import { toCloudDocPath } from '@/services/cloudSyncService';
+import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
+import { extensionOfPath, isTextDocPath } from '@/services/cloudUploadPolicy';
 
 /** 文件名里禁止出现的字符：Windows 保留字符 `\ / : * ? " < > |`（含路径分隔符）。 */
 const FORBIDDEN_NAME_CHARS = /[\\/:*?"<>|]/;
@@ -96,6 +98,20 @@ export interface CreateCloudDocFileInput {
   categoryName?: string | null;
 }
 
+/**
+ * 新建文件的初始正文。
+ *
+ * `.taumap` 必须写入一份合法的空思维导图 JSON：空正文会让编辑器打开时
+ * 直接报「思维导图文件不是合法的 JSON」，用户无法开始创作。
+ */
+export function initialCloudDocContent(fileName: string): string {
+  if (extensionOfPath(fileName) !== 'taumap') {
+    return '';
+  }
+  const title = fileName.replace(/\.taumap$/i, '').trim() || '未命名思维导图';
+  return serializeMindMapDocument(createEmptyMindMapDocument(title));
+}
+
 /** 新建结果：fileId/version/contentHash/cloudPath 是宿主落位必需的；size/updatedAt 供合成树节点展示。 */
 export interface CloudDocCreateResult {
   fileId: number;
@@ -121,6 +137,15 @@ export async function createCloudDocFile(
     return { ok: false, kind: 'unknown', message: '文件名不可用' };
   }
 
+  // 与后端白名单提前对齐：不支持的类型直接给出可读原因，避免服务端 400 才暴露
+  if (!isTextDocPath(sanitized.name)) {
+    return {
+      ok: false,
+      kind: 'unsupported',
+      message: `云端暂不支持该文件类型（${extensionOfPath(sanitized.name) ? '.' + extensionOfPath(sanitized.name) : '无扩展名'}），请使用文本类扩展名（如 .md / .taumap）`,
+    };
+  }
+
   const categoryName = (input.categoryName ?? '').trim();
   const workspaceSegment = resolveNewDocWorkspaceSegment(input.workspaceName, categoryName);
   const cloudPath = buildNewCloudDocPath(workspaceSegment, sanitized.name);
@@ -136,7 +161,7 @@ export async function createCloudDocFile(
   const saved = await saveCloudDoc({
     path: cloudPath,
     title: sanitized.name,
-    content: '',
+    content: initialCloudDocContent(sanitized.name),
     baseVersion: null,
     // 未分类：category 传空串会让服务端造出一个假的「未分类」聚合分组，因此归一成 null
     category: categoryName || null,

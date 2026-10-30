@@ -389,3 +389,255 @@ describe('MindmapCanvas 阶段 4C', () => {
     expect(unknownCanvas.attributes('style')).toBeUndefined();
   });
 });
+
+/* ------------------- UX-1：平移 / 节点拖拽 / 右键菜单 ------------------- */
+
+/** 在 window 上派发指针事件（真实拖拽的移动/松开都发生在这里）。 */
+function dispatchPointer(type: string, x: number, y: number) {
+  window.dispatchEvent(new MouseEvent(type, {
+    clientX: x,
+    clientY: y,
+    button: 0,
+    bubbles: true,
+    cancelable: true,
+  }));
+}
+
+describe('MindmapCanvas UX-1', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('空白处按住拖动平移画布并 emit update:viewport（修复 @pointerdown.self 永不触发）', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    const canvas = wrapper.find('[data-testid="mindmap-canvas"]');
+
+    await canvas.trigger('pointerdown', { button: 0, clientX: 100, clientY: 100 });
+    // 平移中光标改为 grabbing
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="mindmap-canvas"]').classes()).toContain('is-panning');
+
+    dispatchPointer('pointermove', 160, 130);
+    const events = wrapper.emitted('update:viewport');
+    expect(events).toBeTruthy();
+    expect(events![events!.length - 1]![0]).toEqual({ x: 60, y: 30, zoom: 1 });
+
+    dispatchPointer('pointerup', 160, 130);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="mindmap-canvas"]').classes()).not.toContain('is-panning');
+    // 平移不是选中
+    expect(wrapper.emitted('select')).toBeFalsy();
+  });
+
+  it('在节点上按下不会触发平移', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    const before = wrapper.emitted('update:viewport')?.length ?? 0;
+
+    await wrapper.find('.mm-node[data-node-id="b"]').trigger('pointerdown', {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    dispatchPointer('pointermove', 120, 120);
+    expect(wrapper.emitted('update:viewport')?.length ?? 0).toBe(before);
+    dispatchPointer('pointerup', 120, 120);
+  });
+
+  it('节点拖拽：>5px 才进入拖拽，松手在目标节点上 emit move', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    const from = nodeCenter(wrapper, 'a1');
+    const to = nodeCenter(wrapper, 'b');
+    const dragged = wrapper.find('.mm-node[data-node-id="a1"]');
+
+    await dragged.trigger('pointerdown', { button: 0, clientX: from.x, clientY: from.y });
+    // 位移 3px：低于阈值，仍视为点击
+    dispatchPointer('pointermove', from.x + 3, from.y + 1);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.mm-node[data-node-id="a1"]').classes()).not.toContain('is-dragging');
+
+    // 越过阈值并落到目标节点 b 上：源半透明、目标高亮
+    dispatchPointer('pointermove', to.x, to.y);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.mm-node[data-node-id="a1"]').classes()).toContain('is-dragging');
+    expect(wrapper.find('.mm-node[data-node-id="b"]').classes()).toContain('is-drag-over');
+
+    dispatchPointer('pointerup', to.x, to.y);
+    expect(wrapper.emitted('move')?.[0]).toEqual(['a1', 'b']);
+    // 拖拽收尾时抑制一次 click，避免误选中
+    await dragged.trigger('click');
+    expect(wrapper.emitted('select')).toBeFalsy();
+  });
+
+  it('拖拽释放在空白处不 emit move', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    const from = nodeCenter(wrapper, 'a1');
+    const dragged = wrapper.find('.mm-node[data-node-id="a1"]');
+
+    await dragged.trigger('pointerdown', { button: 0, clientX: from.x, clientY: from.y });
+    dispatchPointer('pointermove', 9999, 9999);
+    dispatchPointer('pointerup', 9999, 9999);
+    expect(wrapper.emitted('move')).toBeFalsy();
+  });
+
+  it('右键空白区域 emit contextmenu（nodeId=null）', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-testid="mindmap-canvas"]').trigger('contextmenu', {
+      clientX: 9999,
+      clientY: 9999,
+    });
+    expect(wrapper.emitted('contextmenu')?.[0]).toEqual([
+      { nodeId: null, clientX: 9999, clientY: 9999 },
+    ]);
+  });
+
+  it('右键节点 emit contextmenu 且带命中节点 id', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    const target = nodeCenter(wrapper, 'a1');
+    await wrapper.find('[data-testid="mindmap-canvas"]').trigger('contextmenu', {
+      clientX: target.x,
+      clientY: target.y,
+    });
+    const payload = wrapper.emitted('contextmenu')?.[0]?.[0] as { nodeId: string | null };
+    expect(payload.nodeId).toBe('a1');
+  });
+});
+
+/* ---------------- UX-1 回归守卫：mindmap 组件只允许使用 Tau 主题 token ---------------- */
+
+describe('Mindmap 组件主题 token 回归守卫', () => {
+  /** 曾被误用、实际并不存在的变量（暗色主题下会回落成写死的浅色，导致白底浅字）。 */
+  const BANNED_PATTERNS = [
+    'var(--background',
+    'var(--surface,',
+    'var(--border,',
+    'var(--hover',
+    'var(--danger',
+    'var(--accent,',
+    'var(--selected,',
+    'var(--font-sans',
+    'var(--chip-bg',
+    'var(--notice-bg',
+    'var(--confirm-bg',
+    'var(--surface-input',
+  ];
+
+  const COMPONENTS = [
+    'MindmapStage.vue',
+    'MindmapCanvas.vue',
+    'MindmapOutlinePanel.vue',
+    'MindmapPropertiesPanel.vue',
+    'MindmapImportPreviewDialog.vue',
+    'MindmapExportDialog.vue',
+    'MindmapContextMenu.vue',
+  ];
+
+  it('不再引用不存在的主题变量', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    for (const file of COMPONENTS) {
+      const fullPath = path.join(process.cwd(), 'frontend/src/components/editor/mindmap', file);
+      const source = fs.readFileSync(fullPath, 'utf8');
+      for (const pattern of BANNED_PATTERNS) {
+        expect(source.includes(pattern), `${file} 不应再包含 ${pattern}`).toBe(false);
+      }
+    }
+  });
+});
+
+/* ---------------------- UX-2：边界（boundary）/ 概要（summary） ---------------------- */
+
+describe('MindmapCanvas UX-2', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('topic.boundary 渲染边界框与标签，自定义颜色生效', () => {
+    const doc = buildDoc();
+    doc.topics.a = {
+      ...doc.topics.a!,
+      boundary: { label: '阶段一', color: '#2563eb' },
+    };
+    const wrapper = mountCanvas({ document: doc });
+
+    const boundaries = wrapper.findAll('[data-testid="mm-boundary"]');
+    expect(boundaries).toHaveLength(1);
+    expect(boundaries[0]?.attributes('data-boundary-id')).toBe('a');
+
+    const rect = boundaries[0]!.find('rect');
+    expect(rect.exists()).toBe(true);
+    expect(Number(rect.attributes('width'))).toBeGreaterThan(0);
+    expect(Number(rect.attributes('height'))).toBeGreaterThan(0);
+    expect(rect.attributes('rx')).toBe('10');
+    // 自定义颜色：填充与描边都使用该色
+    expect(rect.attributes('style')).toContain('#2563eb');
+    expect(boundaries[0]!.text()).toContain('阶段一');
+  });
+
+  it('未声明颜色时回落到主题强调色变量（default 主题跟随 Tau token）', () => {
+    const doc = buildDoc();
+    doc.topics.a = { ...doc.topics.a!, boundary: {} };
+    const wrapper = mountCanvas({ document: doc });
+    const rect = wrapper.find('[data-testid="mm-boundary"] rect');
+    expect(rect.attributes('style')).toContain('var(--mindmap-accent, var(--accent-brand))');
+    // 无标签时不渲染标签文字
+    expect(wrapper.find('[data-testid="mm-boundary"]').text()).toBe('');
+  });
+
+  it('topic.summary 渲染括线路径与文本', () => {
+    const doc = buildDoc();
+    doc.topics.a = { ...doc.topics.a!, summary: '这组是一类' };
+    const wrapper = mountCanvas({ document: doc });
+
+    const summaries = wrapper.findAll('[data-testid="mm-summary"]');
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.attributes('data-summary-id')).toBe('a');
+    const path = summaries[0]!.find('path');
+    expect(path.exists()).toBe(true);
+    expect(path.attributes('d')?.startsWith('M ')).toBe(true);
+    expect(summaries[0]!.find('text').text()).toBe('这组是一类');
+  });
+
+  it('无边界/概要的文档不渲染任何 overlay', () => {
+    const wrapper = mountCanvas();
+    expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(0);
+    expect(wrapper.findAll('[data-testid="mm-summary"]')).toHaveLength(0);
+  });
+
+  it('overlay 绘制在连线之前，且不改变节点/连线数量', () => {
+    const doc = buildDoc();
+    doc.topics.a = { ...doc.topics.a!, boundary: { label: '框' }, summary: '概要' };
+    const wrapper = mountCanvas({ document: doc });
+
+    expect(wrapper.findAll('.mm-node')).toHaveLength(4);
+    expect(wrapper.findAll('.mm-edge')).toHaveLength(3);
+
+    const html = wrapper.find('.mm-svg').html();
+    const boundaryIndex = html.indexOf('mm-boundary');
+    const edgeIndex = html.indexOf('mm-edge');
+    expect(boundaryIndex).toBeGreaterThanOrEqual(0);
+    expect(edgeIndex).toBeGreaterThan(boundaryIndex);
+  });
+
+  it('折叠节点后其边界只包住自身（框宽随可见范围缩小）', () => {
+    const doc = buildDoc();
+    doc.topics.a = { ...doc.topics.a!, boundary: {} };
+    const expanded = mountCanvas({ document: doc });
+    const expandedWidth = Number(expanded.find('[data-testid="mm-boundary"] rect').attributes('width'));
+
+    const collapsedDoc = buildDoc();
+    collapsedDoc.topics.a = { ...collapsedDoc.topics.a!, boundary: {}, collapsed: true };
+    const collapsed = mountCanvas({ document: collapsedDoc });
+    const collapsedWidth = Number(collapsed.find('[data-testid="mm-boundary"] rect').attributes('width'));
+
+    expect(collapsedWidth).toBeLessThan(expandedWidth);
+    // 折叠后 a1 不渲染，但边界仍在
+    expect(collapsed.find('.mm-node[data-node-id="a1"]').exists()).toBe(false);
+    expect(collapsed.findAll('[data-testid="mm-boundary"]')).toHaveLength(1);
+  });
+});

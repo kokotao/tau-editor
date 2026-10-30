@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useMindmapStore } from '@/stores/mindmap';
-import { createEmptyMindMapDocument, serializeMindMapDocument, validateMindMapDocument } from '@/services/mindmapService';
+import {
+  createEmptyMindMapDocument,
+  parseMindMapDocument,
+  serializeMindMapDocument,
+  validateMindMapDocument,
+} from '@/services/mindmapService';
 import { addChildTopic, deleteTopic, moveTopicByOffset } from '@/services/mindmap/mindmapCommands';
 
 function makeContent(): { content: string; rootId: string } {
@@ -896,5 +901,161 @@ describe('useMindmapStore 阶段 4E：多工作表', () => {
     expect(store.selectedTopicId).toBe(firstRootId);
     expect(store.document?.rootTopicId).toBe(firstRootId);
   });
+
+
+  it('recoverAsEmptyDocument：打开失败态可显式重建为空白导图', () => {
+    const store = useMindmapStore();
+    store.loadFromContent('tab-1', '{ broken json');
+    expect(store.loadError).toBeTruthy();
+    expect(store.document).toBeNull();
+
+    expect(store.recoverAsEmptyDocument('恢复的导图')).toBe(true);
+
+    expect(store.loadError).toBeNull();
+    expect(store.document?.title).toBe('恢复的导图');
+    expect(store.selectedTopicId).toBe(store.document?.rootTopicId);
+    // 没有可回退的旧文档，因此不产生撤销历史
+    expect(store.canUndo).toBe(false);
+    expect(JSON.parse(store.serialized).format).toBe('tau-mindmap');
+  });
 });
 
+/* ------------------ UX-2：边界（boundary）/ 概要（summary） ------------------ */
+
+describe('useMindmapStore UX-2：setTopicBoundary', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('写入 label/color（trim）并同步 lastSerialized，可撤销/重做', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const before = store.serialized;
+
+    expect(store.setTopicBoundary(rootId, { label: '  阶段一  ', color: ' #2563eb ' })).toBe(true);
+    expect(store.document?.topics[rootId]?.boundary).toEqual({
+      label: '阶段一',
+      color: '#2563eb',
+    });
+    expect(store.lastSerialized).toBe(store.serialized);
+    expect(store.canUndo).toBe(true);
+
+    expect(store.undo()).toBe(true);
+    expect(store.serialized).toBe(before);
+    expect(store.document?.topics[rootId]?.boundary).toBeUndefined();
+
+    expect(store.redo()).toBe(true);
+    expect(store.document?.topics[rootId]?.boundary?.label).toBe('阶段一');
+  });
+
+  it('null / 空对象 / 全空白字段都视为清除（删除键，不留空对象噪音）', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    store.setTopicBoundary(rootId, { label: '分组' });
+    expect(store.document?.topics[rootId]?.boundary).toEqual({ label: '分组' });
+
+    expect(store.setTopicBoundary(rootId, null)).toBe(true);
+    expect(store.document?.topics[rootId]?.boundary).toBeUndefined();
+    expect(store.serialized).not.toContain('"boundary"');
+
+    expect(store.setTopicBoundary(rootId, { label: '再写一次' })).toBe(true);
+    expect(store.setTopicBoundary(rootId, {})).toBe(true);
+    expect(store.document?.topics[rootId]?.boundary).toBeUndefined();
+
+    // 已是无边界：再传全空白字段属于「无变化」
+    expect(store.setTopicBoundary(rootId, { label: '  ', color: '' })).toBe(false);
+    store.setTopicBoundary(rootId, { label: '临时' });
+    expect(store.setTopicBoundary(rootId, { label: '  ', color: '' })).toBe(true);
+    expect(store.document?.topics[rootId]?.boundary).toBeUndefined();
+  });
+
+  it('只写其中一项时省略另一项；无实际变化返回 false 且不记历史', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.setTopicBoundary(rootId, { color: '#16a34a' })).toBe(true);
+    expect(store.document?.topics[rootId]?.boundary).toEqual({ color: '#16a34a' });
+
+    const historyLength = store.history.past.length;
+    expect(store.setTopicBoundary(rootId, { color: '#16a34a' })).toBe(false);
+    expect(store.setTopicBoundary(rootId, null)).toBe(true);
+    expect(store.history.past.length).toBe(historyLength + 1);
+    expect(store.setTopicBoundary(rootId, null)).toBe(false);
+  });
+
+  it('未知节点或无文档时返回 false', () => {
+    const store = useMindmapStore();
+    expect(store.setTopicBoundary('ghost', { label: 'x' })).toBe(false);
+
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.setTopicBoundary('ghost', { label: 'x' })).toBe(false);
+  });
+});
+
+describe('useMindmapStore UX-2：setTopicSummary', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('写入概要（trim）并可撤销/重做', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.setTopicSummary(rootId, '  这组子主题的概要  ')).toBe(true);
+    expect(store.document?.topics[rootId]?.summary).toBe('这组子主题的概要');
+    expect(store.serialized).toContain('这组子主题的概要');
+
+    expect(store.undo()).toBe(true);
+    expect(store.document?.topics[rootId]?.summary).toBeUndefined();
+    expect(store.redo()).toBe(true);
+    expect(store.document?.topics[rootId]?.summary).toBe('这组子主题的概要');
+  });
+
+  it('null / 空白文本清除键，无实际变化返回 false', () => {
+    const store = useMindmapStore();
+    const { content, rootId } = makeContent();
+    store.loadFromContent('tab-1', content);
+
+    expect(store.setTopicSummary(rootId, null)).toBe(false);
+    expect(store.setTopicSummary(rootId, '   ')).toBe(false);
+
+    store.setTopicSummary(rootId, '概要');
+    expect(store.setTopicSummary(rootId, '概要')).toBe(false);
+    expect(store.setTopicSummary(rootId, '   ')).toBe(true);
+    expect(store.document?.topics[rootId]?.summary).toBeUndefined();
+    expect(store.serialized).not.toContain('"summary"');
+  });
+
+  it('未知节点或无文档时返回 false', () => {
+    const store = useMindmapStore();
+    expect(store.setTopicSummary('ghost', 'x')).toBe(false);
+
+    const { content } = store && makeContent();
+    store.loadFromContent('tab-1', content);
+    expect(store.setTopicSummary('ghost', 'x')).toBe(false);
+  });
+});
+
+describe('UX-2 持久化：boundary / summary 随文档往返', () => {
+  it('序列化 → 解析后边界与概要仍然存在，且结构校验通过', () => {
+    const doc = createEmptyMindMapDocument('往返测试');
+    const rootId = doc.rootTopicId;
+    doc.topics[rootId] = {
+      ...doc.topics[rootId]!,
+      boundary: { label: '分组', color: '#2563eb' },
+      summary: '概要文本',
+    };
+
+    const content = serializeMindMapDocument(doc);
+    const parsed = parseMindMapDocument(content);
+    expect(parsed.topics[rootId]?.boundary).toEqual({ label: '分组', color: '#2563eb' });
+    expect(parsed.topics[rootId]?.summary).toBe('概要文本');
+    expect(validateMindMapDocument(parsed).ok).toBe(true);
+  });
+});

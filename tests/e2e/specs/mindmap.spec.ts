@@ -371,4 +371,97 @@ test.describe('Mindmap E2E', () => {
     await openNewMindmap(page)
     await expect(page.locator('[data-testid="mm-print"]')).toBeVisible()
   })
+
+  test('E2E-MM-018: 空白处拖动可平移画布', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+    await focusStage(page)
+
+    const root = page.locator('.mm-node.is-root')
+    const before = await root.boundingBox()
+    expect(before).toBeTruthy()
+
+    const canvas = page.locator('[data-testid="mindmap-canvas"]')
+    const box = await canvas.boundingBox()
+    expect(box).toBeTruthy()
+    const startX = box!.x + 40
+    const startY = box!.y + box!.height - 40
+
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 120, startY - 80, { steps: 8 })
+    await page.mouse.up()
+
+    const after = await root.boundingBox()
+    expect(after).toBeTruthy()
+    expect(Math.abs((after!.x - before!.x) - 120)).toBeLessThan(30)
+    expect(Math.abs((after!.y - before!.y) + 80)).toBeLessThan(30)
+  })
+
+  test('E2E-MM-019: 节点右键菜单可新增子主题', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+
+    await page.locator('.mm-node.is-root').click({ button: 'right' })
+    const menu = page.locator('[data-testid="mm-context-menu"]')
+    await expect(menu).toBeVisible()
+    await expect(page.locator('[data-testid="mm-context-item-add-child"]')).toBeVisible()
+
+    await page.locator('[data-testid="mm-context-item-add-child"]').click()
+    await expect(page.locator('.mm-node')).toHaveCount(2)
+    await expect(menu).toBeHidden()
+  })
+
+  test('E2E-MM-020: 工具栏按钮文字与背景有足够对比度', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+
+    const contrast = await page.evaluate(() => {
+      const button = document.querySelector('[data-testid="mm-add-child"]') as HTMLElement | null;
+      if (!button) return null;
+      const style = getComputedStyle(button);
+      const parse = (value: string): number[] => {
+        const match = value.match(/rgba?\(([^)]+)\)/);
+        if (!match) return [0, 0, 0];
+        return match[1].split(',').slice(0, 3).map((part) => Number(part.trim()));
+      };
+      const fg = parse(style.color);
+      const bg = parse(style.backgroundColor);
+      return {
+        fg,
+        bg,
+        distance: Math.abs(fg[0] - bg[0]) + Math.abs(fg[1] - bg[1]) + Math.abs(fg[2] - bg[2]),
+      };
+    });
+
+    expect(contrast).toBeTruthy()
+    // 文字与按钮背景不能是同一颜色（修复前暗色主题下白底浅字 distance≈0）
+    expect(contrast!.distance).toBeGreaterThan(80)
+  })
+
+  test('E2E-MM-021: 大纲面板可拖拽调宽', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+
+    const outline = page.locator('[data-testid="mindmap-outline"]')
+    const before = await outline.boundingBox()
+    expect(before).toBeTruthy()
+
+    const resizer = page.locator('[data-testid="mm-outline-resizer"]')
+    const rbox = await resizer.boundingBox()
+    expect(rbox).toBeTruthy()
+
+    await page.mouse.move(rbox!.x + rbox!.width / 2, rbox!.y + rbox!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(rbox!.x - 80, rbox!.y + rbox!.height / 2, { steps: 6 })
+    await page.mouse.up()
+
+    const after = await outline.boundingBox()
+    expect(after).toBeTruthy()
+    expect(after!.width).toBeGreaterThan(before!.width + 30)
+  })
 })

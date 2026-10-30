@@ -15,7 +15,7 @@
 
 /**
  * 允许同步为云文档（文本）的扩展名，小写、不含点。
- * 与后端 `CloudDocPathValidator.TEXT_EXTENSIONS` 一一对应（51 项）。
+ * 与后端 `CloudDocPathValidator.TEXT_EXTENSIONS` 一一对应（52 项，含 Tau 原生 `.taumap`）。
  */
 export const TEXT_DOC_EXTENSIONS: readonly string[] = [
   'md', 'markdown', 'mdx', 'txt', 'json', 'yaml', 'yml', 'toml', 'ini', 'conf',
@@ -24,6 +24,8 @@ export const TEXT_DOC_EXTENSIONS: readonly string[] = [
   'rb', 'sh', 'bash', 'zsh', 'bat', 'ps1', 'html', 'htm', 'css', 'scss',
   'sass', 'less', 'xml', 'sql', 'log', 'csv', 'tex', 'gradle', 'gitignore', 'env',
   'cfg',
+  // Tau 原生思维导图（UTF-8 JSON 文本），需与 Rust / Java 白名单保持一致
+  'taumap',
 ];
 
 /**

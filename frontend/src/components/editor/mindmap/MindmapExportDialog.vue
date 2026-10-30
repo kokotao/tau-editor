@@ -132,10 +132,11 @@ const selected = computed(() => MINDMAP_EXPORT_FORMATS.find((format) => format.i
 </template>
 
 <style scoped>
+/* 配色使用 Tau 主题 token：浮层用 --panel-elevated，边框/文字/强调全部取真实变量 */
 .mm-dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
+  background: var(--bg-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -145,43 +146,57 @@ const selected = computed(() => MINDMAP_EXPORT_FORMATS.find((format) => format.i
   width: min(460px, 92vw);
   max-height: 82vh;
   overflow: auto;
-  background: var(--surface, #fff);
-  color: var(--text-primary, #1f2329);
-  border-radius: 12px;
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-dialog);
   padding: 18px 20px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-ui);
 }
-.mm-dialog-title { margin: 0 0 12px; font-size: 16px; }
+.mm-dialog-title { margin: 0 0 12px; font-size: 16px; color: var(--text-primary); }
 .mm-export-formats { display: grid; gap: 6px; }
 .mm-export-option {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-base);
+  color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
 }
+.mm-export-option:hover { background: var(--surface-hover); }
 .mm-export-option.is-selected {
-  border-color: var(--accent, #4a90e2);
-  background: rgba(74, 144, 226, 0.08);
+  border-color: var(--accent-brand);
+  background: var(--surface-active);
+  color: var(--text-primary);
 }
 .mm-export-png-options { margin-top: 12px; display: grid; gap: 8px; }
 .mm-export-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
-.mm-export-label { width: 40px; opacity: 0.65; }
+.mm-export-label { width: 40px; color: var(--text-secondary); }
 .mm-export-inline { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.mm-export-hint { margin: 2px 0 0; font-size: 12px; opacity: 0.6; }
+.mm-export-hint { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
 .mm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .mm-btn {
   padding: 6px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border, #d8dee9);
-  background: var(--surface, #fff);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
   font-size: 13px;
   cursor: pointer;
 }
-.mm-btn.primary { background: var(--accent, #4a90e2); border-color: var(--accent, #4a90e2); color: #fff; }
+.mm-btn:hover:not(:disabled) { background: var(--surface-hover); }
+.mm-btn.primary {
+  background: var(--accent-brand);
+  border-color: var(--accent-brand);
+  color: var(--bg-app);
+  font-weight: 600;
+}
+.mm-btn.primary:hover:not(:disabled) { background: var(--accent-brand-strong); }
 .mm-btn:disabled { opacity: 0.5; cursor: default; }
 </style>

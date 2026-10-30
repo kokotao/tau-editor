@@ -2384,6 +2384,8 @@ pub fn is_openable_text_path(path: &str) -> bool {
         "cc", "cpp", "hpp", "cs", "php", "rb", "sh", "bash", "zsh", "bat", "ps1", "html", "htm",
         "css", "scss", "sass", "less", "xml", "sql", "log", "csv", "tex", "gradle", "gitignore",
         "env", "cfg",
+        // Tau 原生思维导图：UTF-8 JSON 文本，云文档可直接打开/保存
+        "taumap",
     ];
     TEXT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
 }
@@ -3846,6 +3848,7 @@ mod tests {
         assert!(is_openable_text_path("/ws/a.md"));
         assert!(is_openable_text_path("D:\\ws\\a.TSX"));
         assert!(is_openable_text_path("/ws/notes.markdown"));
+        assert!(is_openable_text_path("/ws/思维导图.taumap"));
         // 二进制 / 无扩展名一律不可打开
         assert!(!is_openable_text_path("/ws/a.png"));
         assert!(!is_openable_text_path("/ws/a.pdf"));

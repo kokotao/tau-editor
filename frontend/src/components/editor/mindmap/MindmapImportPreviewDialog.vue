@@ -92,10 +92,11 @@ const SUPPORT_LABEL: Record<string, string> = {
 </template>
 
 <style scoped>
+/* 配色使用 Tau 主题 token：浮层用 --panel-elevated，状态色用 --state-* */
 .mm-dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
+  background: var(--bg-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,54 +106,71 @@ const SUPPORT_LABEL: Record<string, string> = {
   width: min(520px, 92vw);
   max-height: 82vh;
   overflow: auto;
-  background: var(--surface, #fff);
-  color: var(--text-primary, #1f2329);
-  border-radius: 12px;
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-dialog);
   padding: 18px 20px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-ui);
 }
-.mm-dialog-title { margin: 0 0 6px; font-size: 16px; }
-.mm-dialog-file { margin: 0 0 12px; font-size: 12px; opacity: 0.65; word-break: break-all; }
+.mm-dialog-title { margin: 0 0 6px; font-size: 16px; color: var(--text-primary); }
+.mm-dialog-file { margin: 0 0 12px; font-size: 12px; color: var(--text-muted); word-break: break-all; }
 .mm-import-meta { display: grid; gap: 6px; margin: 0 0 12px; }
 .mm-import-meta > div { display: flex; gap: 10px; font-size: 13px; }
-.mm-import-meta dt { width: 68px; opacity: 0.6; }
-.mm-import-meta dd { margin: 0; }
+.mm-import-meta dt { width: 68px; color: var(--text-secondary); }
+.mm-import-meta dd { margin: 0; color: var(--text-primary); }
 .mm-badge {
   display: inline-block;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  background: rgba(74, 144, 226, 0.14);
-  color: #2f6fbe;
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
 }
-.mm-badge[data-level='native'] { background: rgba(58, 167, 109, 0.16); color: #2f7d52; }
-.mm-badge[data-level='unsupported'] { background: rgba(217, 79, 79, 0.14); color: #b23b3b; }
+.mm-badge[data-level='native'] {
+  background: var(--surface-active);
+  color: var(--state-success);
+}
+.mm-badge[data-level='unsupported'] {
+  background: var(--surface-active);
+  color: var(--state-danger);
+}
 .mm-import-section { margin: 10px 0; }
-.mm-import-section-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; opacity: 0.8; }
-.mm-import-list { margin: 0; padding-left: 18px; font-size: 12px; opacity: 0.75; }
+.mm-import-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+.mm-import-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); }
 .mm-import-error {
   margin: 10px 0;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(217, 79, 79, 0.1);
-  color: #b23b3b;
+  border-radius: var(--radius-card);
+  background: var(--surface-active);
+  color: var(--state-danger);
   font-size: 13px;
 }
-.mm-import-hint { font-size: 12px; opacity: 0.6; margin: 10px 0 0; }
+.mm-import-hint { font-size: 12px; color: var(--text-muted); margin: 10px 0 0; }
 .mm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .mm-btn {
   padding: 6px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border, #d8dee9);
-  background: var(--surface, #fff);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
   font-size: 13px;
   cursor: pointer;
 }
+.mm-btn:hover:not(:disabled) { background: var(--surface-hover); }
 .mm-btn.primary {
-  background: var(--accent, #4a90e2);
-  border-color: var(--accent, #4a90e2);
-  color: #fff;
+  background: var(--accent-brand);
+  border-color: var(--accent-brand);
+  color: var(--bg-app);
+  font-weight: 600;
 }
+.mm-btn.primary:hover:not(:disabled) { background: var(--accent-brand-strong); }
 .mm-btn:disabled { opacity: 0.5; cursor: default; }
 </style>

@@ -32,9 +32,16 @@ import {
   listMindmapThemes,
   resolveMindmapTheme,
 } from '@/services/mindmapThemeService';
-import type { MindMapLayoutMode, MindMapSheet, MindMapTopicStyle, MindmapOutlineRow } from '@/types/mindmap';
+import type {
+  MindMapLayoutMode,
+  MindMapSheet,
+  MindMapTopicBoundary,
+  MindMapTopicStyle,
+  MindmapOutlineRow,
+} from '@/types/mindmap';
 import type { TabDocumentKind } from '@/stores/tabs';
 import MindmapCanvas from './MindmapCanvas.vue';
+import MindmapContextMenu from './MindmapContextMenu.vue';
 import MindmapOutlinePanel from './MindmapOutlinePanel.vue';
 import MindmapPropertiesPanel from './MindmapPropertiesPanel.vue';
 import { expandAncestors, searchMindmap } from '@/services/mindmapSearchService';
@@ -510,6 +517,8 @@ const selectedTopicForPanel = computed(() => {
     labels: topic.labels,
     style: topic.style,
     markers: topic.markers ?? [],
+    boundary: topic.boundary,
+    summary: topic.summary,
   };
 });
 
@@ -613,6 +622,30 @@ function applyTopicMarkers(markers: string[]) {
   void focusStage();
 }
 
+/** 属性面板（UX-2）：设置/清除边界（可撤销，null 或字段全空即清除）。 */
+function applyTopicBoundary(boundary: MindMapTopicBoundary | null) {
+  const id = selectedTopicId.value;
+  if (!id) return;
+  const before = store.serialized;
+  if (store.setTopicBoundary(id, boundary)) {
+    emitIfChanged(before);
+    showNotice(boundary ? '已更新节点边界' : '已清除节点边界');
+  }
+  void focusStage();
+}
+
+/** 属性面板（UX-2）：设置/清除概要（可撤销，null 或空白即清除）。 */
+function applyTopicSummary(text: string | null) {
+  const id = selectedTopicId.value;
+  if (!id) return;
+  const before = store.serialized;
+  if (store.setTopicSummary(id, text)) {
+    emitIfChanged(before);
+    showNotice(text ? '已更新节点概要' : '已清除节点概要');
+  }
+  void focusStage();
+}
+
 /** 属性面板：以当前选中节点为源添加独立关系线（自环/重复/端点非法由 store 拒绝）。 */
 function addRelationFromPanel(payload: { targetId: string }) {
   const id = selectedTopicId.value;
@@ -657,6 +690,187 @@ function onThemeSelect(event: Event) {
 
 function setSearchQuery(value: string) {
   searchQuery.value = value;
+}
+
+/* ------------------------------- 右键菜单（UX-1） ------------------------------- */
+
+/** 与 MindmapContextMenu 的 items 结构保持一致（结构类型，无需共享声明）。 */
+interface StageMenuItem {
+  id: string;
+  label: string;
+  shortcut?: string;
+  disabled?: boolean;
+  danger?: boolean;
+  separator?: boolean;
+}
+
+/** 右键事件载荷：nodeId 为 null 表示空白区域。 */
+interface MindmapContextMenuPayload {
+  nodeId: string | null;
+  clientX: number;
+  clientY: number;
+}
+
+const contextMenu = ref<{
+  visible: boolean;
+  x: number;
+  y: number;
+  nodeId: string | null;
+}>({ visible: false, x: 0, y: 0, nodeId: null });
+
+function closeContextMenu() {
+  contextMenu.value.visible = false;
+}
+
+/** 画布 / 大纲统一的右键入口：先选中目标节点，再打开菜单。 */
+function openMindmapContextMenu(payload: MindmapContextMenuPayload) {
+  if (isExternal.value || !document.value) return;
+  if (payload.nodeId) store.selectTopic(payload.nodeId);
+  contextMenu.value = {
+    visible: true,
+    x: payload.clientX,
+    y: payload.clientY,
+    nodeId: payload.nodeId,
+  };
+}
+
+/** 当前右键目标的节点（空白菜单为 null）。 */
+const contextMenuTopic = computed(() => {
+  const id = contextMenu.value.nodeId;
+  if (!id) return null;
+  return document.value?.topics[id] ?? null;
+});
+
+/**
+ * 当前应展示的菜单项：节点菜单（≥7 项）与空白菜单（≥4 项）。
+ * 菜单只负责「展示 + 派发 id」，实际动作统一交给 runContextMenuAction。
+ */
+const contextMenuItems = computed<StageMenuItem[]>(() => {
+  const doc = document.value;
+  if (!doc) return [];
+
+  const topic = contextMenuTopic.value;
+  if (!topic) {
+    // 空白区域：不针对具体节点，只提供画布级操作
+    return [
+      { id: 'add-root-child', label: '新增中心子主题', shortcut: 'Tab' },
+      { id: 'fit-view', label: '适配内容' },
+      { id: 'reset-view', label: '重置视口' },
+      { id: 'toggle-properties', label: '属性面板' },
+      { id: 'undo', label: '撤销', shortcut: 'Ctrl+Z', disabled: !canUndo.value },
+      { id: 'redo', label: '重做', shortcut: 'Ctrl+Shift+Z', disabled: !canRedo.value },
+    ];
+  }
+
+  const hasChildren = (topic.childIds ?? []).length > 0;
+  const isRoot = topic.id === doc.rootTopicId;
+  return [
+    { id: 'add-child', label: '新增子主题', shortcut: 'Tab' },
+    { id: 'add-sibling', label: '新增同级主题', shortcut: 'Enter', disabled: isRoot },
+    { id: 'rename', label: '重命名', shortcut: 'F2' },
+    { id: 'duplicate', label: '复制主题' },
+    { id: 'group-1', label: '', separator: true },
+    { id: 'toggle-collapse', label: topic.collapsed ? '展开子主题' : '折叠子主题', disabled: !hasChildren },
+    { id: 'move-up', label: '上移', shortcut: 'Alt+↑', disabled: isRoot },
+    { id: 'move-down', label: '下移', shortcut: 'Alt+↓', disabled: isRoot },
+    { id: 'group-2', label: '', separator: true },
+    // UX-2：边界 / 概要按当前是否已有决定「添加」还是「清除」
+    topic.boundary
+      ? { id: 'clear-boundary', label: '清除边界' }
+      : { id: 'add-boundary', label: '添加边界…' },
+    topic.summary
+      ? { id: 'clear-summary', label: '清除概要' }
+      : { id: 'add-summary', label: '添加概要…' },
+    { id: 'group-3', label: '', separator: true },
+    { id: 'toggle-properties', label: '打开属性面板' },
+    { id: 'delete', label: '删除主题', shortcut: 'Delete', danger: true, disabled: isRoot },
+  ];
+});
+
+/**
+ * 执行菜单项：全部复用既有命令函数，菜单本身不直接改文档。
+ * 右键时已经选中了目标节点，因此这里的命令都作用于「当前选中」。
+ */
+function runContextMenuAction(id: string) {
+  const nodeId = contextMenu.value.nodeId;
+  const doc = document.value;
+  closeContextMenu();
+  if (!doc) return;
+
+  if (!nodeId) {
+    switch (id) {
+      case 'add-root-child':
+        store.selectTopic(doc.rootTopicId);
+        addChild();
+        break;
+      case 'fit-view':
+        canvasRef.value?.fitView();
+        break;
+      case 'reset-view':
+        canvasRef.value?.resetView();
+        break;
+      case 'toggle-properties':
+        propertiesVisible.value = true;
+        break;
+      case 'undo':
+        doUndo();
+        break;
+      case 'redo':
+        doRedo();
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
+  store.selectTopic(nodeId);
+  switch (id) {
+    case 'add-child':
+      addChild();
+      break;
+    case 'add-sibling':
+      addSibling();
+      break;
+    case 'rename':
+      startRename(nodeId);
+      break;
+    case 'duplicate':
+      duplicateSelected();
+      break;
+    case 'toggle-collapse':
+      toggleCollapse(nodeId);
+      break;
+    case 'move-up':
+      moveSelected(-1);
+      break;
+    case 'move-down':
+      moveSelected(1);
+      break;
+    case 'toggle-properties':
+      propertiesVisible.value = true;
+      break;
+    // UX-2：添加边界/概要需要输入，先打开属性面板（不产生空文档噪音）
+    case 'add-boundary':
+      propertiesVisible.value = true;
+      showNotice('可在属性面板中设置边界标签与颜色');
+      break;
+    case 'clear-boundary':
+      applyTopicBoundary(null);
+      break;
+    case 'add-summary':
+      propertiesVisible.value = true;
+      showNotice('可在属性面板中输入概要文本');
+      break;
+    case 'clear-summary':
+      applyTopicSummary(null);
+      break;
+    case 'delete':
+      requestDelete();
+      break;
+    default:
+      break;
+  }
 }
 
 /* ------------------------------- 导入 / 导出 ------------------------------- */
@@ -775,6 +989,23 @@ async function handlePrint() {
   }
 }
 
+/* ------------------------------- 打开失败恢复 ------------------------------- */
+
+/**
+ * 空 / 损坏的 .taumap：按用户点击重建为空白导图。
+ * 这会替换标签内容（随后可保存覆盖），是显式操作，不在加载路径里自动执行。
+ */
+function recoverFromError() {
+  const title = (props.fileName || '未命名思维导图')
+    .replace(/\.[^.]+$/, '')
+    .trim() || '未命名思维导图';
+  if (store.recoverAsEmptyDocument(title)) {
+    emit('change', store.serialized);
+    showNotice('已创建空白导图，保存后即写入该文件');
+  }
+  void focusStage();
+}
+
 /* ------------------------------- 键盘 ------------------------------- */
 
 function isTextInputTarget(target: EventTarget | null): boolean {
@@ -787,6 +1018,15 @@ function isTextInputTarget(target: EventTarget | null): boolean {
 function onKeydown(event: KeyboardEvent) {
   if (isTextInputTarget(event.target)) return;
   if (isExternal.value || !document.value) return;
+
+  // 右键菜单打开时，方向键 / Enter / Esc 由菜单自己处理，舞台不再响应
+  if (contextMenu.value.visible) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeContextMenu();
+    }
+    return;
+  }
 
   if (confirmAction.value) {
     if (event.key === 'Escape') {
@@ -902,7 +1142,18 @@ function onKeydown(event: KeyboardEvent) {
       <div class="mindmap-error-title">无法打开该思维导图</div>
       <div class="mindmap-error-message">{{ loadError }}</div>
       <div class="mindmap-error-hint">
-        原文件未被改动。可尝试从资源管理器重新打开，或先用文本编辑器检查 .taumap 内容。
+        文件内容为空或不是合法的思维导图 JSON（.taumap 应为带 format 字段的 JSON）。
+        可以新建空白导图覆盖它开始创作；原文件在你确认前不会被改动。
+      </div>
+      <div class="mindmap-error-actions">
+        <button
+          type="button"
+          class="mm-btn primary"
+          data-testid="mm-error-create-empty"
+          @click="recoverFromError"
+        >
+          新建空白导图并覆盖
+        </button>
       </div>
     </div>
 
@@ -1061,6 +1312,7 @@ function onKeydown(event: KeyboardEvent) {
           @update:viewport="onViewportChange"
           @update:editing-text="onEditingText"
           @move="onMove"
+          @contextmenu="openMindmapContextMenu"
         />
         <MindmapOutlinePanel
           v-if="showOutline"
@@ -1078,6 +1330,7 @@ function onKeydown(event: KeyboardEvent) {
           @update:editing-text="onEditingText"
           @update:search="setSearchQuery"
           @move="onMove"
+          @contextmenu="openMindmapContextMenu"
         />
         <MindmapPropertiesPanel
           v-if="propertiesVisible && selectedTopicForPanel"
@@ -1090,6 +1343,8 @@ function onKeydown(event: KeyboardEvent) {
           @update-markers="applyTopicMarkers"
           @add-relation="addRelationFromPanel"
           @remove-relation="removeRelationFromPanel"
+          @update-boundary="applyTopicBoundary"
+          @update-summary="applyTopicSummary"
         />
       </div>
 
@@ -1108,9 +1363,18 @@ function onKeydown(event: KeyboardEvent) {
         阶段 2：画布与大纲。滚轮缩放 · 空白拖拽平移 · 双击改名 · 拖节点改变父级 · Tab 子主题 · Enter 同级 · F2 改名 · Delete 删除 · Alt+↑↓ 重排 · Ctrl+Z 撤销。
         布局可在「导图 / 逻辑图 / 树形 / 组织图」间切换（可撤销）。
         阶段 4：节点样式 / 标记 / 关系线可在属性面板中调整，主题模板在工具栏切换（均可撤销）。
-        阶段 4E：多工作表可新增 / 切换 / 删除（均可撤销，至少保留一个工作表）。
+        阶段 4E：多工作表可新增 / 切换 / 删除（均可撤销，至少保留一个工作表）。右键画布节点或大纲行可打开快捷菜单。边界（包住主题与后代）与概要（子节点括线）可在属性面板中设置。
       </div>
     </template>
+
+    <MindmapContextMenu
+      :visible="contextMenu.visible"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenuItems"
+      @select="runContextMenuAction"
+      @close="closeContextMenu"
+    />
 
     <MindmapImportPreviewDialog
       :visible="importDialogVisible"
@@ -1130,13 +1394,18 @@ function onKeydown(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+/*
+ * 配色一律使用 Tau 主题 token（frontend/src/assets/workbench-theme.css）：
+ * 之前这里引用了不存在的 --background/--surface/--border/--hover/--danger，
+ * fallback 又是写死的浅色，导致暗色主题下出现「白底浅字」。
+ */
 .mindmap-stage {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--background, #ffffff);
-  color: var(--text-primary, #1f2329);
-  font-family: var(--font-sans, 'Manrope', 'Segoe UI', sans-serif);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
   overflow: hidden;
   outline: none;
 }
@@ -1145,49 +1414,57 @@ function onKeydown(event: KeyboardEvent) {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--panel-base);
+  border-bottom: 1px solid var(--border-soft);
   flex-wrap: wrap;
 }
 .mm-btn {
   padding: 5px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--border, #d8dee9);
-  background: var(--surface, #fff);
-  color: inherit;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   font-size: 12px;
+  font-family: var(--font-ui);
   cursor: pointer;
 }
-.mm-btn:hover:not(:disabled) { background: var(--hover, rgba(74, 144, 226, 0.08)); }
+.mm-btn:hover:not(:disabled) { background: var(--surface-hover); }
 .mm-btn:disabled { opacity: 0.45; cursor: default; }
-.mm-btn.danger { border-color: var(--danger-border, #f0b7b7); color: var(--danger, #d94f4f); }
-.mm-divider { width: 1px; height: 18px; background: var(--border, #e5e7eb); }
+.mm-btn.danger {
+  border-color: var(--state-danger);
+  color: var(--state-danger);
+}
+.mm-btn.danger:hover:not(:disabled) { background: var(--surface-hover); }
+.mm-divider { width: 1px; height: 18px; background: var(--border-soft); }
 /* 布局模式按钮组：当前模式用强调色高亮 */
 .mm-layout-group { display: flex; gap: 4px; }
 .mm-btn.is-active {
-  border-color: var(--accent, #4a90e2);
-  background: var(--accent-soft, rgba(74, 144, 226, 0.14));
-  color: var(--accent, #4a90e2);
+  border-color: var(--accent-brand);
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
   font-weight: 600;
 }
 .mm-spacer { flex: 1; }
 /* 主题模板下拉（阶段 4C） */
 .mm-theme-field { display: inline-flex; align-items: center; gap: 4px; }
-.mm-theme-label { font-size: 11px; opacity: 0.6; }
+.mm-theme-label { font-size: 11px; color: var(--text-secondary); }
 .mm-theme-select {
   padding: 4px 6px;
   font-size: 12px;
-  border-radius: 7px;
-  border: 1px solid var(--border, #d8dee9);
-  background: var(--surface, #fff);
-  color: inherit;
+  font-family: var(--font-ui);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-soft);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   cursor: pointer;
 }
-.mm-stats { font-size: 12px; opacity: 0.6; }
+.mm-stats { font-size: 12px; color: var(--text-muted); }
 .mindmap-notice {
   padding: 6px 14px;
   font-size: 12px;
-  background: var(--notice-bg, rgba(74, 144, 226, 0.1));
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  color: var(--text-primary);
+  background: var(--surface-active);
+  border-bottom: 1px solid var(--border-soft);
 }
 .mindmap-workspace {
   flex: 1;
@@ -1200,24 +1477,26 @@ function onKeydown(event: KeyboardEvent) {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--panel-base);
+  border-bottom: 1px solid var(--border-soft);
   overflow-x: auto;
 }
 .mm-sheet-tab {
   padding: 4px 10px;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   border: 1px solid transparent;
   background: transparent;
-  color: inherit;
+  color: var(--text-secondary);
   font-size: 12px;
+  font-family: var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
-.mm-sheet-tab:hover { background: var(--hover, rgba(74, 144, 226, 0.08)); }
+.mm-sheet-tab:hover { background: var(--surface-hover); color: var(--text-primary); }
 .mm-sheet-tab.is-active {
-  border-color: var(--accent, #4a90e2);
-  background: var(--accent-soft, rgba(74, 144, 226, 0.14));
-  color: var(--accent, #4a90e2);
+  border-color: var(--accent-brand);
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
   font-weight: 600;
 }
 .mindmap-confirm {
@@ -1225,22 +1504,34 @@ function onKeydown(event: KeyboardEvent) {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-top: 1px solid var(--border, #e5e7eb);
-  background: var(--confirm-bg, rgba(217, 79, 79, 0.06));
+  border-top: 1px solid var(--border-strong);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
   font-size: 12px;
 }
 .mindmap-confirm-text { flex: 1; }
 .mindmap-stage-note {
   padding: 8px 14px;
-  border-top: 1px solid var(--border, #e5e7eb);
+  border-top: 1px solid var(--border-soft);
   font-size: 12px;
-  opacity: 0.6;
+  color: var(--text-muted);
 }
-.mindmap-error { padding: 32px; text-align: center; }
+.mindmap-error {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-primary);
+}
 .mindmap-error-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-.mindmap-error-message { font-size: 13px; color: var(--danger, #d94f4f); margin-bottom: 8px; }
-.mindmap-error-hint { font-size: 12px; opacity: 0.6; }
-.mindmap-external-notice { padding: 24px; text-align: center; }
+.mindmap-error-message { font-size: 13px; color: var(--state-danger); margin-bottom: 8px; }
+.mindmap-error-hint { font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+.mindmap-error-actions { margin-top: 14px; display: flex; justify-content: center; }
+.mindmap-external-notice { padding: 24px; text-align: center; color: var(--text-primary); }
 .mindmap-external-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
-.mindmap-external-desc { font-size: 13px; opacity: 0.7; max-width: 520px; margin: 0 auto; line-height: 1.6; }
+.mindmap-external-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
 </style>

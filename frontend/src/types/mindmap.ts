@@ -53,6 +53,18 @@ export interface MindMapTopicStyle {
   shape?: string;
 }
 
+/**
+ * 边界（boundary，P1）：包住「该主题及其全部可见后代」的半透明圆角框。
+ *
+ * 两个字段都可省略：
+ * - 都为空时按「无边界」处理（store 会把空对象清成未设置，避免空框噪音）；
+ * - `color` 支持任意 CSS 颜色字符串（通常为 #rrggbb），缺省使用主题强调色。
+ */
+export interface MindMapTopicBoundary {
+  label?: string;
+  color?: string;
+}
+
 export interface MindMapTopic {
   id: string;
   parentId: string | null;
@@ -66,6 +78,10 @@ export interface MindMapTopic {
   labels?: string[];
   markers?: string[];
   link?: string;
+  /** P1：边界——包住该主题 + 全部可见后代的半透明框（可选）。 */
+  boundary?: MindMapTopicBoundary;
+  /** P1：概要——该主题「子节点范围」的括线 + 文本；无可见子节点时忽略。 */
+  summary?: string;
 }
 
 export interface MindMapRelation {

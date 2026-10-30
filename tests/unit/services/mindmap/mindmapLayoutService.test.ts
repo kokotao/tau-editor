@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { createEmptyMindMapDocument } from '@/services/mindmapService';
 import {
   DEFAULT_MINDMAP_LAYOUT_OPTIONS,
+  MINDMAP_BOUNDARY_LABEL_HEIGHT,
+  MINDMAP_BOUNDARY_PADDING,
+  MINDMAP_SUMMARY_GAP,
   computeFitViewport,
   computeMindmapLayout,
   estimateCharWidth,
@@ -451,5 +454,199 @@ describe('结构布局模式：org（自上而下组织图）', () => {
     expect(layout.nodes).toHaveLength(1);
     expect(layout.edges).toHaveLength(0);
     expect(layout.orientation).toBe('vertical');
+  });
+});
+
+/* ------------------------ UX-2：边界（boundary）/ 概要（summary） ------------------------ */
+
+/** 带「分组 A（两个子节点）」的测试树；a 在右侧、b 在左侧。 */
+function buildOverlayTree(): MindMapDocument {
+  const doc = createEmptyMindMapDocument('边界与概要');
+  const root = doc.rootTopicId;
+  doc.topics.a = { id: 'a', parentId: root, childIds: ['a1', 'a2'], text: '分组 A' };
+  doc.topics.a1 = { id: 'a1', parentId: 'a', childIds: [], text: 'A1' };
+  doc.topics.a2 = { id: 'a2', parentId: 'a', childIds: [], text: 'A2' };
+  doc.topics.b = { id: 'b', parentId: root, childIds: ['b1'], text: '分组 B' };
+  doc.topics.b1 = { id: 'b1', parentId: 'b', childIds: [], text: 'B1' };
+  const rootTopic = doc.topics[root];
+  if (!rootTopic) throw new Error('missing root');
+  rootTopic.childIds = ['a', 'b'];
+  return doc;
+}
+
+function nodeOfLayout(layout: MindmapLayout, id: string) {
+  const node = layout.nodes.find((item) => item.id === id);
+  if (!node) throw new Error(`missing node ${id}`);
+  return node;
+}
+
+/** 节点盒的四条边（左上角坐标系）。 */
+function edgesOf(node: { x: number; y: number; width: number; height: number }) {
+  return {
+    left: node.x - node.width / 2,
+    top: node.y - node.height / 2,
+    right: node.x + node.width / 2,
+    bottom: node.y + node.height / 2,
+  };
+}
+
+describe('UX-2 边界（boundary）', () => {
+  it('未声明边界时不输出任何框', () => {
+    const layout = computeMindmapLayout(buildOverlayTree());
+    expect(layout.boundaries).toEqual([]);
+    expect(layout.summaries).toEqual([]);
+  });
+
+  it('边界框包住「该主题 + 全部可见后代」并计入内边距', () => {
+    const doc = buildOverlayTree();
+    doc.topics.a = { ...doc.topics.a!, boundary: {} };
+    const layout = computeMindmapLayout(doc);
+
+    expect(layout.boundaries).toHaveLength(1);
+    const frame = layout.boundaries[0]!;
+    expect(frame.id).toBe('a');
+    expect(frame.label).toBeUndefined();
+
+    for (const id of ['a', 'a1', 'a2']) {
+      const box = edgesOf(nodeOfLayout(layout, id));
+      expect(frame.x).toBeLessThanOrEqual(box.left);
+      expect(frame.y).toBeLessThanOrEqual(box.top);
+      expect(frame.x + frame.width).toBeGreaterThanOrEqual(box.right);
+      expect(frame.y + frame.height).toBeGreaterThanOrEqual(box.bottom);
+    }
+    // 内边距固定 12px：框比最小范围每侧多 12
+    const a = edgesOf(nodeOfLayout(layout, 'a'));
+    const a1 = edgesOf(nodeOfLayout(layout, 'a1'));
+    const a2 = edgesOf(nodeOfLayout(layout, 'a2'));
+    const minX = Math.min(a.left, a1.left, a2.left);
+    const maxX = Math.max(a.right, a1.right, a2.right);
+    // 布局会对坐标做 0.1 取整，这里允许 1px 误差
+    expect(Math.abs(frame.x - (minX - MINDMAP_BOUNDARY_PADDING))).toBeLessThanOrEqual(1);
+    expect(Math.abs(frame.width - (maxX - minX + MINDMAP_BOUNDARY_PADDING * 2)))
+      .toBeLessThanOrEqual(1);
+  });
+
+  it('有标签时框顶为标签留出高度，标签与颜色原样透传并 trim', () => {
+    const doc = buildOverlayTree();
+    doc.topics.a = {
+      ...doc.topics.a!,
+      boundary: { label: '  阶段一  ', color: ' #2563eb ' },
+    };
+    const withLabel = computeMindmapLayout(doc).boundaries[0]!;
+    expect(withLabel.label).toBe('阶段一');
+    expect(withLabel.color).toBe('#2563eb');
+
+    const plainDoc = buildOverlayTree();
+    plainDoc.topics.a = { ...plainDoc.topics.a!, boundary: {} };
+    const plain = computeMindmapLayout(plainDoc).boundaries[0]!;
+
+    expect(withLabel.height).toBeGreaterThan(plain.height);
+    expect(withLabel.height - plain.height).toBeCloseTo(MINDMAP_BOUNDARY_LABEL_HEIGHT, 0);
+    expect(withLabel.y).toBeCloseTo(plain.y - MINDMAP_BOUNDARY_LABEL_HEIGHT, 0);
+  });
+
+  it('折叠后边界只包住主题自身（后代不可见）', () => {
+    const doc = buildOverlayTree();
+    doc.topics.a = { ...doc.topics.a!, boundary: {}, collapsed: true };
+    const layout = computeMindmapLayout(doc);
+
+    expect(layout.nodes.some((node) => node.id === 'a1')).toBe(false);
+    const frame = layout.boundaries[0]!;
+    const a = nodeOfLayout(layout, 'a');
+    expect(frame.width).toBeCloseTo(a.width + MINDMAP_BOUNDARY_PADDING * 2, 1);
+    expect(frame.height).toBeCloseTo(a.height + MINDMAP_BOUNDARY_PADDING * 2, 1);
+  });
+
+  it('嵌套边界：祖先框包住子边界框', () => {
+    const doc = buildOverlayTree();
+    doc.topics[doc.rootTopicId] = { ...doc.topics[doc.rootTopicId]!, boundary: {} };
+    doc.topics.a = { ...doc.topics.a!, boundary: {} };
+    const layout = computeMindmapLayout(doc);
+
+    expect(layout.boundaries).toHaveLength(2);
+    // 面积大的（根）排在前，便于画布从外到内绘制
+    const [outer, inner] = layout.boundaries;
+    expect(outer!.id).toBe(doc.rootTopicId);
+    expect(inner!.id).toBe('a');
+    expect(outer!.x).toBeLessThanOrEqual(inner!.x);
+    expect(outer!.y).toBeLessThanOrEqual(inner!.y);
+    expect(outer!.x + outer!.width).toBeGreaterThanOrEqual(inner!.x + inner!.width);
+    expect(outer!.y + outer!.height).toBeGreaterThanOrEqual(inner!.y + inner!.height);
+  });
+
+  it('边界框并入 bounds，保证适配内容不裁掉框', () => {
+    const plain = computeMindmapLayout(buildOverlayTree()).bounds;
+    const doc = buildOverlayTree();
+    doc.topics[doc.rootTopicId] = { ...doc.topics[doc.rootTopicId]!, boundary: {} };
+    const withBoundary = computeMindmapLayout(doc).bounds;
+
+    expect(withBoundary.minX).toBeLessThan(plain.minX);
+    expect(withBoundary.minY).toBeLessThan(plain.minY);
+    expect(withBoundary.maxX).toBeGreaterThan(plain.maxX);
+    expect(withBoundary.maxY).toBeGreaterThan(plain.maxY);
+    expect(withBoundary.width).toBeGreaterThan(plain.width);
+  });
+});
+
+describe('UX-2 概要（summary）', () => {
+  it('概要框覆盖全部可见子节点范围并透传文本', () => {
+    const doc = buildOverlayTree();
+    doc.topics.a = { ...doc.topics.a!, summary: '  这是概要  ' };
+    const layout = computeMindmapLayout(doc);
+
+    expect(layout.summaries).toHaveLength(1);
+    const summary = layout.summaries[0]!;
+    expect(summary.id).toBe('a');
+    expect(summary.text).toBe('这是概要');
+    expect(summary.side).toBe('right');
+
+    const a1 = edgesOf(nodeOfLayout(layout, 'a1'));
+    const a2 = edgesOf(nodeOfLayout(layout, 'a2'));
+    const top = Math.min(a1.top, a2.top);
+    const bottom = Math.max(a1.bottom, a2.bottom);
+    expect(summary.y).toBeCloseTo(top, 1);
+    expect(summary.height).toBeCloseTo(bottom - top, 1);
+    // 括线在子节点范围外侧（右侧），间距 gap
+    expect(summary.x).toBeCloseTo(Math.max(a1.right, a2.right) + MINDMAP_SUMMARY_GAP, 1);
+  });
+
+  it('无可见子节点（叶子 / 折叠）时忽略概要', () => {
+    const leafDoc = buildOverlayTree();
+    leafDoc.topics.b1 = { ...leafDoc.topics.b1!, summary: '叶子不该有概要' };
+    expect(computeMindmapLayout(leafDoc).summaries).toEqual([]);
+
+    const collapsedDoc = buildOverlayTree();
+    collapsedDoc.topics.a = { ...collapsedDoc.topics.a!, summary: '折叠后无可概括', collapsed: true };
+    expect(computeMindmapLayout(collapsedDoc).summaries).toEqual([]);
+  });
+
+  it('左侧分支的概要在子节点左侧', () => {
+    const doc = buildOverlayTree();
+    doc.topics.b = { ...doc.topics.b!, summary: '左侧概要' };
+    const layout = computeMindmapLayout(doc);
+    expect(layout.summaries[0]?.side).toBe('left');
+    const b1 = edgesOf(nodeOfLayout(layout, 'b1'));
+    expect(layout.summaries[0]!.x + layout.summaries[0]!.width).toBeLessThan(b1.left);
+  });
+
+  it('org 布局的概要放在子节点下方', () => {
+    const doc = buildOverlayTree();
+    doc.layoutMode = 'org';
+    doc.topics.a = { ...doc.topics.a!, summary: '下方概要' };
+    const layout = computeMindmapLayout(doc);
+    const summary = layout.summaries[0]!;
+    expect(summary.side).toBe('bottom');
+    const a1 = edgesOf(nodeOfLayout(layout, 'a1'));
+    const a2 = edgesOf(nodeOfLayout(layout, 'a2'));
+    expect(summary.y).toBeGreaterThan(Math.max(a1.bottom, a2.bottom));
+  });
+
+  it('概要框并入 bounds', () => {
+    const plain = computeMindmapLayout(buildOverlayTree()).bounds;
+    const doc = buildOverlayTree();
+    doc.topics.a = { ...doc.topics.a!, summary: '一段比较长的概要文本' };
+    const withSummary = computeMindmapLayout(doc).bounds;
+    // 概要在右侧，扩大右边界
+    expect(withSummary.maxX).toBeGreaterThan(plain.maxX);
   });
 });

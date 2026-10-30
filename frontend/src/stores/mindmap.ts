@@ -47,6 +47,7 @@ import type {
   MindMapRelation,
   MindMapSheet,
   MindMapTopic,
+  MindMapTopicBoundary,
   MindMapTopicStyle,
 } from '@/types/mindmap';
 
@@ -232,6 +233,23 @@ export const useMindmapStore = defineStore('mindmap', {
       this.history = createHistoryState();
       this.lastSerialized = '';
       this.viewport = { ...DEFAULT_MINDMAP_VIEWPORT };
+    },
+
+    /**
+     * 打开失败（空文件 / 非法 JSON）后，按用户明确操作重建为空白导图。
+     *
+     * 这是「恢复」而不是编辑：没有可回退的旧文档，因此重置历史与视口；
+     * 只有用户在错误态主动点击时才调用，绝不自动覆盖源文件。
+     */
+    recoverAsEmptyDocument(title = '未命名思维导图'): boolean {
+      const next = createEmptyMindMapDocument(title);
+      this.document = next;
+      this.selectedTopicId = next.rootTopicId;
+      this.loadError = null;
+      this.history = createHistoryState();
+      this.lastSerialized = serializeMindMapDocument(next);
+      this.viewport = { ...DEFAULT_MINDMAP_VIEWPORT };
+      return true;
     },
 
     /** 更新画布视口：只影响渲染，不进入历史、不改变文档与 dirty。 */
@@ -474,6 +492,59 @@ export const useMindmapStore = defineStore('mindmap', {
         ? existing.filter((item) => item !== value)
         : [...existing, value];
       return this.updateTopicMarkers(topicId, next);
+    },
+
+    /**
+     * 设置 / 清除节点边界（`topic.boundary`，UX-2），可撤销。
+     *
+     * 语义：
+     * - `null`，或 label / color 去掉空白后都不存在 → 删除 boundary 键（即无边界）；
+     * - label / color 会做 trim，空字符串按「未设置」处理，避免 `label: ""` 噪音；
+     * - 无实际变化返回 false 且不记历史（沿用 commitDocumentChange）。
+     */
+    setTopicBoundary(topicId: string, boundary: MindMapTopicBoundary | null): boolean {
+      if (!this.document) return false;
+      const current = this.document.topics[topicId];
+      if (!current) return false;
+
+      const label = boundary?.label?.trim() || undefined;
+      const color = boundary?.color?.trim() || undefined;
+
+      const nextTopic: MindMapTopic = { ...current };
+      if (label || color) {
+        const nextBoundary: MindMapTopicBoundary = {};
+        if (label) nextBoundary.label = label;
+        if (color) nextBoundary.color = color;
+        nextTopic.boundary = nextBoundary;
+      } else {
+        delete nextTopic.boundary;
+      }
+
+      return this.commitDocumentChange('更新节点边界', {
+        ...this.document,
+        topics: { ...this.document.topics, [topicId]: nextTopic },
+      });
+    },
+
+    /**
+     * 设置 / 清除节点概要（`topic.summary`，UX-2），可撤销。
+     *
+     * 语义：null 或 trim 后为空 → 删除 summary 键；无实际变化返回 false。
+     */
+    setTopicSummary(topicId: string, text: string | null): boolean {
+      if (!this.document) return false;
+      const current = this.document.topics[topicId];
+      if (!current) return false;
+
+      const trimmed = text?.trim() ?? '';
+      const nextTopic: MindMapTopic = { ...current };
+      if (trimmed) nextTopic.summary = trimmed;
+      else delete nextTopic.summary;
+
+      return this.commitDocumentChange('更新节点概要', {
+        ...this.document,
+        topics: { ...this.document.topics, [topicId]: nextTopic },
+      });
     },
 
     /**

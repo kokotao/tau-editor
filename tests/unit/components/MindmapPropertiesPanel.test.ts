@@ -17,6 +17,9 @@ interface PanelTopic {
   notes?: string;
   link?: string;
   labels?: string[];
+  /** UX-2：边界 / 概要（可选）。 */
+  boundary?: { label?: string; color?: string };
+  summary?: string;
 }
 
 const baseTopic: PanelTopic = {
@@ -358,5 +361,153 @@ describe('MindmapPropertiesPanel 阶段 4C：非候选样式值', () => {
     // 自定义项以「自定义（…）」展示，避免误认为已被重置为默认
     const colorSelect = wrapper.find('[data-testid="mm-props-style-color"]');
     expect(colorSelect.text()).toContain('自定义（#123abc）');
+  });
+});
+
+/* ---------------------- UX-1：面板右边缘拖拽调宽 ---------------------- */
+
+/** 在 window 上派发指针事件（拖动的 move/up 由 window 监听）。 */
+function dispatchPanelPointer(type: string, clientX: number) {
+  window.dispatchEvent(new MouseEvent(type, {
+    clientX,
+    clientY: 0,
+    button: 0,
+    bubbles: true,
+    cancelable: true,
+  }));
+}
+
+describe('MindmapPropertiesPanel UX-1：面板宽度', () => {
+  it('拖动 resizer 改变宽度并 clamp 在 180–420，不派发任何编辑事件', async () => {
+    const wrapper = mountPanel(baseTopic);
+    const panel = () => wrapper.find('[data-testid="mm-props"]');
+    expect(panel().attributes('style')).toContain('width: 260px');
+
+    await wrapper.find('[data-testid="mm-props-resizer"]').trigger('pointerdown', {
+      button: 0,
+      clientX: 500,
+    });
+    // 面板在右侧：向左拖 50px → 310px
+    dispatchPanelPointer('pointermove', 450);
+    await wrapper.vm.$nextTick();
+    expect(panel().attributes('style')).toContain('width: 310px');
+
+    // 继续向左 → 上限 420
+    dispatchPanelPointer('pointermove', -2000);
+    await wrapper.vm.$nextTick();
+    expect(panel().attributes('style')).toContain('width: 420px');
+
+    // 向右 → 下限 180
+    dispatchPanelPointer('pointermove', 5000);
+    await wrapper.vm.$nextTick();
+    expect(panel().attributes('style')).toContain('width: 180px');
+
+    dispatchPanelPointer('pointerup', 5000);
+    // 宽度只是本地视图状态：不产生任何编辑事件
+    expect(wrapper.emitted('update')).toBeUndefined();
+    expect(wrapper.emitted('update-style')).toBeUndefined();
+    expect(wrapper.emitted('update-markers')).toBeUndefined();
+    wrapper.unmount();
+  });
+});
+
+/* ---------------------- UX-2：边界（boundary）/ 概要（summary） ---------------------- */
+
+describe('MindmapPropertiesPanel UX-2：边界', () => {
+  it('渲染边界区块并回填既有 label/color', () => {
+    const wrapper = mountPanel({
+      ...baseTopic,
+      boundary: { label: '分组', color: '#2563eb' },
+    });
+    const section = wrapper.find('[data-testid="mm-props-boundary"]');
+    expect(section.exists()).toBe(true);
+    expect(valueOf(wrapper, 'mm-props-boundary-label')).toBe('分组');
+    expect(valueOf(wrapper, 'mm-props-boundary-color')).toBe('#2563eb');
+  });
+
+  it('应用边界：trim 后 emit update-boundary', async () => {
+    const wrapper = mountPanel(baseTopic);
+    await wrapper.find('[data-testid="mm-props-boundary-label"]').setValue('  阶段一  ');
+    await wrapper.find('[data-testid="mm-props-boundary-color"]').setValue(' #2563eb ');
+    await wrapper.find('[data-testid="mm-props-boundary-apply"]').trigger('click');
+
+    expect(wrapper.emitted('update-boundary')?.[0]).toEqual([
+      { label: '阶段一', color: '#2563eb' },
+    ]);
+  });
+
+  it('清除边界：emit null 并清空草稿', async () => {
+    const wrapper = mountPanel({ ...baseTopic, boundary: { label: '旧边界' } });
+    await wrapper.find('[data-testid="mm-props-boundary-clear"]').trigger('click');
+
+    expect(wrapper.emitted('update-boundary')?.[0]).toEqual([null]);
+    expect(valueOf(wrapper, 'mm-props-boundary-label')).toBe('');
+  });
+
+  it('预设颜色一键 emit update-boundary（带当前标签）', async () => {
+    const wrapper = mountPanel({ ...baseTopic, boundary: { label: '分组' } });
+    await wrapper.find('[data-testid="mm-props-boundary-color-#16a34a"]').trigger('click');
+    expect(wrapper.emitted('update-boundary')?.[0]).toEqual([
+      { label: '分组', color: '#16a34a' },
+    ]);
+  });
+
+  it('只读模式下边界输入与按钮禁用，点击不 emit', async () => {
+    const wrapper = mountPanel({ ...baseTopic, boundary: { label: '分组' } }, true);
+    expect(wrapper.find('[data-testid="mm-props-boundary-label"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-boundary-color"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-boundary-apply"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="mm-props-boundary-clear"]').attributes('disabled')).toBeDefined();
+
+    await wrapper.find('[data-testid="mm-props-boundary-clear"]').trigger('click');
+    expect(wrapper.emitted('update-boundary')).toBeUndefined();
+  });
+});
+
+describe('MindmapPropertiesPanel UX-2：概要', () => {
+  it('渲染概要区块并回填文本', () => {
+    const wrapper = mountPanel({ ...baseTopic, summary: '这是一组子主题' });
+    expect(wrapper.find('[data-testid="mm-props-summary"]').exists()).toBe(true);
+    expect(valueOf(wrapper, 'mm-props-summary-text')).toBe('这是一组子主题');
+  });
+
+  it('应用概要：trim 后 emit update-summary', async () => {
+    const wrapper = mountPanel(baseTopic);
+    await wrapper.find('[data-testid="mm-props-summary-text"]').setValue('  概括文本  ');
+    await wrapper.find('[data-testid="mm-props-summary-apply"]').trigger('click');
+    expect(wrapper.emitted('update-summary')?.[0]).toEqual(['概括文本']);
+  });
+
+  it('清除概要：emit null 并清空草稿', async () => {
+    const wrapper = mountPanel({ ...baseTopic, summary: '旧概要' });
+    await wrapper.find('[data-testid="mm-props-summary-clear"]').trigger('click');
+    expect(wrapper.emitted('update-summary')?.[0]).toEqual([null]);
+    expect(valueOf(wrapper, 'mm-props-summary-text')).toBe('');
+  });
+
+  it('只读模式下概要禁用', async () => {
+    const wrapper = mountPanel({ ...baseTopic, summary: '旧概要' }, true);
+    expect(wrapper.find('[data-testid="mm-props-summary-text"]').attributes('disabled')).toBeDefined();
+    await wrapper.find('[data-testid="mm-props-summary-apply"]').trigger('click');
+    expect(wrapper.emitted('update-summary')).toBeUndefined();
+  });
+
+  it('切换节点时边界/概要草稿随之重置', async () => {
+    const wrapper = mountPanel({
+      ...baseTopic,
+      boundary: { label: '甲边界', color: '#dc2626' },
+      summary: '甲的概要',
+    });
+    await wrapper.setProps({
+      topic: {
+        id: 't2',
+        text: '另一个节点',
+        boundary: { label: '乙边界' },
+        summary: '乙的概要',
+      },
+    });
+    expect(valueOf(wrapper, 'mm-props-boundary-label')).toBe('乙边界');
+    expect(valueOf(wrapper, 'mm-props-boundary-color')).toBe('');
+    expect(valueOf(wrapper, 'mm-props-summary-text')).toBe('乙的概要');
   });
 });

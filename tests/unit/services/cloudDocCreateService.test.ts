@@ -133,6 +133,35 @@ describe('createCloudDocFile 云端新建', () => {
     });
   });
 
+  it('新建 .taumap：写入合法的空思维导图 JSON（避免打开即报非法 JSON）', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: 'spring知识点思维导图.taumap',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(true);
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { content: string };
+    const parsed = JSON.parse(payload.content) as {
+      format: string;
+      schemaVersion: number;
+      title: string;
+      topics: Record<string, unknown>;
+    };
+    expect(parsed.format).toBe('tau-mindmap');
+    expect(parsed.schemaVersion).toBe(1);
+    expect(parsed.title).toBe('spring知识点思维导图');
+    expect(Object.keys(parsed.topics)).toHaveLength(1);
+  });
+
+  it('不支持的类型提前拦截：不发起保存并给出可读原因', async () => {
+    const outcome = await createCloudDocFile({ fileName: 'setup.exe', workspaceName: 'ws' });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok ? '' : outcome.kind).toBe('unsupported');
+    expect(outcome.ok ? '' : outcome.message).toContain('.exe');
+    expect(mocks.saveDoc).not.toHaveBeenCalled();
+  });
+
   it('同名已存在：返回 conflict 且不发起保存（不产生第二篇）', async () => {
     mocks.findByPath.mockResolvedValue({ ok: true, data: { fileId: 42, path: 'tau/ws/a.md' } });
 

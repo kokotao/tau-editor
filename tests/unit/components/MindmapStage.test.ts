@@ -556,5 +556,318 @@ describe('MindmapStage 阶段 4E', () => {
     expect(wrapper.find('[data-testid="mm-sheet-tab-0"]').classes()).toContain('is-active');
     expect(wrapper.find('[data-testid="mm-sheet-remove"]').attributes('disabled')).toBeDefined();
   });
+
+
+  it('阶段 4：损坏/空 .taumap 可一键新建空白导图覆盖', async () => {
+    const wrapper = mountStage('{ broken json');
+    expect(wrapper.find('[data-testid="mindmap-error"]').exists()).toBe(true);
+
+    const button = wrapper.find('[data-testid="mm-error-create-empty"]');
+    expect(button.exists()).toBe(true);
+    await button.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="mindmap-error"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="mindmap-canvas"]').exists()).toBe(true);
+
+    const emitted = wrapper.emitted('change');
+    expect(emitted).toBeTruthy();
+    const json = JSON.parse(emitted![emitted!.length - 1]![0] as string);
+    expect(json.format).toBe('tau-mindmap');
+    expect(Object.keys(json.topics)).toHaveLength(1);
+  });
 });
 
+/* ------------------- UX-1：右键菜单 + 面板拖拽调宽 ------------------- */
+
+/** 在 window 上派发指针事件（拖动/松开发生在 window 上）。 */
+function dispatchResizePointer(type: string, clientX: number) {
+  window.dispatchEvent(new MouseEvent(type, {
+    clientX,
+    clientY: 0,
+    button: 0,
+    bubbles: true,
+    cancelable: true,
+  }));
+}
+
+/** 当前文档中渲染出的右键菜单项 testid 列表。 */
+function menuItemTestIds(): string[] {
+  return [...document.querySelectorAll('[data-testid^="mm-context-item-"]')]
+    .map((element) => element.getAttribute('data-testid') ?? '');
+}
+
+function clickMenuItem(id: string) {
+  const element = document.querySelector(`[data-testid="mm-context-item-${id}"]`) as HTMLElement | null;
+  if (!element) throw new Error(`右键菜单中不存在菜单项：${id}`);
+  element.click();
+}
+
+describe('MindmapStage UX-1', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('大纲行右键打开统一菜单（≥7 项），点击「新增子主题」执行命令并 emit change', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const rowA = wrapper.findAll('.mindmap-row')
+      .find((row) => row.attributes('data-topic-id') === 'a');
+    expect(rowA).toBeTruthy();
+
+    await rowA!.trigger('contextmenu', { clientX: 200, clientY: 120 });
+    await wrapper.vm.$nextTick();
+
+    expect(document.querySelector('[data-testid="mm-context-menu"]')).toBeTruthy();
+    const testIds = menuItemTestIds();
+    expect(testIds.length).toBeGreaterThanOrEqual(7);
+    expect(testIds).toContain('mm-context-item-add-child');
+    expect(testIds).toContain('mm-context-item-rename');
+    expect(testIds).toContain('mm-context-item-delete');
+
+    clickMenuItem('add-child');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('change')).toBeTruthy();
+    // 右键已把目标节点选中，新增子主题落在 a 之下
+    expect(wrapper.findAll('.mindmap-row')).toHaveLength(5);
+    // 执行后菜单关闭
+    expect(document.querySelector('[data-testid="mm-context-menu"]')).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('画布空白右键打开空白菜单（≥4 项）并执行画布级命令', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mindmap-canvas"]').trigger('contextmenu', {
+      clientX: 9999,
+      clientY: 9999,
+    });
+    await wrapper.vm.$nextTick();
+
+    const testIds = menuItemTestIds();
+    expect(testIds.length).toBeGreaterThanOrEqual(4);
+    expect(testIds).toContain('mm-context-item-add-root-child');
+    expect(testIds).toContain('mm-context-item-fit-view');
+    expect(testIds).toContain('mm-context-item-reset-view');
+
+    clickMenuItem('add-root-child');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('change')).toBeTruthy();
+    expect(wrapper.findAll('.mindmap-row')).toHaveLength(5);
+    wrapper.unmount();
+  });
+
+  it('节点菜单「折叠子主题」隐藏子树（走既有命令）', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const rowA = wrapper.findAll('.mindmap-row')
+      .find((row) => row.attributes('data-topic-id') === 'a');
+    await rowA!.trigger('contextmenu', { clientX: 120, clientY: 90 });
+    await wrapper.vm.$nextTick();
+    // 有子节点时该项可用
+    expect(document.querySelector('[data-testid="mm-context-item-toggle-collapse"]')).toBeTruthy();
+
+    clickMenuItem('toggle-collapse');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.mm-node[data-node-id="a1"]').exists()).toBe(false);
+    expect(wrapper.emitted('change')).toBeTruthy();
+    wrapper.unmount();
+  });
+
+  it('大纲 resizer 拖动改宽（clamp 180–420）且不写文档', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const outline = () => wrapper.find('[data-testid="mindmap-outline"]');
+    expect(outline().attributes('style')).toContain('width: 240px');
+
+    await wrapper.find('[data-testid="mm-outline-resizer"]').trigger('pointerdown', {
+      button: 0,
+      clientX: 500,
+    });
+    // 面板在右侧：向左拖 60px → 300px
+    dispatchResizePointer('pointermove', 440);
+    await wrapper.vm.$nextTick();
+    expect(outline().attributes('style')).toContain('width: 300px');
+
+    // 继续向左 → 上限 420
+    dispatchResizePointer('pointermove', -2000);
+    await wrapper.vm.$nextTick();
+    expect(outline().attributes('style')).toContain('width: 420px');
+
+    // 向右拖回 → 下限 180
+    dispatchResizePointer('pointermove', 5000);
+    await wrapper.vm.$nextTick();
+    expect(outline().attributes('style')).toContain('width: 180px');
+
+    dispatchResizePointer('pointerup', 5000);
+    // 宽度是视图偏好：不产生 change，不写文档
+    expect(wrapper.emitted('change')).toBeFalsy();
+    wrapper.unmount();
+  });
+
+  it('属性面板 resizer 拖动改宽', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const panel = () => wrapper.find('[data-testid="mm-props"]');
+    expect(panel().attributes('style')).toContain('width: 260px');
+
+    await wrapper.find('[data-testid="mm-props-resizer"]').trigger('pointerdown', {
+      button: 0,
+      clientX: 400,
+    });
+    dispatchResizePointer('pointermove', 340);
+    await wrapper.vm.$nextTick();
+    expect(panel().attributes('style')).toContain('width: 320px');
+
+    dispatchResizePointer('pointerup', 340);
+    expect(wrapper.emitted('change')).toBeFalsy();
+    wrapper.unmount();
+  });
+});
+
+/* ---------------------- UX-2：边界（boundary）/ 概要（summary） ---------------------- */
+
+describe('MindmapStage UX-2', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 取最近一次 change 事件里的文档。 */
+  function lastDocument(wrapper: ReturnType<typeof mountStage>): MindMapDocument {
+    const emitted = wrapper.emitted('change');
+    expect(emitted).toBeTruthy();
+    return JSON.parse(emitted![emitted!.length - 1]![0] as string) as MindMapDocument;
+  }
+
+  it('节点菜单按「有无边界/概要」显示添加或清除', async () => {
+    const plain = mountStage(serializeMindMapDocument(treeDocument()));
+    const plainRow = plain.findAll('.mindmap-row')
+      .find((row) => row.attributes('data-topic-id') === 'a');
+    await plainRow!.trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await plain.vm.$nextTick();
+    expect(document.querySelector('[data-testid="mm-context-item-add-boundary"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="mm-context-item-add-summary"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="mm-context-item-clear-boundary"]')).toBeNull();
+    expect(document.querySelector('[data-testid="mm-context-item-clear-summary"]')).toBeNull();
+    // 关闭菜单，避免 teleport 泄漏到后续用例
+    clickMenuItem('add-summary');
+    await plain.vm.$nextTick();
+    plain.unmount();
+
+    const doc = treeDocument();
+    doc.topics.a = { ...doc.topics.a!, boundary: { label: '框' }, summary: '概要' };
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    const rowA = wrapper.findAll('.mindmap-row')
+      .find((row) => row.attributes('data-topic-id') === 'a');
+    await rowA!.trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await wrapper.vm.$nextTick();
+    expect(document.querySelector('[data-testid="mm-context-item-clear-boundary"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="mm-context-item-clear-summary"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="mm-context-item-add-boundary"]')).toBeNull();
+    clickMenuItem('add-child');
+    await wrapper.vm.$nextTick();
+    wrapper.unmount();
+  });
+
+  it('菜单「添加边界…」打开属性面板，不写文档', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    expect(wrapper.find('[data-testid="mm-props"]').exists()).toBe(false);
+
+    const rowA = wrapper.findAll('.mindmap-row')
+      .find((row) => row.attributes('data-topic-id') === 'a');
+    await rowA!.trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await wrapper.vm.$nextTick();
+    clickMenuItem('add-boundary');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="mm-props"]').exists()).toBe(true);
+    expect(wrapper.emitted('change')).toBeFalsy();
+    wrapper.unmount();
+  });
+
+  it('菜单「清除边界」写回文档（可撤销）且画布移除边界', async () => {
+    const doc = treeDocument();
+    doc.topics.a = { ...doc.topics.a!, boundary: { label: '框', color: '#2563eb' } };
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(1);
+
+    const rowA = wrapper.findAll('.mindmap-row')
+      .find((row) => row.attributes('data-topic-id') === 'a');
+    await rowA!.trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await wrapper.vm.$nextTick();
+    clickMenuItem('clear-boundary');
+    await wrapper.vm.$nextTick();
+
+    expect(lastDocument(wrapper).topics.a?.boundary).toBeUndefined();
+    expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(0);
+
+    // 撤销后边界回来
+    await wrapper.find('[data-testid="mindmap-tree"]').trigger('keydown', { key: 'z', ctrlKey: true });
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).topics.a?.boundary?.label).toBe('框');
+    expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('属性面板设置边界：emit change、画布出现边界框与标签', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    await wrapper.find('[data-testid="mm-props-boundary-label"]').setValue('阶段一');
+    await wrapper.find('[data-testid="mm-props-boundary-color"]').setValue('#2563eb');
+    await wrapper.find('[data-testid="mm-props-boundary-apply"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const changed = lastDocument(wrapper);
+    const rootId = changed.rootTopicId;
+    expect(changed.topics[rootId]?.boundary).toEqual({ label: '阶段一', color: '#2563eb' });
+
+    const boundaries = wrapper.findAll('[data-testid="mm-boundary"]');
+    expect(boundaries).toHaveLength(1);
+    expect(boundaries[0]?.text()).toContain('阶段一');
+    // 受控：面板控件跟随回填
+    expect((wrapper.find('[data-testid="mm-props-boundary-label"]').element as HTMLInputElement).value)
+      .toBe('阶段一');
+    wrapper.unmount();
+  });
+
+  it('属性面板设置概要：emit change、画布出现括线与文本', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    await wrapper.find('[data-testid="mm-props-summary-text"]').setValue('这是一组子主题');
+    await wrapper.find('[data-testid="mm-props-summary-apply"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const changed = lastDocument(wrapper);
+    expect(changed.topics[changed.rootTopicId]?.summary).toBe('这是一组子主题');
+
+    const summaries = wrapper.findAll('[data-testid="mm-summary"]');
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.text()).toContain('这是一组子主题');
+    wrapper.unmount();
+  });
+
+  it('属性面板清除边界与概要：emit change 并移除画布 overlay', async () => {
+    const doc = treeDocument();
+    doc.topics[doc.rootTopicId] = {
+      ...doc.topics[doc.rootTopicId]!,
+      boundary: { label: '框' },
+      summary: '概要',
+    };
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    await wrapper.find('[data-testid="mm-properties-toggle"]').trigger('click');
+    expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(1);
+    expect(wrapper.findAll('[data-testid="mm-summary"]')).toHaveLength(1);
+
+    await wrapper.find('[data-testid="mm-props-boundary-clear"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).topics[doc.rootTopicId]?.boundary).toBeUndefined();
+    expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(0);
+
+    await wrapper.find('[data-testid="mm-props-summary-clear"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(lastDocument(wrapper).topics[doc.rootTopicId]?.summary).toBeUndefined();
+    expect(wrapper.findAll('[data-testid="mm-summary"]')).toHaveLength(0);
+    wrapper.unmount();
+  });
+});

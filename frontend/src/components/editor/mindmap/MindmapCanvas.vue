@@ -11,6 +11,20 @@
  * 5. 连线完全按布局产出的 path 渲染，不假设方向；edge.orientation 仅用于样式标记，
  *    因此 mindmap/logic/tree（水平）与 org（竖直）可共用同一套渲染逻辑。
  *
+ * UX-1 扩展：
+ * - 平移修复：监听容器 pointerdown（容器被 svg 铺满，`@pointerdown.self` 永不触发），
+ *   空白区域按住拖动即平移；节点 / 折叠钮 / 内联编辑器不参与平移；
+ * - 节点拖拽完善：>5px 进入拖拽、源半透明、目标高亮、拖拽中禁止选中文本，
+ *   收尾抑制一次 click 以免误选中；
+ * - 右键菜单：右键时按几何命中判定节点，向上 emit { nodeId, clientX, clientY }，
+ *   菜单本身由上层（MindmapStage）统一构造与执行；
+ * - 配色全部改为 Tau 主题 token，default 主题因此随明暗主题自适应。
+ *
+ * UX-2 扩展（边界 / 概要）：
+ * - 边界：半透明圆角框 + 虚线描边 + 左上角标签，绘制在父子连线之前（视觉在最底层）；
+ * - 概要：子节点范围的括线 + 文本，颜色跟随主题强调色；
+ * - 两者都 `pointer-events: none`，不参与节点命中/拖拽/右键，因此不会挡住交互。
+ *
  * 阶段 4C 扩展：
  * - 主题模板：按 `document.themeId` 取色，通过内联 CSS 变量整体换色；
  *   默认主题（未选择 / default）不写任何内联变量，完全沿用既有 CSS，观感不变；
@@ -27,11 +41,10 @@ import {
   computeFitViewport,
   computeMindmapLayout,
   type MindmapNodeBox,
+  type MindmapSummaryBox,
   type MindmapViewport,
 } from '@/services/mindmapLayoutService';
 import {
-  DEFAULT_MARKER_BADGE_FILL,
-  DEFAULT_MARKER_BADGE_TEXT,
   DEFAULT_MINDMAP_THEME_ID,
   isMindmapThemeId,
   mindmapThemeCssVariables,
@@ -57,6 +70,12 @@ const emit = defineEmits<{
   (event: 'update:viewport', viewport: MindmapViewport): void;
   (event: 'update:editing-text', text: string): void;
   (event: 'move', draggedId: string, targetId: string): void;
+  /** 右键：nodeId 为命中的节点，null 表示空白区域。 */
+  (event: 'contextmenu', payload: {
+    nodeId: string | null;
+    clientX: number;
+    clientY: number;
+  }): void;
 }>();
 
 /** 关系线箭头 marker 的固定 id（同页多画布共用同一份定义，不影响渲染）。 */
@@ -203,16 +222,32 @@ interface PanState {
   origin: MindmapViewport;
 }
 let panState: PanState | null = null;
+/** 平移进行中（用于把光标切换为 grabbing）。 */
+const isPanning = ref(false);
+
+/**
+ * 判断事件目标是否属于「不可平移」的交互元素。
+ *
+ * 关键点：平移监听挂在容器上，而容器内部被 `<svg>` 铺满，所以不能用
+ * `@pointerdown.self`（那样永远不会触发）。改为在容器上监听后，
+ * 这里显式排除节点、折叠钮、内联编辑器等需要自己处理指针的元素。
+ */
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('.mm-node, .mm-toggle, .mm-inline-editor, .mm-context-menu'));
+}
 
 function onBackgroundPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
   if (props.editingId) return;
+  if (isInteractiveTarget(event.target)) return;
   panState = {
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
     origin: { ...props.viewport },
   };
+  isPanning.value = true;
   window.addEventListener('pointermove', onPanPointerMove);
   window.addEventListener('pointerup', endPan, { once: true });
   window.addEventListener('pointercancel', endPan, { once: true });
@@ -231,10 +266,18 @@ function onPanPointerMove(event: PointerEvent) {
 
 function endPan() {
   panState = null;
+  isPanning.value = false;
   window.removeEventListener('pointermove', onPanPointerMove);
+  window.removeEventListener('pointerup', endPan);
+  window.removeEventListener('pointercancel', endPan);
 }
 
 /* ------------------------------ 节点拖放 ------------------------------- */
+
+/** 进入拖拽的最小位移（px）；小于该阈值仍视为「点击」。 */
+const DRAG_THRESHOLD = 5;
+/** 拖拽结束后抑制 click 的时间窗（避免误选中）。 */
+const DRAG_CLICK_SUPPRESS_MS = 300;
 
 interface NodeDragState {
   id: string;
@@ -245,7 +288,14 @@ interface NodeDragState {
 let nodeDrag: NodeDragState | null = null;
 const draggingId = ref<string | null>(null);
 const dragOverId = ref<string | null>(null);
-let suppressNextClick = false;
+/** 在该时间点之前到达的 click 一律忽略（拖拽收尾）。 */
+let suppressClickUntil = 0;
+
+/** 拖拽期间禁止页面文本选中，收尾时恢复。 */
+function setBodyDragging(active: boolean) {
+  if (typeof document === 'undefined') return;
+  document.body.classList.toggle('mm-node-dragging', active);
+}
 
 function onNodePointerDown(node: MindmapNodeBox, event: PointerEvent) {
   if (event.button !== 0) return;
@@ -266,10 +316,12 @@ function onNodePointerMove(event: PointerEvent) {
   if (!nodeDrag) return;
   const dx = event.clientX - nodeDrag.startX;
   const dy = event.clientY - nodeDrag.startY;
-  if (!nodeDrag.moved && Math.hypot(dx, dy) < 5) return;
-  nodeDrag.moved = true;
-  suppressNextClick = true;
-  draggingId.value = nodeDrag.id;
+  if (!nodeDrag.moved) {
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    nodeDrag.moved = true;
+    draggingId.value = nodeDrag.id;
+    setBodyDragging(true);
+  }
   dragOverId.value = hitTestNode(event.clientX, event.clientY, nodeDrag.id);
 }
 
@@ -278,6 +330,8 @@ function onNodePointerUp() {
   const targetId = dragOverId.value;
   endNodeDrag();
   if (!drag || !drag.moved) return;
+  // 拖拽收尾时抑制紧随其后的 click，避免「拖完就选中」的误操作
+  suppressClickUntil = Date.now() + DRAG_CLICK_SUPPRESS_MS;
   if (targetId && targetId !== drag.id) {
     emit('move', drag.id, targetId);
   }
@@ -287,7 +341,10 @@ function endNodeDrag() {
   nodeDrag = null;
   draggingId.value = null;
   dragOverId.value = null;
+  setBodyDragging(false);
   window.removeEventListener('pointermove', onNodePointerMove);
+  window.removeEventListener('pointerup', onNodePointerUp);
+  window.removeEventListener('pointercancel', endNodeDrag);
 }
 
 /** 屏幕坐标命中节点（世界坐标矩形判定）。 */
@@ -312,11 +369,30 @@ function hitTestNode(clientX: number, clientY: number, excludeId?: string): stri
 }
 
 function onNodeClick(node: MindmapNodeBox) {
-  if (suppressNextClick) {
-    suppressNextClick = false;
+  // 拖拽刚结束时浏览器仍会派发 click：这里按时间窗丢弃一次，避免误选中
+  if (Date.now() <= suppressClickUntil) {
+    suppressClickUntil = 0;
     return;
   }
   emit('select', node.id);
+}
+
+/* ------------------------------ 右键菜单事件 ------------------------------ */
+
+/**
+ * 画布右键：几何命中节点则 nodeId 为其 id，否则为 null（空白菜单）。
+ *
+ * 内联编辑器里保留原生右键菜单（方便复制粘贴），其余位置一律 preventDefault。
+ */
+function onCanvasContextMenu(event: MouseEvent) {
+  const target = event.target;
+  if (target instanceof Element && target.closest('.mm-inline-editor')) return;
+  event.preventDefault();
+  emit('contextmenu', {
+    nodeId: hitTestNode(event.clientX, event.clientY),
+    clientX: event.clientX,
+    clientY: event.clientY,
+  });
 }
 
 /* ------------------------------ 内联改名 ------------------------------- */
@@ -375,19 +451,25 @@ function toggleOffsetX(node: MindmapNodeBox): number {
 /** 当前主题 id（缺失时按 default 处理）。 */
 const themeId = computed(() => props.document?.themeId ?? DEFAULT_MINDMAP_THEME_ID);
 
-/** 当前主题配色；未知 id 由 resolveMindmapTheme 回退 default。 */
-const currentTheme = computed(() => resolveMindmapTheme(themeId.value));
+/**
+ * 主题强调色（选中态、关系线、标记徽章边框）。
+ *
+ * `--mindmap-accent` 只在「已选择非默认主题」时由 canvasThemeStyle 注入；
+ * default（或未知 id）没有内联变量，于是回落到 Tau token --accent-brand，
+ * 从而跟随明暗主题 / 皮肤自动变色——不再写死 #4a90e2。
+ */
+const THEME_ACCENT = 'var(--mindmap-accent, var(--accent-brand))';
 
 /**
  * 画布根节点的内联 CSS 变量。
  *
  * 仅在「已选择非默认主题」时输出：default（或未设置）时保持为空对象，
- * 完全沿用既有 CSS 与暗色模式变量，确保未选主题时观感与改动前一致。
+ * 完全沿用既有 CSS 与暗色模式变量，确保未选主题时随主题自适应。
  */
 const canvasThemeStyle = computed<Record<string, string>>(() => {
   if (!isMindmapThemeId(themeId.value)) return {};
   if (themeId.value === DEFAULT_MINDMAP_THEME_ID) return {};
-  return mindmapThemeCssVariables(currentTheme.value);
+  return mindmapThemeCssVariables(resolveMindmapTheme(themeId.value));
 });
 
 /* ------------------------------ 派生：节点样式 ------------------------------- */
@@ -485,7 +567,7 @@ const renderedRelations = computed<RenderedRelation[]>(() => {
   if (relations.length === 0) return [];
 
   const byId = new Map(currentLayout.nodes.map((node) => [node.id, node]));
-  const color = currentTheme.value.accent;
+  const color = THEME_ACCENT;
   const result: RenderedRelation[] = [];
   for (const relation of relations) {
     const source = byId.get(relation.sourceTopicId);
@@ -507,13 +589,102 @@ const renderedRelations = computed<RenderedRelation[]>(() => {
   return result;
 });
 
-/** 标记徽章配色（跟随主题，缺省用内置兜底色）。 */
-const markerBadgeFill = computed(
-  () => currentTheme.value.markerBadgeFill ?? DEFAULT_MARKER_BADGE_FILL,
-);
-const markerBadgeText = computed(
-  () => currentTheme.value.markerBadgeText ?? DEFAULT_MARKER_BADGE_TEXT,
-);
+/** 标记徽章配色：随主题变量走，default 主题回落到 Tau token。 */
+const MARKER_BADGE_FILL = 'var(--mindmap-marker-bg, var(--surface-active))';
+const MARKER_BADGE_TEXT = 'var(--mindmap-marker-text, var(--text-primary))';
+
+/* --------------------------- 边界 / 概要（UX-2） --------------------------- */
+
+/** 边界 / 概要的默认颜色：跟随主题强调色，default 主题回落到 Tau token。 */
+const OVERLAY_ACCENT = THEME_ACCENT;
+
+/** 渲染用边界：颜色已回退到主题强调色，模板里不再做分支判断。 */
+interface RenderedBoundary {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label?: string;
+  color: string;
+}
+
+const renderedBoundaries = computed<RenderedBoundary[]>(() => (
+  (layout.value?.boundaries ?? []).map((boundary) => ({
+    id: boundary.id,
+    x: boundary.x,
+    y: boundary.y,
+    width: boundary.width,
+    height: boundary.height,
+    label: boundary.label,
+    color: boundary.color || OVERLAY_ACCENT,
+  }))
+));
+
+/** 渲染用概要：括线路径与文字位置在这里一次算好。 */
+interface RenderedSummary {
+  id: string;
+  text: string;
+  bracketPath: string;
+  textX: number;
+  textY: number;
+  textAnchor: 'start' | 'middle' | 'end';
+}
+
+/**
+ * 括线路径。
+ *
+ * - 水平布局：竖线位于子节点范围外侧，两端向内容方向各折 6px（形如「[」「]」）；
+ * - org 布局：横线位于子节点范围下方，两端向上折 6px。
+ */
+function summaryBracketPath(summary: MindmapSummaryBox): string {
+  if (summary.side === 'bottom') {
+    const y = summary.y;
+    return `M ${round1(summary.x)} ${round1(y - 6)} V ${round1(y)}`
+      + ` H ${round1(summary.x + summary.width)} V ${round1(y - 6)}`;
+  }
+  // 右侧括线在框的左边缘，折向内容（左）；左侧括线在框的右边缘，折向内容（右）
+  const bracketX = summary.side === 'left' ? summary.x + summary.width : summary.x;
+  const direction = summary.side === 'left' ? 1 : -1;
+  const tick = round1(bracketX + direction * 6);
+  return `M ${tick} ${round1(summary.y)} H ${round1(bracketX)}`
+    + ` V ${round1(summary.y + summary.height)} H ${tick}`;
+}
+
+/** 概要文字位置与对齐方式（与布局给出的框保持同一套几何）。 */
+function summaryTextPosition(
+  summary: MindmapSummaryBox,
+): { textX: number; textY: number; textAnchor: 'start' | 'middle' | 'end' } {
+  if (summary.side === 'bottom') {
+    return {
+      textX: round1(summary.x + summary.width / 2),
+      // 文字落在括线下方一档（与布局给出的 16px 文字高度对齐）
+      textY: round1(summary.y + 10),
+      textAnchor: 'middle',
+    };
+  }
+  if (summary.side === 'left') {
+    return {
+      textX: round1(summary.x + summary.width - 6),
+      textY: round1(summary.y + summary.height / 2),
+      textAnchor: 'end',
+    };
+  }
+  return {
+    textX: round1(summary.x + 6),
+    textY: round1(summary.y + summary.height / 2),
+    textAnchor: 'start',
+  };
+}
+
+const renderedSummaries = computed<RenderedSummary[]>(() => (
+  (layout.value?.summaries ?? []).map((summary) => ({
+    id: summary.id,
+    text: summary.text,
+    bracketPath: summaryBracketPath(summary),
+    ...summaryTextPosition(summary),
+  }))
+));
 
 /* 文档切换（rootTopicId 变化）时自动适配内容；编辑不改变 root，不会反复跳动。 */
 let lastRootId: string | null = null;
@@ -534,11 +705,13 @@ watch(
   <div
     ref="containerRef"
     class="mindmap-canvas"
+    :class="{ 'is-panning': isPanning }"
     data-testid="mindmap-canvas"
     :data-theme-id="themeId"
     :style="canvasThemeStyle"
     @wheel="onWheel"
-    @pointerdown.self="onBackgroundPointerDown"
+    @pointerdown="onBackgroundPointerDown"
+    @contextmenu="onCanvasContextMenu"
   >
     <svg
       v-if="layout"
@@ -559,10 +732,63 @@ watch(
           markerHeight="7"
           orient="auto-start-reverse"
         >
-          <path d="M 0 0 L 10 5 L 0 10 z" :fill="currentTheme.accent" />
+          <path d="M 0 0 L 10 5 L 0 10 z" :style="{ fill: THEME_ACCENT }" />
         </marker>
       </defs>
       <g :transform="`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`">
+        <!--
+          边界（UX-2）：半透明圆角框 + 虚线描边 + 左上角标签。
+          绘制在连线与节点之下（最底层），且 pointer-events: none，不干扰命中。
+        -->
+        <g
+          v-for="boundary in renderedBoundaries"
+          :key="`boundary-${boundary.id}`"
+          class="mm-boundary"
+          data-testid="mm-boundary"
+          :data-boundary-id="boundary.id"
+        >
+          <rect
+            class="mm-boundary-box"
+            :x="boundary.x"
+            :y="boundary.y"
+            :width="boundary.width"
+            :height="boundary.height"
+            rx="10"
+            :style="{ fill: boundary.color, stroke: boundary.color }"
+          />
+          <text
+            v-if="boundary.label"
+            class="mm-boundary-label"
+            :x="boundary.x + 8"
+            :y="boundary.y + 14"
+            :style="{ fill: boundary.color }"
+          >{{ boundary.label }}</text>
+        </g>
+
+        <!-- 概要（UX-2）：子节点范围的括线 + 文本，同样不参与命中 -->
+        <g
+          v-for="summary in renderedSummaries"
+          :key="`summary-${summary.id}`"
+          class="mm-summary"
+          data-testid="mm-summary"
+          :data-summary-id="summary.id"
+        >
+          <path
+            class="mm-summary-bracket"
+            :d="summary.bracketPath"
+            fill="none"
+            :style="{ stroke: OVERLAY_ACCENT }"
+          />
+          <text
+            class="mm-summary-text"
+            :x="summary.textX"
+            :y="summary.textY"
+            :text-anchor="summary.textAnchor"
+            dominant-baseline="middle"
+            :style="{ fill: OVERLAY_ACCENT }"
+          >{{ summary.text }}</text>
+        </g>
+
         <!--
           连线路径完全由布局服务生成，画布不假设方向：
           edge.orientation 只用于样式与测试标记（org 为 vertical，其余 horizontal）。
@@ -661,13 +887,13 @@ watch(
                 :width="MARKER_BADGE_SIZE"
                 :height="MARKER_BADGE_SIZE"
                 rx="4"
-                :style="{ fill: markerBadgeFill, stroke: currentTheme.accent }"
+                :style="{ fill: MARKER_BADGE_FILL, stroke: THEME_ACCENT }"
               />
               <text
                 :x="MARKER_BADGE_SIZE / 2"
                 :y="MARKER_BADGE_SIZE - 4"
                 text-anchor="middle"
-                :style="{ fill: markerBadgeText }"
+                :style="{ fill: MARKER_BADGE_TEXT }"
               >{{ mindmapMarkerBadge(marker) }}</text>
             </g>
           </g>
@@ -708,19 +934,33 @@ watch(
 </template>
 
 <style scoped>
+/*
+ * 配色一律使用 Tau 主题 token（frontend/src/assets/workbench-theme.css）：
+ * - 画布底色 --bg-app；节点/徽章等「浮起」元素 --panel-elevated / --panel-base
+ * - 边框 --border-soft / --border-strong；文字 --text-primary / --text-secondary
+ * - 强调 --accent-brand；状态 --state-success / --state-danger
+ * 主题模板（ocean/forest/sunset）通过内联 --mindmap-* 变量覆盖这些回退值，
+ * default 主题不注入任何内联变量，因此整套观感随明暗主题自动切换。
+ */
 .mindmap-canvas {
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: var(--background, #ffffff);
+  background: var(--bg-app);
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
-.mindmap-canvas:active { cursor: grabbing; }
+/* 平移中：光标改为抓紧 */
+.mindmap-canvas.is-panning { cursor: grabbing; }
+/* 节点拖拽期间全局禁止选中文本，避免拖出一个蓝色选区 */
+:global(body.mm-node-dragging) {
+  user-select: none !important;
+  cursor: grabbing !important;
+}
 .mm-svg { display: block; }
 .mm-edge {
-  stroke: var(--mindmap-edge, #b7c4d8);
+  stroke: var(--mindmap-edge, var(--border-strong));
   stroke-width: 1.6;
 }
 /* org 模式的竖直连线：圆头收尾，避免底部端点出现硬角 */
@@ -729,44 +969,67 @@ watch(
 }
 .mm-node { cursor: pointer; }
 .mm-node-box {
-  fill: var(--mindmap-node-bg, #ffffff);
-  stroke: var(--mindmap-node-border, #c7d2e2);
+  fill: var(--mindmap-node-bg, var(--panel-elevated));
+  stroke: var(--mindmap-node-border, var(--border-strong));
   stroke-width: 1.4;
 }
 .mm-node-text {
-  font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
+  font-family: var(--font-ui);
   font-size: 13px;
-  fill: var(--mindmap-node-text, var(--text-primary, #1f2329));
+  fill: var(--mindmap-node-text, var(--text-primary));
   pointer-events: none;
 }
 .mm-node.is-root .mm-node-box {
-  fill: var(--mindmap-root-bg, #eaf2ff);
-  stroke: var(--mindmap-root-border, #7aa7e8);
+  fill: var(--mindmap-root-bg, var(--surface-active));
+  stroke: var(--mindmap-root-border, var(--accent-brand));
   stroke-width: 1.8;
 }
 .mm-node.is-root .mm-node-text { font-weight: 700; }
 .mm-node.is-collapsed .mm-node-box { stroke-dasharray: 4 3; }
 .mm-node.is-selected .mm-node-box {
-  stroke: var(--accent, #4a90e2);
+  stroke: var(--mindmap-accent, var(--accent-brand));
   stroke-width: 2.2;
-  filter: drop-shadow(0 0 4px rgba(74, 144, 226, 0.45));
 }
+/* 拖拽源：半透明；拖拽目标：成功色高亮 */
+.mm-node.is-dragging { opacity: 0.5; }
 .mm-node.is-drag-over .mm-node-box {
-  stroke: #3aa76d;
+  stroke: var(--state-success);
   stroke-width: 2.4;
-  fill: rgba(58, 167, 109, 0.12);
+  fill: var(--surface-active);
 }
-.mm-node.is-dragging { opacity: 0.55; }
 .mm-toggle { cursor: pointer; }
 .mm-toggle circle {
-  fill: var(--mindmap-toggle-bg, #ffffff);
-  stroke: var(--mindmap-node-border, #c7d2e2);
+  fill: var(--panel-base);
+  stroke: var(--border-strong);
   stroke-width: 1.2;
 }
 .mm-toggle text {
   font-size: 9px;
-  fill: var(--text-secondary, #5b6675);
+  fill: var(--text-secondary);
   pointer-events: none;
+}
+/* 边界（UX-2）：半透明填充 + 虚线描边 + 左上角标签；不参与命中/拖拽/右键 */
+.mm-boundary { pointer-events: none; }
+.mm-boundary-box {
+  fill-opacity: 0.12;
+  stroke-width: 1.4;
+  stroke-dasharray: 6 4;
+}
+.mm-boundary-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+}
+/* 概要（UX-2）：括线 + 文本 */
+.mm-summary { pointer-events: none; }
+.mm-summary-bracket {
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mm-summary-text {
+  font-family: var(--font-ui);
+  font-size: 11px;
 }
 /* 独立关系线（阶段 4C）：虚线 + 箭头；不参与布局，仅作语义补充 */
 .mm-relation-path {
@@ -775,24 +1038,22 @@ watch(
   pointer-events: none;
 }
 .mm-relation-label {
-  font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
+  font-family: var(--font-ui);
   font-size: 10px;
   paint-order: stroke;
-  stroke: var(--background, #ffffff);
+  stroke: var(--bg-app);
   stroke-width: 2.5px;
   stroke-linejoin: round;
   pointer-events: none;
 }
 /* 标记徽章（阶段 4C）：节点左上角，小圆角块 + 徽章字符 */
 .mm-marker rect {
-  fill: var(--mindmap-marker-bg, #fff5e0);
   stroke-width: 1;
 }
 .mm-marker text {
-  font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
+  font-family: var(--font-ui);
   font-size: 9px;
   font-weight: 700;
-  fill: var(--mindmap-marker-text, #8a5a00);
   pointer-events: none;
 }
 .mm-inline-editor {
@@ -800,14 +1061,14 @@ watch(
   z-index: 5;
   margin: 0;
   padding: 4px 8px;
-  border-radius: 8px;
-  border: 1.5px solid var(--accent, #4a90e2);
-  background: var(--surface, #ffffff);
-  color: var(--text-primary, #1f2329);
-  font-family: var(--font-sans, 'Manrope', 'Segoe UI', 'Microsoft YaHei', sans-serif);
+  border-radius: var(--radius-control);
+  border: 1.5px solid var(--accent-brand);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
   resize: none;
   outline: none;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-soft);
 }
 </style>

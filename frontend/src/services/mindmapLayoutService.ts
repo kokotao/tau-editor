@@ -11,6 +11,13 @@
  *    - org：自上而下的组织图，同一父节点的子节点横向展开、连线为竖直方向；
  * 3. 生成 SVG 连线路径与整体包围盒，并提供「适配内容」的视口计算。
  *
+ * UX-2 扩展（边界 / 概要）：
+ * - `boundaries[]`：按「该主题 + 全部可见后代」的节点盒 union 加内边距得到的框（左上角坐标系），
+ *   带可选标签/颜色；折叠时只包住主题自身；
+ * - `summaries[]`：按「该主题全部可见子节点」的 union 得到的括线范围 + 文本，
+ *   水平布局括线放在子节点外侧（left/right），org 布局放在下方（bottom）；
+ * - 两者都并入整体 `bounds`，保证「适配内容」不会裁掉边界框与概要文字。
+ *
  * 约定：
  * - 自动布局坐标不持久化；本服务只产出渲染用的派生数据；
  * - 折叠节点不展开子树，也不参与连线；
@@ -51,6 +58,19 @@ export const DEFAULT_MINDMAP_LAYOUT_OPTIONS: MindmapLayoutOptions = {
   edgeCurve: 24,
 };
 
+/** 边界框内边距（UX-2，v1 固定 12px，落在 10–14 的观感区间）。 */
+export const MINDMAP_BOUNDARY_PADDING = 12;
+/** 边界标签占用的高度：有标签时框顶再抬高一档，避免标签压住节点文字。 */
+export const MINDMAP_BOUNDARY_LABEL_HEIGHT = 16;
+/** 概要括线与子节点范围之间的间距。 */
+export const MINDMAP_SUMMARY_GAP = 8;
+/** 概要括线两端向内容方向的折角长度（画布绘制时也按这个值折 6px）。 */
+export const MINDMAP_SUMMARY_TICK = 6;
+const SUMMARY_BRACKET_TICK = MINDMAP_SUMMARY_TICK;
+/** 概要文字字号与单行高度（与画布样式保持一致）。 */
+export const MINDMAP_SUMMARY_FONT_SIZE = 11;
+export const MINDMAP_SUMMARY_TEXT_HEIGHT = 16;
+
 export type MindmapNodeSide = 'root' | 'left' | 'right';
 
 export interface MindmapNodeBox {
@@ -85,6 +105,44 @@ export interface MindmapEdgeBox {
   path: string;
 }
 
+/**
+ * 边界框（UX-2）：包住一个主题及其全部可见后代。
+ *
+ * 坐标系约定：x / y 为**左上角**（与节点盒的中心坐标不同），可直接用于 SVG <rect>。
+ */
+export interface MindmapBoundaryBox {
+  /** 所属主题 id（一个主题最多一个边界）。 */
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label?: string;
+  color?: string;
+}
+
+/** 概要括线所在的方位：水平布局取子节点外侧，org 布局放在下方。 */
+export type MindmapSummarySide = 'left' | 'right' | 'bottom';
+
+/**
+ * 概要框（UX-2）：该主题全部可见子节点的纵向/横向范围。
+ *
+ * 坐标系约定：
+ * - `x` / `y` 为左上角；
+ * - 水平布局下，`width` 覆盖「括线 + 文字」占据的横向空间，`height` 为子节点范围高度；
+ * - org 布局下放在子节点范围下方，`height` 覆盖括线与文字。
+ */
+export interface MindmapSummaryBox {
+  /** 所属主题 id（概要描述的是它的子节点范围）。 */
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  side: MindmapSummarySide;
+}
+
 export interface MindmapLayoutBounds {
   minX: number;
   minY: number;
@@ -97,6 +155,10 @@ export interface MindmapLayoutBounds {
 export interface MindmapLayout {
   nodes: MindmapNodeBox[];
   edges: MindmapEdgeBox[];
+  /** 边界框（UX-2），绘制顺序为「面积大的在外层」。 */
+  boundaries: MindmapBoundaryBox[];
+  /** 概要括线（UX-2）。 */
+  summaries: MindmapSummaryBox[];
   bounds: MindmapLayoutBounds;
   options: MindmapLayoutOptions;
   /** 本次布局采用的结构模式（由 document.layoutMode 归一化而来）。 */
@@ -335,7 +397,16 @@ export function computeMindmapLayout(
     const emptyBounds: MindmapLayoutBounds = {
       minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0,
     };
-    return { nodes: [], edges: [], bounds: emptyBounds, options, mode, orientation };
+    return {
+      nodes: [],
+      edges: [],
+      boundaries: [],
+      summaries: [],
+      bounds: emptyBounds,
+      options,
+      mode,
+      orientation,
+    };
   }
 
   if (mode === 'org') return computeOrgLayout(root, options);
@@ -478,14 +549,7 @@ function computeTwoSidedLayout(
   placeHorizontal(ctx, rootBox, right, rightCenters, 'right');
   placeHorizontal(ctx, rootBox, left, leftCenters, 'left');
 
-  return {
-    nodes: ctx.nodes,
-    edges: ctx.edges,
-    bounds: computeBounds(ctx.nodes),
-    options,
-    mode: 'mindmap',
-    orientation: 'horizontal',
-  };
+  return finalizeLayout(root, ctx.nodes, ctx.edges, options, 'mindmap', 'horizontal');
 }
 
 /**
@@ -525,14 +589,7 @@ function computeSingleSideLayout(
   ctx.nodes.push(rootBox);
   placeHorizontal(ctx, rootBox, root.children, centers, 'right');
 
-  return {
-    nodes: ctx.nodes,
-    edges: ctx.edges,
-    bounds: computeBounds(ctx.nodes),
-    options,
-    mode,
-    orientation: 'horizontal',
-  };
+  return finalizeLayout(root, ctx.nodes, ctx.edges, options, mode, 'horizontal');
 }
 
 /**
@@ -613,14 +670,7 @@ function computeOrgLayout(
 
   place(root, 0);
 
-  return {
-    nodes,
-    edges,
-    bounds: computeBounds(nodes),
-    options,
-    mode: 'org',
-    orientation: 'vertical',
-  };
+  return finalizeLayout(root, nodes, edges, options, 'org', 'vertical');
 }
 
 /** 三次贝塞尔连线：从父节点外侧连到子节点内侧。 */
@@ -674,6 +724,211 @@ export function buildVerticalEdgePath(
 
 function round(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+/* -------------------------- 边界 / 概要（UX-2） -------------------------- */
+
+/** 简单的矩形范围（左上角 + 宽高），overlay 计算内部使用。 */
+interface OverlayExtent {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+function extentOfBox(box: MindmapNodeBox): OverlayExtent {
+  return {
+    minX: box.x - box.width / 2,
+    minY: box.y - box.height / 2,
+    maxX: box.x + box.width / 2,
+    maxY: box.y + box.height / 2,
+  };
+}
+
+function extentOfFrame(frame: { x: number; y: number; width: number; height: number }): OverlayExtent {
+  return {
+    minX: frame.x,
+    minY: frame.y,
+    maxX: frame.x + frame.width,
+    maxY: frame.y + frame.height,
+  };
+}
+
+function unionExtent(a: OverlayExtent, b: OverlayExtent): OverlayExtent {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  };
+}
+
+function frameOfExtent(extent: OverlayExtent): { x: number; y: number; width: number; height: number } {
+  return {
+    x: round(extent.minX),
+    y: round(extent.minY),
+    width: round(extent.maxX - extent.minX),
+    height: round(extent.maxY - extent.minY),
+  };
+}
+
+/**
+ * 概要括线方位：
+ * - org（竖直连线）放在子节点范围下方；
+ * - 水平布局放在子节点外侧；根节点在 mindmap 模式下子主题会分到左右两侧，
+ *   此时统一放在右侧（v1 简化，避免一根括线横跨中心主题）。
+ */
+function resolveSummarySide(
+  children: InternalNode[],
+  orientation: MindmapEdgeOrientation,
+): MindmapSummarySide {
+  if (orientation === 'vertical') return 'bottom';
+  const hasRight = children.some((child) => child.side !== 'left');
+  return hasRight ? 'right' : 'left';
+}
+
+/** 概要框：括线 + 文字占据的范围（并会并入整体 bounds）。 */
+function buildSummaryFrame(
+  range: OverlayExtent,
+  side: MindmapSummarySide,
+  text: string,
+): { x: number; y: number; width: number; height: number } {
+  if (side === 'bottom') {
+    return {
+      x: round(range.minX),
+      y: round(range.maxY + MINDMAP_SUMMARY_GAP),
+      width: round(range.maxX - range.minX),
+      height: MINDMAP_SUMMARY_TEXT_HEIGHT,
+    };
+  }
+  // 框只覆盖「括线 + 文字」的绘制区域：括线落在子节点范围外侧 gap 处，
+  // 因此框的右/左边缘正好是括线位置（间距本身已由节点范围覆盖）。
+  const textWidth = Math.ceil(measureTextWidth(text, MINDMAP_SUMMARY_FONT_SIZE));
+  const frameWidth = SUMMARY_BRACKET_TICK + textWidth;
+  if (side === 'left') {
+    return {
+      x: round(range.minX - MINDMAP_SUMMARY_GAP - frameWidth),
+      y: round(range.minY),
+      width: frameWidth,
+      height: round(range.maxY - range.minY),
+    };
+  }
+  return {
+    x: round(range.maxX + MINDMAP_SUMMARY_GAP),
+    y: round(range.minY),
+    width: frameWidth,
+    height: round(range.maxY - range.minY),
+  };
+}
+
+/**
+ * 计算边界与概要（纯函数，只读取已放置的节点盒）。
+ *
+ * 算法（后序遍历，O(n)）：
+ * 1. 每个可见节点先取自身节点盒作为范围；
+ * 2. 递归合并全部可见子节点的范围，得到「该主题 + 全部可见后代」的范围；
+ * 3. 若该主题声明了 boundary，用范围 + 内边距生成边界框，并把框并入返回范围，
+ *    使祖先边界自然包住子边界；
+ * 4. 若该主题声明了 summary 且有可见子节点，用「全部子节点范围」生成概要框。
+ */
+function computeOverlays(
+  root: InternalNode,
+  nodes: MindmapNodeBox[],
+  orientation: MindmapEdgeOrientation,
+): { boundaries: MindmapBoundaryBox[]; summaries: MindmapSummaryBox[] } {
+  const boxById = new Map(nodes.map((node) => [node.id, node]));
+  const boundaries: MindmapBoundaryBox[] = [];
+  const summaries: MindmapSummaryBox[] = [];
+
+  const walk = (node: InternalNode): OverlayExtent | null => {
+    const box = boxById.get(node.id);
+    if (!box) return null;
+
+    let extent = extentOfBox(box);
+    const childRanges: { child: InternalNode; extent: OverlayExtent }[] = [];
+    for (const child of node.children) {
+      const childExtent = walk(child);
+      if (!childExtent) continue;
+      childRanges.push({ child, extent: childExtent });
+      extent = unionExtent(extent, childExtent);
+    }
+
+    // 1) 边界：包住该主题 + 全部可见后代（折叠时后代为空，只包自身）
+    const boundary = node.topic.boundary;
+    if (boundary) {
+      const label = boundary.label?.trim() || undefined;
+      const color = boundary.color?.trim() || undefined;
+      const labelHeight = label ? MINDMAP_BOUNDARY_LABEL_HEIGHT : 0;
+      const frame = {
+        x: Math.round(extent.minX - MINDMAP_BOUNDARY_PADDING),
+        y: Math.round(extent.minY - MINDMAP_BOUNDARY_PADDING - labelHeight),
+        width: Math.round(extent.maxX - extent.minX + MINDMAP_BOUNDARY_PADDING * 2),
+        height: Math.round(
+          extent.maxY - extent.minY + MINDMAP_BOUNDARY_PADDING * 2 + labelHeight,
+        ),
+      };
+      boundaries.push({ id: node.id, ...frame, label, color });
+      // 祖先把子边界框也包进去，避免出现「父框切穿子框」的观感
+      extent = unionExtent(extent, extentOfFrame(frame));
+    }
+
+    // 2) 概要：按可见子节点范围生成（无子节点或已折叠时忽略）
+    const summaryText = node.topic.summary?.trim();
+    if (summaryText && childRanges.length > 0) {
+      const side = resolveSummarySide(node.children, orientation);
+      // 水平布局只概括「括线所在那一侧」的子节点：mindmap 的根节点子主题会分到左右两侧，
+      // 若合并两侧范围，括线会横跨中心主题、视觉上难以理解（v1 简化）。
+      const sideRanges = orientation === 'vertical'
+        ? childRanges
+        : childRanges.filter((item) => (
+          side === 'left' ? item.child.side === 'left' : item.child.side !== 'left'
+        ));
+      const range = (sideRanges.length > 0 ? sideRanges : childRanges)
+        .map((item) => item.extent)
+        .reduce(unionExtent);
+      const frame = buildSummaryFrame(range, side, summaryText);
+      summaries.push({ id: node.id, ...frame, text: summaryText, side });
+      extent = unionExtent(extent, extentOfFrame(frame));
+    }
+
+    return extent;
+  };
+
+  walk(root);
+  // 面积大的（外层）先画，嵌套边界才不会互相盖住
+  boundaries.sort((a, b) => b.width * b.height - a.width * a.height);
+  return { boundaries, summaries };
+}
+
+/** 组装最终布局：计算 overlays，并把它们并入整体包围盒。 */
+function finalizeLayout(
+  root: InternalNode,
+  nodes: MindmapNodeBox[],
+  edges: MindmapEdgeBox[],
+  options: MindmapLayoutOptions,
+  mode: MindMapLayoutMode,
+  orientation: MindmapEdgeOrientation,
+): MindmapLayout {
+  const { boundaries, summaries } = computeOverlays(root, nodes, orientation);
+  let bounds = computeBounds(nodes);
+  let extent: OverlayExtent = {
+    minX: bounds.minX,
+    minY: bounds.minY,
+    maxX: bounds.maxX,
+    maxY: bounds.maxY,
+  };
+  for (const frame of [...boundaries, ...summaries]) {
+    extent = unionExtent(extent, extentOfFrame(frame));
+  }
+  bounds = {
+    minX: round(extent.minX),
+    minY: round(extent.minY),
+    maxX: round(extent.maxX),
+    maxY: round(extent.maxY),
+    width: round(extent.maxX - extent.minX),
+    height: round(extent.maxY - extent.minY),
+  };
+  return { nodes, edges, boundaries, summaries, bounds, options, mode, orientation };
 }
 
 function computeBounds(nodes: MindmapNodeBox[]): MindmapLayoutBounds {
