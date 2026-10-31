@@ -372,6 +372,18 @@ interface AppText {
   /** 冷启动发现上次的临时工作区已被系统清理 */
   scratchWorkspaceClearedTitle: string;
   scratchWorkspaceClearedMessage: (path: string) => string;
+  /** 云文档粘贴/导入图片后立即上传云端：成功提示 */
+  markdownImageCloudUploaded: string;
+  /** 上传失败（不阻断插入） */
+  markdownImageCloudUploadFailedTitle: string;
+  markdownImageCloudUploadFailedHint: (reason: string) => string;
+  /** 预检跳过（格式/大小/路径不合规，不阻断插入） */
+  markdownImageCloudUploadSkippedTitle: string;
+  markdownImageCloudUploadSkippedHint: (reason: string) => string;
+  markdownImageCloudSkipUnsupported: string;
+  markdownImageCloudSkipTooLarge: string;
+  markdownImageCloudSkipInvalidPath: string;
+  markdownImageCloudSkipMissingLocal: string;
 }
 
 interface ToolbarText {
@@ -1407,6 +1419,15 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     openRecentFolder: '打开此文件夹',
     scratchWorkspaceClearedTitle: '临时工作区已被清理',
     scratchWorkspaceClearedMessage: (path) => `上次的临时工作区（${path}）已不存在，可能是系统清理了临时目录。已回到未打开工作区状态，云文档可重新打开。`,
+    markdownImageCloudUploaded: '图片已插入并同步到云端',
+    markdownImageCloudUploadFailedTitle: '图片已插入，但云端同步失败',
+    markdownImageCloudUploadFailedHint: (reason) => `${reason}。图片已插入且本地可预览，可稍后使用「同步至云端」重试。`,
+    markdownImageCloudUploadSkippedTitle: '图片已插入（未上传云端）',
+    markdownImageCloudUploadSkippedHint: (reason) => `${reason}。可稍后使用「同步至云端」重试。`,
+    markdownImageCloudSkipUnsupported: '云端只支持 png/jpg/jpeg/gif/webp 图片',
+    markdownImageCloudSkipTooLarge: '图片超过云端单图 20 MiB 上限',
+    markdownImageCloudSkipInvalidPath: '图片相对路径不在文档目录内',
+    markdownImageCloudSkipMissingLocal: '无法确定图片的本地路径',
   },
   'en-US': {
     appLabel: 'Tau Editor',
@@ -1430,6 +1451,15 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     openRecentFolder: 'Open this folder',
     scratchWorkspaceClearedTitle: 'Temporary workspace was cleaned up',
     scratchWorkspaceClearedMessage: (path) => `The temporary workspace (${path}) no longer exists — the system may have cleared the temp folder. You are back to "no workspace opened"; open the cloud document again to continue.`,
+    markdownImageCloudUploaded: 'Image inserted and synced to cloud',
+    markdownImageCloudUploadFailedTitle: 'Image inserted, but cloud upload failed',
+    markdownImageCloudUploadFailedHint: (reason) => `${reason}. The image is inserted and previews locally; retry later with "Sync to cloud".`,
+    markdownImageCloudUploadSkippedTitle: 'Image inserted (not uploaded to cloud)',
+    markdownImageCloudUploadSkippedHint: (reason) => `${reason}. You can retry later with "Sync to cloud".`,
+    markdownImageCloudSkipUnsupported: 'Cloud only supports png/jpg/jpeg/gif/webp images',
+    markdownImageCloudSkipTooLarge: 'Image exceeds the 20 MiB per-image cloud limit',
+    markdownImageCloudSkipInvalidPath: 'The image path is outside the document folder',
+    markdownImageCloudSkipMissingLocal: 'The local image path could not be resolved',
   },
 };
 
