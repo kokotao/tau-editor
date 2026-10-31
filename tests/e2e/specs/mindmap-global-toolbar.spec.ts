@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { waitForStableBox } from './helpers/layout';
 
 /**
  * UX-3B / UX-3C 回归（按最新 UI 布局断言）：
@@ -176,14 +177,14 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
     await toolbar.locator('[data-testid="mm-properties-toggle"]').click();
     await expect(propertiesColumn).toBeVisible();
 
-    const outlineBefore = await outlineColumn.boundingBox();
-    const propertiesBefore = await propertiesColumn.boundingBox();
+    const outlineBefore = await waitForStableBox(outlineColumn);
+    const propertiesBefore = await waitForStableBox(propertiesColumn);
     expect(outlineBefore).toBeTruthy();
     expect(propertiesBefore).toBeTruthy();
 
     // 拖大纲列 resizer 向左 60px → 大纲列变宽，属性列宽度不受影响
     const outlineResizer = page.locator('[data-testid="mm-outline-resizer"]');
-    const outlineHandle = await outlineResizer.boundingBox();
+    const outlineHandle = await waitForStableBox(outlineResizer);
     expect(outlineHandle).toBeTruthy();
     await page.mouse.move(outlineHandle!.x + outlineHandle!.width / 2, outlineHandle!.y + outlineHandle!.height / 2);
     await page.mouse.down();
@@ -197,9 +198,9 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
 
     // 拖属性列 resizer 向左 40px → 属性列变宽，大纲列宽度不受影响
     const propertiesResizer = page.locator('[data-testid="mm-props-resizer"]');
-    const propertiesHandle = await propertiesResizer.boundingBox();
+    const propertiesHandle = await waitForStableBox(propertiesResizer);
     expect(propertiesHandle).toBeTruthy();
-    const outlineBeforeSecond = await outlineColumn.boundingBox();
+    const outlineBeforeSecond = await waitForStableBox(outlineColumn);
     await page.mouse.move(
       propertiesHandle!.x + propertiesHandle!.width / 2,
       propertiesHandle!.y + propertiesHandle!.height / 2,

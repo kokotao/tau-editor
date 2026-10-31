@@ -18,8 +18,11 @@ import { findCloudDocByPath, saveCloudDoc, type CloudOutcome } from '@/services/
 import { toCloudDocPath } from '@/services/cloudSyncService';
 import { extensionOfPath, isTextDocPath } from '@/services/cloudUploadPolicy';
 import {
-  seedContentForFileName,
+  CUSTOM_NEW_FILE_TYPE,
+  isCustomNewFileTypeId,
+  normalizeCustomExtension,
   resolveNewFileType,
+  seedContentForFileName,
   type NewFileTypeId,
 } from '@/services/newFileTypeOptions';
 
@@ -104,6 +107,11 @@ export interface CreateCloudDocFileInput {
   fileName: string;
   /** 新建类型 id（见 `newFileTypeOptions`）；省略/未知时按 Markdown 处理（兼容旧调用） */
   typeId?: NewFileTypeId | string | null;
+  /**
+   * typeId='custom' 时用户输入的扩展名（可带点、大小写与首尾空白）：
+   * 由 `normalizeCustomExtension` 归一化后用于补文件名，仍要走云端文本白名单校验。
+   */
+  customExtension?: string | null;
   /** 当前工作区名：没有时按 D2 退回分类名 */
   workspaceName?: string | null;
   /** 目标分类 id（`cat:<id>` 节点）；未分类 / 聚合分组为 null */
@@ -143,8 +151,26 @@ export interface CloudDocCreateResult {
 export async function createCloudDocFile(
   input: CreateCloudDocFileInput,
 ): Promise<CloudOutcome<CloudDocCreateResult>> {
-  const type = resolveNewFileType(input.typeId);
-  const sanitized = sanitizeNewDocName(input.fileName, `.${type.extension}`);
+  // 自定义格式不在固定类型数组里（避免 resolve 回退到它），这里单独分支处理扩展名
+  const custom = isCustomNewFileTypeId(input.typeId);
+  const type = custom ? CUSTOM_NEW_FILE_TYPE : resolveNewFileType(input.typeId);
+  let defaultExtension = `.${type.extension}`;
+
+  if (custom) {
+    const normalized = normalizeCustomExtension(input.customExtension);
+    if (!normalized.ok) {
+      return {
+        ok: false,
+        kind: 'unknown',
+        message: normalized.reason === 'empty'
+          ? '文件扩展名不能为空'
+          : '文件扩展名不可用（只能包含字母、数字、-、_、.，长度 1–20）',
+      };
+    }
+    defaultExtension = `.${normalized.extension}`;
+  }
+
+  const sanitized = sanitizeNewDocName(input.fileName, defaultExtension);
   if (!sanitized.ok) {
     return { ok: false, kind: 'unknown', message: '文件名不可用' };
   }

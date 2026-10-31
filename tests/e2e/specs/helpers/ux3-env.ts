@@ -84,6 +84,10 @@ export async function mockTauriCloudBackend(page: Page, options: CloudBackendMoc
 
       const calls: string[] = [];
       (window as unknown as { __E2E_TAURI_CALLS__: string[] }).__E2E_TAURI_CALLS__ = calls;
+      // 记录命令参数，供 E2E 断言「前端透传」内容（如自定义扩展名）
+      const invocations: Array<{ command: string; args: unknown }> = [];
+      (window as unknown as { __E2E_TAURI_INVOCATIONS__: Array<{ command: string; args: unknown }> })
+        .__E2E_TAURI_INVOCATIONS__ = invocations;
 
       const handlers: Record<string, () => unknown> = {
         cloud_session: () => ({ signedIn: true, userId: '1', username: 'e2e', baseUrl: 'https://e2e.local' }),
@@ -99,12 +103,21 @@ export async function mockTauriCloudBackend(page: Page, options: CloudBackendMoc
         cloud_quota_summary: () => ({ plan: 'free', usedBytes: 128, quotaBytes: 1073741824 }),
         cloud_checkin_status: () => ({ checkedIn: false }),
         cloud_points: () => ({ points: 0 }),
+        // 新建云端文档（内存落一份，供「自定义格式」提交链路走通并断言透传参数）
+        cloud_docs_save: () => ({
+          fileId: 2,
+          version: 1,
+          contentHash: 'e2e-hash',
+          size: 0,
+          updatedAt: '2026-10-31T00:00:00Z',
+        }),
       };
 
       let callbackId = 0;
       (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
-        invoke: async (command: string) => {
+        invoke: async (command: string, args: unknown) => {
           calls.push(command);
+          invocations.push({ command, args });
           const handler = handlers[command];
           return handler ? handler() : null;
         },

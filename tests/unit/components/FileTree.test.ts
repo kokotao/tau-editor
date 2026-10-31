@@ -1015,3 +1015,31 @@ describe('FileTree.vue', () => {
     })
   })
 })
+
+/* ---------------------- UX-3A custom：自定义格式二级菜单项 ---------------------- */
+
+describe('FileTree 自定义格式（custom）', () => {
+  it('二级菜单固定类型之后提供「自定义格式…」，点击 emit custom', async () => {
+    const wrapper = vueMount(FileTree, { props: { fileTree: mockFileTree } })
+    await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+    const newFileItem = document.body.querySelector('[data-testid="file-tree-new-file"]') as HTMLElement
+    newFileItem.click()
+    await nextTick()
+
+    // 6 个固定类型仍然存在
+    for (const typeId of ['markdown', 'taumap', 'freemind', 'opml', 'plaintext', 'json']) {
+      expect(document.body.querySelector(`[data-testid="file-tree-new-file-${typeId}"]`)).not.toBeNull()
+    }
+
+    const customItem = document.body.querySelector('[data-testid="file-tree-new-file-custom"]') as HTMLElement
+    expect(customItem).not.toBeNull()
+    expect(customItem.textContent).toContain('自定义格式')
+
+    customItem.click()
+    expect(wrapper.emitted('new-file')![0]).toEqual(['custom'])
+    await nextTick()
+    // 选择后整棵右键菜单关闭（与固定类型一致）
+    expect(teleportedMenu()).toBeNull()
+  })
+})

@@ -317,6 +317,17 @@
                 <span>{{ newFileTypeLabel(option, settingsStore.uiLanguage) }}</span>
                 <span class="cd-menu__shortcut">.{{ option.extension }}</span>
               </button>
+              <!-- UX-3A custom：固定类型之后追加「自定义格式…」，进入卡片后再输入扩展名 -->
+              <div class="cd-menu__divider" role="separator"></div>
+              <button
+                type="button"
+                class="cd-menu__item"
+                role="menuitem"
+                data-testid="cloud-new-file-type-custom"
+                @click.stop="menuCreateFile('custom')"
+              >
+                <span>{{ panel.newFileCustom }}</span>
+              </button>
             </div>
           </div>
           <!-- R2：分类右键批量上传本地文件（多选 → 逐条进度弹窗） -->
@@ -446,6 +457,23 @@
         >
           {{ promptNewFileTypeHint }}
         </p>
+        <label
+          v-if="isCustomPrompt"
+          class="cloud-doc-tree__prompt-field"
+          data-testid="cloud-new-file-custom-field"
+        >
+          <span class="cloud-doc-tree__prompt-field-label">{{ panel.customExtensionLabel }}</span>
+          <input
+            class="cloud-doc-tree__prompt-input"
+            data-testid="cloud-new-file-custom-extension"
+            type="text"
+            autocomplete="off"
+            :value="prompt.customExtension ?? ''"
+            :placeholder="panel.customExtensionPlaceholder"
+            @input="onCustomExtensionInput"
+            @keydown.enter.prevent="submitPrompt()"
+          />
+        </label>
         <input
           ref="promptInputRef"
           v-model="prompt.name"
@@ -582,9 +610,12 @@ import {
 } from '@/services/cloudDocCreateService';
 import {
   CLOUD_NEW_FILE_TYPE_OPTIONS,
+  CUSTOM_NEW_FILE_TYPE,
   DEFAULT_NEW_FILE_TYPE_ID,
   buildDefaultNewFileName,
+  isCustomNewFileTypeId,
   newFileTypeLabel,
+  normalizeCustomExtension,
   resolveNewFileType,
   type NewFileTypeId,
 } from '@/services/newFileTypeOptions';
@@ -1042,6 +1073,8 @@ interface PromptState {
   customNode?: CloudDocTreeNode | null;
   /** mode=create-file：新建类型 id（UX-3A，决定默认扩展名与初始正文） */
   fileTypeId?: NewFileTypeId;
+  /** mode=create-file 且 typeId='custom'：用户输入的扩展名（原样保存，提交时归一化校验） */
+  customExtension?: string;
   /** mode=create-file：目标分类 id（`group:uncategorized` 为 null） */
   fileCategoryId?: string | null;
   /** mode=create-file：目标分类自由文本（未分类为空串，保存时归一成 null） */
@@ -1105,12 +1138,28 @@ const promptPlaceholder = computed(() => (
     : panel.value.categoryNamePlaceholder
 ));
 
+/** 卡片是否处于「自定义格式」模式（决定是否显示扩展名输入框）。 */
+const isCustomPrompt = computed(() => (
+  prompt.value.mode === 'create-file' && isCustomNewFileTypeId(prompt.value.fileTypeId)
+));
+
 /** 新建文件卡片里的类型提示：例如「将创建 OPML 大纲（.opml）…」。 */
 const promptNewFileTypeHint = computed(() => {
   if (prompt.value.mode !== 'create-file') return '';
+  if (isCustomPrompt.value) {
+    const normalized = normalizeCustomExtension(prompt.value.customExtension);
+    return panel.value.customTypeHint(normalized.ok ? normalized.extension : '');
+  }
   const option = resolveNewFileType(prompt.value.fileTypeId);
   return panel.value.newFileTypeHint(newFileTypeLabel(option, settingsStore.uiLanguage), option.extension);
 });
+
+/** 自定义扩展名输入：跟随输入实时更新（提交时再做一次归一化校验）。 */
+function onCustomExtensionInput(event: Event): void {
+  prompt.value.customExtension = (event.target as HTMLInputElement | null)?.value ?? '';
+  // 输入变化后清掉上一次的扩展名错误，避免用户改完还看到旧提示
+  if (prompt.value.error) prompt.value.error = '';
+}
 
 /** 文件类型徽标（md / 代码 / 图片 / Office / 其他）。 */
 function iconForFile(name: string): string {
@@ -1511,16 +1560,19 @@ function menuCreateFile(typeId: NewFileTypeId | string = DEFAULT_NEW_FILE_TYPE_I
     notice.value = panel.value.newFileUnsupported;
     return;
   }
-  const option = resolveNewFileType(typeId);
+  const custom = isCustomNewFileTypeId(typeId);
+  // 自定义格式不在固定数组里，不能用 resolveNewFileType（会回退 Markdown）
+  const option = custom ? CUSTOM_NEW_FILE_TYPE : resolveNewFileType(typeId);
   prompt.value = {
     visible: true,
     mode: 'create-file',
-    // 预填「类型默认名 + 扩展名」：用户直接回车即可，改名时只选中主干（不含扩展名）
-    name: buildDefaultNewFileName(option),
+    // 固定类型预填「默认名 + 扩展名」；自定义格式先只给默认主干，扩展名在卡片里单独输入
+    name: custom ? option.defaultName : buildDefaultNewFileName(option),
     parentId: null,
     parentName: node.name,
     id: null,
     fileTypeId: option.id,
+    customExtension: custom ? 'txt' : undefined,
     fileCategoryId: categoryIdOf(node),
     // 「未分类」组没有分类文本：留空，保存时归一成 null，避免云端造出假的「未分类」分组
     fileCategoryName: node.key === 'group:uncategorized' ? '' : node.name,
@@ -1798,9 +1850,20 @@ async function renameCustomGroup(node: CloudDocTreeNode, name: string): Promise<
  * 刻意不写本地文件：`materializeCloudDocForEdit` 会按云端内容落位，否则会出现两份不同步的副本。
  */
 async function submitCreateFile(current: PromptState): Promise<void> {
-  const option = resolveNewFileType(current.fileTypeId);
-  // 无扩展名时按所选类型补（例如 OPML → .opml），有扩展名则尊重用户输入
-  const sanitized = sanitizeNewDocName(current.name, `.${option.extension}`);
+  const custom = isCustomNewFileTypeId(current.fileTypeId);
+  const option = custom ? CUSTOM_NEW_FILE_TYPE : resolveNewFileType(current.fileTypeId);
+  // 自定义格式：先归一化校验扩展名，再把它当作默认扩展名补到文件名上
+  let customExtension = '';
+  if (custom) {
+    const normalized = normalizeCustomExtension(current.customExtension);
+    if (!normalized.ok) {
+      current.error = panel.value.customExtensionInvalid;
+      return;
+    }
+    customExtension = normalized.extension;
+  }
+  // 无扩展名时按所选类型补（例如 OPML → .opml、自定义 → .doc），有扩展名则尊重用户输入
+  const sanitized = sanitizeNewDocName(current.name, `.${option.extension || customExtension}`);
   if (!sanitized.ok) {
     // 空名 / 含 `/ \ : * ? " < > |` / 含 `..` / 超长：前端直接拦住，不发请求
     current.error = panel.value.newFileInvalid;
@@ -1814,6 +1877,7 @@ async function submitCreateFile(current: PromptState): Promise<void> {
     const outcome = await createCloudDocFile({
       fileName: sanitized.name,
       typeId: option.id,
+      ...(custom ? { customExtension } : {}),
       workspaceName: workspaceStore.currentWorkspaceName ?? '',
       categoryId,
       categoryName,
@@ -2473,6 +2537,19 @@ defineExpose({ cancelOpen, openCreateCategory, openNode, openByKey, selectByKey 
 }
 
 /* 新建文件卡片：一句说明（新建后直接在编辑器打开） */
+.cloud-doc-tree__prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.cloud-doc-tree__prompt-field-label {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--cd-text-3, #64748b);
+}
+
 .cloud-doc-tree__prompt-hint {
   margin: 0;
   font-size: 11px;

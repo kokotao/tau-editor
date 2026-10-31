@@ -65,6 +65,63 @@ test.describe('UX-3A: 新建文件二级菜单', () => {
     await page.locator('[data-testid="name-dialog-cancel"]').click();
   });
 
+  test('E2E-UX3-A5: 本地「自定义格式」先询问扩展名，再按扩展名预填文件名', async ({ page }) => {
+    await seedBrowserWorkspace(page);
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="toolbar"]');
+
+    const treeContent = page.locator('.file-tree-content');
+    await expect(treeContent).toBeVisible();
+    await treeContent.click({ button: 'right', position: { x: 40, y: 40 } });
+
+    await page.locator('[data-testid="file-tree-new-file"]').hover();
+    await expect(page.locator('[data-testid="file-tree-new-file-submenu"]')).toBeVisible();
+
+    const customEntry = page.locator('[data-testid="file-tree-new-file-custom"]');
+    await expect(customEntry).toBeVisible();
+    await customEntry.click();
+
+    // 第一段：询问扩展名（默认 txt）
+    const dialog = page.locator('[data-testid="name-dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('.name-dialog-title')).toContainText('扩展名');
+    const input = page.locator('[data-testid="name-dialog-input"]');
+    await expect(input).toHaveValue('txt');
+    await input.fill('doc');
+    await page.locator('[data-testid="name-dialog-confirm"]').click();
+
+    // 第二段：按自定义扩展名预填文件名
+    await expect(page.locator('.name-dialog-title')).toContainText('自定义格式 .doc');
+    await expect(page.locator('[data-testid="name-dialog-input"]')).toHaveValue('未命名.doc');
+    await page.locator('[data-testid="name-dialog-cancel"]').click();
+    await expect(dialog).toBeHidden();
+  });
+
+  test('E2E-UX3-A5b: 本地自定义扩展名非法时提示错误且不再弹命名框', async ({ page }) => {
+    await seedBrowserWorkspace(page);
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="toolbar"]');
+
+    const treeContent = page.locator('.file-tree-content');
+    await expect(treeContent).toBeVisible();
+    await treeContent.click({ button: 'right', position: { x: 40, y: 40 } });
+
+    await page.locator('[data-testid="file-tree-new-file"]').hover();
+    await expect(page.locator('[data-testid="file-tree-new-file-submenu"]')).toBeVisible();
+    await page.locator('[data-testid="file-tree-new-file-custom"]').click();
+
+    const dialog = page.locator('[data-testid="name-dialog"]');
+    await expect(dialog).toBeVisible();
+    // 'a b' 含空格，normalizeCustomExtension 应拒绝
+    await page.locator('[data-testid="name-dialog-input"]').fill('a b');
+    await page.locator('[data-testid="name-dialog-confirm"]').click();
+
+    await expect(dialog).toBeHidden();
+    await expect(
+      page.locator('[data-testid="notification-item"]').filter({ hasText: '文件扩展名' }),
+    ).toBeVisible();
+  });
+
   test('E2E-UX3-A3: 云端分类右键类型菜单包含 .mm/.opml，选择 OPML 按类型预填文件名', async ({ page }) => {
     await mockTauriCloudBackend(page);
     await page.goto('/');
@@ -95,6 +152,57 @@ test.describe('UX-3A: 新建文件二级菜单', () => {
 
     await page.locator('[data-testid="cloud-category-prompt-cancel"]').click();
     await expect(prompt).toBeHidden();
+  });
+
+  test('E2E-UX3-A6: 云端「自定义格式」输入扩展名后透传给新建服务（白名单内 .ts）', async ({ page }) => {
+    await mockTauriCloudBackend(page);
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="toolbar"]');
+
+    await page.locator('[data-testid="sidebar-tab-cloud"]').click();
+    const dirRow = page.locator('[data-testid="cloud-browser-dir"]').first();
+    await expect(dirRow).toBeVisible();
+    await dirRow.click({ button: 'right' });
+
+    const newFileEntry = page.locator('[data-testid="cloud-category-menu-new-file"]');
+    await expect(newFileEntry).toBeVisible();
+    await newFileEntry.hover();
+    await expect(page.locator('[data-testid="cloud-new-file-type-menu"]')).toBeVisible();
+
+    const customEntry = page.locator('[data-testid="cloud-new-file-type-custom"]');
+    await expect(customEntry).toBeVisible();
+    await customEntry.click();
+
+    const prompt = page.locator('[data-testid="cloud-category-prompt"]');
+    await expect(prompt).toBeVisible();
+    // 自定义格式多出扩展名输入框，默认 txt，提示文案随输入实时变化
+    await expect(page.locator('[data-testid="cloud-new-file-custom-field"]')).toBeVisible();
+    const extensionInput = page.locator('[data-testid="cloud-new-file-custom-extension"]');
+    await expect(extensionInput).toHaveValue('txt');
+    await expect(page.locator('[data-testid="cloud-new-file-type-hint"]')).toContainText('.txt');
+
+    await extensionInput.fill('ts');
+    await expect(page.locator('[data-testid="cloud-new-file-type-hint"]')).toContainText('.ts');
+    // 文件名只填主干，扩展名由自定义分支补齐（createCloudDocFile 归一化 + 白名单校验）
+    await page.locator('[data-testid="cloud-category-name-input"]').fill('未命名');
+    await page.locator('[data-testid="cloud-category-prompt-confirm"]').click();
+
+    await expect(prompt).toBeHidden();
+
+    // 断言透传到云端保存命令的载荷：路径/标题已按自定义扩展名补齐，内容是该扩展名的空种子
+    const payload = (await page.evaluate(() => {
+      const invocations = (window as unknown as {
+        __E2E_TAURI_INVOCATIONS__?: Array<{ command: string; args: { payload?: Record<string, unknown> } }>;
+      }).__E2E_TAURI_INVOCATIONS__ ?? [];
+      const saves = invocations.filter((item) => item.command === 'cloud_docs_save');
+      const last = saves[saves.length - 1];
+      return last?.args.payload ?? null;
+    })) as { path?: string; title?: string; content?: string } | null;
+
+    expect(payload).not.toBeNull();
+    expect(String(payload!.path)).toContain('未命名.ts');
+    expect(payload!.title).toBe('未命名.ts');
+    expect(payload!.content).toBe('');
   });
 
   test('E2E-UX3-A4: 前端层验证：云端白名单含 mm/opml，新建内容可被对应适配器解析出根节点', async ({ page }) => {

@@ -272,3 +272,88 @@ describe('UX-3A 按类型新建', () => {
     expect(initialCloudDocContent('a.md')).toBe('');
   });
 });
+
+/* ---------------------- UX-3A custom：自定义格式云端新建 ---------------------- */
+
+describe('UX-3A custom 自定义格式', () => {
+  it('白名单内扩展名：按输入补扩展名（小写、去点），不走 Markdown 回退', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '自定义',
+      typeId: 'custom',
+      customExtension: '  .TXT ',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(true);
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { title: string; content: string; path: string };
+    expect(payload.title).toBe('自定义.txt');
+    expect(payload.path).toBe('tau/ws/自定义.txt');
+    expect(payload.content).toBe('');
+  });
+
+  it('自定义扩展名为 .taumap 时写入合法空导图 JSON', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '自定义导图',
+      typeId: 'custom',
+      customExtension: 'taumap',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(true);
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { title: string; content: string };
+    expect(payload.title).toBe('自定义导图.taumap');
+    expect(JSON.parse(payload.content).format).toBe('tau-mindmap');
+  });
+
+  it('文件名已带扩展名时尊重用户输入（不重复补）', async () => {
+    await createCloudDocFile({
+      fileName: 'a.html',
+      typeId: 'custom',
+      customExtension: 'doc',
+      workspaceName: 'ws',
+    });
+    const payload = mocks.saveDoc.mock.calls[0]![0] as { title: string };
+    expect(payload.title).toBe('a.html');
+  });
+
+  it('扩展名非法：不发请求并给出可读原因', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '坏扩展名',
+      typeId: 'custom',
+      customExtension: 'a/b',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok ? '' : outcome.kind).toBe('unknown');
+    expect(outcome.ok ? '' : outcome.message).toContain('扩展名');
+    expect(mocks.findByPath).not.toHaveBeenCalled();
+    expect(mocks.saveDoc).not.toHaveBeenCalled();
+  });
+
+  it('扩展名为空：提示不能为空', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '空扩展名',
+      typeId: 'custom',
+      customExtension: '   ',
+      workspaceName: 'ws',
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok ? '' : outcome.message).toContain('不能为空');
+    expect(mocks.saveDoc).not.toHaveBeenCalled();
+  });
+
+  it('白名单外扩展名：返回 unsupported 且不保存', async () => {
+    const outcome = await createCloudDocFile({
+      fileName: '可执行',
+      typeId: 'custom',
+      customExtension: 'exe',
+      workspaceName: 'ws',
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok ? '' : outcome.kind).toBe('unsupported');
+    expect(outcome.ok ? '' : outcome.message).toContain('.exe');
+    expect(mocks.saveDoc).not.toHaveBeenCalled();
+  });
+});

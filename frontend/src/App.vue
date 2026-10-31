@@ -93,8 +93,12 @@ import {
 import type { MarkdownLinkStatus, WorkspaceTaskResponse } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
+  CUSTOM_NEW_FILE_TYPE,
+  buildCustomNewFileName,
   buildDefaultNewFileName,
+  isCustomNewFileTypeId,
   newFileTypeLabel,
+  normalizeCustomExtension,
   resolveNewFileType,
   seedContentForFileName,
 } from '@/services/newFileTypeOptions';
@@ -3127,11 +3131,32 @@ const handleFileTreeCreateFile = async (typeId?: string) => {
     return;
   }
 
-  const option = resolveNewFileType(typeId);
-  const fileName = await requestName(
-    `请输入新文件名（${newFileTypeLabel(option, settingsStore.uiLanguage)}）`,
-    buildDefaultNewFileName(option),
-  );
+  let option = resolveNewFileType(typeId);
+  let defaultFileName = buildDefaultNewFileName(option);
+  let promptTitle = `请输入新文件名（${newFileTypeLabel(option, settingsStore.uiLanguage)}）`;
+
+  // UX-3A custom：先询问扩展名（本地不做白名单限制，云端才拦截），再走统一的命名 + 建文件流程
+  if (isCustomNewFileTypeId(typeId)) {
+    const rawExtension = await requestName('请输入文件扩展名（不含点，例如 doc）', 'txt');
+    if (rawExtension === null) {
+      return;
+    }
+    const normalized = normalizeCustomExtension(rawExtension);
+    if (!normalized.ok) {
+      notificationStore.error(
+        '文件扩展名不可用',
+        normalized.reason === 'empty'
+          ? '扩展名不能为空'
+          : '扩展名只能包含字母、数字、-、_、.，长度 1–20',
+      );
+      return;
+    }
+    option = CUSTOM_NEW_FILE_TYPE;
+    defaultFileName = buildCustomNewFileName(normalized.extension);
+    promptTitle = `请输入新文件名（自定义格式 .${normalized.extension}）`;
+  }
+
+  const fileName = await requestName(promptTitle, defaultFileName);
   if (!fileName) {
     return;
   }

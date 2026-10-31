@@ -1123,6 +1123,8 @@ describe('CloudDocTree UX-3A：分类右键「新建文件」二级类型菜单'
       'cloud-new-file-type-opml',
       'cloud-new-file-type-plaintext',
       'cloud-new-file-type-json',
+      // UX-3A custom：固定类型之后是「自定义格式…」
+      'cloud-new-file-type-custom',
     ]);
     // 展开二级菜单不打开卡片
     expect(q('cloud-category-prompt')).toBeNull();
@@ -1177,5 +1179,77 @@ describe('CloudDocTree UX-3A：分类右键「新建文件」二级类型菜单'
     expect(q('cloud-new-file-type-menu')).toBeNull();
     expect(q('cloud-category-prompt')).toBeNull();
     expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------------- UX-3A custom：自定义格式（云端） ---------------------- */
+
+describe('CloudDocTree UX-3A custom：自定义格式', () => {
+  /** 打开分类右键 → 新建文件二级菜单 → 选择「自定义格式…」。 */
+  async function openCustomCard(wrapper: ReturnType<typeof mount>): Promise<void> {
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+    clickEl('cloud-new-file-type-custom');
+    await flushPromises();
+  }
+
+  it('二级菜单提供「自定义格式…」，选择后卡片出现扩展名输入并预填 txt', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openCustomCard(wrapper);
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-new-file-custom-field')).not.toBeNull();
+    expect(q<HTMLInputElement>('cloud-new-file-custom-extension')!.value).toBe('txt');
+    // 文件名默认只有主干，扩展名由输入决定
+    expect(q<HTMLInputElement>('cloud-category-name-input')!.value).toBe('未命名');
+    expect(q('cloud-new-file-type-hint')?.textContent).toContain('.txt');
+  });
+
+  it('提交时透传 typeId=custom + customExtension，并按扩展名补文件名', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openCustomCard(wrapper);
+
+    fillInput('cloud-new-file-custom-extension', 'yaml');
+    await flushPromises();
+    expect(q('cloud-new-file-type-hint')?.textContent).toContain('.yaml');
+
+    fillInput('cloud-category-name-input', '部署');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '部署.yaml',
+      typeId: 'custom',
+      customExtension: 'yaml',
+      categoryId: '1001',
+      categoryName: '笔记',
+    }));
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+    expect(q('cloud-category-prompt')).toBeNull();
+  });
+
+  it('扩展名非法：卡片内报错且不发请求', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openCustomCard(wrapper);
+
+    fillInput('cloud-new-file-custom-extension', 'a/b');
+    fillInput('cloud-category-name-input', '笔记');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(q('cloud-category-prompt-error')?.textContent).toContain('扩展名不可用');
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+    // 卡片保持打开，允许用户改完再提交
+    expect(q('cloud-category-prompt')).not.toBeNull();
+  });
+
+  it('固定类型不显示扩展名输入（不回归）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType('markdown');
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-new-file-custom-field')).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/app'
+import { waitForStableBox } from './helpers/layout'
 
 /**
  * 思维导图 E2E（阶段 0–3 关键路径，浏览器模式）
@@ -451,12 +452,13 @@ test.describe('Mindmap E2E', () => {
     await openNewMindmap(page)
 
     const outline = page.locator('[data-testid="mindmap-outline"]')
-    const before = await outline.boundingBox()
+    // 右侧面板出现/布局变化带过渡动画：等几何稳定再取坐标，否则拖拽会落在动画中间态之外
+    const before = await waitForStableBox(outline)
     expect(before).toBeTruthy()
 
     // UX-3B 返工：大纲/属性为两列独立面板，大纲列的 resizer 仍叫 mm-outline-resizer
     const resizer = page.locator('[data-testid="mm-outline-resizer"]')
-    const rbox = await resizer.boundingBox()
+    const rbox = await waitForStableBox(resizer)
     expect(rbox).toBeTruthy()
 
     await page.mouse.move(rbox!.x + rbox!.width / 2, rbox!.y + rbox!.height / 2)
@@ -464,8 +466,8 @@ test.describe('Mindmap E2E', () => {
     await page.mouse.move(rbox!.x - 80, rbox!.y + rbox!.height / 2, { steps: 6 })
     await page.mouse.up()
 
-    const after = await outline.boundingBox()
-    expect(after).toBeTruthy()
-    expect(after!.width).toBeGreaterThan(before!.width + 30)
+    await expect
+      .poll(async () => (await outline.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(before!.width + 30)
   })
 })

@@ -264,6 +264,16 @@
             <span class="context-menu-label">{{ newFileTypeLabel(option, settingsStore.uiLanguage) }}</span>
             <span class="context-menu-shortcut">.{{ option.extension }}</span>
           </div>
+          <!-- UX-3A custom：固定类型之后追加「自定义格式…」，由 App 询问扩展名 -->
+          <div class="context-menu-divider"></div>
+          <div
+            class="context-menu-item"
+            role="menuitem"
+            data-testid="file-tree-new-file-custom"
+            @click.stop="handleNewFile('custom')"
+          >
+            <span class="context-menu-label">{{ copy.newFileCustom }}</span>
+          </div>
         </div>
       </div>
       <div class="context-menu-item" @click="handleNewFolder">

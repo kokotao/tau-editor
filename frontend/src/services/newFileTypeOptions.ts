@@ -9,7 +9,9 @@
  *    - `.opml`：OPML 2.0 空大纲，能被既有 opmlAdapter 打开；
  *    - `.md` / `.txt` / `.json`：最小空模板；
  * 3. 提供扩展名 → 类型的反查（云端 `initialCloudDocContent` 按落盘文件名回填内容时复用）；
- * 4. 提供云端可用类型过滤：只保留三端白名单（cloudUploadPolicy）认可的类型。
+ * 4. 提供云端可用类型过滤：只保留三端白名单（cloudUploadPolicy）认可的类型；
+ * 5. 提供「自定义格式」：`CUSTOM_NEW_FILE_TYPE`（不在固定数组里，避免默认回退到它）+
+ *    `normalizeCustomExtension`（用户输入后缀的校验与归一化），本地与云端共用。
  *
  * 设计约束：
  * - 纯数据 + 纯函数，不读写 store、不依赖 DOM，便于单测与两端复用；
@@ -31,7 +33,9 @@ export type NewFileTypeId =
   | 'freemind'
   | 'opml'
   | 'plaintext'
-  | 'json';
+  | 'json'
+  /** 自定义格式：扩展名由用户输入（不进入固定类型数组，见 CUSTOM_NEW_FILE_TYPE） */
+  | 'custom';
 
 /** 一个可新建的文件类型。 */
 export interface NewFileTypeOption {
@@ -201,3 +205,67 @@ export function seedContentForFileName(fileName: string): string {
  */
 export const CLOUD_NEW_FILE_TYPE_OPTIONS: readonly NewFileTypeOption[] =
   NEW_FILE_TYPE_OPTIONS.filter((option) => isTextDocPath(`new-file.${option.extension}`));
+
+/* ------------------------------ 自定义格式（custom） ------------------------------ */
+
+/** 自定义格式的类型 id（菜单里的「自定义格式…」项用它）。 */
+export const CUSTOM_NEW_FILE_TYPE_ID = 'custom' as const;
+
+/** 自定义扩展名的最大长度（1–20）。 */
+export const CUSTOM_EXTENSION_MAX_LENGTH = 20;
+
+/**
+ * 自定义格式的类型描述。
+ *
+ * 刻意**不放进** `NEW_FILE_TYPE_OPTIONS`：
+ * - `resolveNewFileType('custom')` 必须继续回退到 Markdown（未知 id 语义），
+ *   否则旧调用方拿到一个没有扩展名的类型会生成本名；
+ * - 固定类型菜单遍历的仍是 6 项，自定义项由组件单独渲染（末尾 + 分隔线）。
+ */
+export const CUSTOM_NEW_FILE_TYPE: NewFileTypeOption = {
+  id: CUSTOM_NEW_FILE_TYPE_ID,
+  label: { 'zh-CN': '自定义格式', 'en-US': 'Custom format' },
+  extension: '',
+  defaultName: '未命名',
+  // 自定义扩展名没有已知模板：按空文本创建（未知扩展名同样回退为空串）
+  seedContent: () => '',
+};
+
+/** 是否是「自定义格式」类型 id。 */
+export function isCustomNewFileTypeId(value: unknown): boolean {
+  return value === CUSTOM_NEW_FILE_TYPE_ID;
+}
+
+/**
+ * 归一化用户输入的自定义扩展名。
+ *
+ * 规则（与云端、本地共用同一套，避免两端口径漂移）：
+ * 1. 去首尾空白与首尾的点（`.doc` / `doc.` → `doc`）；
+ * 2. 只允许字母、数字、`-`、`_`、`.`（不含路径分隔符与控制字符）；
+ * 3. 长度 1–20；
+ * 4. 统一转小写（三端白名单与 seed 分派都按小写比较）。
+ *
+ * @returns 成功 `{ ok: true, extension }`；失败给出 `empty` / `invalid`。
+ */
+export function normalizeCustomExtension(
+  raw: string | null | undefined,
+): { ok: true; extension: string } | { ok: false; reason: 'empty' | 'invalid' } {
+  const trimmed = String(raw ?? '').trim().replace(/^\.+|\.+$/g, '');
+  if (!trimmed) return { ok: false, reason: 'empty' };
+  if (trimmed.length > CUSTOM_EXTENSION_MAX_LENGTH) return { ok: false, reason: 'invalid' };
+  // 单段扩展名：不允许路径分隔符，也不允许空白与控制字符
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed)) return { ok: false, reason: 'invalid' };
+  // 连续点会生成 `a..b` 这类可疑文件名，直接拒绝
+  if (trimmed.includes('..')) return { ok: false, reason: 'invalid' };
+  return { ok: true, extension: trimmed.toLowerCase() };
+}
+
+/**
+ * 自定义格式的默认文件名（含扩展名），例如 `未命名.doc`。
+ *
+ * 本地新建与云端卡片的默认值共用，保证「自定义」与固定类型的行为一致。
+ */
+export function buildCustomNewFileName(extension: string, baseName?: string): string {
+  const stem = String(baseName ?? '').trim() || CUSTOM_NEW_FILE_TYPE.defaultName;
+  return `${stem}.${extension}`;
+}

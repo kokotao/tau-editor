@@ -439,6 +439,8 @@ interface FileTreeText {
   newFile: string;
   /** 右键「新建文件」的二级菜单标题（UX-3A） */
   chooseFileType: string;
+  /** 二级菜单末尾的「自定义格式…」项（UX-3A custom） */
+  newFileCustom: string;
   newFolder: string;
   rename: string;
   delete: string;
@@ -1557,6 +1559,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     loading: '加载文件树...',
     newFile: '新建文件',
     chooseFileType: '选择文件类型',
+    newFileCustom: '自定义格式…',
     newFolder: '新建文件夹',
     rename: '重命名',
     delete: '删除',
@@ -1610,6 +1613,7 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     loading: 'Loading file tree...',
     newFile: 'New File',
     chooseFileType: 'Choose file type',
+    newFileCustom: 'Custom format…',
     newFolder: 'New Folder',
     rename: 'Rename',
     delete: 'Delete',
@@ -2612,8 +2616,18 @@ interface CloudDocPanelText {
   menuNewFile: string;
   /** 分类右键「新建文件」的二级菜单标题（UX-3A） */
   chooseFileType: string;
+  /** 二级菜单末尾的「自定义格式…」项（UX-3A custom） */
+  newFileCustom: string;
   /** 卡片里展示「将创建的类型（含扩展名）」 */
   newFileTypeHint: (typeName: string, extension: string) => string;
+  /** 自定义格式：扩展名输入框的标题 */
+  customExtensionLabel: string;
+  /** 自定义格式：扩展名输入框占位 */
+  customExtensionPlaceholder: string;
+  /** 自定义格式：扩展名非法时的提示 */
+  customExtensionInvalid: string;
+  /** 自定义格式：卡片类型提示（无扩展名时提示先输入） */
+  customTypeHint: (extension: string) => string;
   newFileHint: string;
   newFilePlaceholder: string;
   newFileDone: (fileName: string) => string;
@@ -2749,7 +2763,14 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     renamePartial: (failed) => `已重命名分类，但有 ${failed} 篇文档未能迁移，请稍后重试`,
     menuNewFile: '新建文件',
     chooseFileType: '选择文件类型',
+    newFileCustom: '自定义格式…',
     newFileTypeHint: (typeName, extension) => `将创建 ${typeName}（.${extension}），并直接在编辑器中打开`,
+    customExtensionLabel: '扩展名',
+    customExtensionPlaceholder: '不含点，例如 doc / yaml / html',
+    customExtensionInvalid: '扩展名不可用：只能包含字母、数字、-、_、.，长度 1–20，且不能含路径分隔符',
+    customTypeHint: (extension) => (extension
+      ? `将创建 自定义格式（.${extension}），并直接在编辑器中打开`
+      : '请先输入扩展名（1–20 个字母/数字/-/_/.）'),
     newFileHint: '在云端新建一篇空文档，并直接在编辑器中打开',
     newFilePlaceholder: '输入文件名，例如 接口设计.md',
     newFileDone: (fileName) => `已新建并打开：${fileName}`,
@@ -2878,7 +2899,14 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     renamePartial: (failed) => `Category renamed, but ${failed} document(s) could not be moved`,
     menuNewFile: 'New file',
     chooseFileType: 'Choose file type',
+    newFileCustom: 'Custom format…',
     newFileTypeHint: (typeName, extension) => `Create ${typeName} (.${extension}) and open it in the editor`,
+    customExtensionLabel: 'Extension',
+    customExtensionPlaceholder: 'Without dot, e.g. doc / yaml / html',
+    customExtensionInvalid: 'Invalid extension: letters, digits, - _ . only, length 1–20, no path separators',
+    customTypeHint: (extension) => (extension
+      ? `Create custom format (.${extension}) and open it in the editor`
+      : 'Enter an extension first (1–20 of letters/digits/-/_/.)'),
     newFileHint: 'Create an empty cloud document and open it in the editor',
     newFilePlaceholder: 'File name, e.g. api-design.md',
     newFileDone: (fileName) => `Created and opened: ${fileName}`,
