@@ -17,7 +17,32 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.26', date: '2026-10-28', label: '云文档分类树收口与多级分类', category: '云端协作', latest: true,
+    version: 'v0.6.31', date: '2026-10-31', label: '思维导图工具链与云端多格式', category: '思维导图', latest: true,
+    summary: '右键新建文件二级菜单（本地 + 云端 6 种类型 + 自定义格式）、云端导图多格式（.taumap/.mm/.opml）、大纲与属性右侧双栏独立面板，以及全局工具栏布局收口。',
+    highlights: [
+      '本地/云端右键「新建文件」展开二级类型菜单：Markdown、Tau 思维导图、FreeMind、OPML、纯文本、JSON',
+      '新增「自定义格式」：输入任意文件后缀即可创建，本地不限制白名单，云端受文本白名单约束',
+      '新文件按类型写入合法种子内容：.taumap 空导图、.mm 空 FreeMind、.opml 含根 outline 的 OPML',
+      '云端文本白名单新增 .mm / .opml，可直接新建、同步并打开这两种导图格式',
+      '大纲列与属性列移到编辑器外壳右侧，两列独立折叠、独立调宽（180–420px）',
+      '思维导图工具组并入全局 Toolbar 并居中，Tau 原始工具靠左，移除三个重复视图按钮',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.31',
+  },
+  {
+    version: 'v0.6.30', date: '2026-10-31', label: '思维导图交互体验与云端 .taumap', category: '思维导图', latest: false,
+    summary: '思维导图主题对比度、平移/节点拖拽、右键菜单、边界与概要；云端新建 .taumap 可直接开始创作。',
+    highlights: [
+      '修复暗色主题下「白底 + 浅色字」导致按钮文字看不清的对比度问题',
+      '画布空白拖动可平移；节点拖拽可改变父级并带高亮反馈',
+      '画布节点/空白与大纲行支持右键快捷菜单',
+      '节点支持边界（虚线圆角框 + 标签）与概要（子节点括线 + 文本），可撤销可持久化',
+      '云端新建 .taumap 写入合法空导图，损坏文件可用「新建空白导图」恢复',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.30',
+  },
+  {
+    version: 'v0.6.26', date: '2026-10-28', label: '云文档分类树收口与多级分类', category: '云端协作', latest: false,
     summary: '云端文档同步体验收口：分类树不再有「自定义分类」包裹层，用户创建的分类直接作为顶层；新建分类支持一次输入多级路径；云端浏览、同步与容量套餐在同一处完成。',
     highlights: [
       '分类树去掉「自定义分类」中间层，自由文本分组升级为真实顶层分类',
