@@ -17,7 +17,19 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.32', date: '2026-10-31', label: '云文档图片粘贴即同步', category: '云端协作', latest: true,
+    version: 'v0.6.33', date: '2026-11-01', label: '云文档图片签名直链', category: '云端协作', latest: true,
+    summary: '云文档图片彻底修复：粘贴/导入后 Markdown 直接写入云端签名直链，编辑预览、个人中心、网页、小程序都能直接显示。',
+    highlights: [
+      '云文档粘贴/导入图片后，Markdown 里写的是云端签名直链，而不是本地相对路径',
+      '直链匿名可读（`<img>` 无需登录态），编辑器预览、个人中心、网页、小程序一次通吃',
+      'HMAC 签名 + 10 年有效期：猜到 assetId 也取不到图，文档删除后直链自动失效',
+      '服务端新增匿名读图接口（只允许图片、ETag/304、公开缓存 7 天），已部署上线',
+      '旧后端未返回直链时自动回退相对路径，不阻断插入；本地文档行为不变',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.33',
+  },
+  {
+    version: 'v0.6.32', date: '2026-10-31', label: '云文档图片粘贴即同步', category: '云端协作', latest: false,
     summary: '云文档 Markdown 图片修复：粘贴或导入图片后立即上传到云端附件，不再出现「本地有图、云端裂图」。',
     highlights: [
       '云文档里粘贴截图或插入图片时，立即上传到云端并绑定当前文档，无需再手动「同步至云端」',
