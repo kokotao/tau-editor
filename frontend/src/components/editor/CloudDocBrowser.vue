@@ -30,6 +30,23 @@
             {{ countLabel }}
           </span>
           <span v-if="quotaLabel" class="cloud-browser__capacity cd-mono">{{ copy.shell.capacity(quotaLabel) }}</span>
+          <!-- 每日签到：原先只藏在「设置 → 云同步 → 云存储扩容方案」里，这里给一个显式入口 -->
+          <button
+            type="button"
+            class="cd-btn cd-btn--secondary cloud-browser__checkin"
+            :class="{ 'cloud-browser__checkin--pending': !todayChecked }"
+            data-testid="cloud-doc-checkin-entry"
+            :disabled="checkinBusy"
+            :title="todayChecked ? copy.shell.checkinDone : copy.shell.checkin"
+            @click="handleCheckinEntry()"
+          >
+            <svg class="cloud-browser__btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 12 2 2 4-4" />
+              <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9Z" />
+            </svg>
+            {{ todayChecked ? copy.shell.checkinDone : copy.shell.checkin }}
+            <span v-if="!todayChecked" class="cloud-browser__checkin-dot" aria-hidden="true"></span>
+          </button>
         </div>
 
         <div class="cloud-browser__actions">
@@ -458,6 +475,7 @@ import { cloudWorkspaceNameFromPath } from '@/services/cloudDocLanding';
 import type { CloudCategoryNode, CloudDocItem } from '@/lib/tauri';
 import { getCloudDocBrowserI18n, getCloudDocPanelI18n } from '@/i18n/ui';
 import { useCenterToastStore } from '@/stores/centerToast';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useSettingsStore } from '@/stores/settings';
 import CloudDocTree from './CloudDocTree.vue';
@@ -502,6 +520,53 @@ const cloudSyncStore = useCloudSyncStore();
 const centerToast = useCenterToastStore();
 const copy = computed(() => getCloudDocBrowserI18n(settingsStore.uiLanguage));
 const panel = computed(() => getCloudDocPanelI18n(settingsStore.uiLanguage));
+
+/**
+ * 每日签到入口：原先只藏在「设置 → 云同步 → 云存储扩容方案」弹窗里，太深。
+ * 这里在云端文档面板头部直接给一个按钮，未签到时高亮，点击即签到（复用 cloudQuota store）。
+ */
+const cloudQuotaStore = useCloudQuotaStore();
+const checkinBusy = ref(false);
+const todayChecked = computed(() => cloudQuotaStore.todayChecked);
+const checkinLabel = computed(() => (todayChecked.value
+  ? copy.value.shell.checkinDone
+  : copy.value.shell.checkin));
+
+async function handleCheckinEntry(): Promise<void> {
+  if (checkinBusy.value) {
+    return;
+  }
+  if (todayChecked.value) {
+    centerToast.show(copy.value.shell.checkinDone);
+    return;
+  }
+  checkinBusy.value = true;
+  try {
+    const outcome = await cloudQuotaStore.checkin();
+    if (!outcome.ok) {
+      centerToast.show(`${copy.value.shell.checkin}：${outcome.message ?? ''}`, 'error');
+      return;
+    }
+    if (!outcome.result) {
+      // 409：今天已经签到过 —— 转已签到态即可，不当失败报错
+      centerToast.show(copy.value.shell.checkinDone);
+      return;
+    }
+    centerToast.show(copy.value.shell.checkinGranted(formatBytesCompact(outcome.result.grantedBytes)));
+  } finally {
+    checkinBusy.value = false;
+  }
+}
+
+/** 容量格式化：判断提示文案里显示多少 MB */
+function formatBytesCompact(bytes: number): string {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) {
+    return '';
+  }
+  const mb = value / (1024 * 1024);
+  return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`;
+}
 
 const sidebarTreeRef = ref<CloudDocTreeExposed | null>(null);
 const tableTreeRef = ref<CloudDocTreeExposed | null>(null);
@@ -1141,6 +1206,28 @@ watch(
   color: var(--cd-text-3, #64748b);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 每日签到入口：未签到时强调色描边 + 小圆点，避免被当成普通次要按钮忽略 */
+.cloud-browser__checkin {
+  position: relative;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.cloud-browser__checkin--pending {
+  border-color: var(--cd-accent, #38bdf8);
+  color: var(--cd-accent, #38bdf8);
+}
+
+.cloud-browser__checkin-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cd-accent, #38bdf8);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cd-accent, #38bdf8) 25%, transparent);
 }
 
 .cloud-browser__actions {

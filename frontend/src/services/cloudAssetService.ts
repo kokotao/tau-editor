@@ -92,6 +92,39 @@ export function isSupportedImageName(name: string): boolean {
   return (CLOUD_ASSET_EXTENSIONS as readonly string[]).includes(ext);
 }
 
+/** 本服务「图片签名直链」的路径特征 */
+export const CLOUD_ASSET_URL_PATH_MARKER = '/miniProgram/cloud/docs/file/';
+
+/**
+ * 把本服务图片直链的 `http://` 升级为 `https://`。
+ *
+ * <p>生产环境只对外提供 https（http 直接 404），而后端在反向代理未回传
+ * `X-Forwarded-Proto` 时会拼出 http 直链，导致 Markdown 里的图片裂图。
+ * 这里做一次前端兜底：只改「指向本服务图片接口」的地址，其它 http 链接不动。</p>
+ */
+export function upgradeCloudAssetUrlScheme(url: string): string {
+  const value = String(url ?? '').trim();
+  if (!value.startsWith('http://') || !value.includes(CLOUD_ASSET_URL_PATH_MARKER)) {
+    return value;
+  }
+  return `https://${value.slice('http://'.length)}`;
+}
+
+/**
+ * 把整段 Markdown 里本服务图片直链的 http 升级为 https（存量文档修复）。
+ *
+ * 只匹配「本服务图片接口」的地址，外链保持原样；用于打开云文档时把历史上写错的
+ * http 直链就地纠正，避免用户重新粘贴。
+ */
+export function upgradeCloudAssetUrlsInMarkdown(markdown: string): string {
+  const text = String(markdown ?? '');
+  if (!text || !text.includes(`http://`) || !text.includes(CLOUD_ASSET_URL_PATH_MARKER)) {
+    return text;
+  }
+  const pattern = /http:\/\/([^\s)"'<>\]\[]+?\/miniProgram\/cloud\/docs\/file\/[^\s)"'<>\]\[]*)/g;
+  return text.replace(pattern, (_match, rest: string) => `https://${rest}`);
+}
+
 export function imageMimeFor(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (ext === 'png') return 'image/png';

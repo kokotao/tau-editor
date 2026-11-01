@@ -21,10 +21,18 @@
  * @date 2026-10-27 10:05
  */
 import { cloudCommands, fileCommands } from '@/lib/tauri';
+import { upgradeCloudAssetUrlsInMarkdown } from '@/services/cloudAssetService';
 import { getCloudDoc, normalizeCloudError } from '@/services/cloudDocService';
 
 /** 云端路径的统一前缀：`tau/<workspace>/<relative...>` */
 const CLOUD_PATH_PREFIX = 'tau';
+
+/**
+ * 扁平布局（`tau/<file>`，文件直接放在云端根下、没有工作区目录）的临时工作区名。
+ *
+ * 只用于本地落位目录命名，**不影响云端保存路径**（保存仍写回 `tau/<file>`）。
+ */
+export const FLAT_CLOUD_WORKSPACE_NAME = '云端文档';
 
 /** 落位成功后交给宿主的编辑目标。 */
 export interface CloudDocEditTarget {
@@ -68,13 +76,28 @@ function isUnsafeSegment(segment: string): boolean {
 }
 
 /**
+ * 判断一段名字是否像「文件名」（用于区分 `tau/<file>` 与 `tau/<workspace>`）。
+ *
+ * 只认「有扩展名、且扩展名不是空/点结尾」：`a.md`、`笔记.v2.md` 是文件；
+ * `分享`、`面试题笔记` 视为目录。
+ */
+function looksLikeFileName(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && dot < name.length - 1;
+}
+
+/**
  * 解析云端路径 `tau/<workspace>/<relative...>`（纯函数）。
  *
  * 合法示例：`tau/分享/a.md` → { workspaceName: '分享', relativePath: 'a.md' }；
  * 深层示例：`tau/proj/src/app/main.ts` → relativePath 'src/app/main.ts'。
  *
- * 非法（返回 null，调用方报 `invalid-path`）：非 `tau/` 前缀、只有工作区没有文件名、
- * 空路径、含 `..` 穿越或盘符段。
+ * **扁平布局**：`tau/a.md`（文件直接放在 `tau/` 下、没有工作区目录）也是合法的老数据布局，
+ * 此时工作区名回退为 {@link FLAT_CLOUD_WORKSPACE_NAME}，relativePath 就是文件名本身，
+ * `normalizedPath` 仍是 `tau/a.md`——**保存时云端路径不变**，不会把文件搬到 `tau/<name>/` 下。
+ *
+ * 非法（返回 null，调用方报 `invalid-path`）：非 `tau/` 前缀、只有 `tau/`、空路径、
+ * 含 `..` 穿越或盘符段。
  */
 export function parseCloudDocEditPath(cloudPath: string): ParsedCloudDocPath | null {
   if (typeof cloudPath !== 'string') {
@@ -86,13 +109,29 @@ export function parseCloudDocEditPath(cloudPath: string): ParsedCloudDocPath | n
     .split('/')
     .filter((segment) => segment.length > 0);
 
-  // 至少要有「tau / 工作区 / 文件名」三段，否则没有可落位的文件
-  if (segments.length < 3) {
+  // 至少要有「tau / 文件名」两段，否则没有可落位的文件
+  if (segments.length < 2) {
     return null;
   }
   if (segments[0] !== CLOUD_PATH_PREFIX) {
     return null;
   }
+
+  // 两段 = 可能是扁平布局（tau/<file>），也可能只是「工作区目录本身」（tau/<workspace>，没有文件）。
+  // 用「是否带扩展名」区分：带扩展名才当文件，否则视为目录、返回 null。
+  if (segments.length === 2) {
+    const flatName = segments[1] as string;
+    if (isUnsafeSegment(flatName) || !looksLikeFileName(flatName)) {
+      return null;
+    }
+    return {
+      workspaceName: FLAT_CLOUD_WORKSPACE_NAME,
+      relativePath: flatName,
+      normalizedPath: [CLOUD_PATH_PREFIX, flatName].join('/'),
+      fileName: flatName,
+    };
+  }
+
   const workspaceName = segments[1] as string;
   const relativeSegments = segments.slice(2);
   if (isUnsafeSegment(workspaceName) || relativeSegments.some(isUnsafeSegment)) {
@@ -163,10 +202,13 @@ export async function materializeCloudDocForEdit(input: {
     return { ok: false, kind: detailOutcome.kind, message: detailOutcome.message };
   }
   const detail = detailOutcome.data;
-  const content = detail.content;
-  if (content === null || content === undefined) {
+  const rawContent = detail.content;
+  if (rawContent === null || rawContent === undefined) {
     return { ok: false, kind: 'unsupported', message: '该文档没有可下载的文本内容' };
   }
+  // 存量修复：历史版本把图片直链写成了 http（生产只开放 https → 裂图），
+  // 落盘前把本服务图片地址升级为 https；其它 http 链接保持原样。
+  const content = upgradeCloudAssetUrlsInMarkdown(rawContent);
 
   // 同一个云工作区的临时目录固定：重复打开是幂等的（同一 target.absolutePath）
   let workspaceRoot: string;

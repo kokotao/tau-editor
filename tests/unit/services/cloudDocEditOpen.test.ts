@@ -28,6 +28,7 @@ vi.mock('@/services/cloudDocService', async (importOriginal) => {
 });
 
 import {
+  FLAT_CLOUD_WORKSPACE_NAME,
   joinScratchPath,
   materializeCloudDocForEdit,
   parseCloudDocEditPath,
@@ -86,6 +87,21 @@ describe('parseCloudDocEditPath', () => {
   it('反斜杠、首尾与重复斜杠都归一化成 /', () => {
     expect(parseCloudDocEditPath('\\tau\\分享\\docs\\a.md')?.relativePath).toBe('docs/a.md');
     expect(parseCloudDocEditPath('/tau/分享//a.md')?.normalizedPath).toBe('tau/分享/a.md');
+  });
+
+  it('扁平布局 tau/<file>（文件直接放在云端根下、没有工作区目录）可解析，且云端路径不变', () => {
+    const parsed = parseCloudDocEditPath('tau/Vue面试题整理（含回答）.md');
+
+    expect(parsed?.workspaceName).toBe(FLAT_CLOUD_WORKSPACE_NAME);
+    expect(parsed?.relativePath).toBe('Vue面试题整理（含回答）.md');
+    expect(parsed?.fileName).toBe('Vue面试题整理（含回答）.md');
+    // 关键：保存时云端路径必须还是 tau/<file>，不能被搬到 tau/<workspace>/ 下
+    expect(parsed?.normalizedPath).toBe('tau/Vue面试题整理（含回答）.md');
+  });
+
+  it('扁平布局深层文件名（带多个点）也按文件处理', () => {
+    expect(parseCloudDocEditPath('tau/a.b.md')?.fileName).toBe('a.b.md');
+    expect(parseCloudDocEditPath('tau/.hidden')?.fileName).toBeUndefined();
   });
 
   it.each([

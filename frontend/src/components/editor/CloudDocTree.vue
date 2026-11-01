@@ -843,6 +843,11 @@ async function openDoc(node: CloudDocTreeNode): Promise<void> {
   try {
     const workspaceRoot = await ensureWorkspaceForCloudPath(node.path);
     if (!workspaceRoot) {
+      // 反查不出云工作区（典型：文件直接放在 `tau/` 下、没有工作区目录）时，
+      // 不应该要求用户「先打开一个工作区」——直接走「在编辑器中打开」的落位流程
+      // （宿主用临时工作区落盘并绑定 cloudFileId，保存仍写回原云端路径）。
+      notice.value = '';
+      emit('edit-cloud-doc', node);
       return;
     }
     const target = await cloudCommands.openTarget({

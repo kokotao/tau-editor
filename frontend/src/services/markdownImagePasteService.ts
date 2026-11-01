@@ -23,6 +23,7 @@ import {
   CLOUD_ASSET_MAX_BYTES,
   isSupportedImageName,
   normalizeRelativeAssetPath,
+  upgradeCloudAssetUrlScheme,
 } from '@/services/cloudAssetService';
 
 /** 未上传云端的原因（用于提示文案，不阻断插入）。 */
@@ -76,7 +77,8 @@ export interface CloudAssetUploadResult {
 
 /** 取上传结果里的直链（空串/空白视为没有）。 */
 export function cloudAssetUrlOf(result: CloudAssetUploadResult | null | undefined): string | null {
-  const url = String(result?.url ?? '').trim();
+  // 兜底纠正协议：生产只开放 https，后端若拼出 http 直链会导致图片裂图
+  const url = upgradeCloudAssetUrlScheme(String(result?.url ?? '').trim());
   return url || null;
 }
 

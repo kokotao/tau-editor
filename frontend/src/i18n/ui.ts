@@ -2072,6 +2072,10 @@ interface CloudDocBrowserShellText {
   storageSettings: string;
   quotaUnknown: string;
   capacity: (label: string) => string;
+  /** 每日签到入口（云端文档面板头部，避免只能进「设置 → 云同步」找） */
+  checkin: string;
+  checkinDone: string;
+  checkinGranted: (capacity: string) => string;
   /** 标题栏 */
   searchFull: string;
   shortcut: string;
@@ -2165,6 +2169,9 @@ const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
       storageSettings: '存储设置',
       quotaUnknown: '配额待同步',
       capacity: (label) => `已用容量 ${label}`,
+      checkin: '每日签到',
+      checkinDone: '今日已签到',
+      checkinGranted: (capacity) => (capacity ? `签到成功：+${capacity} 临时容量` : '签到成功'),
       searchFull: '搜索云端文档与全文…',
       shortcut: '⌘K',
       closeWindow: '关闭窗口 (Esc)',
@@ -2253,6 +2260,9 @@ const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
       storageSettings: 'Storage settings',
       quotaUnknown: 'Quota pending',
       capacity: (label) => `Used ${label}`,
+      checkin: 'Daily check-in',
+      checkinDone: 'Checked in today',
+      checkinGranted: (capacity) => (capacity ? `Checked in: +${capacity} temporary space` : 'Checked in'),
       searchFull: 'Search cloud documents and full text…',
       shortcut: '⌘K',
       closeWindow: 'Close window (Esc)',

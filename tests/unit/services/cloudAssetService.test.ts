@@ -43,6 +43,8 @@ import {
   pullMarkdownAssets,
   runWithConcurrency,
   syncMarkdownAssets,
+  upgradeCloudAssetUrlScheme,
+  upgradeCloudAssetUrlsInMarkdown,
 } from '@/services/cloudAssetService';
 
 function sourceInfo(overrides: Partial<CloudAssetSourceInfo> = {}): CloudAssetSourceInfo {
@@ -500,5 +502,45 @@ describe('runWithConcurrency', () => {
   it('保持顺序并限制并发', async () => {
     const results = await runWithConcurrency([1, 2, 3, 4], 2, async (value) => value * 2);
     expect(results).toEqual([2, 4, 6, 8]);
+  });
+});
+
+describe('图片直链协议纠正（http → https）', () => {
+  const ASSET = '/miniProgram/cloud/docs/file/89?sig=t1.abc.def';
+
+  it('upgradeCloudAssetUrlScheme：只升级本服务图片直链', () => {
+    expect(upgradeCloudAssetUrlScheme(`http://note.lizipro.cn/lizi${ASSET}`))
+      .toBe(`https://note.lizipro.cn/lizi${ASSET}`);
+    // 已经是 https：不变
+    expect(upgradeCloudAssetUrlScheme(`https://note.lizipro.cn/lizi${ASSET}`))
+      .toBe(`https://note.lizipro.cn/lizi${ASSET}`);
+    // 外链的 http 不动
+    expect(upgradeCloudAssetUrlScheme('http://example.com/a.png')).toBe('http://example.com/a.png');
+    // 空值
+    expect(upgradeCloudAssetUrlScheme('')).toBe('');
+    expect(upgradeCloudAssetUrlScheme('   ')).toBe('');
+  });
+
+  it('upgradeCloudAssetUrlsInMarkdown：正文里命中的直链升级，外链与相对路径不动', () => {
+    const markdown = [
+      `![a](http://note.lizipro.cn/lizi${ASSET})`,
+      `<img src="http://note.lizipro.cn/lizi${ASSET}">`,
+      '![ext](http://example.com/a.png)',
+      '![rel](assets/image.png)',
+    ].join('\n');
+
+    const upgraded = upgradeCloudAssetUrlsInMarkdown(markdown);
+
+    expect(upgraded).toContain(`![a](https://note.lizipro.cn/lizi${ASSET})`);
+    expect(upgraded).toContain(`<img src="https://note.lizipro.cn/lizi${ASSET}">`);
+    expect(upgraded).toContain('![ext](http://example.com/a.png)');
+    expect(upgraded).toContain('![rel](assets/image.png)');
+    expect(upgraded).not.toContain(`http://note.lizipro.cn/lizi${ASSET}`);
+  });
+
+  it('upgradeCloudAssetUrlsInMarkdown：无命中时原样返回（含空/null）', () => {
+    const plain = '纯文本没有链接';
+    expect(upgradeCloudAssetUrlsInMarkdown(plain)).toBe(plain);
+    expect(upgradeCloudAssetUrlsInMarkdown('')).toBe('');
   });
 });
