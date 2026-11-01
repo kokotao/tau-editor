@@ -381,10 +381,24 @@
                 {{ copy.shell.editInEditor }}
               </button>
               <div class="cloud-browser__inspect-actions">
-                <button type="button" class="cd-btn cd-btn--secondary" data-testid="cloud-browser-download" @click="notifyDesktopOnly()">
+                <!-- 之前两个按钮都只弹「需在桌面端使用」，可这里本来就是桌面端；
+                     改为复用右键菜单的实现（同步至云端 / 分享链接），避免同能力两套行为。 -->
+                <button
+                  type="button"
+                  class="cd-btn cd-btn--secondary"
+                  data-testid="cloud-browser-download"
+                  :disabled="!selectedNode"
+                  @click="runInspectAction('sync')"
+                >
                   {{ copy.shell.downloadCopy }}
                 </button>
-                <button type="button" class="cd-btn cd-btn--secondary" data-testid="cloud-browser-share-link" @click="notifyDesktopOnly()">
+                <button
+                  type="button"
+                  class="cd-btn cd-btn--secondary"
+                  data-testid="cloud-browser-share-link"
+                  :disabled="!selectedNode"
+                  @click="runInspectAction('share')"
+                >
                   {{ copy.shell.shareLink }}
                 </button>
               </div>
@@ -897,6 +911,21 @@ const selectedNode = computed<CloudDocTreeNode | null>(() =>
   selectedKey.value ? findNode(workspaceTree.value, selectedKey.value) : null,
 );
 const selectedFile = computed<CloudDocItem | null>(() => selectedNode.value?.file ?? null);
+
+/**
+ * 检查器里的「下载副本 / 分享链接」按钮：复用右键菜单的 `doc-action` 通道。
+ *
+ * 这两个能力（同步至云端 / 生成分享链接）的真实实现都在宿主（App.vue 的
+ * `handleCloudDocAction`）里；之前这里只弹「该操作需在 Tau 桌面端使用」——而这里
+ * 本来就是桌面端，属于明显的假按钮。现在统一走同一条链路，与右键菜单行为一致。
+ */
+function runInspectAction(action: 'sync' | 'share'): void {
+  const node = selectedNode.value;
+  if (!node) {
+    return;
+  }
+  emit('doc-action', action, node);
+}
 
 /** 选中项保持有效：数据刷新/筛选后若选中项消失，退回当前作用域里的第一条文件。 */
 function syncSelection(): void {

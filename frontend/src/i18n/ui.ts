@@ -505,6 +505,10 @@ interface StatusBarText {
   rowCol: (line: number, column: number) => string;
   lineCount: (lineCount: number) => string;
   autoSave: string;
+  /** 云端同步失败徽标（本地已保存、云端没落地，必须可见） */
+  cloudSyncFailedTitle: string;
+  cloudSyncRetry: string;
+  cloudSyncSaving: string;
   encoding: string;
   encodingTitle: string;
   encodingOptions: Record<EditorEncoding, string>;
@@ -1692,6 +1696,9 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     rowCol: (line, column) => `行 ${line}, 列 ${column}`,
     lineCount: (lineCount) => `Ln ${lineCount}`,
     autoSave: '自动保存',
+    cloudSyncFailedTitle: '云端未同步',
+    cloudSyncRetry: '重试',
+    cloudSyncSaving: '云端同步中',
     encoding: '编码',
     encodingTitle: '文件编码',
     encodingOptions: {
@@ -1742,6 +1749,9 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     rowCol: (line, column) => `Ln ${line}, Col ${column}`,
     lineCount: (lineCount) => `Lines ${lineCount}`,
     autoSave: 'Auto Save',
+    cloudSyncFailedTitle: 'Cloud not synced',
+    cloudSyncRetry: 'Retry',
+    cloudSyncSaving: 'Syncing to cloud',
     encoding: 'Encoding',
     encodingTitle: 'File Encoding',
     encodingOptions: {
@@ -2325,6 +2335,11 @@ interface CloudDocSyncText {
   newCategoryHint: string;
   conflictTitle: string;
   conflictHint: string;
+  /** 只有云端变了（本地没动）：出口是「拉取云端」，不是「覆盖云端」 */
+  remoteAheadTitle: string;
+  remoteAheadHint: string;
+  pullRemote: string;
+  pullRemoteDone: string;
   overwrite: string;
   confirm: string;
   cancel: string;
@@ -2351,7 +2366,11 @@ const CLOUD_DOC_SYNC_TEXTS: Record<UiLanguage, CloudDocSyncText> = {
     newCategoryPlaceholder: '输入新分类名称',
     newCategoryHint: '选已有分类会清空这里；填了名称则按新分类上传（只作用于本文档）。支持「后端/Java/Spring」一次建多级。',
     conflictTitle: '云端已有该文档',
-    conflictHint: '云端内容与本地不同，继续将用本地内容覆盖云端。',
+    conflictHint: '本地与云端都改过，继续将用本地内容覆盖云端。',
+    remoteAheadTitle: '云端版本更新',
+    remoteAheadHint: '本地没有改动、云端有新版本。拉取云端不会覆盖云端内容，也可以取消后自行处理。',
+    pullRemote: '拉取云端',
+    pullRemoteDone: '已拉取云端最新版本到本地',
     overwrite: '覆盖云端',
     confirm: '确定同步',
     cancel: '取消',
@@ -2376,7 +2395,11 @@ const CLOUD_DOC_SYNC_TEXTS: Record<UiLanguage, CloudDocSyncText> = {
     newCategoryPlaceholder: 'Type a new category name',
     newCategoryHint: 'Picking an existing category clears this field; a typed name is uploaded only for this document. Use A/B/C to create multiple levels at once.',
     conflictTitle: 'The cloud copy already exists',
-    conflictHint: 'Cloud content differs from local. Continuing overwrites the cloud copy with local content.',
+    conflictHint: 'Both local and cloud changed. Continuing overwrites the cloud copy with local content.',
+    remoteAheadTitle: 'Cloud has a newer version',
+    remoteAheadHint: 'You made no local changes but the cloud copy is newer. Pulling the cloud version never overwrites the cloud, and you can cancel instead.',
+    pullRemote: 'Pull from cloud',
+    pullRemoteDone: 'Pulled the latest cloud version into local',
     overwrite: 'Overwrite cloud',
     confirm: 'Sync',
     cancel: 'Cancel',

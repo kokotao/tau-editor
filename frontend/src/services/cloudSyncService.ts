@@ -47,7 +47,11 @@ export interface CloudSyncEligibility {
 export type CloudSyncAction = 'create' | 'update' | 'pull' | 'skip' | 'conflict';
 
 export interface CloudSyncResult {
-  status: 'synced' | 'skipped' | 'conflict' | 'failed';
+  /**
+   * `remoteAhead`：本地没改、云端更新了。语义上**不是冲突**，
+   * 应该给「拉取云端」而不是「确认覆盖云端」（后者会抹掉别人的改动）。
+   */
+  status: 'synced' | 'skipped' | 'conflict' | 'remoteAhead' | 'failed';
   fileId?: number;
   version?: number;
   message?: string;
@@ -784,13 +788,24 @@ export async function syncDocumentByPath(
       };
     }
 
-    // 云端已有文档但内容不同（pull/conflict）：先让用户确认覆盖
-    if ((decision === 'conflict' || decision === 'pull') && !input.overwrite) {
+    // 只有云端变了（本地没动）：**不能**当成冲突让用户「确认覆盖」——
+    // 那等于一键抹掉别人（或自己在别的设备）的改动。单独返回 remoteAhead，由调用方提供「拉取云端」。
+    if (decision === 'pull' && !input.overwrite) {
+      return {
+        status: 'remoteAhead',
+        fileId: remote?.fileId,
+        version: remote?.version,
+        message: '云端版本比本地新，可直接拉取云端（不会覆盖你的本地文件）',
+      };
+    }
+
+    // 两边都变了（真冲突）：先让用户确认覆盖
+    if (decision === 'conflict' && !input.overwrite) {
       return {
         status: 'conflict',
         fileId: remote?.fileId,
         version: remote?.version,
-        message: '云端已有该文档且内容不同，确认后会覆盖云端',
+        message: '本地与云端都改过，确认后会覆盖云端',
       };
     }
 

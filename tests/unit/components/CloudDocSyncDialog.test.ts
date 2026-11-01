@@ -155,6 +155,26 @@ describe('CloudDocSyncDialog 右键同步', () => {
     expect(wrapper.emitted('synced')).toBeUndefined();
   });
 
+  it('只有云端变了（remoteAhead）时给「拉取云端」，不给「覆盖云端」', async () => {
+    mocks.syncByPath.mockResolvedValueOnce({
+      status: 'remoteAhead',
+      message: '云端版本比本地新',
+    });
+    const wrapper = mountDialog();
+    await settle();
+    await wrapper.get('[data-testid="cloud-sync-dialog-category-trigger"]').trigger('click');
+    await settle();
+
+    await wrapper.get('[data-testid="cloud-sync-dialog-confirm"]').trigger('click');
+    await settle();
+
+    // 关键：出现「拉取云端」区块，且**不能**出现「覆盖云端」按钮（后者会抹掉别人的改动）
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-remote-ahead"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-pull-remote"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-conflict"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cloud-sync-dialog-overwrite"]').exists()).toBe(false);
+  });
+
   it('冲突时先确认覆盖，确认后 overwrite=true 再同步并 emit synced', async () => {
     mocks.syncByPath
       .mockResolvedValueOnce({ status: 'conflict', message: '云端已有该文档且内容不同' })

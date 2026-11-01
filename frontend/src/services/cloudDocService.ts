@@ -15,6 +15,7 @@ import {
   type CloudDocSpace,
   type CloudDocVersion,
 } from '@/lib/tauri';
+import { upgradeCloudAssetUrlsInMarkdown } from '@/services/cloudAssetService';
 
 export type CloudErrorKind =
   | 'unauthorized'
@@ -253,6 +254,14 @@ export async function findCloudDocByPath(path: string): Promise<CloudOutcome<Clo
   return { ok: true, data: null };
 }
 
+/**
+ * 取云端文档详情。
+ *
+ * 正文在这里统一做一次「图片直链协议归一化」：历史版本把图片直链写成了 `http://`，
+ * 而生产只对外提供 https（http 会 404 → 图片裂图）。
+ * 放在这个**唯一入口**上，所有打开路径（编辑器落位、树里覆盖/下载、跨工作区另存为）
+ * 都会自动拿到 https 版本，不需要每个调用方各自记得处理。
+ */
 export async function getCloudDoc(fileId: number): Promise<CloudOutcome<CloudDocDetail>> {
   if (!isTauriApp()) {
     return unsupportedOutcome<CloudDocDetail>();
@@ -260,6 +269,12 @@ export async function getCloudDoc(fileId: number): Promise<CloudOutcome<CloudDoc
 
   try {
     const detail = await cloudCommands.get(fileId);
+    if (detail && typeof detail.content === 'string' && detail.content) {
+      const normalized = upgradeCloudAssetUrlsInMarkdown(detail.content);
+      if (normalized !== detail.content) {
+        return { ok: true, data: { ...detail, content: normalized } };
+      }
+    }
     return { ok: true, data: detail };
   } catch (error) {
     return failureFromError<CloudDocDetail>(error);

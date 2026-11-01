@@ -330,8 +330,51 @@ describe('串行上传队列', () => {
     { workspaceName: 'ws', workspacePath: '/ws', ...options },
   );
 
-  it('成功后汇总成功数，并把分类透传给文本与二进制两条通道', async () => {
-    const summary = await run([textFile('a.md'), binaryFile('b.pdf')]);
+  it('子目录结构会被保留在云端路径里（不再拍平成单层）', async () => {
+    // 模拟收集阶段给出的层级相对路径：a/b/c.md
+    const nested: FolderFileEntry = {
+      path: '/ws/docs/a/b/c.md',
+      relativePath: 'a/b/c.md',
+      name: 'c.md',
+      size: 1024,
+      kind: 'text',
+    };
+
+    await run([nested]);
+
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: '/ws/docs/a/b/c.md',
+        cloudPath: 'tau/ws/a/b/c.md',
+      }),
+    );
+  });
+
+  it('上传根目录不是当前工作区时，仍用相对路径拼出层级（此前会退化成只剩文件名）', async () => {
+    // 根目录在 /other 下，不在工作区 /ws 内：按旧逻辑会退化成 'tau/ws/c.md'
+    const outsideRoot: FolderFileEntry = {
+      path: '/other/proj/x/y.md',
+      relativePath: 'x/y.md',
+      name: 'y.md',
+      size: 1024,
+      kind: 'text',
+    };
+
+    await runFolderUpload(
+      { rootPath: '/other/proj', folderName: 'proj', files: [outsideRoot] },
+      {},
+      { workspaceName: 'ws', workspacePath: '/ws' },
+    );
+
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: '/other/proj/x/y.md',
+        cloudPath: 'tau/ws/x/y.md',
+      }),
+    );
+  });
+
+  it('成功后汇总成功数，并把分类透传给文本与二进制两条通道', async () => {    const summary = await run([textFile('a.md'), binaryFile('b.pdf')]);
 
     expect(summary.total).toBe(2);
     expect(summary.uploaded).toBe(2);
@@ -339,16 +382,17 @@ describe('串行上传队列', () => {
     expect(summary.aborted).toBe(false);
     expect(summary.category.categoryId).toBe('1001');
 
-    // categoryId 只在有真实分类时透传，避免误触发「只改分类」的覆盖更新
+    // categoryId 只在有真实分类时透传，避免误触发「只改分类」的覆盖更新；
+    // 同时必须显式带上 cloudPath（保住子目录结构，不再靠「相对当前工作区」反推）
     expect(mocks.syncDocumentByPath).toHaveBeenCalledWith({
       filePath: '/ws/docs/a.md',
+      cloudPath: 'tau/ws/a.md',
       category: 'docs',
       categoryId: '1001',
     });
-    expect(mocks.resolveCloudDocPathForFile).toHaveBeenCalledWith('/ws/docs/b.pdf', 'ws', '/ws');
     expect(mocks.uploadBinaryDocument).toHaveBeenCalledWith(
       expect.objectContaining({
-        cloudPath: 'tau/ws/docs/b.pdf',
+        cloudPath: 'tau/ws/b.pdf',
         localPath: '/ws/docs/b.pdf',
         title: 'b.pdf',
         category: 'docs',

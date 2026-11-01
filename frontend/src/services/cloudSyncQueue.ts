@@ -127,7 +127,11 @@ function persistItems(items: CloudQueueItem[]): void {
 }
 
 export interface CloudQueueRunResult {
-  status: 'synced' | 'skipped' | 'conflict' | 'failed';
+  /**
+   * `remoteAhead`：本地没改、云端更新了。对队列来说与 `skipped` 同义（不是错误、不重试），
+   * 但保留独立取值，便于上层展示「拉取云端」而不是「确认覆盖」。
+   */
+  status: 'synced' | 'skipped' | 'conflict' | 'remoteAhead' | 'failed';
   message?: string;
 }
 

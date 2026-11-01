@@ -87,7 +87,7 @@ describe('StatusBar.vue', () => {
       expect(wrapper.text()).toContain('行 5, 列 10')
     })
 
-    it('应显示编码', () => {
+    it('应显示编码（只读展示 UTF-8，不再提供会误导的编码下拉）', () => {
       const wrapper = mount(StatusBar, {
         global: { stubs: { teleport: true } },
         props: {
@@ -97,26 +97,11 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      const select = wrapper.find('[data-testid="encoding-select"]')
-      expect(select.exists()).toBe(true)
-      expect(select.attributes('data-value')).toBe('utf-8')
-    })
-
-    it('应支持自定义编码并大写显示', async () => {
-      const wrapper = mount(StatusBar, {
-        global: { stubs: { teleport: true } },
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          encoding: 'gbk',
-          language: 'plaintext',
-        },
-      })
-
-      const select = wrapper.find('[data-testid="encoding-select"]')
-      expect(select.attributes('data-value')).toBe('gbk')
-
-      await select.trigger('click')
-      expect(wrapper.get('[data-testid="encoding-select-option-gbk"]').text()).toBe('GBK')
+      const readonly = wrapper.find('[data-testid="encoding-readonly"]')
+      expect(readonly.exists()).toBe(true)
+      expect(readonly.text()).toBe('UTF-8')
+      // 关键：不能有可选下拉，避免用户以为切换编码真的会转码
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(false)
     })
 
     it('应显示行数', () => {
@@ -296,7 +281,7 @@ describe('StatusBar.vue', () => {
     })
   })
 
-  describe('编码选择', () => {
+  describe('编码展示（只读）', () => {
     const mountEncodingBar = (encoding = 'utf-8') =>
       mount(StatusBar, {
         global: { stubs: { teleport: true } },
@@ -306,19 +291,50 @@ describe('StatusBar.vue', () => {
         },
       })
 
-    it('应显示编码选择下拉框', () => {
+    it('不再渲染可选下拉，只展示 UTF-8（避免「选了 GBK 却不转码」的误导）', () => {
       const wrapper = mountEncodingBar()
-      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="encoding-readonly"]').text()).toBe('UTF-8')
     })
 
-    it('切换编码应发射 encoding-change 事件', async () => {
-      const wrapper = mountEncodingBar()
-      const select = wrapper.get('[data-testid="encoding-select"]')
-      await select.trigger('click')
-      await wrapper.get('[data-testid="encoding-select-option-gb18030"]').trigger('click')
+    it('即使传入其它编码值，也只展示 UTF-8（读写链路固定 UTF-8）', () => {
+      const wrapper = mountEncodingBar('gbk')
+      expect(wrapper.get('[data-testid="encoding-readonly"]').text()).toBe('UTF-8')
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(false)
+    })
+  })
 
-      expect(wrapper.emitted('encoding-change')).toBeTruthy()
-      expect(wrapper.emitted('encoding-change')![0]).toEqual(['gb18030'])
+  describe('云端同步状态', () => {
+    const mountWithCloudState = (
+      cloudSyncState: 'synced' | 'saving' | 'failed' | 'offline' | null,
+      cloudSyncError: string | null = null,
+    ) =>
+      mount(StatusBar, {
+        global: { stubs: { teleport: true } },
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+          cloudSyncState,
+          cloudSyncError,
+        },
+      })
+
+    it('失败时必须渲染可见徽标（本地已保存但云端没落地，不能静默）', () => {
+      const wrapper = mountWithCloudState('failed', '令牌已过期')
+      const badge = wrapper.get('[data-testid="cloud-sync-failed"]')
+      expect(badge.exists()).toBe(true)
+      expect(badge.attributes('title')).toBe('令牌已过期')
+    })
+
+    it('点击失败徽标应请求重试', async () => {
+      const wrapper = mountWithCloudState('failed')
+      await wrapper.get('[data-testid="cloud-sync-failed"]').trigger('click')
+      expect(wrapper.emitted('retry-cloud-sync')).toBeTruthy()
+    })
+
+    it('已同步/未登录时不显示失败徽标', () => {
+      expect(mountWithCloudState('synced').find('[data-testid="cloud-sync-failed"]').exists()).toBe(false)
+      expect(mountWithCloudState(null).find('[data-testid="cloud-sync-failed"]').exists()).toBe(false)
+      expect(mountWithCloudState('offline').find('[data-testid="cloud-sync-failed"]').exists()).toBe(false)
     })
   })
 
@@ -429,9 +445,8 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      // 不应显示时间相关的文本
-      const statusValue = wrapper.find('.status-value')
-      expect(statusValue.exists()).toBe(false)
+      // 不应显示时间相关的文本（编码是只读文本，不算「时间」）
+      expect(wrapper.find('[data-testid="auto-save-status"]').exists()).toBe(false)
     })
   })
 
@@ -552,8 +567,7 @@ describe('StatusBar.vue', () => {
         props: {},
       })
 
-      const select = wrapper.find('[data-testid="encoding-select"]')
-      expect(select.attributes('data-value')).toBe('utf-8')
+      expect(wrapper.get('[data-testid="encoding-readonly"]').text()).toBe('UTF-8')
     })
 
     it('应使用默认语言', () => {

@@ -501,10 +501,74 @@ function resolveWorkspaceHint(options: RunFolderUploadOptions): { name: string |
   };
 }
 
+/** 云端路径根段与长度上限（与 cloudSyncService 的 toCloudDocPath 保持同一口径）。 */
+const FOLDER_CLOUD_PATH_ROOT = 'tau';
+const FOLDER_CLOUD_PATH_MAX_LENGTH = 512;
+
+/** 规范化一段相对路径：反斜杠转正斜杠、去控制字符、去空段与 `.`/`..`。 */
+function normalizeFolderRelative(raw: string): string {
+  return String(raw ?? '')
+    .replace(/[\u0000-\u001f]/g, '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
+    .join('/');
+}
+
+/**
+ * 整目录上传时算云端路径：**用收集阶段记下的相对路径**，保住子目录结构。
+ *
+ * 为什么不能沿用「相对当前工作区」的推导（`resolveCloudDocPathForFile`）：
+ * 上传的根目录不一定是当前工作区——用户可能把任意目录拖进来同步。
+ * 一旦文件不在工作区内，那条推导会退化成只用文件名，于是 `a/b/c.md` 全被拍平成 `c.md`，
+ * 云端看起来「子文件夹没被创建、所有文件堆在一层」。
+ *
+ * 云端本身没有目录实体，路径里的 `/` 就是唯一的结构表达，因此这里必须保留完整相对路径。
+ *
+ * 注意：这里刻意**本地实现**路径拼接，不 import cloudSyncService 的辅助函数——
+ * 单测对该模块用的是部分 mock，多引一个导出会让运行期拿到 undefined。
+ *
+ * @param rootPath 本次上传的根目录（仅用于兜底推导）
+ * @param folderName 根目录名（用作工作区分段，保证不同目录上传互不混杂）
+ */
+export function resolveFolderCloudPath(
+  file: Pick<FolderFileEntry, 'path' | 'relativePath' | 'name'>,
+  workspaceName: string | null | undefined,
+  rootPath: string | null | undefined,
+  folderName: string | null | undefined,
+): string {
+  const workspaceSegment = normalizeFolderRelative(workspaceName ?? '');
+  const segments = [FOLDER_CLOUD_PATH_ROOT];
+  if (workspaceSegment) {
+    segments.push(workspaceSegment);
+  }
+
+  const relative = normalizeFolderRelative(file.relativePath ?? '');
+  if (relative) {
+    // 有相对路径 ⇒ 直接用它（含子目录结构）
+    segments.push(relative);
+  } else if (rootPath) {
+    // 兜底：收集阶段没给相对路径时，按根目录反推一次
+    const derived = resolveCloudDocPathForFile(file.path, workspaceSegment || folderName, rootPath);
+    if (derived) {
+      return derived;
+    }
+    segments.push(normalizeFolderRelative(file.name));
+  } else {
+    segments.push(normalizeFolderRelative(file.name));
+  }
+
+  const joined = segments.filter((segment) => segment.length > 0).join('/');
+  return joined.length > FOLDER_CLOUD_PATH_MAX_LENGTH
+    ? joined.slice(0, FOLDER_CLOUD_PATH_MAX_LENGTH)
+    : joined;
+}
+
 /**
  * 串行上传收集到的文件。
  *
- * - 文本：`syncDocumentByPath({ filePath, category, categoryId })`，conflict ⇒「已存在，未覆盖」；
+ * - 文本：`syncDocumentByPath({ filePath, cloudPath, category, categoryId })`，conflict ⇒「已存在，未覆盖」；
  * - 二进制：`uploadBinaryDocument({ cloudPath, localPath, title, category })`；
  * - `quota` / `unauthorized` 立即中止队列（继续只会把配额与登录问题放大）；
  * - 单条失败不影响后续条目，汇总里逐条可查。
@@ -578,6 +642,9 @@ export async function runFolderUpload(
   const runText = async (file: FolderFileEntry): Promise<{ item: FolderUploadResultItem; abortKind: CloudErrorKind | null }> => {
     const result = await syncDocumentByPath({
       filePath: file.path,
+      // 关键：显式传云端路径。整目录上传的根目录不一定是当前工作区，
+      // 若让下游按「相对当前工作区」反推，跨目录上传会退化成只用文件名，子目录结构全丢。
+      cloudPath: resolveFolderCloudPath(file, workspace.name, input.rootPath, input.folderName),
       category: category.category,
       // categoryId 为 null 时不传，避免把「只改分类」的判定误触发成一次覆盖更新
       ...(category.categoryId ? { categoryId: category.categoryId } : {}),
@@ -628,7 +695,7 @@ export async function runFolderUpload(
   };
 
   const runBinary = async (file: FolderFileEntry): Promise<{ item: FolderUploadResultItem; abortKind: CloudErrorKind | null }> => {
-    const cloudPath = resolveCloudDocPathForFile(file.path, workspace.name, workspace.path);
+    const cloudPath = resolveFolderCloudPath(file, workspace.name, input.rootPath, input.folderName);
     const outcome = await uploadBinaryDocument(
       {
         cloudPath,

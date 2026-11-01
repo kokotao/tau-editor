@@ -1289,13 +1289,25 @@ const handleCloudSaveEvent = (event: SaveControllerEvent): void => {
         cloudVersion: event.version,
         cloudContentHash: event.contentHash,
         lastSyncedAt: event.at,
+        cloudSyncState: 'synced',
+        cloudSyncError: null,
       });
     }
     return;
   }
 
   if (event.type !== 'conflict') {
-    // failed 只是这一次没落地（网络/配额），本地文件已保存；每 2.5s 弹一次会变成骚扰
+    // failed 只是这一次没落地（网络/配额/令牌过期），本地文件已保存。
+    // 不弹 toast（每 2.5s 一次会变骚扰），但**必须**在标签与状态栏留下可见状态，
+    // 否则用户以为已入库，关掉文档就真的丢了。
+    const failedTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
+    if (failedTab) {
+      tabsStore.updateTab(failedTab.id, {
+        cloudSyncState: 'failed',
+        // skipped 事件没有 message 字段，这里只取 failed 的原因
+        cloudSyncError: event.type === 'failed' ? (event.message ?? null) : null,
+      });
+    }
     return;
   }
 
@@ -1674,6 +1686,20 @@ const handleCloudDocEditOpen = async (node: CloudDocTreeNode): Promise<void> => 
 
   cloudBrowserVisible.value = false;
   notificationStore.success(editOpenCopy.value.opened(target.title), editOpenCopy.value.openedHint);
+};
+
+/** 状态栏展示用的「当前标签」云端同步状态（失败必须可见）。 */
+const activeCloudSyncState = computed(() => activeTab.value?.cloudSyncState ?? null);
+const activeCloudSyncError = computed(() => activeTab.value?.cloudSyncError ?? null);
+
+/** 点状态栏「云端未同步」：立刻重试一次云端保存（不弹窗、失败仍走同一套状态回写）。 */
+const handleRetryCloudSync = () => {
+  const tab = activeTab.value;
+  if (!tab?.cloudFileId) {
+    return;
+  }
+  markLocalWritePending(tab.filePath);
+  void cloudAutoSave.triggerNow('manual');
 };
 
 const handleSave = async () => {
@@ -6150,9 +6176,12 @@ onUnmounted(() => {
         :word-count="wordCount"
         :auto-save-enabled="autoSaveEnabled"
         :last-save-time="lastSaveTime"
+        :cloud-sync-state="activeCloudSyncState"
+        :cloud-sync-error="activeCloudSyncError"
         @encoding-change="handleEncodingChange"
         @language-change="handleLanguageChange"
         @theme-change="handleThemeChange"
+        @retry-cloud-sync="handleRetryCloudSync"
       />
     </div>
 

@@ -25,15 +25,28 @@
           {{ formatLastSaveTime(lastSaveTime) }}
         </span>
       </div>
-      <div class="status-pill encoding-pill">
+      <!-- 云端同步状态：失败时必须可见（本地已保存但云端没落地），点击重试 -->
+      <button
+        v-if="cloudSyncState === 'failed'"
+        type="button"
+        class="status-capsule cloud-sync-capsule is-failed"
+        data-testid="cloud-sync-failed"
+        :title="cloudSyncError || copy.cloudSyncFailedTitle"
+        @click="emit('retry-cloud-sync')"
+      >
+        <span class="status-icon" aria-hidden="true">⚠</span>
+        <span class="status-label">{{ copy.cloudSyncFailedTitle }}</span>
+        <span class="status-value">{{ copy.cloudSyncRetry }}</span>
+      </button>
+      <div v-else-if="cloudSyncState === 'saving'" class="status-capsule cloud-sync-capsule">
+        <span class="status-label" data-testid="cloud-sync-saving">{{ copy.cloudSyncSaving }}</span>
+      </div>
+      <!-- 编码：读写链路目前固定 UTF-8，没有真正的「按其它编码解码/重编码」实现。
+           之前这里是个 8 项下拉（gbk/utf-16le…），选了只改状态栏文字、文件仍按 UTF-8 处理，
+           会让人以为已经转码（信任它就会把 GBK 文件存坏）。因此改为如实展示，不可选。 -->
+      <div class="status-pill encoding-pill" :title="copy.encodingTitle">
         <span class="pill-prefix">{{ copy.encoding }}</span>
-        <StatusBarSelect
-          test-id="encoding-select"
-          :value="normalizedEncoding"
-          :options="encodingSelectOptions"
-          :title="copy.encodingTitle"
-          @change="emit('encoding-change', $event)"
-        />
+        <span class="status-value encoding-readonly" data-testid="encoding-readonly">UTF-8</span>
       </div>
     </div>
 
@@ -136,6 +149,12 @@ interface StatusBarProps {
   wordCount?: number;
   autoSaveEnabled?: boolean;
   lastSaveTime?: Date;
+  /**
+   * 云文档同步状态。`failed` 时必须可见（本地已保存但云端没落地），
+   * 否则用户会以为已经入库、关掉文档即丢。
+   */
+  cloudSyncState?: 'synced' | 'saving' | 'failed' | 'offline' | null;
+  cloudSyncError?: string | null;
 }
 
 const props = withDefaults(defineProps<StatusBarProps>(), {
@@ -146,12 +165,16 @@ const props = withDefaults(defineProps<StatusBarProps>(), {
   wordCount: 0,
   autoSaveEnabled: true,
   lastSaveTime: undefined,
+  cloudSyncState: null,
+  cloudSyncError: null,
 });
 
 const emit = defineEmits<{
   'encoding-change': [encoding: string];
   'language-change': [language: string];
   'theme-change': [theme: string];
+  /** 点「同步失败」徽标时请求重试本次云端保存 */
+  'retry-cloud-sync': [];
 }>();
 
 const editorStore = useEditorStore();
@@ -477,6 +500,28 @@ const formatLastSaveTime = (date: Date) => {
   border-radius: var(--radius-sm);
   background: var(--surface-muted, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+}
+
+/* 云端同步失败：用警示色描边，保证在状态栏里能被一眼看到（本地已存但云端没落地） */
+.cloud-sync-capsule {
+  cursor: default;
+  font: inherit;
+}
+
+.cloud-sync-capsule.is-failed {
+  cursor: pointer;
+  color: var(--state-error, #ef4444);
+  background: color-mix(in srgb, var(--state-error, #ef4444) 12%, transparent);
+  border-color: color-mix(in srgb, var(--state-error, #ef4444) 45%, transparent);
+}
+
+.cloud-sync-capsule.is-failed:hover {
+  background: color-mix(in srgb, var(--state-error, #ef4444) 20%, transparent);
+}
+
+/* 编码为只读展示（当前读写固定 UTF-8，不再给会误导的下拉） */
+.encoding-readonly {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 .status-pill {

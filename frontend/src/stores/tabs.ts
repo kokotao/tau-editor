@@ -39,6 +39,16 @@ export interface Tab {
   cloudContentHash?: string | null;
   /** 最近一次云同步完成时间（毫秒时间戳） */
   lastSyncedAt?: number | null;
+  /**
+   * 云端同步状态（用于在标签/状态栏如实展示，不靠弹窗骚扰）：
+   * - `synced`：与云端一致；
+   * - `saving`：正在上传；
+   * - `failed`：这次没落地（网络/配额/令牌过期），**本地已保存但云端没有**；
+   * - `offline`：未登录或云同步未开通。
+   */
+  cloudSyncState?: 'synced' | 'saving' | 'failed' | 'offline' | null;
+  /** 最近一次云同步失败原因（用于 hover 提示） */
+  cloudSyncError?: string | null;
 }
 
 /** 临时工作区另存后标签重定位的结果 */

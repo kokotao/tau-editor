@@ -92,6 +92,33 @@
           <p class="cloud-sync-dialog__hint">{{ copy.newCategoryHint }}</p>
         </section>
 
+        <!-- 只有云端变了（本地没动）：给「拉取云端」，不给「覆盖云端」——
+             后者会把别人（或自己在别的设备）的改动一键抹掉。 -->
+        <div v-if="remoteAhead" class="cloud-sync-dialog__conflict" data-testid="cloud-sync-dialog-remote-ahead">
+          <p class="cloud-sync-dialog__conflict-title">{{ copy.remoteAheadTitle }}</p>
+          <p class="cloud-sync-dialog__hint">{{ copy.remoteAheadHint }}</p>
+          <div class="cloud-sync-dialog__actions">
+            <button
+              type="button"
+              class="cloud-sync-dialog__button"
+              data-testid="cloud-sync-dialog-pull-remote"
+              :disabled="busy"
+              @click="pullRemote()"
+            >
+              {{ copy.pullRemote }}
+            </button>
+            <button
+              type="button"
+              class="cloud-sync-dialog__button"
+              data-testid="cloud-sync-dialog-remote-ahead-cancel"
+              :disabled="busy"
+              @click="requestClose"
+            >
+              {{ copy.cancel }}
+            </button>
+          </div>
+        </div>
+
         <div v-if="needsOverwrite" class="cloud-sync-dialog__conflict" data-testid="cloud-sync-dialog-conflict">
           <p class="cloud-sync-dialog__conflict-title">{{ copy.conflictTitle }}</p>
           <p class="cloud-sync-dialog__hint">{{ copy.conflictHint }}</p>
@@ -170,7 +197,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { fetchManagedCategories } from '@/services/cloudCategoryService';
-import { syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncService';
+import { pullCloudDocumentIntoLocal, syncDocumentByPath, type CloudSyncResult } from '@/services/cloudSyncService';
 import type { CloudAssetSyncSummary } from '@/services/cloudAssetService';
 import { getCloudDocSyncI18n } from '@/i18n/ui';
 import { isCategoryPath } from '@/lib/categoryPath';
@@ -229,6 +256,8 @@ const busy = ref(false);
 const notice = ref('');
 const errorText = ref('');
 const needsOverwrite = ref(false);
+/** 「只有云端变了」：单独一种状态，出口是「拉取云端」而不是「覆盖云端」 */
+const remoteAhead = ref(false);
 const noticeTone = ref<StatusNoticeTone>('info');
 const lastAssets = ref<CloudAssetSyncSummary | null>(null);
 
@@ -454,6 +483,47 @@ const resolveCategory = (): { category: string | null; categoryId: string | null
   };
 };
 
+/**
+ * 「拉取云端」：本地没改、云端更新了时的正确出口。
+ *
+ * 不会覆盖云端，只会把云端内容取到本地；如果本地有未保存修改，会先要求确认
+ * （`overwriteDirty`），绝不在用户不知情时丢弃本地编辑。
+ */
+async function pullRemote(): Promise<void> {
+  if (busy.value) {
+    return;
+  }
+  busy.value = true;
+  errorText.value = '';
+  notice.value = '';
+  try {
+    const result = await pullCloudDocumentIntoLocal(props.filePath ?? '', { overwriteDirty: true });
+    if (result.status === 'skipped' && result.needsDirtyConfirm) {
+      noticeTone.value = 'warning';
+      notice.value = result.message ?? copy.value.remoteAheadHint;
+      return;
+    }
+    lastAssets.value = null;
+    if (result.status === 'synced') {
+      remoteAhead.value = false;
+      noticeTone.value = 'success';
+      notice.value = result.message || copy.value.pullRemoteDone;
+      emit('close');
+      return;
+    }
+    if (result.status === 'failed') {
+      errorText.value = copy.value.failed(result.message ?? '');
+      return;
+    }
+    noticeTone.value = 'info';
+    notice.value = result.message || copy.value.pullRemoteDone;
+  } catch (pullError) {
+    errorText.value = copy.value.failed(String((pullError as Error)?.message ?? pullError));
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function confirm(overwrite: boolean): Promise<void> {
   const filePath = props.filePath;
   if (!filePath || busy.value) {
@@ -484,7 +554,16 @@ async function confirm(overwrite: boolean): Promise<void> {
     });
 
     lastAssets.value = result.assets ?? null;
+    if (result.status === 'remoteAhead') {
+      // 只有云端变了：给「拉取云端」，不提供「覆盖云端」
+      needsOverwrite.value = false;
+      remoteAhead.value = true;
+      noticeTone.value = 'warning';
+      notice.value = result.message ?? copy.value.remoteAheadHint;
+      return;
+    }
     if (result.status === 'conflict') {
+      remoteAhead.value = false;
       needsOverwrite.value = true;
       noticeTone.value = 'warning';
       notice.value = result.message ?? copy.value.conflictHint;
