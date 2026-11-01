@@ -1234,6 +1234,9 @@ pub struct CloudAssetInfo {
     pub size: i64,
     #[serde(default)]
     pub content_hash: Option<String>,
+    /// 图片签名直链（匿名可读，直接写进 Markdown 由任何端加载；旧后端可能不返回）
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 

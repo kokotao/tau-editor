@@ -16,9 +16,12 @@ import {
   isSupportedImageName,
 } from '@/services/cloudAssetService';
 import {
+  buildMarkdownImageSnippet,
+  cloudAssetUrlOf,
   decideCloudImageUpload,
   joinAssetAbsolutePath,
   performCloudImageUpload,
+  resolveCloudAssetUrls,
   uploadMarkdownImageToCloud,
 } from '@/services/markdownImagePasteService';
 
@@ -121,8 +124,18 @@ describe('performCloudImageUpload', () => {
       decideCloudImageUpload(CLOUD_DOC),
       upload,
     );
-    expect(result).toEqual({ ok: true });
+    // 旧后端不返回 url → url 为 null，调用方回退相对路径
+    expect(result).toEqual({ ok: true, url: null });
     expect(upload).toHaveBeenCalledWith(9001, 'assets/pasted-image.png', '/ws/notes/assets/pasted-image.png');
+  });
+
+  it('上传成功且后端返回 url：透传签名直链', async () => {
+    const upload = vi.fn().mockResolvedValue({ assetId: 1, url: 'https://note.lizipro.cn/lizi/miniProgram/cloud/file/1?sig=t1.x.y' });
+    const result = await performCloudImageUpload(decideCloudImageUpload(CLOUD_DOC), upload);
+    expect(result).toEqual({
+      ok: true,
+      url: 'https://note.lizipro.cn/lizi/miniProgram/cloud/file/1?sig=t1.x.y',
+    });
   });
 
   it('上传失败：返回可读原因且不抛出', async () => {
@@ -170,5 +183,56 @@ describe('uploadMarkdownImageToCloud（完整链路）', () => {
     expect(outcome.decision).toEqual({ action: 'skip', reason: 'unsupported-extension' });
     expect(outcome.uploaded).toBe(false);
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('云文档 + 后端返回直链：链路透出 url 供调用方写 Markdown', async () => {
+    const url = 'https://note.lizipro.cn/lizi/miniProgram/cloud/file/77?sig=t1.2108861396.abc';
+    const upload = vi.fn().mockResolvedValue({ assetId: 77, url });
+    const outcome = await uploadMarkdownImageToCloud(CLOUD_DOC, upload);
+    expect(outcome.uploaded).toBe(true);
+    expect(outcome.url).toBe(url);
+  });
+});
+
+describe('cloudAssetUrlOf', () => {
+  it('取出非空 url，空串/空白/null 一律返回 null', () => {
+    expect(cloudAssetUrlOf({ url: 'https://x/a.png' })).toBe('https://x/a.png');
+    expect(cloudAssetUrlOf({ url: '  https://x/a.png  ' })).toBe('https://x/a.png');
+    expect(cloudAssetUrlOf({ url: '' })).toBeNull();
+    expect(cloudAssetUrlOf({ url: '   ' })).toBeNull();
+    expect(cloudAssetUrlOf({})).toBeNull();
+    expect(cloudAssetUrlOf(null)).toBeNull();
+    expect(cloudAssetUrlOf(undefined)).toBeNull();
+  });
+});
+
+describe('buildMarkdownImageSnippet', () => {
+  it('用直链生成标准 Markdown 图片片段', () => {
+    expect(buildMarkdownImageSnippet('https://x/a.png', 'a.png')).toBe('![a.png](https://x/a.png)');
+  });
+
+  it('alt 里的方括号被剔除，空 alt 回退 image', () => {
+    expect(buildMarkdownImageSnippet('https://x/a.png', '图[1].png')).toBe('![图1.png](https://x/a.png)');
+    expect(buildMarkdownImageSnippet('https://x/a.png', '   ')).toBe('![image](https://x/a.png)');
+  });
+});
+
+describe('resolveCloudAssetUrls', () => {
+  it('把 relPath 映射到签名直链，跳过没有 url 的项', () => {
+    const mapping = resolveCloudAssetUrls([
+      { relPath: 'assets/a.png', url: 'https://x/a.png' },
+      { relPath: 'assets/b.png', url: '' },
+      { relPath: '', url: 'https://x/c.png' },
+      { relPath: 'assets/c.png', url: null },
+    ]);
+    expect(mapping.size).toBe(1);
+    expect(mapping.get('assets/a.png')).toBe('https://x/a.png');
+    expect(mapping.has('assets/b.png')).toBe(false);
+  });
+
+  it('空输入返回空映射', () => {
+    expect(resolveCloudAssetUrls(null).size).toBe(0);
+    expect(resolveCloudAssetUrls(undefined).size).toBe(0);
+    expect(resolveCloudAssetUrls([]).size).toBe(0);
   });
 });

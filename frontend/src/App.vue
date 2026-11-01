@@ -93,6 +93,7 @@ import {
 import type { MarkdownLinkStatus, WorkspaceTaskResponse } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
+  buildMarkdownImageSnippet,
   decideCloudImageUpload,
   joinAssetAbsolutePath,
   performCloudImageUpload,
@@ -1726,14 +1727,20 @@ const describeCloudImageSkipReason = (reason: CloudImageUploadSkipReason): strin
   }
 };
 
+/** 取 Markdown 图片的替代文本（用文件名，避免把整条路径塞进 alt）。 */
+const markdownImageAltOf = (relativePath: string): string => {
+  const segments = String(relativePath ?? '').split('/');
+  return segments[segments.length - 1] || 'image';
+};
+
 /**
- * 云文档粘贴/导入图片后立即上传云端（方案 A：Markdown 仍保留相对路径）。
+ * 云文档粘贴/导入图片后立即上传云端，并优先把**签名直链**写进 Markdown。
  *
- * 返回 true 表示已按「云文档」处理（调用方不要再弹默认的「图片已插入」提示）；
- * 返回 false 表示当前不是云文档，保持原有纯本地行为。
+ * 返回 `handled=false` 表示当前不是云文档（调用方保持原有纯本地行为）；
+ * `handled=true` 且 `url` 非空表示已拿到匿名直链，Markdown 应写直链；
+ * `url` 为空（旧后端未返回 / 上传失败 / 预检跳过）时回退相对路径，图片仍已插入且本地可预览。
  *
- * 上传失败/预检跳过都只提示、不阻断插入：图片已经插进编辑器且本地可预览，
- * 后续仍可用「同步至云端」兜底重试。
+ * 上传失败/预检跳过都只提示、不阻断插入，后续仍可用「同步至云端」兜底重试。
  */
 const syncInsertedImageToCloud = async (
   cloudFileId: number | null | undefined,
@@ -1743,9 +1750,9 @@ const syncInsertedImageToCloud = async (
     rootPath?: string | null;
     fileName?: string | null;
   },
-): Promise<boolean> => {
+): Promise<{ handled: boolean; url: string | null }> => {
   if (cloudFileId == null) {
-    return false;
+    return { handled: false, url: null };
   }
 
   const decision = decideCloudImageUpload({
@@ -1758,34 +1765,34 @@ const syncInsertedImageToCloud = async (
 
   if (decision.action === 'skip') {
     if (decision.reason === 'no-cloud-doc') {
-      return false;
+      return { handled: false, url: null };
     }
     notificationStore.warning(
       appText.value.markdownImageCloudUploadSkippedTitle,
       appText.value.markdownImageCloudUploadSkippedHint(describeCloudImageSkipReason(decision.reason)),
     );
-    return true;
+    return { handled: true, url: null };
   }
 
   const uploadKey = `${decision.cloudFileId}:${decision.relativePath}`;
   if (cloudImageUploadInFlight.has(uploadKey)) {
-    return true;
+    return { handled: true, url: null };
   }
   cloudImageUploadInFlight.add(uploadKey);
   try {
     const result = await performCloudImageUpload(decision);
     if (result.ok) {
       notificationStore.success(appText.value.markdownImageCloudUploaded, decision.relativePath);
-    } else {
-      notificationStore.warning(
-        appText.value.markdownImageCloudUploadFailedTitle,
-        appText.value.markdownImageCloudUploadFailedHint(result.message),
-      );
+      return { handled: true, url: result.url };
     }
+    notificationStore.warning(
+      appText.value.markdownImageCloudUploadFailedTitle,
+      appText.value.markdownImageCloudUploadFailedHint(result.message),
+    );
   } finally {
     cloudImageUploadInFlight.delete(uploadKey);
   }
-  return true;
+  return { handled: true, url: null };
 };
 
 const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint8Array }) => {
@@ -1808,16 +1815,20 @@ const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint
       payload.fileName,
       payload.bytes,
     );
-    editorCoreRef.value?.insertText(result.markdownSnippet);
-    // 云文档：插入后立即把这张图传到云端，避免同步正文后云端裂图。
+    // 云文档：先上传拿到签名直链，再把直链写进 Markdown（而不是本地相对路径），
+    // 这样编辑预览、个人中心、网页、小程序都能直接加载。
     // 注意 assets 目录在「文档同级」，绝对路径要按文档所在目录拼（不是工作区根）。
     const documentDir = getParentFsPath(documentPath) || location.rootPath;
-    const handledByCloud = await syncInsertedImageToCloud(tab.cloudFileId, {
+    const cloud = await syncInsertedImageToCloud(tab.cloudFileId, {
       relativePath: result.relativePath,
       bytes: result.bytes,
       rootPath: documentDir,
     });
-    if (!handledByCloud) {
+    const snippet = cloud.url
+      ? buildMarkdownImageSnippet(cloud.url, markdownImageAltOf(result.relativePath))
+      : result.markdownSnippet;
+    editorCoreRef.value?.insertText(snippet);
+    if (!cloud.handled) {
       notificationStore.success('图片已插入', result.relativePath);
     }
   } catch (error: any) {
@@ -2473,16 +2484,19 @@ const handleInsertMarkdownImage = async () => {
     syncActiveEditorContent();
     markdownAssetImporting.value = true;
     const result = await importMarkdownAsset(workspaceId, documentRelativePath, sourcePath);
-    editorCoreRef.value?.insertText(result.markdownSnippet);
-    // 云文档：插入后立即把这张图传到云端，避免同步正文后云端裂图。
+    // 云文档：先上传拿到签名直链，再把直链写进 Markdown（避免本地路径导致各端裂图）。
     // assets 目录在「文档同级」，因此用文档所在目录 + 相对路径拼绝对路径。
     const documentDir = getParentFsPath(tab.filePath ?? '') || workspaceStore.currentWorkspacePath;
-    const handledByCloud = await syncInsertedImageToCloud(tab.cloudFileId, {
+    const cloud = await syncInsertedImageToCloud(tab.cloudFileId, {
       relativePath: result.relativePath,
       bytes: result.bytes,
       rootPath: documentDir,
     });
-    if (!handledByCloud) {
+    const snippet = cloud.url
+      ? buildMarkdownImageSnippet(cloud.url, markdownImageAltOf(result.relativePath))
+      : result.markdownSnippet;
+    editorCoreRef.value?.insertText(snippet);
+    if (!cloud.handled) {
       notificationStore.success(
         result.reusedExisting ? '已复用资产目录中的图片' : '图片已导入',
         result.relativePath,

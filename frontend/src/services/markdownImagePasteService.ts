@@ -61,7 +61,56 @@ export type CloudAssetUploadFn = (
   cloudFileId: number,
   relativePath: string,
   absolutePath: string,
-) => Promise<unknown>;
+) => Promise<CloudAssetUploadResult | null>;
+
+/**
+ * 上传接口返回的最小结构：本模块只用 `url`（assetId/relPath 等由别处消费）。
+ *
+ * 后端（v0.6.33+）在上传响应里下发 `url` = 图片签名直链，匿名可读，
+ * 因此可以把它直接写进 Markdown 让编辑预览、个人中心、网页、小程序都显示；
+ * 旧后端不返回该字段时回退相对路径。
+ */
+export interface CloudAssetUploadResult {
+  url?: string | null;
+}
+
+/** 取上传结果里的直链（空串/空白视为没有）。 */
+export function cloudAssetUrlOf(result: CloudAssetUploadResult | null | undefined): string | null {
+  const url = String(result?.url ?? '').trim();
+  return url || null;
+}
+
+/**
+ * 生成 Markdown 图片片段。
+ *
+ * @param target 图片地址（签名直链或相对路径）
+ * @param alt    替代文本（通常取文件名）
+ */
+export function buildMarkdownImageSnippet(target: string, alt: string): string {
+  const safeAlt = String(alt ?? '').replace(/[[\]]/g, '').trim() || 'image';
+  return `![${safeAlt}](${String(target ?? '').trim()})`;
+}
+
+/**
+ * 把附件列表转成 `relPath -> 签名直链` 映射（只收 url 非空的项）。
+ *
+ * 用途：云文档里已存在的相对路径图片（`assets/x.png`）本地没有对应文件时预览会裂图，
+ * 渲染前可用该映射把相对路径替换成匿名直链。
+ */
+export function resolveCloudAssetUrls(
+  assets: ReadonlyArray<{ relPath?: string | null; url?: string | null }> | null | undefined,
+): Map<string, string> {
+  const mapping = new Map<string, string>();
+  if (!assets) return mapping;
+  for (const asset of assets) {
+    const relPath = String(asset?.relPath ?? '').trim();
+    const url = String(asset?.url ?? '').trim();
+    if (relPath && url) {
+      mapping.set(relPath, url);
+    }
+  }
+  return mapping;
+}
 
 /**
  * 用工作区根目录 + 资产相对路径拼绝对路径（统一 `/` 分隔符）。
@@ -133,13 +182,13 @@ const defaultUpload: CloudAssetUploadFn = (cloudFileId, relativePath, absolutePa
 export async function performCloudImageUpload(
   decision: CloudImageUploadDecision,
   upload: CloudAssetUploadFn = defaultUpload,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; url: string | null } | { ok: false; message: string }> {
   if (decision.action === 'skip') {
     return { ok: false, message: '当前图片未满足云端上传条件' };
   }
   try {
-    await upload(decision.cloudFileId, decision.relativePath, decision.absolutePath);
-    return { ok: true };
+    const uploaded = await upload(decision.cloudFileId, decision.relativePath, decision.absolutePath);
+    return { ok: true, url: cloudAssetUrlOf(uploaded) };
   } catch (error) {
     return { ok: false, message: normalizeCloudError(error).message };
   }
@@ -148,7 +197,8 @@ export async function performCloudImageUpload(
 /**
  * 一步到位：决策 + 上传（供「不需要自己维护互斥标记」的调用方使用）。
  *
- * 返回里带 `decision`，调用方据此区分「本地文档（保持原行为）」「跳过」「上传成功/失败」。
+ * 返回里带 `decision` 与 `url`：调用方据此区分「本地文档（保持原行为）」「跳过」「上传成功/失败」，
+ * 并在 `url` 非空时把 Markdown 片段写成签名直链。
  */
 export async function uploadMarkdownImageToCloud(
   input: CloudImageUploadInput,
@@ -156,14 +206,15 @@ export async function uploadMarkdownImageToCloud(
 ): Promise<{
   decision: CloudImageUploadDecision;
   uploaded: boolean;
+  url: string | null;
   failureMessage?: string;
 }> {
   const decision = decideCloudImageUpload(input);
   if (decision.action === 'skip') {
-    return { decision, uploaded: false };
+    return { decision, uploaded: false, url: null };
   }
   const result = await performCloudImageUpload(decision, upload);
   return result.ok
-    ? { decision, uploaded: true }
-    : { decision, uploaded: false, failureMessage: result.message };
+    ? { decision, uploaded: true, url: result.url }
+    : { decision, uploaded: false, url: null, failureMessage: result.message };
 }

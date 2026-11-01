@@ -1407,6 +1407,11 @@ export interface CloudAssetInfo {
   mime?: string | null;
   size?: number;
   contentHash?: string | null;
+  /**
+   * 图片签名直链（匿名可读，直接写进 Markdown 由任何端加载）。
+   * 旧后端不返回该字段，因此为可选。
+   */
+  url?: string | null;
 }
 
 /** 本地图片探测结果（Rust `CloudAssetSourceInfo`）。 */

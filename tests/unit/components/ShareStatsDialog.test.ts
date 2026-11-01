@@ -24,19 +24,37 @@ vi.mock('@/services/cloudShareStatsService', async (importOriginal) => {
 
 import ShareStatsDialog from '@/components/editor/ShareStatsDialog.vue';
 
+/**
+ * 生成「相对今天」的日期串（YYYY-MM-DD）。
+ *
+ * 图表按 days 窗口过滤 daily，若这里写死日期，测试会在真实时间走过窗口后必然失败
+ * （曾出现：fixture 写 2026-10-25，到了 11-01 跑 7 天窗口就没有数据了）。因此统一用相对日期。
+ */
+const dayOffset = (offset: number): string => {
+  const date = new Date();
+  date.setDate(date.getDate() - offset);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/** 相对今天的 ISO 时间串（展示用，不参与窗口过滤）。 */
+const isoDaysAgo = (offset: number): string => `${dayOffset(offset)}T10:00:00Z`;
+
 const STATS = {
   shareUrl: 'https://note.lizipro.cn/s/tok',
   totalViews: 12,
   uniqueVisitors: 5,
-  firstViewAt: '2026-10-20T10:00:00Z',
-  lastViewAt: '2026-10-25T10:00:00Z',
+  firstViewAt: isoDaysAgo(6),
+  lastViewAt: isoDaysAgo(1),
   daily: [
-    { date: '2026-10-25', views: 4, visitors: 2 },
-    { date: '2026-10-24', views: 8, visitors: 3 },
+    { date: dayOffset(1), views: 4, visitors: 2 },
+    { date: dayOffset(2), views: 8, visitors: 3 },
   ],
   recent: [
     {
-      time: '2026-10-25T10:00:00Z',
+      time: isoDaysAgo(1),
       ipMasked: '1.2.*.*',
       fingerprintShort: 'ab12cd',
       ua: 'Mozilla/5.0 Chrome/120',
