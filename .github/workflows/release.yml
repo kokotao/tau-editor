@@ -36,7 +36,7 @@ jobs:
             bundlePath: frontend/src-tauri/target/universal-apple-darwin/release/bundle
             bundleRoot: src-tauri/target/universal-apple-darwin/release/bundle
           - platform: macos-aarch64
-            runner: macos-latest
+            runner: macos-15-intel
             os: macos
             args: "--target aarch64-apple-darwin"
             architecture: aarch64
