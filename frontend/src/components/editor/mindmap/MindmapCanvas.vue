@@ -40,6 +40,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   computeFitViewport,
   computeMindmapLayout,
+  measureTextWidth,
   type MindmapNodeBox,
   type MindmapSummaryBox,
   type MindmapViewport,
@@ -47,28 +48,39 @@ import {
 import {
   DEFAULT_MINDMAP_THEME_ID,
   isMindmapThemeId,
-  mindmapThemeCssVariables,
+  isRainbowTheme,
+  mindmapThemeCanvasVariables,
+  rainbowBranchColor,
   resolveMindmapTheme,
 } from '@/services/mindmapThemeService';
 import { mindmapMarkerBadge } from '@/stores/mindmap';
-import type { MindMapDocument, MindMapTopicStyle } from '@/types/mindmap';
+import { getMindmapLineOffsets, segmentMindmapTextLine } from '@/services/mindmap/mindmapTextStyleService';
+import type { MindMapDocument, MindMapTopicStyle, MindmapStyleTarget } from '@/types/mindmap';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   document: MindMapDocument | null;
   selectedId: string | null;
   viewport: MindmapViewport;
   editingId: string | null;
   editingText: string;
-}>();
+  canvasBackground?: string;
+  canvasGridVisible?: boolean;
+  canvasRootVisible?: boolean;
+}>(), {
+  canvasGridVisible: true,
+  canvasRootVisible: true,
+});
 
 const emit = defineEmits<{
   (event: 'select', id: string): void;
+  (event: 'style-target', target: MindmapStyleTarget): void;
   (event: 'toggle-collapse', id: string): void;
   (event: 'start-rename', id: string): void;
   (event: 'commit-rename', text: string): void;
   (event: 'cancel-rename'): void;
   (event: 'update:viewport', viewport: MindmapViewport): void;
   (event: 'update:editing-text', text: string): void;
+  (event: 'apply-text-style', payload: { start: number; end: number; color?: string | null; background?: string | null }): void;
   (event: 'move', draggedId: string, targetId: string): void;
   /** 右键：nodeId 为命中的节点，null 表示空白区域。 */
   (event: 'contextmenu', payload: {
@@ -78,8 +90,6 @@ const emit = defineEmits<{
   }): void;
 }>();
 
-/** 关系线箭头 marker 的固定 id（同页多画布共用同一份定义，不影响渲染）。 */
-const RELATION_ARROW_MARKER = 'url(#mm-relation-arrow)';
 /** 标记徽章边长（世界坐标，随画布缩放）。 */
 const MARKER_BADGE_SIZE = 14;
 /** 默认节点圆角；shape 未声明时使用，保持与既有观感一致。 */
@@ -90,10 +100,16 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3;
 /**
  * 「适配内容」的缩放上限。
- * 小图（如单节点）不应被放大到数倍，否则后续新增节点的坐标会跑到可视区外，
- * 反而看不到刚创建的内容。适配只负责「装得下」，放大交给缩放按钮。
+ * 小图允许轻微放大填满空白，但放大到数倍会让后续新增节点的坐标跑到可视区外；
+ * 因此上限控制在 1.15，更大的放大交给缩放按钮。
  */
-const FIT_MAX_ZOOM = 1;
+const FIT_MAX_ZOOM = 1.15;
+/**
+ * 「适配内容」的可读缩放下限。
+ * 大图若按「装得下」硬缩，字号会小到不可读（13px → 4px）；低于该值时停在 55%
+ * 并以根节点为中心，让用户靠平移查看其余内容。
+ */
+const FIT_MIN_READABLE = 0.55;
 const DEFAULT_SIZE = { width: 800, height: 600 };
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -102,6 +118,19 @@ const size = ref({ ...DEFAULT_SIZE });
 const layout = computed(() => (
   props.document ? computeMindmapLayout(props.document) : null
 ));
+
+const visibleNodes = computed(() => {
+  const current = layout.value?.nodes ?? [];
+  if (props.canvasRootVisible !== false) return current;
+  return current.filter((node) => node.id !== props.document?.rootTopicId);
+});
+
+const visibleEdges = computed(() => {
+  const current = layout.value?.edges ?? [];
+  if (props.canvasRootVisible !== false) return current;
+  const rootId = props.document?.rootTopicId;
+  return current.filter((edge) => edge.parentId !== rootId && edge.childId !== rootId);
+});
 
 const fontSize = computed(() => layout.value?.options.fontSize ?? 13);
 const lineHeight = computed(() => layout.value?.options.lineHeight ?? 20);
@@ -125,6 +154,8 @@ onMounted(() => {
     resizeObserver = new ResizeObserver(() => measureContainer());
     resizeObserver.observe(containerRef.value);
   }
+  document.addEventListener('pointerdown', onTextMenuOutsidePointerDown);
+  document.addEventListener('keydown', onTextMenuGlobalKeydown);
   void nextTick(() => fitView());
 });
 
@@ -133,7 +164,21 @@ onBeforeUnmount(() => {
   resizeObserver = null;
   endPan();
   endNodeDrag();
+  document.removeEventListener('pointerdown', onTextMenuOutsidePointerDown);
+  document.removeEventListener('keydown', onTextMenuGlobalKeydown);
 });
+
+function onTextMenuOutsidePointerDown(event: PointerEvent) {
+  if (!textContextMenu.value.visible) return;
+  if (event.target instanceof Element && event.target.closest('.mm-text-context-menu')) return;
+  closeTextContextMenu();
+}
+
+function onTextMenuGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !textContextMenu.value.visible) return;
+  event.preventDefault();
+  closeTextContextMenu();
+}
 
 /* --------------------------------- 视口操作 -------------------------------- */
 
@@ -184,15 +229,17 @@ function zoomOut() {
   );
 }
 
-/** 适配内容：整体缩放到容器内并居中。 */
+/** 适配内容：整体缩放到容器内并居中（大图保可读下限、以根节点为中心）。 */
 function fitView() {
   measureContainer();
   const currentLayout = layout.value;
   if (!currentLayout) return;
+  const rootNode = currentLayout.nodes.find((node) => node.side === 'root');
   applyViewport(computeFitViewport(currentLayout.bounds, size.value, 48, {
     min: MIN_ZOOM,
     max: FIT_MAX_ZOOM,
-  }));
+    readableMin: FIT_MIN_READABLE,
+  }, rootNode ? { x: rootNode.x, y: rootNode.y } : undefined));
 }
 
 /** 重置视口：保持 100% 缩放并让内容居中。 */
@@ -211,7 +258,102 @@ function resetView() {
   });
 }
 
-defineExpose({ fitView, zoomIn, zoomOut, resetView });
+function focusTopic(id: string) {
+  const node = layout.value?.nodes.find((item) => item.id === id);
+  if (!node) return;
+  measureContainer();
+  const zoom = clampZoom(Math.max(1, props.viewport.zoom));
+  applyViewport({
+    x: size.value.width / 2 - node.x * zoom,
+    y: size.value.height / 2 - node.y * zoom,
+    zoom,
+  });
+}
+
+defineExpose({ fitView, zoomIn, zoomOut, resetView, focusTopic });
+
+/* -------------------------------- 迷你地图 -------------------------------- */
+
+/** 迷你地图画布尺寸（与 Stitch 稿右下角缩略图一致）。 */
+const MINIMAP_WIDTH = 168;
+const MINIMAP_HEIGHT = 104;
+const MINIMAP_PADDING = 8;
+
+/**
+ * 迷你地图几何：把整幅导图等比装进缩略框，并算出当前视口在该坐标系中的矩形。
+ *
+ * 与画布共用同一份 layout.bounds，因此节点位置永远一致；
+ * 视口矩形用 viewport.x/y/zoom 反推（屏幕坐标 → 世界坐标）。
+ */
+const minimap = computed(() => {
+  const currentLayout = layout.value;
+  if (!currentLayout || currentLayout.nodes.length === 0) return null;
+  const bounds = currentLayout.bounds;
+  const worldWidth = Math.max(1, bounds.width);
+  const worldHeight = Math.max(1, bounds.height);
+  const scale = Math.min(
+    (MINIMAP_WIDTH - MINIMAP_PADDING * 2) / worldWidth,
+    (MINIMAP_HEIGHT - MINIMAP_PADDING * 2) / worldHeight,
+  );
+  if (!Number.isFinite(scale) || scale <= 0) return null;
+  const offsetX = (MINIMAP_WIDTH - worldWidth * scale) / 2 - bounds.minX * scale;
+  const offsetY = (MINIMAP_HEIGHT - worldHeight * scale) / 2 - bounds.minY * scale;
+  const toMini = (worldX: number, worldY: number) => ({
+    x: worldX * scale + offsetX,
+    y: worldY * scale + offsetY,
+  });
+  const nodes = currentLayout.nodes.map((node) => {
+    const topLeft = toMini(node.x - node.width / 2, node.y - node.height / 2);
+    return {
+      id: node.id,
+      x: topLeft.x,
+      y: topLeft.y,
+      width: Math.max(1.5, node.width * scale),
+      height: Math.max(1.5, node.height * scale),
+      isRoot: node.side === 'root',
+      isSelected: node.id === props.selectedId,
+    };
+  });
+  // 当前视口覆盖的世界区域（屏幕 (0,0)-(w,h) 反投影）
+  const view = props.viewport;
+  const worldLeft = (0 - view.x) / view.zoom;
+  const worldTop = (0 - view.y) / view.zoom;
+  const worldRight = (size.value.width - view.x) / view.zoom;
+  const worldBottom = (size.value.height - view.y) / view.zoom;
+  const viewTopLeft = toMini(worldLeft, worldTop);
+  return {
+    width: MINIMAP_WIDTH,
+    height: MINIMAP_HEIGHT,
+    nodes,
+    viewBox: {
+      x: viewTopLeft.x,
+      y: viewTopLeft.y,
+      width: Math.max(4, (worldRight - worldLeft) * scale),
+      height: Math.max(4, (worldBottom - worldTop) * scale),
+    },
+    scale,
+    offsetX,
+    offsetY,
+  };
+});
+
+/** 点击迷你地图：把点击处对应的世界坐标移到画布中心。 */
+function onMinimapClick(event: MouseEvent) {
+  const map = minimap.value;
+  const el = event.currentTarget as HTMLElement | null;
+  if (!map || !el) return;
+  const rect = el.getBoundingClientRect();
+  const localX = event.clientX - rect.left;
+  const localY = event.clientY - rect.top;
+  const worldX = (localX - map.offsetX) / map.scale;
+  const worldY = (localY - map.offsetY) / map.scale;
+  measureContainer();
+  applyViewport({
+    x: size.value.width / 2 - worldX * props.viewport.zoom,
+    y: size.value.height / 2 - worldY * props.viewport.zoom,
+    zoom: props.viewport.zoom,
+  });
+}
 
 /* --------------------------------- 平移 --------------------------------- */
 
@@ -220,6 +362,7 @@ interface PanState {
   startX: number;
   startY: number;
   origin: MindmapViewport;
+  moved: boolean;
 }
 let panState: PanState | null = null;
 /** 平移进行中（用于把光标切换为 grabbing）。 */
@@ -234,7 +377,7 @@ const isPanning = ref(false);
  */
 function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest('.mm-node, .mm-toggle, .mm-inline-editor, .mm-context-menu'));
+  return Boolean(target.closest('.mm-node, .mm-toggle, .mm-edge-hit, .mm-relation, .mm-inline-editor, .mm-context-menu, .mm-text-style-toolbar, .mm-text-context-menu, .mm-minimap'));
 }
 
 function onBackgroundPointerDown(event: PointerEvent) {
@@ -246,10 +389,11 @@ function onBackgroundPointerDown(event: PointerEvent) {
     startX: event.clientX,
     startY: event.clientY,
     origin: { ...props.viewport },
+    moved: false,
   };
   isPanning.value = true;
   window.addEventListener('pointermove', onPanPointerMove);
-  window.addEventListener('pointerup', endPan, { once: true });
+  window.addEventListener('pointerup', onPanPointerUp, { once: true });
   window.addEventListener('pointercancel', endPan, { once: true });
 }
 
@@ -257,6 +401,7 @@ function onPanPointerMove(event: PointerEvent) {
   if (!panState) return;
   const dx = event.clientX - panState.startX;
   const dy = event.clientY - panState.startY;
+  if (Math.hypot(dx, dy) >= 5) panState.moved = true;
   applyViewport({
     x: panState.origin.x + dx,
     y: panState.origin.y + dy,
@@ -264,11 +409,20 @@ function onPanPointerMove(event: PointerEvent) {
   });
 }
 
+function onPanPointerUp(event: PointerEvent) {
+  const samePointer = panState && (event.pointerId === undefined || event.pointerId === panState.pointerId);
+  if (panState && samePointer && !panState.moved
+    && Math.hypot(event.clientX - panState.startX, event.clientY - panState.startY) < 5) {
+    emit('style-target', { kind: 'canvas' });
+  }
+  endPan();
+}
+
 function endPan() {
   panState = null;
   isPanning.value = false;
   window.removeEventListener('pointermove', onPanPointerMove);
-  window.removeEventListener('pointerup', endPan);
+  window.removeEventListener('pointerup', onPanPointerUp);
   window.removeEventListener('pointercancel', endPan);
 }
 
@@ -375,6 +529,7 @@ function onNodeClick(node: MindmapNodeBox) {
     return;
   }
   emit('select', node.id);
+  emit('style-target', { kind: 'topic', topicId: node.id });
 }
 
 /* ------------------------------ 右键菜单事件 ------------------------------ */
@@ -387,12 +542,19 @@ function onNodeClick(node: MindmapNodeBox) {
 function onCanvasContextMenu(event: MouseEvent) {
   const target = event.target;
   if (target instanceof Element && target.closest('.mm-inline-editor')) return;
+  closeTextContextMenu();
   event.preventDefault();
   emit('contextmenu', {
     nodeId: hitTestNode(event.clientX, event.clientY),
     clientX: event.clientX,
     clientY: event.clientY,
   });
+}
+
+function onInlineEditorContextMenu(event: MouseEvent) {
+  if (!openTextContextMenu(event)) {
+    closeTextContextMenu();
+  }
 }
 
 /* ------------------------------ 内联改名 ------------------------------- */
@@ -417,16 +579,169 @@ const editingBox = computed(() => {
   };
 });
 
+const editingTextarea = ref<HTMLTextAreaElement | null>(null);
+const textSelection = ref({ start: 0, end: 0 });
+const domTextSelection = ref({ start: 0, end: 0 });
+const lastNonEmptyTextSelection = ref<{ text: { start: number; end: number }; dom: { start: number; end: number } } | null>(null);
+const textContextMenu = ref<{ visible: boolean; x: number; y: number; status: string }>({ visible: false, x: 0, y: 0, status: '' });
+let pendingRenameCommit: ReturnType<typeof setTimeout> | undefined;
+let colorPickerOpen = false;
+let colorPickerTimeout: ReturnType<typeof setTimeout> | undefined;
+
+function captureTextSelection() {
+  const target = editingTextarea.value;
+  if (!target) return;
+  textSelection.value = {
+    start: Array.from(target.value.slice(0, target.selectionStart ?? 0)).length,
+    end: Array.from(target.value.slice(0, target.selectionEnd ?? 0)).length,
+  };
+  domTextSelection.value = { start: target.selectionStart ?? 0, end: target.selectionEnd ?? 0 };
+  if (textSelection.value.end > textSelection.value.start) {
+    lastNonEmptyTextSelection.value = {
+      text: { ...textSelection.value },
+      dom: { ...domTextSelection.value },
+    };
+  }
+}
+
+const hasTextSelection = computed(() => textSelection.value.end > textSelection.value.start);
+
+const textToolbarPosition = computed(() => {
+  const box = editingBox.value;
+  const canvas = containerRef.value;
+  if (!box || !canvas) return { left: `${box?.left ?? 0}px`, top: `${Math.max(4, (box?.top ?? 48) - 48)}px` };
+  const maxLeft = Math.max(4, canvas.clientWidth - 250);
+  const left = Math.min(Math.max(4, box.left), maxLeft);
+  const above = box.top - 48;
+  const top = above >= 4 ? above : Math.min(canvas.clientHeight - 48, box.top + box.height + 6);
+  return { left: `${left}px`, top: `${Math.max(4, top)}px` };
+});
+
+function closeTextContextMenu() {
+  textContextMenu.value = { ...textContextMenu.value, visible: false, status: '' };
+}
+
+function openTextContextMenu(event: MouseEvent) {
+  const target = editingTextarea.value;
+  const canvas = containerRef.value;
+  if (!target || !canvas) return false;
+  if (hasTextSelection.value) {
+    lastNonEmptyTextSelection.value = {
+      text: { ...textSelection.value },
+      dom: { ...domTextSelection.value },
+    };
+  } else if (lastNonEmptyTextSelection.value) {
+    textSelection.value = { ...lastNonEmptyTextSelection.value.text };
+    domTextSelection.value = { ...lastNonEmptyTextSelection.value.dom };
+  }
+  if (!hasTextSelection.value) return false;
+  event.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const width = 196;
+  const height = 242;
+  textContextMenu.value = {
+    visible: true,
+    x: Math.max(4, Math.min(event.clientX - rect.left, canvas.clientWidth - width - 4)),
+    y: Math.max(4, Math.min(event.clientY - rect.top, canvas.clientHeight - height - 4)),
+    status: '',
+  };
+  return true;
+}
+
+async function runTextContextAction(action: 'cut' | 'copy' | 'paste' | 'paste-plain' | 'select-all') {
+  const target = editingTextarea.value;
+  if (!target) return;
+  target.focus();
+  target.setSelectionRange(domTextSelection.value.start, domTextSelection.value.end);
+  try {
+    if (action === 'select-all') {
+      target.select();
+      captureTextSelection();
+      closeTextContextMenu();
+      return;
+    }
+    if (action === 'copy' || action === 'cut') {
+      const selected = target.value.slice(domTextSelection.value.start, domTextSelection.value.end);
+      await navigator.clipboard.writeText(selected);
+      if (action === 'cut') {
+        const nextValue = `${target.value.slice(0, domTextSelection.value.start)}${target.value.slice(domTextSelection.value.end)}`;
+        emit('update:editing-text', nextValue);
+        target.value = nextValue;
+        target.setSelectionRange(domTextSelection.value.start, domTextSelection.value.start);
+        captureTextSelection();
+      }
+    } else {
+      const pasted = await navigator.clipboard.readText();
+      const start = domTextSelection.value.start;
+      const end = domTextSelection.value.end;
+      const nextValue = `${target.value.slice(0, start)}${pasted}${target.value.slice(end)}`;
+      emit('update:editing-text', nextValue);
+      target.value = nextValue;
+      const caret = start + pasted.length;
+      target.setSelectionRange(caret, caret);
+      captureTextSelection();
+    }
+    closeTextContextMenu();
+  } catch {
+    textContextMenu.value.status = '剪贴板不可用，请检查系统权限或使用快捷键';
+  }
+}
+
+function applyTextStyle(patch: { color?: string | null; background?: string | null }) {
+  colorPickerOpen = false;
+  if (colorPickerTimeout) clearTimeout(colorPickerTimeout);
+  if (pendingRenameCommit) clearTimeout(pendingRenameCommit);
+  const { start, end } = textSelection.value;
+  if (end <= start) return;
+  emit('apply-text-style', { start, end, ...patch });
+  requestAnimationFrame(() => {
+    const target = editingTextarea.value;
+    if (!target) return;
+    target.focus();
+    target.setSelectionRange(domTextSelection.value.start, domTextSelection.value.end);
+  });
+}
+
 function onEditingInput(event: Event) {
   const target = event.target as HTMLTextAreaElement | null;
   emit('update:editing-text', target?.value ?? '');
+  captureTextSelection();
 }
 
 function commitRename() {
+  if (pendingRenameCommit) clearTimeout(pendingRenameCommit);
   emit('commit-rename', props.editingText);
 }
 
+function deferRenameCommit() {
+  if (pendingRenameCommit) clearTimeout(pendingRenameCommit);
+  pendingRenameCommit = setTimeout(() => {
+    pendingRenameCommit = undefined;
+    commitRename();
+  }, 300);
+}
+
+function onEditingBlur(event: FocusEvent) {
+  if (colorPickerOpen) return;
+  const next = event.relatedTarget;
+  if (next instanceof Element && next.closest('.mm-text-style-toolbar')) return;
+  deferRenameCommit();
+}
+
+function onToolbarPointerDown(event: PointerEvent) {
+  captureTextSelection();
+  if (!(event.target instanceof HTMLInputElement) || event.target.type !== 'color') return;
+  colorPickerOpen = true;
+  if (colorPickerTimeout) clearTimeout(colorPickerTimeout);
+  colorPickerTimeout = setTimeout(() => { colorPickerOpen = false; }, 15000);
+}
+
 function onEditingKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && textContextMenu.value.visible) {
+    event.preventDefault();
+    closeTextContextMenu();
+    return;
+  }
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     commitRename();
@@ -438,18 +753,58 @@ function onEditingKeydown(event: KeyboardEvent) {
 
 /* ------------------------------ 派生：文本 ------------------------------- */
 
-function lineBaselineY(index: number, total: number): number {
-  return (index - (total - 1) / 2) * lineHeight.value + fontSize.value * 0.35;
-}
-
 function toggleOffsetX(node: MindmapNodeBox): number {
   return node.side === 'left' ? -node.width / 2 - 10 : node.width / 2 + 10;
+}
+
+/** 节点的行高：按「基础行高 / 基础字号」比例缩放，保证层级字号不同但行距观感一致。 */
+function nodeLineHeight(node: MindmapNodeBox): number {
+  const baseFont = layout.value?.options.fontSize ?? fontSize.value;
+  const baseLine = layout.value?.options.lineHeight ?? lineHeight.value;
+  return Math.round((baseLine / baseFont) * node.fontSize);
+}
+
+/** 多行文本的基线位置：以节点中心为原点上下均分。 */
+function nodeLineBaselineY(node: MindmapNodeBox, index: number): number {
+  const total = node.lines.length;
+  return (index - (total - 1) / 2) * nodeLineHeight(node) + node.fontSize * 0.35;
+}
+
+function styledLineSegments(node: MindmapNodeBox, line: string, index: number) {
+  const topic = props.document?.topics[node.id];
+  const offsets = getMindmapLineOffsets(topic?.text ?? '', node.lines);
+  return segmentMindmapTextLine(line, offsets[index] ?? 0, topic?.textStyles);
+}
+
+function styledBackgrounds(node: MindmapNodeBox, line: string, index: number) {
+  const segments = styledLineSegments(node, line, index);
+  const total = segments.reduce((sum, segment) => sum + measureTextWidth(segment.text, node.fontSize), 0);
+  let x = -total / 2;
+  const baseline = nodeLineBaselineY(node, index);
+  return segments.map((segment) => {
+    const width = measureTextWidth(segment.text, node.fontSize);
+    const result = {
+      x,
+      y: baseline - node.fontSize * 0.84,
+      width,
+      height: node.fontSize * 1.12,
+      background: segment.background,
+    };
+    x += width;
+    return result;
+  });
 }
 
 /* ------------------------------ 派生：主题 ------------------------------- */
 
 /** 当前主题 id（缺失时按 default 处理）。 */
 const themeId = computed(() => props.document?.themeId ?? DEFAULT_MINDMAP_THEME_ID);
+
+/** 当前解析后的主题对象（未知 id 回退 default）。 */
+const activeTheme = computed(() => resolveMindmapTheme(themeId.value));
+
+/** 是否启用「彩虹」按分支上色模式。 */
+const isRainbow = computed(() => isRainbowTheme(activeTheme.value));
 
 /**
  * 主题强调色（选中态、关系线、标记徽章边框）。
@@ -465,12 +820,81 @@ const THEME_ACCENT = 'var(--mindmap-accent, var(--accent-brand))';
  *
  * 仅在「已选择非默认主题」时输出：default（或未设置）时保持为空对象，
  * 完全沿用既有 CSS 与暗色模式变量，确保未选主题时随主题自适应。
+ * 彩虹主题只注入强调色/标记配色，节点填充与连线交给逐项上色逻辑。
  */
 const canvasThemeStyle = computed<Record<string, string>>(() => {
   if (!isMindmapThemeId(themeId.value)) return {};
   if (themeId.value === DEFAULT_MINDMAP_THEME_ID) return {};
-  return mindmapThemeCssVariables(resolveMindmapTheme(themeId.value));
+  return mindmapThemeCanvasVariables(activeTheme.value);
 });
+
+/* --------------------------- 彩虹主题：分支配色表 --------------------------- */
+
+/**
+ * 节点 id → 所属一级分支的序号。
+ *
+ * 算法（O(n)）：
+ * 1. 分支序号按**文档中子节点的声明顺序**（`root.childIds`）编号，
+ *    与布局模式、折叠状态无关，切换导图/逻辑图/树形/组织图时分支颜色稳定；
+ * 2. 沿 `document.topics[*].childIds` 递归，把序号继承给该分支全部后代；
+ * 3. 根节点没有分支归属（不写入映射）。
+ *
+ * 不修改布局产物、不参与文档历史，只是渲染层的纯派生数据。
+ */
+const branchIndexOfNode = computed<Map<string, number>>(() => {
+  const map = new Map<string, number>();
+  const doc = props.document;
+  if (!doc || !isRainbow.value) return map;
+  const rootTopic = doc.topics[doc.rootTopicId];
+  if (!rootTopic) return map;
+
+  const assignBranch = (topicId: string, index: number): void => {
+    const topic = doc.topics[topicId];
+    if (!topic) return;
+    map.set(topicId, index);
+    for (const childId of topic.childIds ?? []) assignBranch(childId, index);
+  };
+
+  (rootTopic.childIds ?? []).forEach((childId, index) => assignBranch(childId, index));
+  return map;
+});
+
+/** 节点所属分支主色；非彩虹主题或根节点返回 null（回退单色）。 */
+function branchColorOf(nodeId: string): string | null {
+  if (!isRainbow.value) return null;
+  const index = branchIndexOfNode.value.get(nodeId);
+  if (index === undefined) return null;
+  return rainbowBranchColor(activeTheme.value, index);
+}
+
+/** 连线颜色：取子节点所属分支色；非彩虹主题返回 null（回退 CSS 单色）。 */
+function edgeColorOf(childId: string): string | null {
+  return branchColorOf(childId);
+}
+
+function edgeStyleOf(edge: { childId: string }): Record<string, string> {
+  const style = props.document?.topics[edge.childId]?.style;
+  const color = style?.edgeColor || edgeColorOf(edge.childId);
+  return {
+    ...(color ? { stroke: color } : {}),
+    ...(style?.edgeWidth ? { strokeWidth: style.edgeWidth } : {}),
+    ...(style?.edgeStyle === 'dashed' ? { strokeDasharray: '6 4' } : {}),
+    ...(style?.edgeStyle === 'dotted' ? { strokeDasharray: '1 4', strokeLinecap: 'round' } : {}),
+    ...(style?.edgeStartArrow === 'arrow' ? { markerStart: 'url(#mm-line-arrow)' } : {}),
+    ...(style?.edgeEndArrow === 'arrow' ? { markerEnd: 'url(#mm-line-arrow)' } : {}),
+  };
+}
+
+/** 节点承载的分支色（以 CSS 变量形式下发给子元素，便于纯 CSS 派生描边/圆点）。 */
+function nodeBranchStyle(nodeId: string): Record<string, string> {
+  const color = branchColorOf(nodeId);
+  return color ? { '--mm-hue': color } : {};
+}
+
+/** 节点边缘圆点：落在「连线接入的那条边」的中点，作为分支色锚点。 */
+function branchDotX(node: MindmapNodeBox): number {
+  return node.side === 'left' ? -node.width / 2 + 3 : node.width / 2 - 3;
+}
 
 /* ------------------------------ 派生：节点样式 ------------------------------- */
 
@@ -481,7 +905,11 @@ function topicStyle(id: string): MindMapTopicStyle | undefined {
 /** 节点矩形内联样式：仅当节点声明了 fill 时覆盖（其余交给主题 CSS 变量）。 */
 function nodeRectStyle(node: MindmapNodeBox): Record<string, string> {
   const style = topicStyle(node.id);
-  return style?.fill ? { fill: style.fill } : {};
+  return {
+    ...(style?.fill ? { fill: style.fill } : {}),
+    ...(style?.borderColor ? { stroke: style.borderColor } : {}),
+    ...(style?.borderWidth ? { strokeWidth: style.borderWidth } : {}),
+  };
 }
 
 /** 节点文字内联样式：仅当节点声明了 color 时覆盖。 */
@@ -515,6 +943,9 @@ interface RenderedRelation {
   labelX: number;
   labelY: number;
   color: string;
+  lineStyle: 'solid' | 'dashed' | 'dotted';
+  startArrow: boolean;
+  endArrow: boolean;
 }
 
 /** 把「中心 → 指定方向」的射线裁剪到节点矩形边界（含少量内缩留白）。 */
@@ -584,6 +1015,9 @@ const renderedRelations = computed<RenderedRelation[]>(() => {
       labelX: geometry.labelX,
       labelY: geometry.labelY,
       color,
+      lineStyle: relation.lineStyle ?? 'dashed',
+      startArrow: relation.startArrow === 'arrow',
+      endArrow: relation.endArrow !== 'none',
     });
   }
   return result;
@@ -705,10 +1139,10 @@ watch(
   <div
     ref="containerRef"
     class="mindmap-canvas"
-    :class="{ 'is-panning': isPanning }"
+    :class="{ 'is-panning': isPanning, 'is-grid-hidden': props.canvasGridVisible === false }"
     data-testid="mindmap-canvas"
     :data-theme-id="themeId"
-    :style="canvasThemeStyle"
+    :style="{ ...canvasThemeStyle, ...(props.canvasBackground ? { backgroundColor: props.canvasBackground } : {}) }"
     @wheel="onWheel"
     @pointerdown="onBackgroundPointerDown"
     @contextmenu="onCanvasContextMenu"
@@ -721,10 +1155,10 @@ watch(
       role="group"
       aria-label="思维导图画布"
     >
-      <!-- 关系线箭头定义：独立关系线（阶段 4C）复用同一份 marker -->
+      <!-- 连接线和关系线共用箭头标记。 -->
       <defs>
         <marker
-          id="mm-relation-arrow"
+          id="mm-line-arrow"
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
@@ -793,16 +1227,15 @@ watch(
           连线路径完全由布局服务生成，画布不假设方向：
           edge.orientation 只用于样式与测试标记（org 为 vertical，其余 horizontal）。
         -->
-        <path
-          v-for="edge in layout.edges"
+        <g
+          v-for="edge in visibleEdges"
           :key="edge.id"
-          class="mm-edge"
-          :class="{ 'mm-edge--vertical': edge.orientation === 'vertical' }"
-          :data-orientation="edge.orientation"
-          :data-edge-id="edge.id"
-          :d="edge.path"
-          fill="none"
-        />
+        >
+          <path class="mm-edge" :class="{ 'mm-edge--vertical': edge.orientation === 'vertical', 'mm-edge--rainbow': isRainbow }"
+            :data-orientation="edge.orientation" :data-edge-id="edge.id" :d="edge.path" fill="none" :style="edgeStyleOf(edge)" />
+          <path class="mm-edge-hit" :d="edge.path" fill="none" @pointerdown.stop
+            @click.stop="emit('style-target', { kind: 'edge', childId: edge.childId })" />
+        </g>
 
         <!--
           独立关系线（阶段 4C）：虚线 + 箭头 + 可选标签。
@@ -816,13 +1249,18 @@ watch(
           :data-relation-id="relation.id"
           :data-source-id="relation.sourceId"
           :data-target-id="relation.targetId"
+          @pointerdown.stop
+          @click.stop="emit('style-target', { kind: 'relation', relationId: relation.id })"
         >
+          <path class="mm-edge-hit" :d="relation.path" fill="none" />
           <path
             class="mm-relation-path"
             :d="relation.path"
             fill="none"
-            stroke-dasharray="6 4"
-            :marker-end="RELATION_ARROW_MARKER"
+            :stroke-dasharray="relation.lineStyle === 'dashed' ? '6 4' : relation.lineStyle === 'dotted' ? '1 4' : undefined"
+            :stroke-linecap="relation.lineStyle === 'dotted' ? 'round' : undefined"
+            :marker-start="relation.startArrow ? 'url(#mm-line-arrow)' : undefined"
+            :marker-end="relation.endArrow ? 'url(#mm-line-arrow)' : undefined"
             :style="{ stroke: relation.color }"
           />
           <text
@@ -836,7 +1274,7 @@ watch(
         </g>
 
         <g
-          v-for="node in layout.nodes"
+          v-for="node in visibleNodes"
           :key="node.id"
           class="mm-node"
           :class="{
@@ -847,7 +1285,10 @@ watch(
             'is-dragging': node.id === draggingId,
           }"
           :data-node-id="node.id"
+          :data-selected="node.id === selectedId ? 'true' : 'false'"
+          :aria-selected="node.id === selectedId"
           :transform="`translate(${node.x} ${node.y})`"
+          :style="nodeBranchStyle(node.id)"
           @pointerdown.stop="onNodePointerDown(node, $event)"
           @click.stop="onNodeClick(node)"
           @dblclick.stop="emit('start-rename', node.id)"
@@ -861,13 +1302,55 @@ watch(
             :rx="nodeRx(node)"
             :style="nodeRectStyle(node)"
           />
-          <text class="mm-node-text" text-anchor="middle" :style="nodeTextStyle(node)">
+          <rect
+            v-if="node.id === selectedId"
+            class="mm-node-selection-ring"
+            :x="-node.width / 2 - 4"
+            :y="-node.height / 2 - 4"
+            :width="node.width + 8"
+            :height="node.height + 8"
+            :rx="nodeRx(node) + 3"
+          />
+          <!-- 彩虹主题：分支色锚点圆点，落在连线接入的那条边中点 -->
+          <circle
+            v-if="branchColorOf(node.id)"
+            class="mm-branch-dot"
+            :class="node.depth === 1 ? 'mm-branch-dot--l1' : 'mm-branch-dot--leaf'"
+            :cx="branchDotX(node)"
+            cy="0"
+            :r="node.depth === 1 ? 3 : 2.5"
+            :style="{ fill: 'var(--mm-hue)' }"
+          />
+          <g class="mm-node-text-highlights" pointer-events="none">
+            <template v-for="(line, index) in node.lines" :key="`highlight-${index}`">
+              <rect
+                v-for="(segment, segmentIndex) in styledBackgrounds(node, line, index)"
+                :key="`highlight-${index}-${segmentIndex}`"
+                v-show="segment.background"
+                :x="segment.x"
+                :y="segment.y"
+                :width="segment.width"
+                :height="segment.height"
+                rx="2"
+                :fill="segment.background"
+              />
+            </template>
+          </g>
+          <text
+            class="mm-node-text"
+            text-anchor="middle"
+            :style="{ fontSize: `${node.fontSize}px`, ...nodeTextStyle(node) }"
+          >
             <tspan
               v-for="(line, index) in node.lines"
               :key="index"
               :x="0"
-              :y="lineBaselineY(index, node.lines.length)"
-            >{{ line }}</tspan>
+              :y="nodeLineBaselineY(node, index)"
+            ><tspan
+              v-for="(segment, segmentIndex) in styledLineSegments(node, line, index)"
+              :key="`${index}-${segmentIndex}`"
+              :fill="segment.color || undefined"
+            >{{ segment.text }}</tspan></tspan>
           </text>
           <!-- 标记徽章（阶段 4C）：节点左上角外侧，数量与 topic.markers 顺序一致 -->
           <g
@@ -913,8 +1396,56 @@ watch(
       </g>
     </svg>
 
+    <!-- 迷你地图（Stitch 稿右下角缩略导航）：只读全图 + 当前视口矩形，点击跳转 -->
+    <div
+      v-if="minimap"
+      class="mm-minimap"
+      data-testid="mm-minimap"
+      role="group"
+      aria-label="迷你地图"
+      :title="'迷你地图：点击跳转到对应区域'"
+      @mousedown.stop
+      @click.stop="onMinimapClick"
+    >
+      <svg :width="minimap.width" :height="minimap.height" :viewBox="`0 0 ${minimap.width} ${minimap.height}`">
+        <rect
+          v-for="node in minimap.nodes"
+          :key="node.id"
+          :x="node.x"
+          :y="node.y"
+          :width="node.width"
+          :height="node.height"
+          rx="1.5"
+          :class="{
+            'mm-minimap-node': true,
+            'is-root': node.isRoot,
+            'is-selected': node.isSelected,
+          }"
+        />
+        <rect
+          class="mm-minimap-view"
+          :x="minimap.viewBox.x"
+          :y="minimap.viewBox.y"
+          :width="minimap.viewBox.width"
+          :height="minimap.viewBox.height"
+          rx="3"
+        />
+      </svg>
+    </div>
+
+    <div v-if="editingBox && hasTextSelection" class="mm-text-style-toolbar" :style="textToolbarPosition" role="toolbar" aria-label="文字颜色与高亮" @pointerdown="onToolbarPointerDown">
+      <label title="文字颜色">字
+        <input type="color" data-testid="mm-text-color" @input="applyTextStyle({ color: ($event.target as HTMLInputElement).value })">
+      </label>
+      <label title="背景高亮">底
+        <input type="color" data-testid="mm-text-background" @input="applyTextStyle({ background: ($event.target as HTMLInputElement).value })">
+      </label>
+      <button type="button" title="清除文字颜色" data-testid="mm-text-color-clear" @click="applyTextStyle({ color: null })">A</button>
+      <button type="button" title="清除背景高亮" data-testid="mm-text-background-clear" @click="applyTextStyle({ background: null })">□</button>
+    </div>
     <textarea
       v-if="editingBox"
+      ref="editingTextarea"
       class="mm-inline-editor"
       data-testid="mm-inline-editor"
       :value="editingText"
@@ -927,9 +1458,29 @@ watch(
         lineHeight: editingBox.lineHeight,
       }"
       @input="onEditingInput"
+      @contextmenu="onInlineEditorContextMenu"
+      @select="captureTextSelection"
+      @keyup="captureTextSelection"
+      @mouseup="captureTextSelection"
       @keydown.stop="onEditingKeydown"
-      @blur="commitRename"
+      @blur="onEditingBlur"
     ></textarea>
+    <div
+      v-if="textContextMenu.visible"
+      class="mm-text-context-menu"
+      data-testid="mm-text-context-menu"
+      role="menu"
+      aria-label="文本编辑菜单"
+      :style="{ left: `${textContextMenu.x}px`, top: `${textContextMenu.y}px` }"
+      @pointerdown.prevent
+    >
+      <button type="button" role="menuitem" @click="runTextContextAction('cut')">剪切 <kbd>Ctrl+X</kbd></button>
+      <button type="button" role="menuitem" @click="runTextContextAction('copy')">复制 <kbd>Ctrl+C</kbd></button>
+      <button type="button" role="menuitem" @click="runTextContextAction('paste')">粘贴 <kbd>Ctrl+V</kbd></button>
+      <button type="button" role="menuitem" @click="runTextContextAction('paste-plain')">粘贴为纯文本</button>
+      <button type="button" role="menuitem" @click="runTextContextAction('select-all')">全选 <kbd>Ctrl+A</kbd></button>
+      <p v-if="textContextMenu.status" role="status">{{ textContextMenu.status }}</p>
+    </div>
   </div>
 </template>
 
@@ -942,15 +1493,104 @@ watch(
  * 主题模板（ocean/forest/sunset）通过内联 --mindmap-* 变量覆盖这些回退值，
  * default 主题不注入任何内联变量，因此整套观感随明暗主题自动切换。
  */
+.mm-minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 4;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-base) 92%, transparent);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  opacity: 0.92;
+  transition: opacity 120ms ease;
+}
+.mm-minimap:hover { opacity: 1; }
+.mm-minimap svg { display: block; }
+.mm-minimap-node {
+  fill: color-mix(in srgb, var(--text-muted) 46%, transparent);
+}
+.mm-minimap-node.is-root {
+  fill: var(--accent-brand);
+  opacity: 0.9;
+}
+.mm-minimap-node.is-selected {
+  fill: var(--accent-brand);
+  opacity: 1;
+}
+.mm-minimap-view {
+  fill: color-mix(in srgb, var(--accent-brand) 12%, transparent);
+  stroke: var(--accent-brand);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.mm-text-style-toolbar {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-elevated);
+  box-shadow: var(--shadow-soft);
+}
+.mm-text-style-toolbar label,
+.mm-text-style-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-primary);
+  font: 600 13px var(--font-ui);
+}
+.mm-text-style-toolbar input[type='color'] { width: 25px; height: 25px; padding: 1px; border: 1px solid var(--border-soft); border-radius: 4px; background: var(--panel-base); cursor: pointer; }
+.mm-text-style-toolbar button:hover { background: var(--surface-hover); cursor: pointer; }
+.mm-text-style-toolbar label,
+.mm-text-style-toolbar button { min-width: 42px; height: 36px; padding: 0 8px; }
+.mm-text-style-toolbar input[type='color'] { width: 30px; height: 30px; }
+.mm-text-context-menu {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  width: 196px;
+  padding: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-elevated);
+  box-shadow: var(--shadow-soft);
+}
+.mm-text-context-menu button { display: flex; justify-content: space-between; align-items: center; min-height: 34px; padding: 0 9px; border: 0; border-radius: 3px; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.mm-text-context-menu button:hover { background: var(--surface-hover); }
+.mm-text-context-menu kbd { color: var(--text-muted); font: 11px var(--font-ui); }
+.mm-text-context-menu p { margin: 5px 8px; color: var(--state-danger); font-size: 11px; }
 .mindmap-canvas {
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: var(--bg-app);
+  background-color: var(--bg-app);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text-muted) 20%, transparent) 1px, transparent 1.2px);
+  background-position: 10px 10px;
+  background-size: 28px 28px;
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
+:global(:root.theme-light) .mindmap-canvas {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text-muted) 18%, transparent) 1px, transparent 1.2px);
+}
+.mindmap-canvas.is-grid-hidden,
+:global(:root.theme-light) .mindmap-canvas.is-grid-hidden { background-image: none; }
 /* 平移中：光标改为抓紧 */
 .mindmap-canvas.is-panning { cursor: grabbing; }
 /* 节点拖拽期间全局禁止选中文本，避免拖出一个蓝色选区 */
@@ -967,6 +1607,7 @@ watch(
 .mm-edge--vertical {
   stroke-linecap: round;
 }
+.mm-edge-hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
 .mm-node { cursor: pointer; }
 .mm-node-box {
   fill: var(--mindmap-node-bg, var(--panel-elevated));
@@ -977,6 +1618,10 @@ watch(
   font-family: var(--font-ui);
   font-size: 13px;
   fill: var(--mindmap-node-text, var(--text-primary));
+  /* 显式禁用描边：文字 stroke 会继承祖先/默认值，某些渲染路径下会把填充压淡，
+     在浅色主题里表现为「白底浅字看不清」。 */
+  stroke: none;
+  stroke-width: 0;
   pointer-events: none;
 }
 .mm-node.is-root .mm-node-box {
@@ -988,7 +1633,14 @@ watch(
 .mm-node.is-collapsed .mm-node-box { stroke-dasharray: 4 3; }
 .mm-node.is-selected .mm-node-box {
   stroke: var(--mindmap-accent, var(--accent-brand));
-  stroke-width: 2.2;
+  stroke-width: 2;
+}
+.mm-node-selection-ring {
+  fill: none;
+  stroke: var(--mindmap-accent, var(--accent-brand));
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
 }
 /* 拖拽源：半透明；拖拽目标：成功色高亮 */
 .mm-node.is-dragging { opacity: 0.5; }
@@ -1070,5 +1722,48 @@ watch(
   outline: none;
   overflow: hidden;
   box-shadow: var(--shadow-soft);
+}
+
+/*
+ * 彩虹主题（mode==='rainbow'）：
+ * - 连线/节点描边/边缘圆点都由节点上的 --mm-hue 派生，深浅主题只切换混合比例；
+ * - 节点底色不覆盖，继续跟随 --panel-elevated，融入 Tau 深蓝/浅色工作区；
+ * - 节点文字显式继承 --text-primary（彩虹主题不注入 --mindmap-node-text）；
+ * - 描边一律用「实色 + 与背景混色」而不是「与 transparent 混色」：
+ *   后者在浅色画布上会退化成半透明灰边，整张图发灰、不清爽。
+ */
+.mm-node[style*="--mm-hue"] .mm-node-text {
+  fill: var(--mindmap-node-text, var(--text-primary));
+}
+.mm-edge--rainbow {
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 1;
+}
+/* 深色：原色直接可用 */
+.mm-node[style*="--mm-hue"] .mm-node-box {
+  stroke: var(--mm-hue);
+  stroke-width: 1.5;
+}
+/* 浅色：与白底混合压暗，保证轮廓清晰 */
+:global(:root.theme-light) .mm-node[style*="--mm-hue"] .mm-node-box {
+  stroke: color-mix(in srgb, var(--mm-hue) 72%, #1e293b 18%);
+}
+/* 叶子节点描边收细，末梢自然收口；一级分支保持更清晰的轮廓 */
+.mm-node[style*="--mm-hue"]:not(.is-root):not(:has(.mm-toggle)) .mm-node-box {
+  stroke-width: 1.1;
+  opacity: 0.85;
+}
+.mm-branch-dot {
+  stroke: var(--bg-app);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+:global(:root.theme-light) .mm-branch-dot {
+  stroke: var(--panel-elevated);
+}
+/* 彩虹模式下折叠钮描边带分支色，强化「属于哪个分支」的归属感 */
+.mm-node[style*="--mm-hue"] .mm-toggle circle {
+  stroke: var(--mm-hue);
 }
 </style>

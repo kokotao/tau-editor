@@ -58,6 +58,19 @@ describe('Markdown 适配器', () => {
       .toEqual(['用户研究', '竞品分析']);
   });
 
+  it('识别一至四级标题，跳级时不会挂到正文或列表下', () => {
+    const outline = markdownToOutline([
+      '# 一级', '正文', '- 列表', '### 三级', '#### 四级', '## 二级',
+      '~~~md', '# 代码块不是标题', '~~~', '#### 跳级四级',
+    ].join('\n'));
+    expect(outlineShape(outline)).toEqual([{ text: '一级', children: [
+      { text: '正文', children: [] },
+      { text: '列表', children: [] },
+      { text: '三级', children: [{ text: '四级', children: [] }] },
+      { text: '二级', children: [{ text: '跳级四级', children: [] }] },
+    ] }]);
+  });
+
   it('导入结果为合法文档且保留顺序', () => {
     const result = markdownAdapter.importFromString('# 根\n- 一\n- 二\n- 三');
     expect(result.ok).toBe(true);

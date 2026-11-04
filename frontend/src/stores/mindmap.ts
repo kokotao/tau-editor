@@ -45,6 +45,7 @@ import { collectSubtreeTopicIds, type MindMapCommandResult } from '@/services/mi
 import { expandAncestors, searchMindmap } from '@/services/mindmapSearchService';
 import type { MindmapViewport } from '@/services/mindmapLayoutService';
 import { isMindmapThemeId } from '@/services/mindmapThemeService';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import type {
   MindMapDocument,
   MindMapLayoutMode,
@@ -53,11 +54,13 @@ import type {
   MindMapTopic,
   MindMapTopicBoundary,
   MindMapTopicStyle,
+  MindmapStyleTarget,
   MindmapOutlineRow,
 } from '@/types/mindmap';
 
 /** 默认视口：世界坐标原点居中、100% 缩放（真实适配由画布调用 fitView 完成）。 */
 export const DEFAULT_MINDMAP_VIEWPORT: MindmapViewport = { x: 0, y: 0, zoom: 1 };
+export const FREE_MINDMAP_NODE_LIMIT = 30;
 
 /* --------------------- 右侧面板（UX-3B 返工：双列独立） --------------------- */
 
@@ -245,6 +248,8 @@ export function collectMindmapTopicsInOrder(
 }
 
 export interface MindmapStoreState {
+  /** 每次触发限制时递增，供界面展示升级提示。 */
+  nodeLimitNotice: number;
   tabId: string | null;
   document: MindMapDocument | null;
   selectedTopicId: string | null;
@@ -264,6 +269,13 @@ export interface MindmapStoreState {
   outlineVisible: boolean;
   /** 右侧属性列是否显示；默认收起（需用户显式打开，或选中节点后由工具栏/右键打开）。 */
   propertiesVisible: boolean;
+  /** 画布样式列是否显示。 */
+  styleVisible: boolean;
+  styleTarget: MindmapStyleTarget;
+  /** 画布背景色，仅影响当前编辑视图。 */
+  canvasBackground: string;
+  canvasGridVisible: boolean;
+  canvasRootVisible: boolean;
   /** 大纲列宽度（px），拖动该列 resizer 时变化，clamp 到 180–420。 */
   outlineWidth: number;
   /** 属性列宽度（px），拖动该列 resizer 时变化，clamp 到 180–420。 */
@@ -280,6 +292,7 @@ function snapshotOf(
 
 export const useMindmapStore = defineStore('mindmap', {
   state: (): MindmapStoreState => ({
+    nodeLimitNotice: 0,
     tabId: null,
     document: null,
     selectedTopicId: null,
@@ -289,6 +302,11 @@ export const useMindmapStore = defineStore('mindmap', {
     viewport: { ...DEFAULT_MINDMAP_VIEWPORT },
     outlineVisible: true,
     propertiesVisible: false,
+    styleVisible: false,
+    styleTarget: { kind: 'canvas' },
+    canvasBackground: '',
+    canvasGridVisible: true,
+    canvasRootVisible: true,
     outlineWidth: DEFAULT_MINDMAP_OUTLINE_WIDTH,
     propertiesWidth: DEFAULT_MINDMAP_PROPERTIES_WIDTH,
   }),
@@ -321,6 +339,19 @@ export const useMindmapStore = defineStore('mindmap', {
   },
 
   actions: {
+    /** 仅限免费档；节点数统计整个文件，包含所有工作表的中心节点。 */
+    exceedsNodeLimit(next: MindMapDocument, replacement = false): boolean {
+      const tier = useCloudQuotaStore().tier;
+      if (tier === 'PLUS' || tier === 'PRO') return false;
+      const nextCount = Object.keys(next.topics).length;
+      const currentCount = this.document ? Object.keys(this.document.topics).length : 0;
+      if (nextCount <= FREE_MINDMAP_NODE_LIMIT || (!replacement && nextCount <= currentCount)) {
+        return false;
+      }
+      this.nodeLimitNotice += 1;
+      return true;
+    },
+
     /** 从标签内容加载；内容与上次对齐时跳过，避免自产回写触发重载。 */
     loadFromContent(tabId: string, content: string) {
       if (this.tabId === tabId && this.lastSerialized === content) {
@@ -330,7 +361,11 @@ export const useMindmapStore = defineStore('mindmap', {
       this.loadError = null;
       this.history = createHistoryState();
       this.selectedTopicId = null;
+      this.styleTarget = { kind: 'canvas' };
       this.viewport = { ...DEFAULT_MINDMAP_VIEWPORT };
+      this.canvasBackground = '';
+      this.canvasGridVisible = true;
+      this.canvasRootVisible = true;
 
       try {
         const document = parseMindMapDocument(content);
@@ -349,10 +384,14 @@ export const useMindmapStore = defineStore('mindmap', {
       this.tabId = null;
       this.document = null;
       this.selectedTopicId = null;
+      this.styleTarget = { kind: 'canvas' };
       this.loadError = null;
       this.history = createHistoryState();
       this.lastSerialized = '';
       this.viewport = { ...DEFAULT_MINDMAP_VIEWPORT };
+      this.canvasBackground = '';
+      this.canvasGridVisible = true;
+      this.canvasRootVisible = true;
     },
 
     /**
@@ -403,6 +442,41 @@ export const useMindmapStore = defineStore('mindmap', {
       return true;
     },
 
+    setStyleVisible(visible: boolean): boolean {
+      if (this.styleVisible === visible) return false;
+      this.styleVisible = visible;
+      return true;
+    },
+
+    toggleStyleVisible(): boolean {
+      this.styleVisible = !this.styleVisible;
+      return this.styleVisible;
+    },
+
+    showStyleTarget(target: MindmapStyleTarget) {
+      this.styleTarget = target;
+      this.styleVisible = true;
+    },
+
+    setCanvasBackground(color: string): boolean {
+      const next = color.trim();
+      if (this.canvasBackground === next) return false;
+      this.canvasBackground = next;
+      return true;
+    },
+
+    setCanvasGridVisible(visible: boolean): boolean {
+      if (this.canvasGridVisible === visible) return false;
+      this.canvasGridVisible = visible;
+      return true;
+    },
+
+    setCanvasRootVisible(visible: boolean): boolean {
+      if (this.canvasRootVisible === visible) return false;
+      this.canvasRootVisible = visible;
+      return true;
+    },
+
     /** 切换大纲列（开→关、关→开），返回切换后的显隐状态。 */
     toggleOutlineVisible(): boolean {
       this.outlineVisible = !this.outlineVisible;
@@ -431,6 +505,7 @@ export const useMindmapStore = defineStore('mindmap', {
     resetRightPanels() {
       this.outlineVisible = true;
       this.propertiesVisible = false;
+      this.styleVisible = false;
       this.outlineWidth = DEFAULT_MINDMAP_OUTLINE_WIDTH;
       this.propertiesWidth = DEFAULT_MINDMAP_PROPERTIES_WIDTH;
     },
@@ -459,6 +534,9 @@ export const useMindmapStore = defineStore('mindmap', {
       const before = serializeMindMapDocument(this.document);
       const result = command(this.document);
       if (!result.ok) return result;
+      if (this.exceedsNodeLimit(result.document)) {
+        return { ok: false, error: { code: 'NODE_LIMIT_EXCEEDED', message: '普通用户每个思维导图最多 30 个节点，请升级会员。' } };
+      }
 
       const after = serializeMindMapDocument(result.document);
       if (after === before) {
@@ -575,6 +653,7 @@ export const useMindmapStore = defineStore('mindmap', {
       options: { selectionId?: string | null; resetViewport?: boolean } = {},
     ): boolean {
       if (!this.document) return false;
+      if (this.exceedsNodeLimit(next)) return false;
       const before = serializeMindMapDocument(this.document);
       const after = serializeMindMapDocument(next);
       if (after === before) return false;
@@ -611,12 +690,20 @@ export const useMindmapStore = defineStore('mindmap', {
       const apply = (key: keyof MindMapTopicStyle, value: string | undefined) => {
         if (value === undefined) return;
         const trimmed = String(value).trim();
-        if (trimmed) nextStyle[key] = trimmed;
+        const styleRecord = nextStyle as Record<keyof MindMapTopicStyle, string | undefined>;
+        if (trimmed) styleRecord[key] = trimmed;
         else delete nextStyle[key];
       };
       apply('color', style.color);
       apply('fill', style.fill);
       apply('shape', style.shape);
+      apply('edgeColor', style.edgeColor);
+      apply('borderColor', style.borderColor);
+      apply('borderWidth', style.borderWidth);
+      apply('edgeWidth', style.edgeWidth);
+      apply('edgeStyle', style.edgeStyle);
+      apply('edgeStartArrow', style.edgeStartArrow);
+      apply('edgeEndArrow', style.edgeEndArrow);
 
       const nextTopic: MindMapTopic = { ...current };
       if (Object.keys(nextStyle).length > 0) nextTopic.style = nextStyle;
@@ -798,6 +885,8 @@ export const useMindmapStore = defineStore('mindmap', {
     addSheet(title?: string): boolean {
       if (!this.document) return false;
       const sheets = collectDocumentSheets(this.document);
+      const tier = useCloudQuotaStore().tier;
+      if (tier !== 'PLUS' && tier !== 'PRO' && sheets.length >= 1) return false;
       const sheetTitle = (title ?? '').trim() || `工作表 ${sheets.length + 1}`;
 
       const rootId = generateTopicId();
@@ -934,6 +1023,15 @@ export const useMindmapStore = defineStore('mindmap', {
         selectionDangling ? { selectionId: nextRootId } : {});
     },
 
+    /**
+     * 撤销。
+     *
+     * 节点上限策略（明确决定）：撤销/重做**不做**30 节点校验。
+     * 理由：历史快照只包含「当初合法」的状态，或会员期间/导入前就已超限的
+     * 既有文档（这类文档按策略保持可读可编辑）。若在撤销上也拦截，用户在
+     * 超限文档里删掉节点后会被困住——既不能撤销自己的删除，也无法继续编辑。
+     * 因此新增强制走 applyCommand/commitDocumentChange 的门禁，历史还原放行。
+     */
     undo(): boolean {
       if (!this.document) return false;
       const result = undoHistory(
@@ -948,6 +1046,7 @@ export const useMindmapStore = defineStore('mindmap', {
       return true;
     },
 
+    /** 重做；与 undo 一致，历史还原不校验节点上限（见 undo 的策略说明）。 */
     redo(): boolean {
       if (!this.document) return false;
       const result = redoHistory(
@@ -991,6 +1090,7 @@ export const useMindmapStore = defineStore('mindmap', {
       const before = serializeMindMapDocument(this.document);
       const after = serializeMindMapDocument(document);
       if (after === before) return false;
+      if (this.exceedsNodeLimit(document, true)) return false;
 
       this.history = pushHistory(
         this.history,

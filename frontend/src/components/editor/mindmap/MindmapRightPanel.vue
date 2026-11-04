@@ -28,7 +28,7 @@
  * @author Albert_Luo
  * @date 2026-10-31
  */
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import {
   buildMindmapOutlineRows,
   collectMindmapTopicsInOrder,
@@ -150,12 +150,19 @@ const outline = computed(() => {
 /** 大纲行内改名（与画布内联改名互相独立，互不干扰）。 */
 const outlineEditingId = ref<string | null>(null);
 const outlineEditingText = ref('');
+const outlineColumnRef = ref<HTMLElement | null>(null);
 
 function startOutlineRename(topicId: string) {
   const topic = mindmapDocument.value?.topics[topicId];
   if (!topic) return;
   outlineEditingId.value = topicId;
   outlineEditingText.value = topic.text;
+  void nextTick(() => {
+    if (outlineEditingId.value !== topicId) return;
+    const input = outlineColumnRef.value?.querySelector<HTMLInputElement>('.mm-rename-input');
+    input?.focus();
+    input?.select();
+  });
 }
 
 function cancelOutlineRename() {
@@ -234,6 +241,32 @@ function emitIfChanged(before: string) {
 
 function selectTopic(topicId: string) {
   store.selectTopic(topicId);
+  const doc = mindmapDocument.value;
+  if (!doc?.topics[topicId] || !store.tabId) return;
+  const ancestors: string[] = [];
+  let parentId = doc.topics[topicId]?.parentId;
+  while (parentId && doc.topics[parentId]) {
+    const parent = doc.topics[parentId]!;
+    if (parent.collapsed) ancestors.push(parentId);
+    parentId = parent.parentId;
+  }
+  if (ancestors.length) {
+    const before = store.serialized;
+    const result = store.applyCommand('展开主题', (current) => {
+      let expanded = current;
+      for (const id of ancestors) {
+        const next = setTopicCollapsed(expanded, id, false);
+        if (!next.ok) return next;
+        expanded = next.document;
+      }
+      return { ok: true, document: expanded };
+    });
+    if (!result?.ok) return;
+    emitIfChanged(before);
+  }
+  window.dispatchEvent(new CustomEvent('mindmap-outline-focus', {
+    detail: { tabId: store.tabId, topicId },
+  }));
 }
 
 function toggleCollapse(topicId: string) {
@@ -357,9 +390,10 @@ function onOutlineContextMenu(payload: {
 </script>
 
 <template>
-  <!-- 大纲列（默认展开） -->
-  <aside
+  <!-- 大纲列（默认展开；与属性列并排，独立显隐/调宽） -->
+  <section
     v-if="outlineVisible"
+    ref="outlineColumnRef"
     class="mm-right-column mm-right-outline"
     data-testid="mm-right-outline"
     role="complementary"
@@ -397,10 +431,10 @@ function onOutlineContextMenu(payload: {
         @contextmenu="onOutlineContextMenu"
       />
     </div>
-  </aside>
+  </section>
 
-  <!-- 属性列（默认收起；没有选中节点时不显示，与面板外移前的 Stage 行为一致） -->
-  <aside
+  <!-- 属性区（默认收起；没有选中节点时不显示，与面板外移前的 Stage 行为一致） -->
+  <section
     v-if="propertiesVisible && panelTopic"
     class="mm-right-column mm-right-properties"
     data-testid="mm-right-properties"
@@ -435,7 +469,7 @@ function onOutlineContextMenu(payload: {
         @update-summary="applyTopicSummary"
       />
     </div>
-  </aside>
+  </section>
 </template>
 
 <style scoped>
@@ -447,10 +481,17 @@ function onOutlineContextMenu(payload: {
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--border-soft);
-  background: var(--panel-base);
+  background: color-mix(in srgb, var(--panel-elevated) 38%, var(--panel-base));
   color: var(--text-primary);
   font-family: var(--font-ui);
   overflow: hidden;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--accent-brand) 10%, transparent);
+}
+.mm-right-column :deep(.mindmap-outline-header),
+.mm-right-column :deep(.mm-props-header) {
+  min-height: 42px;
+  padding: 9px 14px;
+  background: transparent;
 }
 /* 每列各自的 resizer：列左边缘，拖动改变该列宽度 */
 .mm-right-resizer {

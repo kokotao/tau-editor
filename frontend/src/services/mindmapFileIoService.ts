@@ -26,6 +26,8 @@ export const MINDMAP_IMPORT_EXTENSIONS = [
   'map',
 ];
 
+export const MINDMAP_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+
 export interface MindmapImportFile {
   path: string;
   fileName: string;
@@ -47,6 +49,21 @@ export function looksLikeZipBytes(bytes: Uint8Array): boolean {
 }
 
 /** 弹出导入文件选择器；取消返回 null。 */
+export async function pickMindmapImageFile(): Promise<string | null> {
+  const selected = await open({
+    title: '选择节点图片',
+    multiple: false,
+    directory: false,
+    filters: [{ name: '图片', extensions: MINDMAP_IMAGE_EXTENSIONS }],
+  });
+  const path = Array.isArray(selected) ? selected[0] : selected;
+  return typeof path === 'string' && path ? path : null;
+}
+
+export async function readMindmapImageFile(path: string): Promise<{ path: string; fileName: string; bytes: Uint8Array }> {
+  return { path, fileName: baseName(path), bytes: await fileCommands.readFileBytes(path) };
+}
+
 export async function pickMindmapImportFile(): Promise<string | null> {
   const selected = await open({
     title: '导入思维导图',

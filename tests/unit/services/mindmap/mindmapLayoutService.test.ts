@@ -5,6 +5,7 @@ import {
   MINDMAP_BOUNDARY_LABEL_HEIGHT,
   MINDMAP_BOUNDARY_PADDING,
   MINDMAP_SUMMARY_GAP,
+  MINDMAP_TOGGLE_OVERHANG,
   computeFitViewport,
   computeMindmapLayout,
   estimateCharWidth,
@@ -73,13 +74,27 @@ describe('文本测量与换行', () => {
     expect(wrapTopicText('', 100, 13)).toEqual(['']);
   });
 
-  it('measureTopic 遵守最小宽度并包含内边距', () => {
+  it('measureTopic 遵守最小宽度并包含内边距（行高按层级字号等比缩放）', () => {
     const measured = measureTopic('A', DEFAULT_MINDMAP_LAYOUT_OPTIONS);
     expect(measured.width).toBeGreaterThanOrEqual(DEFAULT_MINDMAP_LAYOUT_OPTIONS.minNodeWidth);
-    expect(measured.height).toBe(
-      measured.lines.length * DEFAULT_MINDMAP_LAYOUT_OPTIONS.lineHeight
-        + DEFAULT_MINDMAP_LAYOUT_OPTIONS.paddingY * 2,
+    // depth 缺省为 1 → 一级字号 = 基础字号 + 1，行高按 «行高/字号» 比例同步缩放
+    const expectedFontSize = DEFAULT_MINDMAP_LAYOUT_OPTIONS.fontSize + 1;
+    expect(measured.fontSize).toBe(expectedFontSize);
+    const expectedLineHeight = Math.round(
+      (DEFAULT_MINDMAP_LAYOUT_OPTIONS.lineHeight / DEFAULT_MINDMAP_LAYOUT_OPTIONS.fontSize)
+        * expectedFontSize,
     );
+    expect(measured.height).toBe(
+      measured.lines.length * expectedLineHeight + DEFAULT_MINDMAP_LAYOUT_OPTIONS.paddingY * 2,
+    );
+  });
+
+  it('层级字号依次递减：中心 +2、一级 +1、其余为基础字号', () => {
+    const base = DEFAULT_MINDMAP_LAYOUT_OPTIONS.fontSize;
+    expect(measureTopic('标题', DEFAULT_MINDMAP_LAYOUT_OPTIONS, true, 0).fontSize).toBe(base + 2);
+    expect(measureTopic('标题', DEFAULT_MINDMAP_LAYOUT_OPTIONS, false, 1).fontSize).toBe(base + 1);
+    expect(measureTopic('标题', DEFAULT_MINDMAP_LAYOUT_OPTIONS, false, 2).fontSize).toBe(base);
+    expect(measureTopic('标题', DEFAULT_MINDMAP_LAYOUT_OPTIONS, false, 5).fontSize).toBe(base);
   });
 });
 
@@ -648,5 +663,153 @@ describe('UX-2 概要（summary）', () => {
     const withSummary = computeMindmapLayout(doc).bounds;
     // 概要在右侧，扩大右边界
     expect(withSummary.maxX).toBeGreaterThan(plain.maxX);
+  });
+});
+
+/* ------------------ 布局质量改进：对称列宽 / 均衡分派 / 包围盒 / 适配 ------------------ */
+
+/** 左右两侧节点宽度差异很大：验证列中心左右对称、根恒在 x=0。 */
+function buildAsymmetricTree(): MindMapDocument {
+  const doc = createEmptyMindMapDocument('中心');
+  const root = doc.rootTopicId;
+  // 右侧一级节点用超长文本撑宽，左侧一级节点用极短文本
+  doc.topics.r = { id: 'r', parentId: root, childIds: [], text: '这是一个非常非常非常长的右侧一级分支标题' };
+  doc.topics.l = { id: 'l', parentId: root, childIds: [], text: '短' };
+  const rootTopic = doc.topics[root];
+  if (rootTopic) rootTopic.childIds = ['r', 'l'];
+  return doc;
+}
+
+describe('布局质量：左右对称', () => {
+  it('左右两侧深度 1 节点的列中心到原点距离相等（共享层宽）', () => {
+    const layout = computeMindmapLayout(buildAsymmetricTree());
+    const right = layout.nodes.find((node) => node.id === 'r')!;
+    const left = layout.nodes.find((node) => node.id === 'l')!;
+    expect(right.side).toBe('right');
+    expect(left.side).toBe('left');
+    // 关键：两侧宽度差异很大时，列中心仍严格镜像
+    expect(right.x).toBe(-left.x);
+  });
+
+  it('包围盒左右对称（根居中，不因单侧更宽而偏位）', () => {
+    const layout = computeMindmapLayout(buildAsymmetricTree());
+    const right = layout.nodes.find((node) => node.id === 'r')!;
+    const left = layout.nodes.find((node) => node.id === 'l')!;
+    const root = layout.nodes.find((node) => node.side === 'root')!;
+    // 根恒在原点
+    expect(root.x).toBe(0);
+    // 第一层列距由「两侧较宽者」决定：root 半宽 + hGap + 两节点较宽者的半宽
+    const expectedDistance = root.width / 2
+      + DEFAULT_MINDMAP_LAYOUT_OPTIONS.hGap
+      + Math.max(right.width, left.width) / 2;
+    expect(Math.abs(right.x)).toBeCloseTo(expectedDistance, 5);
+    expect(Math.abs(left.x)).toBeCloseTo(expectedDistance, 5);
+  });
+});
+
+describe('布局质量：均衡分派', () => {
+  it('四条等量子分支分派为左右各 2（保序切分）', () => {
+    const layout = computeMindmapLayout(buildTree());
+    const ids = (side: string) => layout.nodes
+      .filter((node) => node.depth === 1 && node.side === side)
+      .map((node) => node.id);
+    expect(ids('right')).toEqual(['a', 'b']);
+    expect(ids('left')).toEqual(['c', 'd']);
+  });
+
+  it('一条超高子树 + 三条矮子树时两侧高度差不超过最高子树', () => {
+    const doc = createEmptyMindMapDocument('中心');
+    const root = doc.rootTopicId;
+    doc.topics.tall = { id: 'tall', parentId: root, childIds: ['x1', 'x2', 'x3', 'x4'], text: '高' };
+    for (const id of ['x1', 'x2', 'x3', 'x4']) {
+      doc.topics[id] = { id, parentId: 'tall', childIds: [], text: id };
+    }
+    for (const id of ['s1', 's2', 's3']) {
+      doc.topics[id] = { id, parentId: root, childIds: [], text: id };
+    }
+    const rootTopic = doc.topics[root];
+    if (rootTopic) rootTopic.childIds = ['tall', 's1', 's2', 's3'];
+    const layout = computeMindmapLayout(doc);
+    const heightSpan = (side: string) => {
+      const nodes = layout.nodes.filter((node) => node.depth === 1 && node.side === side);
+      const top = Math.min(...nodes.map((node) => node.y - node.height / 2));
+      const bottom = Math.max(...nodes.map((node) => node.y + node.height / 2));
+      return bottom - top;
+    };
+    // 两侧都必须有节点，且不出现「一边空」
+    expect(layout.nodes.filter((node) => node.depth === 1 && node.side === 'right').length).toBeGreaterThan(0);
+    expect(layout.nodes.filter((node) => node.depth === 1 && node.side === 'left').length).toBeGreaterThan(0);
+    expect(Math.abs(heightSpan('right') - heightSpan('left'))).toBeLessThan(heightSpan('right') + heightSpan('left'));
+  });
+});
+
+describe('布局质量：包围盒包含装饰', () => {
+  it('带标记徽章时 bounds 顶部上移，容纳节点上方徽章', () => {
+    const plain = computeMindmapLayout(buildTree());
+    const marked = buildTree();
+    // 给所有节点加标记：确保最顶部节点也被覆盖，从而整体包围盒向上扩展
+    for (const id of Object.keys(marked.topics)) {
+      marked.topics[id] = { ...marked.topics[id]!, markers: ['priority-1'] };
+    }
+    const withMarkers = computeMindmapLayout(marked);
+    expect(withMarkers.bounds.minY).toBeLessThan(plain.bounds.minY);
+  });
+
+  it('有子节点的折叠钮计入 bounds：左右边界外扩', () => {
+    const doc = createEmptyMindMapDocument('单节点');
+    const layout = computeMindmapLayout(doc);
+    const root = layout.nodes.find((node) => node.side === 'root')!;
+    // 单节点无子节点 → 无折叠钮；边界应紧贴节点框
+    expect(layout.bounds.width).toBeCloseTo(root.width, 0);
+
+    const parent = buildTree();
+    const parentLayout = computeMindmapLayout(parent);
+    const parentRoot = parentLayout.nodes.find((node) => node.side === 'root')!;
+    // 根有子节点 → 折叠钮外扩，bounds 至少比节点框宽 2*MINDMAP_TOGGLE_OVERHANG
+    expect(parentLayout.bounds.width).toBeGreaterThanOrEqual(parentRoot.width + 2 * MINDMAP_TOGGLE_OVERHANG - 1);
+  });
+});
+
+describe('布局质量：适配视口可读下限', () => {
+  it('大图保持可读下限并围绕根节点定位', () => {
+    const bounds = { minX: -4000, minY: -3000, maxX: 4000, maxY: 3000, width: 8000, height: 6000 };
+    const viewport = computeFitViewport(
+      bounds, { width: 1000, height: 800 }, 48,
+      { min: 0.1, max: 1.15, readableMin: 0.55 },
+      { x: 0, y: 0 },
+    );
+    expect(viewport.zoom).toBe(0.55);
+    // 根节点（0,0）应落在视口中心
+    expect(viewport.x).toBeCloseTo(500, 0);
+    expect(viewport.y).toBeCloseTo(400, 0);
+  });
+
+  it('未提供可读下限时保持旧的硬缩行为', () => {
+    const bounds = { minX: 0, minY: 0, maxX: 10000, maxY: 10000, width: 10000, height: 10000 };
+    const viewport = computeFitViewport(bounds, { width: 800, height: 600 }, 48, { min: 0.1, max: 2 });
+    expect(viewport.zoom).toBe(0.1);
+  });
+});
+
+describe('布局质量：树形连线共用主干', () => {
+  it('同一父节点宽度不同的子节点共用同一条竖直主干', () => {
+    const doc = createEmptyMindMapDocument('中心');
+    const root = doc.rootTopicId;
+    doc.topics.p = { id: 'p', parentId: root, childIds: ['k1', 'k2'], text: '父' };
+    doc.topics.k1 = { id: 'k1', parentId: 'p', childIds: [], text: '短' };
+    doc.topics.k2 = { id: 'k2', parentId: 'p', childIds: [], text: '这是一个长很多的子节点标题' };
+    const rootTopic = doc.topics[root];
+    if (rootTopic) rootTopic.childIds = ['p'];
+    doc.layoutMode = 'tree';
+
+    const layout = computeMindmapLayout(doc);
+    const trunkXOf = (path: string): number => {
+      // 路径形如 M sx sy L tx sy L tx cy L ex cy
+      const nums = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      return nums[2] as number; // 第一个 L 的 x 即树干列
+    };
+    const e1 = layout.edges.find((edge) => edge.childId === 'k1')!;
+    const e2 = layout.edges.find((edge) => edge.childId === 'k2')!;
+    expect(trunkXOf(e1.path)).toBeCloseTo(trunkXOf(e2.path), 5);
   });
 });

@@ -18,11 +18,13 @@
  * @author Albert_Luo
  * @date 2026-10-30
  */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { buildMindmapOutlineRows, useMindmapStore } from '@/stores/mindmap';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import {
   addChildTopic,
   addSiblingTopic,
+  collectSubtreeTopicIds,
   countDescendants,
   deleteTopic,
   duplicateTopic,
@@ -31,12 +33,11 @@ import {
   moveTopicByOffset,
   renameTopic,
   setTopicCollapsed,
+  setTopicTextStyle,
 } from '@/services/mindmap/mindmapCommands';
 import type { MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
-import {
-  DEFAULT_MINDMAP_THEME_ID,
-  resolveMindmapTheme,
-} from '@/services/mindmapThemeService';
+import { computeMindmapLayout } from '@/services/mindmapLayoutService';
+import { DEFAULT_MINDMAP_THEME_ID, resolveMindmapTheme } from '@/services/mindmapThemeService';
 import type {
   MindMapLayoutMode,
   MindMapSheet,
@@ -44,45 +45,71 @@ import type {
 } from '@/types/mindmap';
 import type { TabDocumentKind } from '@/stores/tabs';
 import MindmapCanvas from './MindmapCanvas.vue';
+import MindmapImageNodeLayer from './MindmapImageNodeLayer.vue';
 import MindmapContextMenu from './MindmapContextMenu.vue';
 import MindmapImportPreviewDialog from './MindmapImportPreviewDialog.vue';
 import MindmapExportDialog from './MindmapExportDialog.vue';
 import {
   MINDMAP_EXPORT_FORMATS,
   buildExportFileName,
-  exportMindmapPdfFile,
-  exportMindmapText,
   previewMindmapImport,
   type MindmapExportFormatId,
   type MindmapImportPreview,
 } from '@/services/mindmap/importExportService';
-import { exportMindmapPng } from '@/services/mindmapSvgService';
+import { canExportMindmapFormat, exportMindmapBrandedText, exportMindmapVisualJpeg, exportMindmapVisualPng, exportMindmapVisualPdf, exportMindmapVisualSvg, resolveMindmapVisualExportOptions } from '@/services/mindmapExportService';
 import { printMindmap } from '@/services/mindmapPdfService';
 import {
   pickMindmapExportPath,
+  pickMindmapImageFile,
   pickMindmapImportFile,
+  readMindmapImageFile,
   readMindmapImportFile,
   writeMindmapExportFile,
 } from '@/services/mindmapFileIoService';
+import {
+  addMindmapImageNode,
+  getMindmapImageNodes,
+  removeMindmapImageNode,
+  MINDMAP_IMAGE_NODE_MAX_DATA_BYTES,
+  type MindmapImageNode,
+} from '@/services/mindmapImageNodeService';
 
 const props = defineProps<{
   tabId: string;
   documentJson: string;
   fileName: string;
   documentKind?: TabDocumentKind;
+  isDirty?: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: 'change', json: string): void;
+  (event: 'membership-required', payload: { feature: string; reason: string }): void;
 }>();
 
 const store = useMindmapStore();
+const cloudQuotaStore = useCloudQuotaStore();
 const document = computed(() => store.document);
 const selectedTopicId = computed(() => store.selectedTopicId);
 const viewport = computed(() => store.viewport);
 const loadError = computed(() => store.loadError);
 const canUndo = computed(() => store.canUndo);
 const canRedo = computed(() => store.canRedo);
+const imageNodes = computed(() => (document.value ? getMindmapImageNodes(document.value) : []));
+const imageLayout = computed(() => (document.value ? computeMindmapLayout(document.value) : null));
+
+function bytesToDataUrl(bytes: Uint8Array, fileName: string): string {
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? 'png';
+  const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg'
+    : extension === 'gif' ? 'image/gif'
+      : extension === 'webp' ? 'image/webp' : 'image/png';
+  let binary = '';
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, Math.min(index + chunk, bytes.length)));
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
+}
 
 /** 当前结构布局模式（来自文档正文，切换后可撤销）。 */
 const layoutMode = computed<MindMapLayoutMode>(() => document.value?.layoutMode ?? 'mindmap');
@@ -118,6 +145,7 @@ const importFileName = ref('');
 const importPreview = ref<MindmapImportPreview | null>(null);
 const exportDialogVisible = ref(false);
 const exportBusy = ref(false);
+const exportError = ref('');
 
 /* 阶段 4：右侧两列（大纲 / 属性）显隐 —— 状态在 store，不进历史 */
 
@@ -139,7 +167,18 @@ function showNotice(message: string) {
 
 onBeforeUnmount(() => {
   if (noticeTimer) clearTimeout(noticeTimer);
+  window.removeEventListener('mindmap-outline-focus', onOutlineFocus);
 });
+
+function onOutlineFocus(event: Event) {
+  const detail = (event as CustomEvent<{ tabId: string; topicId: string }>).detail;
+  if (!detail || detail.tabId !== props.tabId || store.tabId !== props.tabId) return;
+  void nextTick(() => {
+    if (store.tabId === props.tabId) canvasRef.value?.focusTopic(detail.topicId);
+  });
+}
+
+onMounted(() => window.addEventListener('mindmap-outline-focus', onOutlineFocus));
 
 /* ------------------------------- 加载与同步 ------------------------------- */
 
@@ -207,9 +246,16 @@ function runCommand(
   const current = document.value;
   if (!current) return false;
   const before = store.serialized;
+  const limitNotice = store.nodeLimitNotice;
   const result = store.applyCommand(label, command);
   if (!result) return false;
   if (!result.ok) {
+    if (store.nodeLimitNotice !== limitNotice) {
+      emit('membership-required', {
+        feature: '大规模导图',
+        reason: '免费版每个导图最多 30 个节点，升级会员即可创建更大规模的导图。',
+      });
+    }
     showNotice(result.error.message);
     return false;
   }
@@ -220,6 +266,60 @@ function runCommand(
 
 function focusStage() {
   return nextTick(() => stageRef.value?.focus());
+}
+
+async function addImageToTopic(topicId: string) {
+  const current = document.value;
+  if (!current || isExternal.value) return;
+  if (cloudQuotaStore.tier !== 'PLUS' && cloudQuotaStore.tier !== 'PRO') {
+    emit('membership-required', {
+      feature: '图片节点',
+      reason: '图片节点支持主题配图、尺寸调整与导图内联保存，仅对 PLUS / PRO 会员开放。',
+    });
+    return;
+  }
+  try {
+    const path = await pickMindmapImageFile();
+    if (!path) return;
+    const file = await readMindmapImageFile(path);
+    // data URL 会产生约 4/3 的 Base64 膨胀；预先限制原始文件，确保持久化校验也能通过。
+    if (file.bytes.byteLength > Math.floor(MINDMAP_IMAGE_NODE_MAX_DATA_BYTES * 0.74)) {
+      showNotice('图片不能超过约 3.7MB（会以内联方式写入导图）');
+      return;
+    }
+    const result = addMindmapImageNode(current, topicId, {
+      src: bytesToDataUrl(file.bytes, file.fileName),
+      alt: file.fileName.replace(/\.[^.]+$/, ''),
+    }, cloudQuotaStore.tier);
+    if (!result.ok) {
+      showNotice(result.error.message);
+      return;
+    }
+    const before = store.serialized;
+    if (store.commitDocumentChange('添加图片节点', result.document)) {
+      emitIfChanged(before);
+      showNotice('已添加图片节点');
+    }
+  } catch (error) {
+    showNotice(error instanceof Error ? error.message : '添加图片节点失败');
+  } finally {
+    void focusStage();
+  }
+}
+
+function removeImageNode(imageNode: MindmapImageNode) {
+  const current = document.value;
+  if (!current) return;
+  const result = removeMindmapImageNode(current, imageNode.id, cloudQuotaStore.tier);
+  if (!result.ok) {
+    showNotice(result.error.message);
+    return;
+  }
+  const before = store.serialized;
+  if (store.commitDocumentChange('删除图片节点', result.document)) {
+    emitIfChanged(before);
+    showNotice('已删除图片节点');
+  }
 }
 
 /**
@@ -249,6 +349,34 @@ const sheets = computed(() => store.sheets);
 
 /** 当前工作表 id，用于切换条的激活态判定。 */
 const currentSheetId = computed(() => store.currentSheetId);
+const currentSheet = computed(() => sheets.value.find((sheet) => sheet.id === currentSheetId.value));
+const editingSheet = ref<{ id: string; tabId: string; originalTitle: string } | null>(null);
+const sheetTitleDraft = ref('');
+const sheetRenameButton = ref<HTMLButtonElement | null>(null);
+
+function startSheetRename(sheet: MindMapSheet) {
+  editingSheet.value = { id: sheet.id, tabId: props.tabId, originalTitle: sheet.title };
+  sheetTitleDraft.value = sheet.title;
+  void nextTick(() => {
+    const input = stageRef.value?.querySelector<HTMLInputElement>('[data-testid="mm-sheet-rename-input"]');
+    input?.focus();
+    input?.select();
+  });
+}
+
+function finishSheetRename(commit: boolean, restoreFocus = false) {
+  const editing = editingSheet.value;
+  if (!editing) return;
+  editingSheet.value = null;
+  const current = sheets.value.find((sheet) => sheet.id === editing.id);
+  if (commit && editing.tabId === props.tabId && store.tabId === props.tabId && current?.title === editing.originalTitle) {
+    const before = store.serialized;
+    if (store.renameSheet(editing.id, sheetTitleDraft.value)) emitIfChanged(before);
+  }
+  if (restoreFocus) void nextTick(() => sheetRenameButton.value?.focus());
+}
+
+watch(() => props.tabId, () => { editingSheet.value = null; });
 
 /**
  * 切换工作表。
@@ -268,6 +396,13 @@ function switchSheet(sheet: MindMapSheet): boolean {
 
 /** 新增工作表（自动切到新工作表，可撤销）。 */
 function addSheet() {
+  if (cloudQuotaStore.tier !== 'PLUS' && cloudQuotaStore.tier !== 'PRO') {
+    emit('membership-required', {
+      feature: '多工作表',
+      reason: '免费版每个文件只能创建一个工作表，升级 Plus 或 Pro 后可创建多个工作表。',
+    });
+    return;
+  }
   const before = store.serialized;
   if (!store.addSheet()) return;
   emitIfChanged(before);
@@ -279,7 +414,6 @@ function addSheet() {
  * 删除当前工作表（含其中心主题与整棵子树，可撤销）。
  *
  * 「至少保留一个」在按钮 disabled 与 store.removeSheet 两处双重拦截。
- * TODO(阶段 5)：双击工作表标签重命名（store.renameSheet 已就绪，缺 UI 入口）。
  */
 function removeCurrentSheet() {
   const sheetId = currentSheetId.value;
@@ -367,6 +501,22 @@ function commitRename(text: string) {
 function cancelRename() {
   editingTopicId.value = null;
   void focusStage();
+}
+
+function applyEditingTextStyle(payload: { start: number; end: number; color?: string | null; background?: string | null }) {
+  const topicId = editingTopicId.value;
+  if (!topicId || payload.end <= payload.start) return;
+  const currentText = document.value?.topics[topicId]?.text;
+  if (currentText !== editingText.value) {
+    if (!runCommand('重命名主题', (doc) => renameTopic(doc, topicId, editingText.value))) return;
+  }
+  runCommand('设置节点文字样式', (doc) => setTopicTextStyle(
+    doc,
+    topicId,
+    payload.start,
+    payload.end,
+    { color: payload.color, background: payload.background },
+  ));
 }
 
 /* ------------------------------- 删除 ------------------------------- */
@@ -602,6 +752,97 @@ const contextMenuTopic = computed(() => {
 });
 
 /**
+ * 是否存在可折叠/可展开的节点（有子节点的节点）。
+ * 用于空白区菜单的「展开全部 / 折叠全部」禁用态。
+ */
+function hasCollapsibleNodes(doc: typeof document.value): boolean {
+  if (!doc) return false;
+  return Object.values(doc.topics).some((topic) => (topic.childIds ?? []).length > 0);
+}
+
+/**
+ * 批量设置某节点整棵子树（含自身）的折叠状态。
+ *
+ * 与 store 的历史机制一致：整批修改合并为**一次**文档提交，
+ * 用户按一次撤销即可整体回退，不会产生 N 条历史。
+ */
+function setSubtreeCollapsed(topicId: string, collapsed: boolean, includeSelf = true) {
+  const before = store.serialized;
+  const result = store.applyCommand(
+    collapsed ? '折叠子树' : '展开子树',
+    (doc) => {
+      const ids = new Set(collectSubtreeTopicIds(doc, topicId));
+      if (!includeSelf) ids.delete(topicId);
+      let current = doc;
+      for (const id of ids) {
+        const step = setTopicCollapsed(current, id, collapsed);
+        if (!step.ok) return step;
+        current = step.document;
+      }
+      return { ok: true as const, document: current };
+    },
+  );
+  if (result?.ok) emitIfChanged(before);
+}
+
+/** 展开/折叠文档内全部含子节点的节点。 */
+function setAllCollapsed(collapsed: boolean) {
+  const doc = document.value;
+  if (!doc) return;
+  const targets = Object.values(doc.topics)
+    .filter((topic) => (topic.childIds ?? []).length > 0)
+    .map((topic) => topic.id);
+  if (targets.length === 0) return;
+  const before = store.serialized;
+  const result = store.applyCommand(
+    collapsed ? '折叠全部' : '展开全部',
+    (current) => {
+      let next = current;
+      for (const id of targets) {
+        const step = setTopicCollapsed(next, id, collapsed);
+        if (!step.ok) return step;
+        next = step.document;
+      }
+      return { ok: true as const, document: next };
+    },
+  );
+  if (result?.ok) emitIfChanged(before);
+}
+
+/** 复制当前节点文字到剪贴板。 */
+async function copyTopicText(topicId: string) {
+  const text = document.value?.topics[topicId]?.text ?? '';
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotice('已复制节点文字');
+  } catch {
+    showNotice('复制失败，请手动选择文字复制');
+  }
+}
+
+/** 清除某个节点上的全部文字颜色/背景高亮。 */
+function clearTopicTextStyle(topicId: string) {
+  const topic = document.value?.topics[topicId];
+  if (!topic || (topic.textStyles ?? []).length === 0) return;
+  const before = store.serialized;
+  const result = store.applyCommand('清除文字样式', (doc) => {
+    const target = doc.topics[topicId];
+    if (!target) return { ok: false as const, error: { code: 'TOPIC_NOT_FOUND', message: '节点不存在' } };
+    const next = { ...target };
+    delete next.textStyles;
+    return {
+      ok: true as const,
+      document: { ...doc, topics: { ...doc.topics, [topicId]: next } },
+    };
+  });
+  if (result?.ok) {
+    emitIfChanged(before);
+    showNotice('已清除文字颜色与高亮');
+  }
+}
+
+/**
  * 当前应展示的菜单项：节点菜单（≥7 项）与空白菜单（≥4 项）。
  * 菜单只负责「展示 + 派发 id」，实际动作统一交给 runContextMenuAction。
  */
@@ -612,11 +853,21 @@ const contextMenuItems = computed<StageMenuItem[]>(() => {
   const topic = contextMenuTopic.value;
   if (!topic) {
     // 空白区域：不针对具体节点，只提供画布级操作
+    const expandable = hasCollapsibleNodes(doc);
     return [
       { id: 'add-root-child', label: '新增中心子主题', shortcut: 'Tab' },
+      { id: 'group-empty-1', label: '', separator: true },
+      { id: 'expand-all', label: '展开全部节点', disabled: !expandable },
+      { id: 'collapse-all', label: '折叠全部节点', disabled: !expandable },
+      { id: 'group-empty-2', label: '', separator: true },
       { id: 'fit-view', label: '适配内容' },
       { id: 'reset-view', label: '重置视口' },
+      { id: 'zoom-in', label: '放大' },
+      { id: 'zoom-out', label: '缩小' },
+      { id: 'group-empty-3', label: '', separator: true },
+      { id: 'export', label: '导出…' },
       { id: 'toggle-properties', label: '属性面板' },
+      { id: 'group-empty-4', label: '', separator: true },
       { id: 'undo', label: '撤销', shortcut: 'Ctrl+Z', disabled: !canUndo.value },
       { id: 'redo', label: '重做', shortcut: 'Ctrl+Shift+Z', disabled: !canRedo.value },
     ];
@@ -624,26 +875,45 @@ const contextMenuItems = computed<StageMenuItem[]>(() => {
 
   const hasChildren = (topic.childIds ?? []).length > 0;
   const isRoot = topic.id === doc.rootTopicId;
+  const descendantCount = countDescendants(doc, topic.id);
+  const hasStyledText = (topic.textStyles ?? []).length > 0;
   return [
+    // 结构
     { id: 'add-child', label: '新增子主题', shortcut: 'Tab' },
     { id: 'add-sibling', label: '新增同级主题', shortcut: 'Enter', disabled: isRoot },
     { id: 'rename', label: '重命名', shortcut: 'F2' },
     { id: 'duplicate', label: '复制主题' },
     { id: 'group-1', label: '', separator: true },
-    { id: 'toggle-collapse', label: topic.collapsed ? '展开子主题' : '折叠子主题', disabled: !hasChildren },
+    // 折叠
+    { id: 'toggle-collapse', label: topic.collapsed ? '展开本节点' : '折叠本节点', disabled: !hasChildren },
+    {
+      id: 'collapse-descendants',
+      label: descendantCount > 0 ? `折叠全部后代（${descendantCount}）` : '折叠全部后代',
+      disabled: descendantCount === 0,
+    },
+    {
+      id: 'expand-descendants',
+      label: descendantCount > 0 ? `展开全部后代（${descendantCount}）` : '展开全部后代',
+      disabled: descendantCount === 0,
+    },
+    { id: 'group-2', label: '', separator: true },
+    // 排序与内容
     { id: 'move-up', label: '上移', shortcut: 'Alt+↑', disabled: isRoot },
     { id: 'move-down', label: '下移', shortcut: 'Alt+↓', disabled: isRoot },
-    { id: 'group-2', label: '', separator: true },
-    // UX-2：边界 / 概要按当前是否已有决定「添加」还是「清除」
+    { id: 'copy-text', label: '复制节点文字' },
+    { id: 'add-image', label: '添加图片节点…' },
+    { id: 'group-3', label: '', separator: true },
+    // 装饰（UX-2）
     topic.boundary
       ? { id: 'clear-boundary', label: '清除边界' }
       : { id: 'add-boundary', label: '添加边界…' },
     topic.summary
       ? { id: 'clear-summary', label: '清除概要' }
       : { id: 'add-summary', label: '添加概要…' },
-    { id: 'group-3', label: '', separator: true },
+    { id: 'clear-text-style', label: '清除文字颜色与高亮', disabled: !hasStyledText },
+    { id: 'group-4', label: '', separator: true },
     { id: 'toggle-properties', label: '打开属性面板' },
-    { id: 'delete', label: '删除主题', shortcut: 'Delete', danger: true, disabled: isRoot },
+    { id: 'delete', label: isRoot ? '重置为中心主题' : '删除主题', shortcut: 'Delete', danger: true },
   ];
 });
 
@@ -663,11 +933,26 @@ function runContextMenuAction(id: string) {
         store.selectTopic(doc.rootTopicId);
         addChild();
         break;
+      case 'expand-all':
+        setAllCollapsed(false);
+        break;
+      case 'collapse-all':
+        setAllCollapsed(true);
+        break;
       case 'fit-view':
         canvasRef.value?.fitView();
         break;
       case 'reset-view':
         canvasRef.value?.resetView();
+        break;
+      case 'zoom-in':
+        canvasRef.value?.zoomIn();
+        break;
+      case 'zoom-out':
+        canvasRef.value?.zoomOut();
+        break;
+      case 'export':
+        openExportDialog();
         break;
       case 'toggle-properties':
         openPropertiesPanel();
@@ -698,8 +983,23 @@ function runContextMenuAction(id: string) {
     case 'duplicate':
       duplicateSelected();
       break;
+    case 'add-image':
+      void addImageToTopic(nodeId);
+      break;
     case 'toggle-collapse':
       toggleCollapse(nodeId);
+      break;
+    case 'collapse-descendants':
+      setSubtreeCollapsed(nodeId, true, false);
+      break;
+    case 'expand-descendants':
+      setSubtreeCollapsed(nodeId, false, false);
+      break;
+    case 'copy-text':
+      void copyTopicText(nodeId);
+      break;
+    case 'clear-text-style':
+      clearTopicTextStyle(nodeId);
       break;
     case 'move-up':
       moveSelected(-1);
@@ -726,7 +1026,9 @@ function runContextMenuAction(id: string) {
       clearSelectedSummary();
       break;
     case 'delete':
-      requestDelete();
+      // 中心主题不能删除：改为「重置」并走确认流程，菜单标签也已据此变化
+      if (doc.rootTopicId === nodeId) requestReset();
+      else requestDelete();
       break;
     default:
       break;
@@ -765,10 +1067,17 @@ function confirmImport() {
   const preview = importPreview.value;
   if (!preview?.ok || !preview.document) return;
   const before = store.serialized;
+  const limitNotice = store.nodeLimitNotice;
   const replaced = store.replaceDocument(preview.document, `导入 ${preview.formatName}`);
   if (replaced) {
     emitIfChanged(before);
     showNotice(`已导入 ${preview.formatName}`);
+  } else if (store.nodeLimitNotice !== limitNotice) {
+    emit('membership-required', {
+      feature: '大规模导图',
+      reason: '免费版每个导图最多 30 个节点，升级后可创建更大规模的思维导图。',
+    });
+    showNotice('导入失败：普通用户每个导图最多 30 个节点');
   } else {
     showNotice('导入内容与当前文档相同，未做修改');
   }
@@ -778,6 +1087,7 @@ function confirmImport() {
 }
 
 function openExportDialog() {
+  exportError.value = '';
   exportDialogVisible.value = true;
 }
 
@@ -785,10 +1095,23 @@ async function confirmExport(payload: {
   formatId: MindmapExportFormatId;
   background: 'transparent' | string;
   scale: number;
+  colorMode: 'monochrome' | 'color';
+  customWatermark?: string;
 }) {
   const current = document.value;
   if (!current || exportBusy.value) return;
+  if (!canExportMindmapFormat(payload.formatId, cloudQuotaStore.tier)) {
+    const tier = cloudQuotaStore.tier === 'FREE' ? '免费版' : cloudQuotaStore.tier;
+    emit('membership-required', {
+      feature: `${payload.formatId.toUpperCase()} 导出`,
+      reason: `${tier}暂不支持该格式，请升级会员解锁更多导出格式。`,
+    });
+    exportError.value = `${tier}暂不支持该格式，请升级会员解锁更多导出格式。`;
+    return;
+  }
+  exportError.value = '';
   exportBusy.value = true;
+  let successMessage = '';
   try {
     const extension = MINDMAP_EXPORT_FORMATS.find((format) => format.id === payload.formatId)?.extension
       ?? 'txt';
@@ -800,37 +1123,65 @@ async function confirmExport(payload: {
     const sheetSuffix = store.sheets.length > 1 ? '（仅当前工作表）' : '';
 
     if (payload.formatId === 'png') {
-      showNotice('正在导出 PNG…');
-      const { blob, width, height } = await exportMindmapPng(current, {
+      const { blob, width, height } = await exportMindmapVisualPng(current, {
+        tier: cloudQuotaStore.tier,
         background: payload.background,
         scale: payload.scale,
+        colorMode: payload.colorMode,
+        customWatermark: payload.customWatermark,
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       await writeMindmapExportFile(path, { kind: 'binary', bytes });
-      showNotice(`已导出 PNG（${width}×${height}）${sheetSuffix}`);
+      successMessage = `已导出 PNG（${width}×${height}）${sheetSuffix}`;
+    } else if (payload.formatId === 'jpg') {
+      const { blob, width, height } = await exportMindmapVisualJpeg(current, {
+        tier: cloudQuotaStore.tier,
+        background: '#ffffff',
+        scale: payload.scale,
+        colorMode: payload.colorMode,
+        customWatermark: payload.customWatermark,
+      });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await writeMindmapExportFile(path, { kind: 'binary', bytes });
+      successMessage = `已导出 JPG（${width}×${height}）${sheetSuffix}`;
     } else if (payload.formatId === 'pdf') {
-      showNotice('正在导出 PDF…');
-      const result = await exportMindmapPdfFile(current, {
+      const result = await exportMindmapVisualPdf(current, {
+        tier: cloudQuotaStore.tier,
         background: '#ffffff',
         scale: 1,
+        colorMode: payload.colorMode,
+        customWatermark: payload.customWatermark,
       });
       if (!result.ok || !result.bytes) {
         throw new Error(result.error?.message ?? 'PDF 导出失败');
       }
       await writeMindmapExportFile(path, { kind: 'binary', bytes: result.bytes });
-      showNotice(`已导出 PDF（${result.width}×${result.height}）${sheetSuffix}`);
+      successMessage = `已导出 PDF（${result.width}×${result.height}）${sheetSuffix}`;
+    } else if (payload.formatId === 'svg') {
+      const result = exportMindmapVisualSvg(current, {
+        tier: cloudQuotaStore.tier,
+        background: payload.background,
+        colorMode: payload.colorMode,
+        customWatermark: payload.customWatermark,
+      });
+      if (!result.ok) throw new Error(result.error?.message ?? 'SVG 导出失败');
+      await writeMindmapExportFile(path, { kind: 'text', text: result.output });
+      successMessage = `已导出 SVG${sheetSuffix}`;
     } else {
-      const result = exportMindmapText(payload.formatId, current);
+      const result = exportMindmapBrandedText(payload.formatId, current, cloudQuotaStore.tier);
       if (!result.ok) throw new Error(result.error?.message ?? '导出失败');
       await writeMindmapExportFile(path, { kind: 'text', text: result.output });
       const baseMessage = result.lossy && result.lossy.length > 0
         ? `已导出（${result.lossy.length} 项有损）`
         : '已导出';
-      showNotice(`${baseMessage}${sheetSuffix}`);
+      successMessage = `${baseMessage}${sheetSuffix}`;
     }
     exportDialogVisible.value = false;
+    exportError.value = '';
+    await nextTick();
+    showNotice(successMessage || '导出成功');
   } catch (error) {
-    showNotice(error instanceof Error ? error.message : '导出失败');
+    exportError.value = error instanceof Error ? error.message : '导出失败';
   } finally {
     exportBusy.value = false;
   }
@@ -842,7 +1193,8 @@ async function handlePrint() {
   if (!current) return;
   try {
     showNotice('正在准备打印…');
-    const { width, height } = await printMindmap(current, { background: 'transparent' });
+    const options = resolveMindmapVisualExportOptions({ tier: cloudQuotaStore.tier, background: 'transparent' });
+    const { width, height } = await printMindmap(current, options);
     showNotice(`已调起打印（${width}×${height}）`);
   } catch (error) {
     showNotice(error instanceof Error ? error.message : '打印失败');
@@ -1068,30 +1420,51 @@ defineExpose({
     </div>
 
     <template v-else-if="document">
-      <!-- 统计条（UX-3C）：工具栏已外移到 App 顶部全局 Toolbar，这里只保留只读统计 -->
-      <div class="mindmap-stats-bar">
-        <span class="mm-stats">
-          {{ rows.length }} 个可见节点 · {{ Math.round(viewport.zoom * 100) }}%<span v-if="descendantsOfSelected"> · 选中含 {{ descendantsOfSelected }} 个子节点</span>
-        </span>
+      <div v-if="notice" class="mindmap-notice" role="status" data-testid="mindmap-notice">
+        <span class="mindmap-notice-icon" aria-hidden="true">!</span>
+        <span>{{ notice }}</span>
       </div>
 
-      <div v-if="notice" class="mindmap-notice" role="status" data-testid="mindmap-notice">{{ notice }}</div>
-
       <!-- 工作表切换条（阶段 4E）：切换 / 新增 / 删除均以可撤销命令写回文档并 emit change -->
-      <div class="mindmap-sheet-bar" data-testid="mm-sheet-bar" role="tablist" aria-label="工作表">
-        <button
-          v-for="(sheet, index) in sheets"
-          :key="sheet.id"
-          type="button"
-          role="tab"
-          class="mm-sheet-tab"
-          :class="{ 'is-active': sheet.id === currentSheetId }"
-          :data-testid="`mm-sheet-tab-${index}`"
-          :aria-selected="sheet.id === currentSheetId"
-          :title="sheet.title"
-          @click="switchSheet(sheet)"
-        >{{ sheet.title }}</button>
+      <div class="mindmap-sheet-bar" data-testid="mm-sheet-bar" @keydown.stop>
+        <div class="mm-sheet-tabs" role="tablist" aria-label="工作表">
+          <template v-for="(sheet, index) in sheets" :key="sheet.id">
+            <input
+              v-if="editingSheet?.id === sheet.id"
+              ref="sheetTitleInput"
+              v-model="sheetTitleDraft"
+              class="mm-sheet-input"
+              data-testid="mm-sheet-rename-input"
+              aria-label="工作表名称"
+              @blur="finishSheetRename(true)"
+              @keydown.enter.prevent="!$event.isComposing && finishSheetRename(true, true)"
+              @keydown.esc.prevent="finishSheetRename(false, true)"
+            >
+            <button
+              v-else
+              type="button"
+              role="tab"
+              class="mm-sheet-tab"
+              :class="{ 'is-active': sheet.id === currentSheetId }"
+              :data-testid="`mm-sheet-tab-${index}`"
+              :aria-selected="sheet.id === currentSheetId"
+              :title="sheet.title"
+              @click="switchSheet(sheet)"
+              @dblclick="startSheetRename(sheet)"
+              @keydown.f2.prevent="startSheetRename(sheet)"
+            >{{ sheet.title }}</button>
+          </template>
+        </div>
         <span class="mm-divider" aria-hidden="true"></span>
+        <button
+          ref="sheetRenameButton"
+          type="button"
+          class="mm-btn"
+          data-testid="mm-sheet-rename"
+          title="重命名当前工作表"
+          :disabled="!currentSheet"
+          @click="currentSheet && startSheetRename(currentSheet)"
+        >重命名工作表</button>
         <button type="button" class="mm-btn" data-testid="mm-sheet-add" title="新增工作表" @click="addSheet">
           ＋ 工作表
         </button>
@@ -1115,17 +1488,47 @@ defineExpose({
           :viewport="viewport"
           :editing-id="editingTopicId"
           :editing-text="editingText"
+          :canvas-background="store.canvasBackground"
+          :canvas-grid-visible="store.canvasGridVisible"
+          :canvas-root-visible="store.canvasRootVisible"
           @select="selectTopic"
+          @style-target="!isExternal && store.showStyleTarget($event)"
           @toggle-collapse="toggleCollapse"
           @start-rename="startRename"
           @commit-rename="commitRename"
           @cancel-rename="cancelRename"
           @update:viewport="onViewportChange"
           @update:editing-text="onEditingText"
+          @apply-text-style="applyEditingTextStyle"
           @move="onMove"
           @contextmenu="openMindmapContextMenu"
         />
-        <!-- 大纲 / 属性面板已外移到外壳右侧（MindmapRightPanel，由 App 渲染） -->
+        <MindmapImageNodeLayer
+          :layout="imageLayout"
+          :viewport="viewport"
+          :image-nodes="imageNodes"
+          :tier="cloudQuotaStore.tier"
+          @remove="removeImageNode"
+          @error="showNotice('图片节点无法加载')"
+        />
+        <div class="mm-document-pill" data-testid="mm-document-pill">
+          <span class="mm-document-pill-mark" aria-hidden="true">✣</span>
+          <span class="mm-document-title">{{ document.title || props.fileName }}</span>
+          <span class="mm-document-sheet">{{ sheets.find((sheet) => sheet.id === currentSheetId)?.title }}</span>
+          <span class="mm-document-state" :class="{ 'is-dirty': props.isDirty }">
+            {{ props.isDirty ? '未保存' : '已保存' }}
+          </span>
+        </div>
+        <div class="mm-canvas-hud" data-testid="mm-canvas-hud" role="group" aria-label="画布视图">
+          <span class="mm-stats">
+            {{ rows.length }} 个节点 · {{ Math.round(viewport.zoom * 100) }}%<span v-if="descendantsOfSelected"> · 选中含 {{ descendantsOfSelected }} 个子节点</span>
+          </span>
+          <button type="button" data-testid="mm-hud-fit" title="适配内容" aria-label="适配内容" @click="fitView">适配</button>
+          <button type="button" data-testid="mm-hud-zoom-out" title="缩小" aria-label="缩小" @click="zoomOut">−</button>
+          <button type="button" data-testid="mm-hud-zoom-in" title="放大" aria-label="放大" @click="zoomIn">＋</button>
+          <button type="button" data-testid="mm-hud-reset" title="重置视口" aria-label="重置视口" @click="resetView">重置</button>
+        </div>
+        <!-- 大纲 / 属性面板由外壳渲染；画布 HUD 直接复用本舞台视口命令。 -->
       </div>
 
       <div v-if="confirmAction" class="mindmap-confirm" role="alertdialog" data-testid="mindmap-confirm">
@@ -1139,13 +1542,6 @@ defineExpose({
         <button type="button" class="mm-btn" data-testid="mm-confirm-cancel" @click="cancelPending">取消</button>
       </div>
 
-      <div class="mindmap-stage-note">
-        阶段 2：画布与大纲。滚轮缩放 · 空白拖拽平移 · 双击改名 · 拖节点改变父级 · Tab 子主题 · Enter 同级 · F2 改名 · Delete 删除 · Alt+↑↓ 重排 · Ctrl+Z 撤销。
-        布局可在「导图 / 逻辑图 / 树形 / 组织图」间切换（可撤销）。
-        阶段 4：节点样式 / 标记 / 关系线可在属性面板中调整，主题模板与布局在窗口顶部工具栏切换（均可撤销）。
-        阶段 4E：多工作表可新增 / 切换 / 删除（均可撤销，至少保留一个工作表）。右键画布节点或大纲行可打开快捷菜单。边界（包住主题与后代）与概要（子节点括线）可在属性面板中设置。
-        面板：大纲 / 属性在外壳右侧双 tab 面板中查看（Ctrl+Alt+O 大纲、Ctrl+Alt+P 属性，可收起）。
-      </div>
     </template>
 
     <MindmapContextMenu
@@ -1168,7 +1564,10 @@ defineExpose({
     <MindmapExportDialog
       :visible="exportDialogVisible"
       :busy="exportBusy"
-      @close="exportDialogVisible = false"
+      :error-message="exportError"
+      :membership-tier="cloudQuotaStore.tier"
+      @close="exportDialogVisible = false; exportError = ''"
+      @membership-required="(payload) => emit('membership-required', payload)"
       @confirm="confirmExport"
     />
   </div>
@@ -1190,15 +1589,6 @@ defineExpose({
   overflow: hidden;
   outline: none;
 }
-/* UX-3C：工具栏外移后舞台顶部只保留一条只读统计 */
-.mindmap-stats-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 4px 12px;
-  background: var(--panel-base);
-  border-bottom: 1px solid var(--border-soft);
-}
 .mm-btn {
   padding: 5px 10px;
   border-radius: var(--radius-control);
@@ -1219,16 +1609,129 @@ defineExpose({
 .mm-divider { width: 1px; height: 18px; background: var(--border-soft); }
 .mm-stats { font-size: 12px; color: var(--text-muted); }
 .mindmap-notice {
-  padding: 6px 14px;
-  font-size: 12px;
+  position: absolute;
+  z-index: 30;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 40px));
+  padding: 14px 18px;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--accent-brand) 55%, var(--border-strong));
+  border-radius: 8px;
   color: var(--text-primary);
-  background: var(--surface-active);
-  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--panel-elevated) 94%, var(--accent-brand));
+  box-shadow: 0 12px 36px color-mix(in srgb, #000 42%, transparent), 0 0 0 9999px color-mix(in srgb, #000 16%, transparent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+}
+.mindmap-notice-icon {
+  display: grid;
+  flex: 0 0 24px;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--panel-elevated);
+  background: var(--accent-brand);
+  font-size: 15px;
+  font-weight: 800;
 }
 .mindmap-workspace {
+  position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
+  overflow: hidden;
+}
+.mm-document-pill,
+.mm-canvas-hud {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  /* 常规圆角：胶囊（999px）在左右两侧显得过于圆润，改为控件级圆角 */
+  border-radius: var(--radius-control, 6px);
+  background: color-mix(in srgb, var(--panel-base) 90%, transparent);
+  color: var(--text-primary);
+  box-shadow: 0 8px 26px rgba(2, 6, 23, .24);
+  backdrop-filter: blur(14px) saturate(130%);
+}
+.mm-document-pill {
+  top: 16px;
+  left: 18px;
+  max-width: min(62%, 520px);
+  min-height: 38px;
+  padding: 0 14px;
+}
+.mm-document-pill-mark {
+  color: var(--accent-brand);
+  font-size: 17px;
+}
+.mm-document-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mm-document-sheet {
+  padding-left: 9px;
+  border-left: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.mm-document-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--state-success);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.mm-document-state::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+.mm-document-state.is-dirty { color: var(--state-warning); }
+.mm-canvas-hud {
+  right: 20px;
+  bottom: 18px;
+  min-height: 42px;
+  padding: 4px 7px 4px 13px;
+}
+.mm-stats {
+  padding-right: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.mm-canvas-hud button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 600 12px var(--font-ui);
+  cursor: pointer;
+}
+.mm-canvas-hud button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 /* 工作表切换条（阶段 4E） */
 .mindmap-sheet-bar {
@@ -1239,6 +1742,16 @@ defineExpose({
   background: var(--panel-base);
   border-bottom: 1px solid var(--border-soft);
   overflow-x: auto;
+}
+.mm-sheet-tabs { display: flex; align-items: center; gap: 6px; }
+.mm-sheet-input {
+  width: 140px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent-brand);
+  border-radius: var(--radius-control);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  font: 12px var(--font-ui);
 }
 .mm-sheet-tab {
   padding: 4px 10px;
@@ -1269,11 +1782,10 @@ defineExpose({
   font-size: 12px;
 }
 .mindmap-confirm-text { flex: 1; }
-.mindmap-stage-note {
-  padding: 8px 14px;
-  border-top: 1px solid var(--border-soft);
-  font-size: 12px;
-  color: var(--text-muted);
+@media (max-width: 760px) {
+  .mm-document-pill { top: 10px; left: 10px; max-width: calc(100% - 20px); }
+  .mm-canvas-hud { right: 10px; bottom: 10px; gap: 2px; }
+  .mm-stats { display: none; }
 }
 .mindmap-error {
   padding: 32px;

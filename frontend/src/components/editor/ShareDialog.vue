@@ -442,6 +442,12 @@ async function startSync(overwrite: boolean): Promise<void> {
     });
 
     if (result.status === 'conflict') {
+      if (overwrite) {
+        needsOverwrite.value = false;
+        errorText.value = copy.value.syncFailed(result.message ?? '云端仍有新版本，请关闭分享窗口后重新打开再确认覆盖');
+        phase.value = 'ready';
+        return;
+      }
       needsOverwrite.value = true;
       phase.value = 'ready';
       return;

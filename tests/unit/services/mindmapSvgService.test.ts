@@ -21,13 +21,19 @@ function treeDoc(): MindMapDocument {
 }
 
 describe('renderMindmapSvg', () => {
+  it('彩色导出保留连接线自定义颜色', () => {
+    const doc = treeDoc();
+    doc.topics.a!.style = { edgeColor: '#123456' };
+    expect(renderMindmapSvg(doc, { colorMode: 'color' }).svg).toContain('stroke="#123456"');
+    expect(renderMindmapSvg(doc, { colorMode: 'monochrome' }).svg).not.toContain('stroke="#123456"');
+  });
   it('渲染全部节点与连线', () => {
     const { svg, layout } = renderMindmapSvg(treeDoc());
     expect(layout.nodes).toHaveLength(4);
     expect(layout.edges).toHaveLength(3);
     // 每个节点一个 rect；连线为 path
     expect((svg.match(/<rect /g) ?? []).length).toBe(4);
-    expect((svg.match(/<path /g) ?? []).length).toBe(3);
+    expect((svg.match(/<path /g) ?? []).length).toBe(4); // 含箭头 marker 的 path
     expect(svg.startsWith('<?xml')).toBe(true);
     expect(svg).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
   });
@@ -57,11 +63,68 @@ describe('renderMindmapSvg', () => {
     expect(svg).toContain('🚀');
   });
 
+  it('自定义水印转义 XML 特殊字符', () => {
+    const { svg } = renderMindmapSvg(treeDoc(), { watermark: true, watermarkText: 'A <&> B' });
+    expect(svg).toContain('A &lt;&amp;&gt; B');
+    expect(svg).not.toContain('A <&> B');
+    expect(svg.match(/<text x=/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(svg).toContain('opacity="0.16"');
+  });
+
+  it('导出遵循自定义节点边框粗细、连接线粗细与形状', () => {
+    const doc = treeDoc();
+    doc.topics.a!.style = { borderColor: '#123456', borderWidth: '3', edgeColor: '#654321', edgeWidth: '4', shape: 'pill' };
+    const { svg } = renderMindmapSvg(doc, { colorMode: 'color' });
+    expect(svg).toContain('stroke="#123456" stroke-width="3"');
+    expect(svg).toContain('stroke="#654321" stroke-width="4"');
+    expect(svg).toContain('rx="22"');
+  });
+
+  it('导出父子线与关系线的线型及起止箭头', () => {
+    const doc = treeDoc();
+    doc.topics.a!.style = { edgeStyle: 'dotted', edgeStartArrow: 'arrow', edgeEndArrow: 'arrow' };
+    doc.relations = [{
+      id: 'relation-1', sourceTopicId: 'a', targetTopicId: 'b',
+      lineStyle: 'solid', startArrow: 'arrow', endArrow: 'none',
+    }];
+    const { svg } = renderMindmapSvg(doc, { colorMode: 'color' });
+    expect(svg).toContain('stroke-dasharray="1 4" stroke-linecap="round" marker-start="url(#mm-line-arrow)" marker-end="url(#mm-line-arrow)"');
+    expect(svg).toContain('stroke="#4a90e2" stroke-width="1.5" marker-start="url(#mm-line-arrow)" />');
+  });
+
   it('根节点加粗、多行文本使用 tspan', () => {
     const doc = createMindmapWithLongText();
     const { svg } = renderMindmapSvg(doc);
     expect(svg).toContain('font-weight="700"');
     expect((svg.match(/<tspan /g) ?? []).length).toBeGreaterThan(1);
+  });
+
+  it('彩色导出保留文字选区颜色和背景高亮，黑白导出隐藏局部颜色', () => {
+    const doc = treeDoc();
+    doc.topics.a!.textStyles = [{ start: 0, end: 3, color: '#c1121f', background: '#ffe066' }];
+    const colorSvg = renderMindmapSvg(doc, { colorMode: 'color' }).svg;
+    const monochromeSvg = renderMindmapSvg(doc, { colorMode: 'monochrome' }).svg;
+    expect(colorSvg).toContain('fill="#c1121f"');
+    expect(colorSvg).toContain('fill="#ffe066"');
+    expect(monochromeSvg).not.toContain('#c1121f');
+    expect(monochromeSvg).not.toContain('#ffe066');
+  });
+
+  it('彩色导出包含会员图片节点并扩展导出边界', () => {
+    const doc = treeDoc();
+    doc.opaqueExtensions = {
+      'tau.imageNodes': {
+        version: 1,
+        nodes: [{
+          id: 'image-1', topicId: 'a', src: 'data:image/png;base64,AA==', alt: 'sample',
+          width: 640, height: 640, objectFit: 'contain',
+        }],
+      },
+    };
+    const plain = renderMindmapSvg(doc, { colorMode: 'monochrome', padding: 20 });
+    const color = renderMindmapSvg(doc, { colorMode: 'color', padding: 20 });
+    expect(color.svg).toContain('<image href="data:image/png;base64,AA=="');
+    expect(color.height).toBeGreaterThan(plain.height);
   });
 });
 

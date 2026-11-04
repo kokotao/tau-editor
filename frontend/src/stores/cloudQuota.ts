@@ -59,6 +59,8 @@ export const useCloudQuotaStore = defineStore('cloudQuota', () => {
   const paying = ref(false);
 
   let pollToken = 0;
+  let summaryGeneration = 0;
+  let loadGeneration = 0;
 
   const tier = computed(() => summary.value?.tier ?? 'FREE');
   const pointsBalance = computed(() => points.value?.balance ?? summary.value?.points ?? 0);
@@ -93,7 +95,9 @@ export const useCloudQuotaStore = defineStore('cloudQuota', () => {
   }
 
   async function refreshSummary(): Promise<void> {
+    const generation = ++summaryGeneration;
     const outcome = await getQuotaSummary();
+    if (generation !== summaryGeneration) return;
     if (outcome.ok) {
       applySummary(outcome.data);
       error.value = null;
@@ -141,12 +145,15 @@ export const useCloudQuotaStore = defineStore('cloudQuota', () => {
       return;
     }
     loading.value = true;
+    const load = ++loadGeneration;
+    const generation = ++summaryGeneration;
     try {
       const [summaryOutcome, checkinOutcome, pointsOutcome] = await Promise.all([
         getQuotaSummary(),
         getCheckinStatus(),
         getPoints(),
       ]);
+      if (generation !== summaryGeneration) return;
       if (summaryOutcome.ok) {
         applySummary(summaryOutcome.data);
         lastLoadedAt.value = Date.now();
@@ -164,7 +171,7 @@ export const useCloudQuotaStore = defineStore('cloudQuota', () => {
         await loadPlans();
       }
     } finally {
-      loading.value = false;
+      if (load === loadGeneration) loading.value = false;
     }
   }
 
@@ -278,6 +285,9 @@ export const useCloudQuotaStore = defineStore('cloudQuota', () => {
   }
 
   function reset(): void {
+    summaryGeneration += 1;
+    loadGeneration += 1;
+    loading.value = false;
     closePay();
     summary.value = null;
     plans.value = [];

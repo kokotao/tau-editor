@@ -27,10 +27,12 @@ import type {
   MindMapImportResult,
 } from '@/services/mindmap/mindmapAdapter';
 import type { MindMapDocument } from '@/types/mindmap';
+import { createEmptyMindMapDocument } from '@/services/mindmapService';
 
 interface ParsedLine {
   depth: number;
   text: string;
+  heading?: boolean;
 }
 
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
@@ -56,15 +58,20 @@ export function parseMarkdownOutlineLines(markdown: string): ParsedLine[] {
   const lines = String(markdown ?? '').split(/\r?\n/);
   const result: ParsedLine[] = [];
   let headingDepth = 0;
-  let inFence = false;
+  let fence: { marker: string; length: number } | null = null;
 
   for (const line of lines) {
-    const fence = line.trim().match(/^(```|~~~)/);
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
-      inFence = !inFence;
+      if (fenceMatch && fenceMatch[1]?.[0] === fence.marker
+        && fenceMatch[1].length >= fence.length && !fenceMatch[2]?.trim()) fence = null;
       continue;
     }
-    if (inFence) continue;
+    if (fenceMatch) {
+      const marker = fenceMatch[1] as string;
+      fence = { marker: marker[0] as string, length: marker.length };
+      continue;
+    }
     if (!line.trim()) continue;
 
     const heading = line.match(HEADING_RE);
@@ -72,7 +79,7 @@ export function parseMarkdownOutlineLines(markdown: string): ParsedLine[] {
       const level = (heading[1] ?? '#').length;
       const text = stripInlineMarkdown(heading[2] ?? '');
       headingDepth = level;
-      if (text) result.push({ depth: level, text });
+      if (text) result.push({ depth: level, text, heading: true });
       continue;
     }
 
@@ -99,17 +106,18 @@ export function parseMarkdownOutlineLines(markdown: string): ParsedLine[] {
 /** 线性行 → 大纲树（按深度栈构建）。 */
 export function linesToOutline(lines: ParsedLine[]): OutlineNode[] {
   const roots: OutlineNode[] = [];
-  const stack: Array<{ depth: number; node: OutlineNode }> = [];
+  const stack: Array<{ depth: number; node: OutlineNode; heading?: boolean }> = [];
 
   for (const line of lines) {
     const node: OutlineNode = { text: line.text, children: [] };
-    while (stack.length > 0 && (stack[stack.length - 1] as { depth: number }).depth >= line.depth) {
+    while (stack.length > 0 && ((stack[stack.length - 1] as { depth: number }).depth >= line.depth
+      || (line.heading && !stack[stack.length - 1]?.heading))) {
       stack.pop();
     }
     const parent = stack[stack.length - 1];
     if (parent) parent.node.children.push(node);
     else roots.push(node);
-    stack.push({ depth: line.depth, node });
+    stack.push({ depth: line.depth, node, heading: line.heading });
   }
   return roots;
 }
@@ -152,7 +160,8 @@ export const markdownAdapter: MindMapAdapter = {
 
   importFromString(content: string): MindMapImportResult {
     try {
-      const outline = markdownToOutline(content);
+      const lines = parseMarkdownOutlineLines(content);
+      const outline = linesToOutline(lines);
       if (outline.length === 0) {
         return {
           ok: false,
@@ -160,11 +169,18 @@ export const markdownAdapter: MindMapAdapter = {
           error: { category: 'invalid-structure', message: 'Markdown 中没有可识别的标题或列表结构' },
         };
       }
-      const document = createDocumentFromOutline(outline, {
-        title: '导入的 Markdown 大纲',
-        sourceFormat: 'markdown-outline',
-        rootFromSingleNode: true,
-      });
+      const singleHeading = lines.length === 1 && lines[0]?.heading;
+      const document = singleHeading
+        ? createEmptyMindMapDocument(outline[0]?.text)
+        : createDocumentFromOutline(outline, {
+          title: '导入的 Markdown 大纲',
+          sourceFormat: 'markdown-outline',
+          rootFromSingleNode: true,
+        });
+      if (singleHeading) {
+        document.sourceFormat = 'markdown-outline';
+        document.saveMode = 'imported';
+      }
       return {
         ok: true,
         document,

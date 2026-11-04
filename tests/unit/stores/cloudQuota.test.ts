@@ -90,6 +90,21 @@ beforeEach(() => {
 });
 
 describe('useCloudQuotaStore', () => {
+  it('账号切换后旧请求不能覆盖新会员状态或阻塞新请求', async () => {
+    const store = useCloudQuotaStore();
+    let resolveOld!: (value: ReturnType<typeof ok<typeof SUMMARY>>) => void;
+    serviceMocks.getQuotaSummary.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const oldLoad = store.loadAll();
+    store.reset();
+    serviceMocks.getQuotaSummary.mockResolvedValueOnce(ok({ ...SUMMARY, tier: 'FREE', tierName: 'Free' }));
+    await store.loadAll();
+    expect(store.tier).toBe('FREE');
+    resolveOld(ok(SUMMARY));
+    await oldLoad;
+    expect(store.tier).toBe('FREE');
+    expect(store.loading).toBe(false);
+  });
+
   it('loadAll 拉齐 summary / 签到 / 积分 / 套餐', async () => {
     const store = useCloudQuotaStore();
     await store.loadAll();

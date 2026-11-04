@@ -2,7 +2,7 @@
  * MindmapCanvas 阶段 2 契约测试：
  * 节点/连线渲染、选中与改名事件、折叠、滚轮缩放/平移/适配内容、内联编辑器。
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import MindmapCanvas from '@/components/editor/mindmap/MindmapCanvas.vue';
@@ -46,12 +46,32 @@ describe('MindmapCanvas', () => {
     expect(wrapper.text()).toContain('A1');
   });
 
+  it('画布视图设置可隐藏网格和中心节点及其直属连线', () => {
+    const doc = buildDoc();
+    const wrapper = mountCanvas({ document: doc, canvasBackground: '#ffffff', canvasGridVisible: false, canvasRootVisible: false });
+    expect(wrapper.get('[data-testid="mindmap-canvas"]').classes()).toContain('is-grid-hidden');
+    expect(wrapper.get('[data-testid="mindmap-canvas"]').attributes('style')).toContain('background-color');
+    expect(wrapper.find(`[data-node-id="${doc.rootTopicId}"]`).exists()).toBe(false);
+    expect(wrapper.findAll('.mm-edge')).toHaveLength(1);
+  });
+
   it('选中节点时高亮并可点击发出 select', async () => {
     const wrapper = mountCanvas();
     const node = wrapper.find('.mm-node[data-node-id="b"]');
     expect(node.exists()).toBe(true);
     await node.trigger('click');
     expect(wrapper.emitted('select')?.[0]).toEqual(['b']);
+    expect(wrapper.emitted('style-target')?.[0]).toEqual([{ kind: 'topic', topicId: 'b' }]);
+  });
+
+  it('父子线和独立关系线可点击并发出对应样式目标', async () => {
+    const doc = buildDoc();
+    doc.relations = [{ id: 'r1', sourceTopicId: 'a', targetTopicId: 'b' }];
+    const wrapper = mountCanvas({ document: doc });
+    await wrapper.find('.mm-edge-hit').trigger('click');
+    expect(wrapper.emitted('style-target')?.[0]?.[0]).toMatchObject({ kind: 'edge' });
+    await wrapper.get('[data-relation-id="r1"] .mm-edge-hit').trigger('click');
+    expect(wrapper.emitted('style-target')?.[1]).toEqual([{ kind: 'relation', relationId: 'r1' }]);
   });
 
   it('双击节点发出 start-rename', async () => {
@@ -65,6 +85,10 @@ describe('MindmapCanvas', () => {
     const selected = wrapper.find('.mm-node.is-selected');
     expect(selected.exists()).toBe(true);
     expect(selected.attributes('data-node-id')).toBe('a1');
+    expect(selected.attributes('data-selected')).toBe('true');
+    expect(selected.attributes('aria-selected')).toBe('true');
+    expect(selected.find('.mm-node-selection-ring').exists()).toBe(true);
+    expect(wrapper.find('.mm-node[data-node-id="a"] .mm-node-selection-ring').exists()).toBe(false);
   });
 
   it('点击折叠按钮发出 toggle-collapse', async () => {
@@ -104,8 +128,8 @@ describe('MindmapCanvas', () => {
     expect(events).toBeTruthy();
     const fitted = events![events!.length - 1]![0] as { zoom: number };
     expect(fitted.zoom).toBeGreaterThan(0);
-    // 小图适配不应放大超过 100%，否则新增节点会跑到可视区外
-    expect(fitted.zoom).toBeLessThanOrEqual(1);
+    // 小图适配允许轻微放大填满空白，但不超过上限 1.15（避免后续新增节点跑到可视区外）
+    expect(fitted.zoom).toBeLessThanOrEqual(1.15);
 
     exposed.resetView();
     events = wrapper.emitted('update:viewport');
@@ -144,6 +168,33 @@ describe('MindmapCanvas', () => {
     const wrapper = mountCanvas({ editingId: 'a', editingText: 'x' });
     await wrapper.find('[data-testid="mm-inline-editor"]').trigger('keydown', { key: 'Escape' });
     expect(wrapper.emitted('cancel-rename')).toBeTruthy();
+  });
+
+  it('仅在有选中文本时显示较大的格式工具栏，并提供应用内右键菜单', async () => {
+    const wrapper = mountCanvas({ editingId: 'a', editingText: '分支 A' });
+    const editor = wrapper.get<HTMLTextAreaElement>('[data-testid="mm-inline-editor"]');
+    expect(wrapper.find('[role="toolbar"][aria-label="文字颜色与高亮"]').exists()).toBe(false);
+    editor.element.setSelectionRange(0, 3);
+    await editor.trigger('select');
+    expect(wrapper.find('[role="toolbar"][aria-label="文字颜色与高亮"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="mm-text-color"]').element.clientWidth).toBeGreaterThanOrEqual(0);
+
+    await editor.trigger('contextmenu', { clientX: 90, clientY: 80 });
+    expect(wrapper.find('[data-testid="mm-text-context-menu"]').exists()).toBe(true);
+    await editor.trigger('keydown', { key: 'Escape' });
+    expect(wrapper.find('[data-testid="mm-text-context-menu"]').exists()).toBe(false);
+  });
+
+  it('文本菜单复制通过系统剪贴板写入选中内容', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: vi.fn() } });
+    const wrapper = mountCanvas({ editingId: 'a', editingText: '分支 A' });
+    const editor = wrapper.get<HTMLTextAreaElement>('[data-testid="mm-inline-editor"]');
+    editor.element.setSelectionRange(0, 3);
+    await editor.trigger('select');
+    await editor.trigger('contextmenu', { clientX: 90, clientY: 80 });
+    await wrapper.get('[data-testid="mm-text-context-menu"] [role="menuitem"]:nth-child(2)').trigger('click');
+    expect(writeText).toHaveBeenCalledWith('分支 ');
   });
 
   it('200 节点画布可渲染', () => {
@@ -332,7 +383,7 @@ describe('MindmapCanvas 阶段 4C', () => {
     const path = relations[0]!.find('.mm-relation-path');
     expect(path.exists()).toBe(true);
     expect(path.attributes('stroke-dasharray')).toBe('6 4');
-    expect(path.attributes('marker-end')).toContain('mm-relation-arrow');
+    expect(path.attributes('marker-end')).toContain('mm-line-arrow');
     expect(path.attributes('d')?.startsWith('M ')).toBe(true);
     expect(path.attributes('d')).toContain(' L ');
 
@@ -428,6 +479,15 @@ describe('MindmapCanvas UX-1', () => {
     expect(wrapper.find('[data-testid="mindmap-canvas"]').classes()).not.toContain('is-panning');
     // 平移不是选中
     expect(wrapper.emitted('select')).toBeFalsy();
+    expect(wrapper.emitted('style-target')).toBeFalsy();
+  });
+
+  it('空白处点击发出画布样式目标', async () => {
+    const wrapper = mountCanvas();
+    const canvas = wrapper.find('[data-testid="mindmap-canvas"]');
+    await canvas.trigger('pointerdown', { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
+    dispatchPointer('pointerup', 100, 100);
+    expect(wrapper.emitted('style-target')?.[0]).toEqual([{ kind: 'canvas' }]);
   });
 
   it('在节点上按下不会触发平移', async () => {
@@ -641,3 +701,183 @@ describe('MindmapCanvas UX-2', () => {
     expect(collapsed.findAll('[data-testid="mm-boundary"]')).toHaveLength(1);
   });
 });
+
+/* ----------------------- 彩虹主题：分支配色渲染 ----------------------- */
+
+describe('MindmapCanvas 彩虹主题', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  function rainbowDoc(): MindMapDocument {
+    const doc = buildDoc();
+    doc.themeId = 'rainbow';
+    return doc;
+  }
+
+  it('彩虹主题下每条连线按所属分支取色，兄弟分支颜色不同', () => {
+    const wrapper = mountCanvas({ document: rainbowDoc() });
+    // 边界 a→a1 与根→a（同属分支 a）应为第一种分支色
+    const edgeToA = wrapper.find('.mm-edge[data-edge-id$="->a"]');
+    const edgeToA1 = wrapper.find('.mm-edge[data-edge-id="a->a1"]');
+    const edgeToB = wrapper.find('.mm-edge[data-edge-id$="->b"]');
+    for (const edge of [edgeToA, edgeToA1, edgeToB]) {
+      expect(edge.exists()).toBe(true);
+      expect(edge.classes()).toContain('mm-edge--rainbow');
+    }
+    const styleA = (edgeToA.attributes('style') ?? '').toLowerCase();
+    const styleA1 = (edgeToA1.attributes('style') ?? '').toLowerCase();
+    const styleB = (edgeToB.attributes('style') ?? '').toLowerCase();
+    // 子节点继承父分支：a 与 a1 同色
+    expect(styleA1).toBe(styleA);
+    // 兄弟一级分支分到不同颜色
+    expect(styleB).not.toBe(styleA);
+    expect(styleA).toContain('#ff6b6b');
+  });
+
+  it('彩虹主题为带分支的节点注入 --mm-hue 并渲染分支圆点，根节点无圆点', () => {
+    const wrapper = mountCanvas({ document: rainbowDoc() });
+    const nodeA = wrapper.find('.mm-node[data-node-id="a"]');
+    const nodeRoot = wrapper.find('.mm-node.is-root');
+
+    expect((nodeA.attributes('style') ?? '').toLowerCase()).toContain('--mm-hue');
+    expect(nodeA.find('.mm-branch-dot').exists()).toBe(true);
+
+    // 根节点不属于任何一级分支：不注入色相、不画圆点
+    expect((nodeRoot.attributes('style') ?? '')).not.toContain('--mm-hue');
+    expect(nodeRoot.find('.mm-branch-dot').exists()).toBe(false);
+  });
+
+  it('非彩虹主题不渲染分支圆点、连线不带分支内联色', () => {
+    const wrapper = mountCanvas(); // 默认 default 主题
+    expect(wrapper.find('.mm-branch-dot').exists()).toBe(false);
+    const edge = wrapper.find('.mm-edge[data-edge-id="a->a1"]');
+    expect(edge.classes()).not.toContain('mm-edge--rainbow');
+    expect(edge.attributes('style')).toBeUndefined();
+  });
+
+  it('彩虹主题画布只注入强调色，不写死节点填充（节点底色跟随面板）', () => {
+    const canvas = mountCanvas({ document: rainbowDoc() })
+      .find('[data-testid="mindmap-canvas"]');
+    const style = (canvas.attributes('style') ?? '').toLowerCase();
+    expect(style).toContain('--mindmap-accent');
+    expect(style).not.toContain('--mindmap-node-bg');
+    expect(style).not.toContain('--mindmap-edge');
+  });
+
+  it('折叠子节点后不渲染其连线与圆点', () => {
+    const doc = rainbowDoc();
+    doc.topics.a = { ...doc.topics.a!, collapsed: true };
+    const wrapper = mountCanvas({ document: doc });
+    expect(wrapper.find('.mm-edge[data-edge-id="a->a1"]').exists()).toBe(false);
+    expect(wrapper.find('.mm-node[data-node-id="a1"]').exists()).toBe(false);
+    // 折叠的父节点仍有分支归属，圆点保留
+    expect(wrapper.find('.mm-node[data-node-id="a"] .mm-branch-dot').exists()).toBe(true);
+  });
+
+  it('分支序号按文档 childIds 顺序稳定分配（与布局模式无关）', () => {
+    const doc = rainbowDoc();
+    const colorOf = (themeId: string, layoutMode: string) => {
+      const variant = buildDoc();
+      variant.themeId = themeId;
+      (variant as unknown as { layoutMode: string }).layoutMode = layoutMode;
+      const wrapper = mountCanvas({ document: variant });
+      const style = wrapper.find('.mm-edge[data-edge-id="a->a1"]').attributes('style') ?? '';
+      return style.toLowerCase();
+    };
+    // 切换布局模式后，同一条分支的颜色必须保持一致（避免颜色随布局乱跳）
+    const mindmap = colorOf('rainbow', 'mindmap');
+    const logic = colorOf('rainbow', 'logic');
+    const org = colorOf('rainbow', 'org');
+    expect(logic).toBe(mindmap);
+    expect(org).toBe(mindmap);
+    // 一级分支 a 固定使用调色板第一色
+    expect(mindmap).toContain('#ff6b6b');
+
+    const bColor = (() => {
+      const wrapper = mountCanvas({ document: doc });
+      return (wrapper.find('.mm-edge[data-edge-id$="->b"]').attributes('style') ?? '').toLowerCase();
+    })();
+    // b 是第二个分支 → 第二种颜色
+    expect(bColor).toContain('#ff9f43');
+  });
+
+  it('彩虹主题节点文字不会被 stroke 覆盖（浅色主题可读性回归）', () => {
+    // 该断言守住真实缺陷：文字曾继承到近白 stroke，浅色画布上表现为「白底浅字」。
+    const style = wrapperStyleSheetText();
+    expect(style).toMatch(/\.mm-node-text\s*\{[^}]*stroke:\s*none/);
+  });
+});
+
+/* ------------------------- 节点文字不得溢出节点框（回归） ------------------------- */
+
+describe('MindmapCanvas 节点文字居中', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('文本行 tspan 不带 dx 偏移，避免与 text-anchor=middle 重复计算导致整行左移出框', () => {
+    // 真实缺陷：给首个 tspan 加 dx=-宽度/2，与父级 text-anchor="middle" 叠加，
+    // 结果整行文字左移半个字宽，在长文本节点上表现为「文字溢出节点框」。
+    const wrapper = mountCanvas();
+    const tspans = wrapper.findAll('.mm-node-text tspan');
+    expect(tspans.length).toBeGreaterThan(0);
+    for (const tspan of tspans) {
+      expect(tspan.attributes('dx')).toBeUndefined();
+    }
+  });
+
+  it('带局部高亮的文本同样不使用 dx', () => {
+    const doc = buildDoc();
+    doc.topics.a = {
+      ...doc.topics.a!,
+      text: '分支A高亮',
+      textStyles: [{ start: 0, end: 3, color: '#ff0000', background: '#ffff00' }],
+    };
+    const wrapper = mountCanvas({ document: doc });
+    const tspans = wrapper.findAll('.mm-node[data-node-id="a"] .mm-node-text tspan');
+    expect(tspans.length).toBeGreaterThan(1);
+    for (const tspan of tspans) {
+      expect(tspan.attributes('dx')).toBeUndefined();
+    }
+  });
+});
+
+/* ------------------------------- 迷你地图（Stitch 稿） ------------------------------- */
+describe('MindmapCanvas 迷你地图', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('渲染全图缩略节点与当前视口矩形', () => {
+    const wrapper = mountCanvas();
+    const minimap = wrapper.find('[data-testid="mm-minimap"]');
+    expect(minimap.exists()).toBe(true);
+    // 每个可见节点一个缩略方块
+    expect(minimap.findAll('.mm-minimap-node')).toHaveLength(4);
+    // 视口矩形用于指示当前可见区域
+    expect(minimap.find('.mm-minimap-view').exists()).toBe(true);
+  });
+
+  it('中心主题缩略方块带 is-root 标记', () => {
+    const wrapper = mountCanvas();
+    expect(wrapper.find('[data-testid="mm-minimap"] .mm-minimap-node.is-root').exists()).toBe(true);
+  });
+
+  it('点击迷你地图改变视口（发出 update:viewport）', async () => {
+    const wrapper = mountCanvas();
+    const minimap = wrapper.find('[data-testid="mm-minimap"]');
+    await minimap.trigger('click', { clientX: 40, clientY: 30 });
+    expect(wrapper.emitted('update:viewport')).toBeTruthy();
+  });
+});
+
+/** 读取 MindmapCanvas 的样式文本（用于静态样式契约断言）。 */
+function wrapperStyleSheetText(): string {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const path = require('node:path') as typeof import('node:path');
+  return fs.readFileSync(
+    path.resolve(__dirname, '../../../frontend/src/components/editor/mindmap/MindmapCanvas.vue'),
+    'utf8',
+  );
+}

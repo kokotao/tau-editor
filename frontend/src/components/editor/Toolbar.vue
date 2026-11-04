@@ -1,5 +1,5 @@
 <template>
-  <div class="toolbar" data-testid="toolbar">
+  <div class="toolbar" :class="{ 'toolbar--mindmap': isMindmap }" data-testid="toolbar">
     <div class="toolbar-zone toolbar-zone-start">
       <div class="toolbar-identity">
         <svg
@@ -206,6 +206,35 @@
       <template v-if="isMindmap && mindmapTools">
         <div class="toolbar-divider markdown-toolbar-divider"></div>
         <div class="toolbar-group toolbar-group-mindmap" data-testid="mindmap-toolbar">
+          <span class="mm-layout-group" role="group" aria-label="布局模式">
+            <button
+              v-for="option in mindmapLayoutOptions"
+              :key="option.id"
+              type="button"
+              class="mm-btn"
+              :class="{ 'is-active': mindmapTools.layoutMode === option.id }"
+              :data-testid="`mm-layout-${option.id}`"
+              :aria-pressed="mindmapTools.layoutMode === option.id"
+              :title="option.title"
+              @click="emit('mm-layout', option.id)"
+            >{{ option.label }}</button>
+          </span>
+          <label class="mm-theme-field" title="主题模板">
+            <span class="mm-theme-label">主题</span>
+            <select class="mm-theme-select" data-testid="mm-theme-select" :value="mindmapTools.themeId"
+              :aria-label="`主题模板：${mindmapTools.themeId}`" @change="onMindmapThemeChange">
+              <option v-for="option in mindmapTools.themeOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
+            </select>
+          </label>
+          <button type="button" class="mm-btn" data-testid="mm-import" @click="emit('mm-import')">导入</button>
+          <button type="button" class="mm-btn" data-testid="mm-toggle-outline" :aria-pressed="Boolean(mindmapTools.outlineActive)"
+            title="切换大纲面板（Ctrl+Alt+O）" @click="emit('mm-toggle-outline')">大纲{{ mindmapTools.outlineActive ? '开' : '关' }}</button>
+          <button type="button" class="mm-btn" data-testid="mm-properties-toggle" :aria-pressed="Boolean(mindmapTools.propertiesActive)"
+            title="切换属性面板（Ctrl+Alt+P）" @click="emit('mm-toggle-properties')">属性{{ mindmapTools.propertiesActive ? '开' : '关' }}</button>
+          <button type="button" class="mm-btn" data-testid="mm-canvas-style-toggle" :aria-pressed="Boolean(mindmapTools.styleActive)"
+            title="切换画布样式" @click="emit('mm-toggle-style')">样式{{ mindmapTools.styleActive ? '开' : '关' }}</button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <!-- 主操作：层级编辑 -->
           <button type="button" class="mm-btn" data-testid="mm-add-child" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-child')">
             子主题
           </button>
@@ -245,67 +274,13 @@
             重置视口
           </button>
           <span class="mm-divider" aria-hidden="true"></span>
-          <!-- 结构布局切换（阶段 4A）：当前模式高亮，点击记录为可撤销命令 -->
-          <span class="mm-layout-group" role="group" aria-label="布局模式">
-            <button
-              v-for="option in mindmapLayoutOptions"
-              :key="option.id"
-              type="button"
-              class="mm-btn"
-              :class="{ 'is-active': mindmapTools.layoutMode === option.id }"
-              :data-testid="`mm-layout-${option.id}`"
-              :aria-pressed="mindmapTools.layoutMode === option.id"
-              :title="option.title"
-              @click="emit('mm-layout', option.id)"
-            >{{ option.label }}</button>
-          </span>
-          <span class="mm-divider" aria-hidden="true"></span>
-          <!-- 主题模板（阶段 4C）：原生 select，切换即写入 document.themeId，可撤销 -->
-          <label class="mm-theme-field" title="主题模板">
-            <span class="mm-theme-label">主题</span>
-            <select
-              class="mm-theme-select"
-              data-testid="mm-theme-select"
-              :value="mindmapTools.themeId"
-              :aria-label="`主题模板：${mindmapTools.themeId}`"
-              @change="onMindmapThemeChange"
-            >
-              <option v-for="option in mindmapTools.themeOptions" :key="option.id" :value="option.id">
-                {{ option.name }}
-              </option>
-            </select>
-          </label>
-          <span class="mm-divider" aria-hidden="true"></span>
           <button type="button" class="mm-btn" data-testid="mm-reset" @click="emit('mm-reset')">重置</button>
           <span class="mm-divider" aria-hidden="true"></span>
-          <button type="button" class="mm-btn" data-testid="mm-import" @click="emit('mm-import')">
-            导入
-          </button>
           <button type="button" class="mm-btn" data-testid="mm-export" @click="emit('mm-export')">
             导出
           </button>
           <button type="button" class="mm-btn" data-testid="mm-print" @click="emit('mm-print')">
             打印
-          </button>
-          <button
-            type="button"
-            class="mm-btn"
-            data-testid="mm-toggle-outline"
-            :aria-pressed="Boolean(mindmapTools.outlineActive)"
-            title="切换大纲面板（Ctrl+Alt+O）"
-            @click="emit('mm-toggle-outline')"
-          >
-            大纲{{ mindmapTools.outlineActive ? '开' : '关' }}
-          </button>
-          <button
-            type="button"
-            class="mm-btn"
-            data-testid="mm-properties-toggle"
-            :aria-pressed="Boolean(mindmapTools.propertiesActive)"
-            title="切换属性面板（Ctrl+Alt+P）"
-            @click="emit('mm-toggle-properties')"
-          >
-            属性{{ mindmapTools.propertiesActive ? '开' : '关' }}
           </button>
         </div>
       </template>
@@ -431,6 +406,7 @@ interface MindmapToolbarState {
   /** 右侧面板两个 tab 的激活态（用于 aria-pressed）。 */
   outlineActive?: boolean;
   propertiesActive?: boolean;
+  styleActive?: boolean;
 }
 
 interface ToolbarProps {
@@ -651,6 +627,7 @@ const emit = defineEmits<{
   'mm-print': [];
   'mm-toggle-outline': [];
   'mm-toggle-properties': [];
+  'mm-toggle-style': [];
 }>();
 
 /** 导图结构布局候选（与 MindmapStage 内的布局定义保持一致）。 */
@@ -757,6 +734,19 @@ onUnmounted(() => {
   transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
 
+.toolbar--mindmap {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.toolbar--mindmap .toolbar-zone-center {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.toolbar--mindmap .toolbar-zone-center::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
 .toolbar-group {
   display: flex;
   align-items: center;
@@ -806,15 +796,46 @@ onUnmounted(() => {
 .toolbar-group-mindmap {
   gap: 6px;
   /* 可收缩 + 横向滚动兜底：内容过宽时不截断按钮，靠滚动条/触控板横向查看 */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: min(80vw, 960px);
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: max-content;
   overflow-x: auto;
-  scrollbar-width: thin;
+  /* 隐藏式滚动条：仍可滚动，但不显示滚动条轨道，避免顶部导航出现细线 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding: 0 2px;
 }
-.toolbar-group-mindmap::-webkit-scrollbar { height: 6px; }
-.toolbar-group-mindmap::-webkit-scrollbar-thumb { background: var(--border-strong, rgba(148,163,184,.4)); border-radius: 3px; }
+.toolbar-group-mindmap::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.toolbar--mindmap .toolbar-group-mindmap {
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-brand) 24%, var(--border-soft));
+  border-radius: var(--radius-control, 6px);
+  background: color-mix(in srgb, var(--panel-base) 52%, transparent);
+}
+.toolbar--mindmap .toolbar-group-mindmap .mm-layout-group {
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent-brand) 34%, var(--border-soft));
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--panel-base) 72%, transparent);
+}
+.toolbar--mindmap .toolbar-group-mindmap .mm-layout-group .mm-btn {
+  border-color: transparent;
+  border-radius: var(--radius-xs, 3px);
+}
+.toolbar--mindmap .toolbar-group-mindmap .mm-layout-group .mm-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent-brand) 72%, transparent);
+  background: color-mix(in srgb, var(--accent-brand) 20%, var(--panel-elevated));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-brand) 10%, transparent);
+}
+.toolbar--mindmap .toolbar-group-mindmap > .mm-btn {
+  border-color: transparent;
+  background: transparent;
+}
+.toolbar--mindmap .toolbar-group-mindmap > .mm-btn:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.16));
+}
+
 .mm-btn {
   padding: 5px 10px;
   border-radius: var(--radius-control, 6px);

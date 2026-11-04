@@ -101,7 +101,7 @@ function onDrop(event: DragEvent, targetId: string) {
 }
 
 function indent(depth: number): string {
-  return `${10 + depth * 18}px`;
+  return `${8 + Math.min(Math.max(depth, 0), 5) * 14}px`;
 }
 
 function onRenameInput(event: Event) {
@@ -223,15 +223,22 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
       @pointerdown="onResizePointerDown"
     ></div>
     <div class="mindmap-outline-header">
-      <span class="mindmap-outline-title">大纲</span>
-      <input
-        class="mm-outline-search"
-        data-testid="mm-outline-search"
-        type="search"
-        placeholder="搜索节点"
-        :value="props.searchQuery ?? ''"
-        @input="onSearchInput"
-      />
+      <div class="mindmap-outline-heading">
+        <span class="mindmap-outline-title"><span class="mm-heading-icon" aria-hidden="true">☷</span>大纲</span>
+        <span class="mm-visible-count">{{ rows.length }} 个可见节点</span>
+      </div>
+      <div class="mm-search-wrap">
+        <span class="mm-search-icon" aria-hidden="true"></span>
+        <input
+          class="mm-outline-search"
+          data-testid="mm-outline-search"
+          type="search"
+          placeholder="搜索大纲节点"
+          aria-label="搜索大纲节点"
+          :value="props.searchQuery ?? ''"
+          @input="onSearchInput"
+        />
+      </div>
     </div>
     <div class="mindmap-tree" data-testid="mindmap-tree" role="tree">
       <div
@@ -242,10 +249,13 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
           'is-selected': row.id === selectedId,
           'is-drag-over': row.id === dragOverId,
           'is-match': isMatch(row.id),
+          'is-root': row.depth === 0,
+          'is-branch': row.depth === 1,
         }"
         :style="{ paddingLeft: indent(row.depth) }"
         role="treeitem"
         :aria-selected="row.id === selectedId"
+        :aria-level="row.depth + 1"
         :aria-expanded="row.hasChildren ? !row.collapsed : undefined"
         :data-topic-id="row.id"
         draggable="true"
@@ -266,7 +276,8 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
         >
           {{ row.collapsed ? '▸' : '▾' }}
         </button>
-        <span v-else class="mm-toggle is-placeholder" aria-hidden="true">•</span>
+        <span v-else class="mm-toggle is-placeholder" aria-hidden="true"></span>
+        <span class="mm-row-dot" aria-hidden="true"></span>
 
         <input
           v-if="editingId === row.id"
@@ -279,11 +290,11 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
           @keydown="onRenameKeydown"
           @blur="emit('commit-rename', editingText)"
         />
-        <span v-else class="mm-row-text">{{ row.text || '（空主题）' }}</span>
+        <span v-else class="mm-row-text" :title="row.text || '（空主题）'">{{ row.text || '（空主题）' }}</span>
         <span v-if="row.hasChildren" class="mm-row-count">{{ row.childCount }}</span>
       </div>
 
-      <div v-if="rows.length === 0" class="mindmap-empty">文档没有可显示的节点。</div>
+      <div v-if="rows.length === 0" class="mindmap-empty">{{ props.searchQuery?.trim() ? '没有匹配的节点。' : '文档没有可显示的节点。' }}</div>
     </div>
   </aside>
 </template>
@@ -324,24 +335,31 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   background: var(--accent-brand);
 }
 .mindmap-outline-header {
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.mindmap-outline-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.mindmap-outline-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.mindmap-outline-title {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   flex: 0 0 auto;
 }
+.mm-heading-icon { color: var(--accent-brand); font-size: 18px; line-height: 1; }
+.mm-visible-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mm-search-wrap { position: relative; }
+.mm-search-icon { position: absolute; left: 11px; top: 50%; width: 10px; height: 10px; border: 1.5px solid var(--text-muted); border-radius: 50%; transform: translateY(-60%); pointer-events: none; }
+.mm-search-icon::after { content: ''; position: absolute; width: 5px; height: 1.5px; background: var(--text-muted); right: -4px; bottom: -2px; transform: rotate(45deg); }
 .mm-outline-search {
-  flex: 1;
+  width: 100%;
   min-width: 0;
+  box-sizing: border-box;
   font-size: 12px;
   font-family: var(--font-ui);
-  padding: 3px 8px;
+  padding: 7px 8px 7px 30px;
   border-radius: var(--radius-control);
   border: 1px solid var(--border-soft);
   background: var(--panel-elevated);
@@ -352,18 +370,20 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
 .mm-outline-search:focus { border-color: var(--accent-brand); }
 .mindmap-tree {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  padding: 6px 0;
+  padding: 8px 0;
 }
 .mindmap-row {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px 4px 0;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 5px 8px 5px 0;
   margin: 1px 6px;
   border-radius: var(--radius-control);
   cursor: default;
-  min-height: 26px;
+  min-height: 28px;
+  box-sizing: border-box;
   color: var(--text-primary);
 }
 .mindmap-row:hover { background: var(--surface-hover); }
@@ -377,34 +397,48 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   font-weight: 600;
 }
 .mm-toggle {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   opacity: 0.8;
   padding: 0;
 }
-.mm-toggle.is-placeholder { cursor: default; opacity: 0.4; text-align: center; }
+.mm-toggle:focus-visible { outline: 1px solid var(--accent-brand); border-radius: 3px; }
+.mm-toggle.is-placeholder { cursor: default; }
+.mm-row-dot { width: 6px; height: 6px; flex: 0 0 6px; margin: 6px 2px 0; border-radius: 50%; background: var(--text-muted); }
+.is-root .mm-row-dot { width: 8px; height: 8px; flex-basis: 8px; margin: 5px 1px 0; background: var(--accent-brand); }
+.is-branch .mm-row-dot { background: var(--accent-brand); }
 .mm-row-text {
   flex: 1;
+  min-width: 0;
   font-size: 12px;
+  line-height: 18px;
   color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
-  word-break: break-word;
 }
+.is-root .mm-row-text { font-size: 13px; font-weight: 700; }
+.is-branch .mm-row-text { font-weight: 600; }
 .mm-row-count {
+  flex: 0 0 auto;
   font-size: 10px;
+  line-height: 18px;
   color: var(--text-secondary);
   padding: 0 4px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-muted);
+  font-variant-numeric: tabular-nums;
 }
 .mm-rename-input {
   flex: 1;
+  min-width: 0;
   font-size: 12px;
   font-family: var(--font-ui);
   padding: 2px 6px;

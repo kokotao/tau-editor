@@ -10,9 +10,14 @@
  * @date 2026-10-30
  */
 
-import { computeMindmapLayout, type MindmapLayout } from '@/services/mindmapLayoutService';
+import { computeMindmapLayout, measureTextWidth, type MindmapLayout } from '@/services/mindmapLayoutService';
 import { escapeXml } from '@/services/mindmap/xmlUtils';
+import { getMindmapLineOffsets, segmentMindmapTextLine } from '@/services/mindmap/mindmapTextStyleService';
+import { getMindmapImageNodes } from '@/services/mindmapImageNodeService';
+import { isRainbowTheme, rainbowBranchColor, resolveMindmapTheme } from '@/services/mindmapThemeService';
 import type { MindMapDocument } from '@/types/mindmap';
+
+export type MindmapExportColorMode = 'monochrome' | 'color';
 
 export interface SvgRenderOptions {
   /** 'transparent' 或 CSS 颜色（#fff 等）。 */
@@ -20,6 +25,12 @@ export interface SvgRenderOptions {
   padding?: number;
   /** 字号缩放（默认 1）。 */
   scale?: number;
+  /** 彩色导出使用文档主题；免费导出强制使用稳定的单色配色。 */
+  colorMode?: MindmapExportColorMode;
+  /** 视觉导出水印。 */
+  watermark?: boolean;
+  /** 自定义水印文本（仅在 watermark=true 时渲染）。 */
+  watermarkText?: string;
 }
 
 export interface SvgRenderResult {
@@ -46,6 +57,14 @@ const EDGE_STROKE = '#b7c4d8';
 const TEXT_COLOR = '#1f2329';
 const FONT_FAMILY = "'Manrope','Segoe UI','Microsoft YaHei',sans-serif";
 
+function safeColor(value: string | undefined, fallback: string): string {
+  if (!value) return fallback;
+  const color = value.trim();
+  if (/^#[\da-f]{3,8}$/i.test(color)) return color;
+  if (/^(?:rgb|rgba|hsl|hsla)\([\d\s.,%+-]+\)$/i.test(color)) return color;
+  return fallback;
+}
+
 /** 依据布局与选项生成 SVG 文本。 */
 export function renderMindmapSvg(
   document: MindMapDocument,
@@ -55,45 +74,166 @@ export function renderMindmapSvg(
   const scale = options.scale ?? 1;
   const layout = computeMindmapLayout(document);
   const { fontSize, lineHeight } = layout.options;
+  const imageNodes = getMindmapImageNodes(document);
+  const colorMode = options.colorMode ?? 'monochrome';
+  const byTopic = new Map(layout.nodes.map((node) => [node.id, node]));
+  const imageBoxes = imageNodes.flatMap((image, index) => {
+    const anchor = byTopic.get(image.topicId);
+    if (!anchor) return [];
+    const x = anchor.x - image.width / 2;
+    const y = anchor.y + anchor.height / 2 + 12 + index * 4;
+    return [{ image, x, y }];
+  });
+  const bounds = (colorMode === 'color' ? imageBoxes : []).reduce<{ minX: number; minY: number; maxX: number; maxY: number }>((result, item) => ({
+    minX: Math.min(result.minX, item.x),
+    minY: Math.min(result.minY, item.y),
+    maxX: Math.max(result.maxX, item.x + item.image.width),
+    maxY: Math.max(result.maxY, item.y + item.image.height),
+  }), {
+    minX: layout.bounds.minX,
+    minY: layout.bounds.minY,
+    maxX: layout.bounds.maxX,
+    maxY: layout.bounds.maxY,
+  });
 
-  const width = Math.max(1, Math.ceil((layout.bounds.width + padding * 2) * scale));
-  const height = Math.max(1, Math.ceil((layout.bounds.height + padding * 2) * scale));
-  const offsetX = padding - layout.bounds.minX;
-  const offsetY = padding - layout.bounds.minY;
+  const watermark = options.watermark === true;
+  const watermarkHeight = 0;
+  const width = Math.max(1, Math.ceil((bounds.maxX - bounds.minX + padding * 2) * scale));
+  const contentHeight = Math.max(1, Math.ceil((bounds.maxY - bounds.minY + padding * 2) * scale));
+  const height = contentHeight + watermarkHeight;
+  const offsetX = padding - bounds.minX;
+  const offsetY = padding - bounds.minY;
+  const theme = resolveMindmapTheme(document.themeId);
+  const branchIndex = new Map<string, number>();
+  if (colorMode === 'color' && isRainbowTheme(theme)) {
+    const assignBranch = (topicId: string, index: number): void => {
+      const topic = document.topics[topicId];
+      if (!topic) return;
+      branchIndex.set(topicId, index);
+      for (const childId of topic.childIds ?? []) assignBranch(childId, index);
+    };
+    const root = document.topics[document.rootTopicId];
+    (root?.childIds ?? []).forEach((childId, index) => assignBranch(childId, index));
+  }
+  const colorOf = (nodeId: string, fallback: string): string => {
+    if (colorMode !== 'color') return fallback;
+    const branch = branchIndex.get(nodeId);
+    return branch === undefined ? fallback : (rainbowBranchColor(theme, branch) ?? fallback);
+  };
+  const fillOf = (nodeId: string, isRoot: boolean): string => {
+    if (colorMode !== 'color') return isRoot ? ROOT_FILL : NODE_FILL;
+    return safeColor(document.topics[nodeId]?.style?.fill, isRoot ? theme.rootFill : theme.nodeFill);
+  };
 
   const background = options.background && options.background !== 'transparent'
     ? `<rect x="0" y="0" width="${width}" height="${height}" fill="${escapeXml(options.background)}" />`
     : '';
 
-  const edges = layout.edges.map((edge) => (
-    `<path d="${edge.path}" fill="none" stroke="${EDGE_STROKE}" stroke-width="1.6" />`
-  )).join('');
+  const arrowDefs = '<defs><marker id="mm-line-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4a90e2" /></marker></defs>';
+  const edges = layout.edges.map((edge) => {
+    const style = document.topics[edge.childId]?.style;
+    const dash = style?.edgeStyle === 'dashed' ? ' stroke-dasharray="6 4"' : style?.edgeStyle === 'dotted' ? ' stroke-dasharray="1 4" stroke-linecap="round"' : '';
+    const start = style?.edgeStartArrow === 'arrow' ? ' marker-start="url(#mm-line-arrow)"' : '';
+    const end = style?.edgeEndArrow === 'arrow' ? ' marker-end="url(#mm-line-arrow)"' : '';
+    return `<path d="${edge.path}" fill="none" stroke="${escapeXml(safeColor(colorMode === 'color' ? style?.edgeColor || colorOf(edge.childId, theme.edge) : EDGE_STROKE, EDGE_STROKE))}" stroke-width="${Number(style?.edgeWidth) || 1.6}"${dash}${start}${end} />`;
+  }).join('');
+  const relations = (document.relations ?? []).flatMap((relation) => {
+    const source = byTopic.get(relation.sourceTopicId);
+    const target = byTopic.get(relation.targetTopicId);
+    if (!source || !target) return [];
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    if (dx === 0 && dy === 0) return [];
+    const startX = source.x + dx * Math.min((source.width / 2 + 3) / Math.max(Math.abs(dx), 0.001), (source.height / 2 + 3) / Math.max(Math.abs(dy), 0.001));
+    const startY = source.y + dy * Math.min((source.width / 2 + 3) / Math.max(Math.abs(dx), 0.001), (source.height / 2 + 3) / Math.max(Math.abs(dy), 0.001));
+    const endX = target.x - dx * Math.min((target.width / 2 + 3) / Math.max(Math.abs(dx), 0.001), (target.height / 2 + 3) / Math.max(Math.abs(dy), 0.001));
+    const endY = target.y - dy * Math.min((target.width / 2 + 3) / Math.max(Math.abs(dx), 0.001), (target.height / 2 + 3) / Math.max(Math.abs(dy), 0.001));
+    const dash = relation.lineStyle === 'solid' ? '' : relation.lineStyle === 'dotted' ? ' stroke-dasharray="1 4" stroke-linecap="round"' : ' stroke-dasharray="6 4"';
+    const start = relation.startArrow === 'arrow' ? ' marker-start="url(#mm-line-arrow)"' : '';
+    const end = relation.endArrow === 'none' ? '' : ' marker-end="url(#mm-line-arrow)"';
+    const path = `M ${round(startX)} ${round(startY)} L ${round(endX)} ${round(endY)}`;
+    return [`<path d="${path}" fill="none" stroke="${escapeXml(theme.accent)}" stroke-width="1.5"${dash}${start}${end} />`];
+  }).join('');
 
   const nodes = layout.nodes.map((node) => {
     const isRoot = node.side === 'root';
-    const fill = isRoot ? ROOT_FILL : NODE_FILL;
-    const stroke = isRoot ? ROOT_STROKE : NODE_STROKE;
-    const strokeWidth = isRoot ? 1.8 : 1.4;
+    const fill = safeColor(fillOf(node.id, isRoot), isRoot ? ROOT_FILL : NODE_FILL);
+    const defaultStroke = colorMode === 'color'
+      ? colorOf(node.id, isRoot ? theme.rootStroke : theme.nodeStroke)
+      : (isRoot ? ROOT_STROKE : NODE_STROKE);
+    const stroke = safeColor(
+      colorMode === 'color' ? document.topics[node.id]?.style?.borderColor || defaultStroke : defaultStroke,
+      isRoot ? ROOT_STROKE : NODE_STROKE,
+    );
+    const text = colorMode === 'color'
+      ? safeColor(document.topics[node.id]?.style?.color, safeColor(theme.text, TEXT_COLOR))
+      : TEXT_COLOR;
+    const strokeWidth = Number(document.topics[node.id]?.style?.borderWidth) || (isRoot ? 1.8 : 1.4);
+    const nodeShape = document.topics[node.id]?.style?.shape;
+    const nodeRadius = nodeShape === 'rect' ? 2 : nodeShape === 'pill' ? Math.min(node.width, node.height) / 2 : 9;
+    // 层级字号：与画布共用 layout 产出的 node.fontSize，导出与所见一致
+    const nodeFontSize = node.fontSize || fontSize;
+    const nodeLineHeight = node.lines.length > 0
+      ? Math.round((lineHeight / fontSize) * nodeFontSize)
+      : lineHeight;
+    const topic = document.topics[node.id];
+    const lineOffsets = getMindmapLineOffsets(topic?.text ?? '', node.lines);
+    const highlights = colorMode === 'color' ? node.lines.map((line, index) => {
+      const segments = segmentMindmapTextLine(line, lineOffsets[index] ?? 0, topic?.textStyles);
+      const total = segments.reduce((sum, segment) => sum + measureTextWidth(segment.text, nodeFontSize), 0);
+      let x = -total / 2;
+      const y = (index - (node.lines.length - 1) / 2) * nodeLineHeight - nodeFontSize * 0.55;
+      return segments.map((segment) => {
+        const width = measureTextWidth(segment.text, nodeFontSize);
+        const markup = segment.background
+          ? `<rect x="${round(x)}" y="${round(y)}" width="${round(width)}" height="${round(nodeFontSize * 1.12)}" rx="2" fill="${escapeXml(safeColor(segment.background, 'transparent'))}" />`
+          : '';
+        x += width;
+        return markup;
+      }).join('');
+    }).join('') : '';
     const lines = node.lines.map((line, index) => {
-      const y = (index - (node.lines.length - 1) / 2) * lineHeight + fontSize * 0.35;
-      return `<tspan x="0" y="${round(y)}">${escapeXml(line)}</tspan>`;
+      const y = (index - (node.lines.length - 1) / 2) * nodeLineHeight + nodeFontSize * 0.35;
+      const segments = colorMode === 'color'
+        ? segmentMindmapTextLine(line, lineOffsets[index] ?? 0, topic?.textStyles)
+        : [{ text: line }];
+      const rendered = segments.map((segment) => {
+        const foreground = segment.color ? ` fill="${escapeXml(safeColor(segment.color, text))}"` : '';
+        return `<tspan${foreground}>${escapeXml(segment.text)}</tspan>`;
+      }).join('');
+      return `<tspan x="0" y="${round(y)}">${rendered}</tspan>`;
     }).join('');
     return [
       `<g transform="translate(${round(node.x)} ${round(node.y)})">`,
-      `<rect x="${round(-node.width / 2)}" y="${round(-node.height / 2)}" width="${node.width}" height="${node.height}" rx="9" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" />`,
-      `<text text-anchor="middle" font-family="${FONT_FAMILY}" font-size="${fontSize}" fill="${TEXT_COLOR}"${isRoot ? ' font-weight="700"' : ''}>${lines}</text>`,
+      `<rect x="${round(-node.width / 2)}" y="${round(-node.height / 2)}" width="${node.width}" height="${node.height}" rx="${nodeRadius}" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}" />`,
+      highlights,
+      `<text text-anchor="middle" font-family="${FONT_FAMILY}" font-size="${nodeFontSize}" fill="${escapeXml(text)}"${isRoot ? ' font-weight="700"' : ''}>${lines}</text>`,
       '</g>',
     ].join('');
   }).join('');
 
+  const images = colorMode === 'color' ? imageBoxes.map(({ image, x, y }, index) => {
+    const clipId = `mindmap-image-${index}`;
+    const preserve = image.objectFit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet';
+    return `<defs><clipPath id="${clipId}"><rect x="${round(x)}" y="${round(y)}" width="${image.width}" height="${image.height}" rx="6" /></clipPath></defs><rect x="${round(x)}" y="${round(y)}" width="${image.width}" height="${image.height}" rx="6" fill="#ffffff" stroke="#c7d2e2" /><image href="${escapeXml(image.src)}" x="${round(x)}" y="${round(y)}" width="${image.width}" height="${image.height}" preserveAspectRatio="${preserve}" clip-path="url(#${clipId})" />`;
+  }).join('') : '';
+
+  const watermarkText = options.watermarkText?.trim() || 'TauEditor';
+  const watermarkMarkup = watermark
+    ? `<g opacity="0.16" fill="#7b8491" font-family="${FONT_FAMILY}" font-size="18" font-weight="600" pointer-events="none">${Array.from({ length: Math.max(2, Math.ceil(width / 220)) }, (_, column) => Array.from({ length: Math.max(2, Math.ceil(height / 100)) }, (_, row) => `<text x="${column * 220 + 20}" y="${row * 100 + 24}" transform="rotate(-24 ${column * 220 + 20} ${row * 100 + 24})">${escapeXml(watermarkText)}</text>`).join('')).join('')}</g>`
+    : '';
   const svg = [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
     background,
+    arrowDefs,
     `<g transform="translate(${round(offsetX)} ${round(offsetY)})">`,
     edges,
+    relations,
     nodes,
+    images,
     '</g>',
+    watermarkMarkup,
     '</svg>',
   ].join('');
 
@@ -201,6 +341,19 @@ export async function exportMindmapPng(
   return { blob, width, height };
 }
 
+/** 把文档渲染成 JPG Blob；JPEG 不支持透明背景，因此默认使用白色画布。 */
+export async function exportMindmapJpeg(
+  document: MindMapDocument,
+  options: PngBlobOptions = {},
+): Promise<{ blob: Blob; width: number; height: number }> {
+  const { canvas, width, height } = await renderMindmapPngCanvas(document, {
+    ...options,
+    background: options.background === 'transparent' || !options.background ? '#ffffff' : options.background,
+  });
+  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+  return { blob, width, height };
+}
+
 function loadSvgImage(svg: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -210,15 +363,15 @@ function loadSvgImage(svg: string): Promise<HTMLImageElement> {
   });
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType = 'image/png', quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     if (typeof canvas.toBlob !== 'function') {
-      reject(new Error('当前环境不支持 PNG 编码'));
+      reject(new Error(`当前环境不支持 ${mimeType === 'image/jpeg' ? 'JPG' : 'PNG'} 编码`));
       return;
     }
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);
-      else reject(new Error('PNG 编码失败'));
-    }, 'image/png');
+      else reject(new Error(`${mimeType === 'image/jpeg' ? 'JPG' : 'PNG'} 编码失败`));
+    }, mimeType, quality);
   });
 }

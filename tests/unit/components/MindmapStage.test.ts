@@ -10,7 +10,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import MindmapStage from '@/components/editor/mindmap/MindmapStage.vue';
+import MindmapRightPanel from '@/components/editor/mindmap/MindmapRightPanel.vue';
 import { useMindmapStore } from '@/stores/mindmap';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
 import type { MindMapDocument } from '@/types/mindmap';
 
@@ -77,6 +79,64 @@ function stageExpose(wrapper: ReturnType<typeof mountStage>): StageExpose {
 describe('MindmapStage 阶段 1', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+  });
+
+  it('点击节点和连线自动打开对应样式面板', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const store = useMindmapStore();
+    await wrapper.get('.mm-node[data-node-id="a"]').trigger('click');
+    expect(store.styleVisible).toBe(true);
+    expect(store.styleTarget).toEqual({ kind: 'topic', topicId: 'a' });
+    await wrapper.get('.mm-edge-hit').trigger('click');
+    expect(store.styleTarget.kind).toBe('edge');
+  });
+
+  it('大纲点击定位节点，再次点击仍可定位，且不修改文档', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const panel = mount(MindmapRightPanel);
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+    const store = useMindmapStore();
+    store.setViewport({ x: 0, y: 0, zoom: 0.4 });
+    const node = wrapper.find('.mm-node[data-node-id="a1"]');
+    const match = node.attributes('transform')!.match(/translate\(([-\d.]+) ([-\d.]+)\)/)!;
+    const row = panel.find('.mindmap-row[data-topic-id="a1"]');
+    await row.trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(store.selectedTopicId).toBe('a1');
+    expect(wrapper.find('.mm-node.is-selected[data-node-id="a1"] .mm-node-selection-ring').exists()).toBe(true);
+    expect(wrapper.find('.mm-node.is-selected[data-node-id="a1"]').attributes('aria-selected')).toBe('true');
+    expect(store.viewport.zoom).toBe(1);
+    expect(store.viewport.x + Number(match[1]) * store.viewport.zoom).toBeCloseTo(400);
+    expect(store.viewport.y + Number(match[2]) * store.viewport.zoom).toBeCloseTo(300);
+    expect(wrapper.emitted('change')).toBeFalsy();
+    expect(panel.emitted('change')).toBeFalsy();
+    store.setViewport({ x: 0, y: 0, zoom: 2 });
+    await row.trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(store.viewport.zoom).toBe(2);
+    expect(store.viewport.x + Number(match[1]) * 2).toBeCloseTo(400);
+    panel.unmount();
+    wrapper.unmount();
+  });
+
+  it('搜索结果位于折叠分支时展开祖先并定位', async () => {
+    const doc = treeDocument();
+    doc.topics.a!.collapsed = true;
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    const panel = mount(MindmapRightPanel);
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+    await panel.find('[data-testid="mm-outline-search"]').setValue('A1');
+    await panel.find('.mindmap-row[data-topic-id="a1"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    const store = useMindmapStore();
+    expect(store.document?.topics.a?.collapsed).toBe(false);
+    expect(wrapper.find('.mm-node[data-node-id="a1"]').exists()).toBe(true);
+    expect(panel.emitted('change')).toHaveLength(1);
+    expect(store.canUndo).toBe(true);
+    panel.unmount();
+    wrapper.unmount();
   });
 
   it('渲染画布节点并默认选中中心主题', () => {
@@ -455,6 +515,10 @@ describe('MindmapStage 阶段 4E', () => {
   });
 
   it('mm-sheet-add 新增工作表：数量 +1、切到新根、emit change', async () => {
+    useCloudQuotaStore().summary = {
+      usedBytes: 0, permanentBytes: 0, planBytes: 1, rewardBytes: 0, quotaBytes: 1,
+      tier: 'PLUS', tierName: 'Plus', renewAt: null, rewardCapBytes: 0, rewardLifetimeBytes: 0, points: 0,
+    };
     const doc = treeDocument();
     const originalRoot = doc.rootTopicId;
     const wrapper = mountStage(serializeMindMapDocument(doc));
@@ -473,6 +537,61 @@ describe('MindmapStage 阶段 4E', () => {
     expect(wrapper.find('[data-testid="mm-sheet-tab-1"]').classes()).toContain('is-active');
     // 已有两个工作表 → 删除按钮可用
     expect(wrapper.find('[data-testid="mm-sheet-remove"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('免费版点击新增工作表时提示升级且不修改文档', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mm-sheet-add"]').trigger('click');
+    expect(wrapper.findAll('[data-testid^="mm-sheet-tab-"]')).toHaveLength(1);
+    expect(wrapper.emitted('membership-required')?.[0]?.[0]).toMatchObject({ feature: '多工作表' });
+    expect(wrapper.emitted('change')).toBeFalsy();
+  });
+
+  it('通过可访问的重命名入口提交当前工作表名称并保留节点文本，可撤销', async () => {
+    const doc = multiSheetDocument();
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    const store = useMindmapStore();
+
+    await wrapper.find('[data-testid="mm-sheet-rename"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    const input = wrapper.find('[data-testid="mm-sheet-rename-input"]');
+    expect(input.attributes('aria-label')).toBe('工作表名称');
+    await input.setValue('  新工作表名  ');
+    await input.trigger('keydown', { key: 'Enter' });
+
+    expect(lastDocument(wrapper).sheets?.[0]?.title).toBe('新工作表名');
+    expect(lastDocument(wrapper).topics[doc.rootTopicId]?.text).toBe(doc.topics[doc.rootTopicId]?.text);
+    expect(store.canUndo).toBe(true);
+    await stageRoot(wrapper).trigger('keydown', { key: 'z', ctrlKey: true });
+    expect(lastDocument(wrapper).sheets?.[0]?.title).toBe('工作表 1');
+  });
+
+  it('拒绝空名称且 Escape 取消不产生文档变化', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(multiSheetDocument()));
+    await wrapper.find('[data-testid="mm-sheet-tab-0"]').trigger('keydown', { key: 'F2' });
+    await wrapper.vm.$nextTick();
+    const input = wrapper.find('[data-testid="mm-sheet-rename-input"]');
+    await input.setValue('   ');
+    await input.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('change')).toBeFalsy();
+
+    await wrapper.find('[data-testid="mm-sheet-rename"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-testid="mm-sheet-rename-input"]').setValue('discard me');
+    await wrapper.find('[data-testid="mm-sheet-rename-input"]').trigger('keydown', { key: 'Escape' });
+    expect(wrapper.emitted('change')).toBeFalsy();
+    expect(wrapper.find('[data-testid="mm-sheet-tab-0"]').text()).toBe('工作表 1');
+  });
+
+  it('编辑期间工作表标题被外部更新时不覆盖新值', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(multiSheetDocument()));
+    const store = useMindmapStore();
+    await wrapper.find('[data-testid="mm-sheet-rename"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-testid="mm-sheet-rename-input"]').setValue('本地草稿');
+    expect(store.renameSheet('sheet-1', '并发新标题')).toBe(true);
+    await wrapper.find('[data-testid="mm-sheet-rename-input"]').trigger('keydown', { key: 'Enter' });
+    expect(store.sheets[0]?.title).toBe('并发新标题');
   });
 
   it('mm-sheet-remove 删除当前工作表：数量 -1、切回剩余工作表并 emit change', async () => {
@@ -668,6 +787,97 @@ describe('MindmapStage UX-2', () => {
     await wrapper.vm.$nextTick();
     expect(lastDocument(wrapper).topics.a?.boundary?.label).toBe('框');
     expect(wrapper.findAll('[data-testid="mm-boundary"]')).toHaveLength(1);
+    wrapper.unmount();
+  });
+});
+
+/* ------------------- 右键菜单增强：子树折叠 / 复制 / 清样式 / 画布级 ------------------- */
+
+describe('MindmapStage 右键菜单增强', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  /** 读取最后一次 change 事件里的文档。 */
+  function lastDoc(wrapper: ReturnType<typeof mountStage>): MindMapDocument {
+    const emitted = wrapper.emitted('change');
+    expect(emitted).toBeTruthy();
+    return JSON.parse(emitted![emitted!.length - 1]![0] as string) as MindMapDocument;
+  }
+
+  it('节点菜单包含新增的子树折叠与文字操作项', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    wrapper.vm.openMindmapContextMenu({ nodeId: 'a', clientX: 10, clientY: 10 });
+    await wrapper.vm.$nextTick();
+
+    const testIds = menuItemTestIds();
+    expect(testIds).toContain('mm-context-item-collapse-descendants');
+    expect(testIds).toContain('mm-context-item-expand-descendants');
+    expect(testIds).toContain('mm-context-item-copy-text');
+    expect(testIds).toContain('mm-context-item-clear-text-style');
+    // 清理：关掉菜单避免 teleport 残留
+    clickMenuItem('add-child');
+    await wrapper.vm.$nextTick();
+    wrapper.unmount();
+  });
+
+  it('「折叠全部后代」一次提交折叠整棵子树（不含自身），且可整体撤销', async () => {
+    const doc = treeDocument();
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    wrapper.vm.openMindmapContextMenu({ nodeId: 'a', clientX: 10, clientY: 10 });
+    await wrapper.vm.$nextTick();
+
+    clickMenuItem('collapse-descendants');
+    await wrapper.vm.$nextTick();
+
+    const after = lastDoc(wrapper);
+    // 后代被折叠；自身不被这条命令折叠
+    const childId = after.topics.a?.childIds?.[0];
+    expect(childId).toBeTruthy();
+    expect(after.topics[childId!]?.collapsed).toBe(true);
+    expect(after.topics.a?.collapsed).toBeFalsy();
+
+    await stageRoot(wrapper).trigger('keydown', { key: 'z', ctrlKey: true });
+    await wrapper.vm.$nextTick();
+    expect(lastDoc(wrapper).topics[childId!]?.collapsed).toBeFalsy();
+    wrapper.unmount();
+  });
+
+  it('空白菜单提供「展开全部 / 折叠全部」与导出入口', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.find('[data-testid="mindmap-canvas"]').trigger('contextmenu', {
+      clientX: 9999,
+      clientY: 9999,
+    });
+    await wrapper.vm.$nextTick();
+
+    const testIds = menuItemTestIds();
+    expect(testIds).toContain('mm-context-item-expand-all');
+    expect(testIds).toContain('mm-context-item-collapse-all');
+    expect(testIds).toContain('mm-context-item-export');
+    expect(testIds).toContain('mm-context-item-zoom-in');
+    expect(testIds).toContain('mm-context-item-zoom-out');
+
+    clickMenuItem('collapse-all');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('change')).toBeTruthy();
+    wrapper.unmount();
+  });
+
+  it('中心主题的删除项显示为「重置为中心主题」并走重置确认', async () => {
+    const doc = treeDocument();
+    const wrapper = mountStage(serializeMindMapDocument(doc));
+    wrapper.vm.openMindmapContextMenu({ nodeId: doc.rootTopicId, clientX: 10, clientY: 10 });
+    await wrapper.vm.$nextTick();
+
+    const deleteItem = document.querySelector('[data-testid="mm-context-item-delete"]');
+    expect(deleteItem).toBeTruthy();
+    expect(deleteItem!.textContent ?? '').toContain('重置为中心主题');
+
+    clickMenuItem('delete');
+    await wrapper.vm.$nextTick();
+    // 走确认流程，不应立即改文档
+    expect(wrapper.emitted('change')).toBeFalsy();
     wrapper.unmount();
   });
 });

@@ -114,15 +114,15 @@ describe('MindmapImportPreviewDialog', () => {
 });
 
 describe('MindmapExportDialog', () => {
-  it('列出 7 种导出格式，默认 taumap', () => {
+  it('列出 8 种导出格式，默认 taumap', () => {
     const wrapper = mount(MindmapExportDialog, { props: { visible: true } });
     const radios = wrapper.findAll('input[name="mm-export-format"]');
-    expect(radios).toHaveLength(7);
+    expect(radios).toHaveLength(8);
     expect(wrapper.find('[data-testid="mm-export-png-options"]').exists()).toBe(false);
   });
 
   it('选择 PNG 后显示背景与倍率选项，确认携带参数', async () => {
-    const wrapper = mount(MindmapExportDialog, { props: { visible: true } });
+    const wrapper = mount(MindmapExportDialog, { props: { visible: true, membershipTier: 'PRO' } });
     await wrapper.find('[data-testid="mm-export-format-png"]').setValue(true);
     await flushPromises();
     expect(wrapper.find('[data-testid="mm-export-png-options"]').exists()).toBe(true);
@@ -245,6 +245,24 @@ describe('MindmapStage 导入/导出接线', () => {
     expect(path).toBe('/tmp/out.md');
     expect(payload.kind).toBe('text');
     expect((payload as { text: string }).text).toContain('- 分支 A');
+  });
+
+  it('免费用户点击 SVG 时提示升级，不调用保存', async () => {
+    vi.mocked(io.pickMindmapExportPath).mockResolvedValue('/tmp/out.svg');
+    vi.mocked(io.writeMindmapExportFile).mockResolvedValue();
+    const wrapper = mount(MindmapStage, {
+      props: {
+        tabId: 'tab-mm', documentJson: serializeMindMapDocument(treeDoc()),
+        fileName: 'test.taumap', documentKind: 'mindmap',
+      },
+    });
+    stageExpose(wrapper).openExportDialog();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-testid="mm-export-format-svg"]').element.parentElement!.click();
+    await flushPromises();
+    expect(wrapper.emitted('membership-required')).toHaveLength(1);
+    expect(io.pickMindmapExportPath).not.toHaveBeenCalled();
+    expect(io.writeMindmapExportFile).not.toHaveBeenCalled();
   });
 
   it('导出取消（未选保存路径）不写盘', async () => {

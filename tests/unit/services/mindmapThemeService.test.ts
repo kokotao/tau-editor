@@ -14,9 +14,13 @@ import {
   DEFAULT_MINDMAP_THEME_ID,
   MINDMAP_THEME_IDS,
   MINDMAP_THEMES,
+  RAINBOW_BRANCH_PALETTE,
   isMindmapThemeId,
+  isRainbowTheme,
   listMindmapThemes,
+  mindmapThemeCanvasVariables,
   mindmapThemeCssVariables,
+  rainbowBranchColor,
   resolveMindmapTheme,
 } from '@/services/mindmapThemeService';
 
@@ -31,15 +35,11 @@ const REQUIRED_COLOR_KEYS = [
 ] as const;
 
 describe('mindmapThemeService', () => {
-  it('内置主题为 default / ocean / forest / sunset，顺序稳定', () => {
-    expect(MINDMAP_THEME_IDS).toEqual(['default', 'ocean', 'forest', 'sunset']);
+  it('保留原有主题顺序并新增十组主题', () => {
+    expect(MINDMAP_THEME_IDS.slice(0, 5)).toEqual(['default', 'ocean', 'forest', 'sunset', 'rainbow']);
     expect(DEFAULT_MINDMAP_THEME_ID).toBe('default');
-    expect(listMindmapThemes().map((theme) => theme.id)).toEqual([
-      'default',
-      'ocean',
-      'forest',
-      'sunset',
-    ]);
+    expect(listMindmapThemes()).toHaveLength(15);
+    expect(new Set(MINDMAP_THEME_IDS).size).toBe(15);
   });
 
   it('每个主题都提供完整配色与展示名', () => {
@@ -135,5 +135,55 @@ describe('mindmapThemeService', () => {
     const variables = mindmapThemeCssVariables(bare);
     expect(variables['--mindmap-marker-bg']).toBe(DEFAULT_MARKER_BADGE_FILL);
     expect(variables['--mindmap-marker-text']).toBe(DEFAULT_MARKER_BADGE_TEXT);
+  });
+});
+
+describe('mindmapThemeService 彩虹主题', () => {
+  it('rainbow 主题启用按分支上色并携带 8 色分支调色板', () => {
+    const rainbow = resolveMindmapTheme('rainbow');
+    expect(rainbow.mode).toBe('rainbow');
+    expect(isRainbowTheme(rainbow)).toBe(true);
+    expect(rainbow.branchPalette).toEqual(RAINBOW_BRANCH_PALETTE);
+    expect(RAINBOW_BRANCH_PALETTE).toHaveLength(8);
+  });
+
+  it('其余四套纯色主题不启用彩虹模式', () => {
+    for (const id of ['default', 'ocean', 'forest', 'sunset']) {
+      expect(isRainbowTheme(resolveMindmapTheme(id))).toBe(false);
+      expect(rainbowBranchColor(resolveMindmapTheme(id), 0)).toBeNull();
+    }
+  });
+
+  it('rainbowBranchColor 按序号取色并安全取模', () => {
+    const rainbow = resolveMindmapTheme('rainbow');
+    expect(rainbowBranchColor(rainbow, 0)).toBe('#FF6B6B');
+    expect(rainbowBranchColor(rainbow, 7)).toBe('#FF7BC5');
+    // 超过调色板长度：循环复用
+    expect(rainbowBranchColor(rainbow, 8)).toBe('#FF6B6B');
+    expect(rainbowBranchColor(rainbow, 9)).toBe('#FF9F43');
+    // 负数序号也不越界
+    expect(rainbowBranchColor(rainbow, -1)).toBe('#FF7BC5');
+  });
+
+  it('rainbowBranchColor 对空主题返回 null', () => {
+    expect(rainbowBranchColor(null, 0)).toBeNull();
+    expect(rainbowBranchColor(undefined, 0)).toBeNull();
+  });
+
+  it('画布变量：彩虹主题只注入强调/标记色，不写死节点填充与连线', () => {
+    const variables = mindmapThemeCanvasVariables(resolveMindmapTheme('rainbow'));
+    expect(variables['--mindmap-accent']).toBe('#7cc7ff');
+    expect(variables['--mindmap-marker-bg']).toBeTruthy();
+    // 关键：不注入 --mindmap-node-bg / --mindmap-edge，节点底色继续跟随 Tau 面板色
+    expect(variables['--mindmap-node-bg']).toBeUndefined();
+    expect(variables['--mindmap-edge']).toBeUndefined();
+    expect(variables['--mindmap-node-border']).toBeUndefined();
+  });
+
+  it('画布变量：纯色主题仍输出完整变量集（旧行为不变）', () => {
+    const variables = mindmapThemeCanvasVariables(resolveMindmapTheme('ocean'));
+    expect(variables['--mindmap-node-bg']).toBe('#f4faff');
+    expect(variables['--mindmap-edge']).toBe('#7fb3d5');
+    expect(variables['--mindmap-accent']).toBe('#1f7ac0');
   });
 });

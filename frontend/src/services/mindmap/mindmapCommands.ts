@@ -20,7 +20,7 @@ import {
   createEmptyMindMapDocument,
   generateTopicId,
 } from '@/services/mindmapService';
-import type { MindMapDocument, MindMapTopic } from '@/types/mindmap';
+import type { MindMapDocument, MindMapTextStyleRange, MindMapTopic } from '@/types/mindmap';
 
 export type MindMapCommandErrorCode =
   | 'TOPIC_NOT_FOUND'
@@ -28,6 +28,8 @@ export type MindMapCommandErrorCode =
   | 'ROOT_NODE_NO_SIBLING'
   | 'ROOT_NODE_NO_MOVE'
   | 'CYCLE_NOT_ALLOWED'
+  | 'NODE_LIMIT_EXCEEDED'
+  | 'INVALID_TEXT_RANGE'
   | 'INVALID_TARGET';
 
 export interface MindMapCommandError {
@@ -172,11 +174,89 @@ export function renameTopic(
   const next = cloneMindMapDocument(document);
   const target = next.topics[topicId];
   if (!target) return fail('TOPIC_NOT_FOUND', `节点 ${topicId} 不存在`);
+  if (text !== topic.text && target.textStyles?.length) {
+    const before = Array.from(topic.text);
+    const after = Array.from(text);
+    let prefix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+    let suffix = 0;
+    while (suffix < before.length - prefix && suffix < after.length - prefix
+      && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix += 1;
+    const oldEnd = before.length - suffix;
+    const delta = after.length - before.length;
+    const adjusted = target.textStyles.flatMap((range) => {
+      const parts: MindMapTextStyleRange[] = [];
+      if (range.start < prefix) parts.push({ ...range, end: Math.min(range.end, prefix) });
+      if (range.end > oldEnd) parts.push({ ...range, start: Math.max(range.start, oldEnd) + delta, end: range.end + delta });
+      return parts.filter((part) => part.end > part.start);
+    });
+    if (adjusted.length) target.textStyles = adjusted;
+    else delete target.textStyles;
+  }
   target.text = text;
   if (topicId === next.rootTopicId) {
     const trimmed = text.trim();
     if (trimmed) next.title = trimmed;
   }
+  return ok(next, { selectionId: topicId });
+}
+
+/** Apply or clear foreground/background formatting on a Unicode code-point range. */
+export function setTopicTextStyle(
+  document: MindMapDocument,
+  topicId: string,
+  start: number,
+  end: number,
+  patch: { color?: string | null; background?: string | null },
+): MindMapCommandResult {
+  const topic = findTopic(document, topicId);
+  if (!topic) return fail('TOPIC_NOT_FOUND', `节点 ${topicId} 不存在`);
+  const length = Array.from(topic.text).length;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > length) {
+    return fail('INVALID_TEXT_RANGE', '文字样式范围无效');
+  }
+  if (patch.color === undefined && patch.background === undefined) {
+    return fail('INVALID_TEXT_RANGE', '至少需要指定文字颜色或背景色');
+  }
+
+  const chars = Array.from(topic.text);
+  const styles = Array.from({ length }, (_, index) => {
+    const existing = topic.textStyles?.find((range) => range.start <= index && index < range.end);
+    return {
+      color: existing?.color,
+      background: existing?.background,
+    };
+  });
+  for (let index = start; index < end; index += 1) {
+    const style = styles[index];
+    if (!style) continue;
+    if (patch.color !== undefined) style.color = patch.color || undefined;
+    if (patch.background !== undefined) style.background = patch.background || undefined;
+  }
+
+  const ranges: MindMapTextStyleRange[] = [];
+  let rangeStart = 0;
+  while (rangeStart < length) {
+    const style = styles[rangeStart];
+    if (!style || (!style.color && !style.background)) {
+      rangeStart += 1;
+      continue;
+    }
+    let rangeEnd = rangeStart + 1;
+    while (rangeEnd < length) {
+      const next = styles[rangeEnd];
+      if (next?.color !== style.color || next?.background !== style.background) break;
+      rangeEnd += 1;
+    }
+    ranges.push({ start: rangeStart, end: rangeEnd, ...style });
+    rangeStart = rangeEnd;
+  }
+
+  const next = cloneMindMapDocument(document);
+  const target = next.topics[topicId];
+  if (!target) return fail('TOPIC_NOT_FOUND', `节点 ${topicId} 不存在`);
+  if (ranges.length > 0) target.textStyles = ranges;
+  else delete target.textStyles;
   return ok(next, { selectionId: topicId });
 }
 

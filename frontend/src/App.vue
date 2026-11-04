@@ -14,6 +14,9 @@ import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useDiffStore } from '@/stores/diff';
 import { useDiagnosticsStore, type DiagnosticRecord } from '@/stores/diagnostics';
 import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
+import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
+import WechatContactDialog from '@/components/editor/WechatContactDialog.vue';
 import { useMindmapStore } from '@/stores/mindmap';
 import {
   loadGitDiffSession,
@@ -159,6 +162,7 @@ import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
 import MindmapStage from './components/editor/mindmap/MindmapStage.vue';
 import MindmapRightPanel from './components/editor/mindmap/MindmapRightPanel.vue';
+import MindmapCanvasStylePanel from './components/editor/mindmap/MindmapCanvasStylePanel.vue';
 import {
   DEFAULT_MINDMAP_THEME_ID,
   listMindmapThemes,
@@ -197,6 +201,28 @@ const diagnosticsStore = useDiagnosticsStore();
 const cloudSyncStore = useCloudSyncStore();
 const centerToast = useCenterToastStore();
 const mindmapStore = useMindmapStore();
+const cloudQuotaStore = useCloudQuotaStore();
+const mindmapUpgradeVisible = ref(false);
+const mindmapUpgradeContactVisible = ref(false);
+const mindmapMembershipPrompt = ref<{ feature: string; reason: string } | null>(null);
+function handleMindmapMembershipRequired(payload: { feature: string; reason: string }) {
+  mindmapMembershipPrompt.value = payload;
+}
+function confirmMindmapMembershipUpgrade() {
+  mindmapMembershipPrompt.value = null;
+  mindmapUpgradeVisible.value = true;
+}
+watch(() => mindmapStore.nodeLimitNotice, () => {
+  notificationStore.warning('思维导图节点已达上限', '普通用户每个导图文件最多 30 个节点，升级会员可解除限制。');
+  mindmapMembershipPrompt.value = {
+    feature: '大规模导图',
+    reason: '免费版每个导图最多 30 个节点，升级会员即可创建更大规模的导图。',
+  };
+});
+watch(() => cloudSyncStore.userId, (userId, previousUserId) => {
+  if (userId !== previousUserId) cloudQuotaStore.reset();
+  if (userId) void cloudQuotaStore.refreshSummary();
+}, { immediate: true });
 const pendingLocalWrites = new Map<string, number>();
 const markLocalWritePending = (filePath?: string | null) => {
   if (filePath) pendingLocalWrites.set(normalizeFsPath(filePath), Date.now() + 4000);
@@ -717,6 +743,10 @@ const showMindmapRightPanel = computed(() => (
   activeTab.value?.documentKind === 'mindmap'
   && (mindmapStore.outlineVisible || mindmapStore.propertiesVisible)
 ));
+const showMindmapCanvasStylePanel = computed(() => (
+  activeTab.value?.documentKind === 'mindmap'
+  && mindmapStore.styleVisible
+));
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
 const isPdfTab = computed(() => isPdfFilePath(activeTab.value?.filePath));
 const isSpreadsheetTab = computed(() => isSpreadsheetFilePath(activeTab.value?.filePath));
@@ -1045,6 +1075,7 @@ const mindmapToolbarState = computed(() => {
     themeOptions: listMindmapThemes().map((theme) => ({ id: theme.id, name: theme.name })),
     outlineActive: mindmapStore.outlineVisible,
     propertiesActive: mindmapStore.propertiesVisible,
+    styleActive: mindmapStore.styleVisible,
   };
 });
 
@@ -1068,7 +1099,8 @@ type MindmapToolbarAction =
   | 'export'
   | 'print'
   | 'toggle-outline'
-  | 'toggle-properties';
+  | 'toggle-properties'
+  | 'toggle-style';
 
 /**
  * 转发 Toolbar 的导图工具点击。
@@ -1077,6 +1109,10 @@ type MindmapToolbarAction =
  * 所有需要选中节点的动作在 Stage 内部还有二次守卫。
  */
 const handleMindmapToolbarAction = (action: MindmapToolbarAction) => {
+  if (action === 'toggle-style') {
+    mindmapStore.toggleStyleVisible();
+    return;
+  }
   const stage = mindmapStageRef.value;
   if (!stage) return;
   switch (action) {
@@ -5337,6 +5373,28 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <Notification />
+    <CloudUpgradePlanDialog :visible="mindmapUpgradeVisible" @close="mindmapUpgradeVisible = false"
+      @contact="mindmapUpgradeContactVisible = true" />
+    <WechatContactDialog :visible="mindmapUpgradeContactVisible" @close="mindmapUpgradeContactVisible = false" />
+    <div
+      v-if="mindmapMembershipPrompt"
+      class="mindmap-membership-backdrop"
+      data-testid="mindmap-membership-prompt"
+      @click.self="mindmapMembershipPrompt = null"
+    >
+      <section class="mindmap-membership-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mindmap-membership-title">
+        <div class="mindmap-membership-icon" aria-hidden="true">✦</div>
+        <div class="mindmap-membership-content">
+          <h2 id="mindmap-membership-title">解锁思维导图会员功能</h2>
+          <p class="mindmap-membership-feature">{{ mindmapMembershipPrompt.feature }}</p>
+          <p class="mindmap-membership-reason">{{ mindmapMembershipPrompt.reason }}</p>
+          <div class="mindmap-membership-actions">
+            <button type="button" class="mindmap-membership-button" data-testid="mindmap-membership-cancel" @click="mindmapMembershipPrompt = null">暂不升级</button>
+            <button type="button" class="mindmap-membership-button primary" data-testid="mindmap-membership-confirm" @click="confirmMindmapMembershipUpgrade">查看会员权益</button>
+          </div>
+        </div>
+      </section>
+    </div>
     <ImageViewer
       :visible="Boolean(imageViewerState)"
       :src="imageViewerState?.src ?? ''"
@@ -5661,6 +5719,7 @@ onUnmounted(() => {
       @mm-print="handleMindmapToolbarAction('print')"
       @mm-toggle-outline="handleMindmapToolbarAction('toggle-outline')"
       @mm-toggle-properties="handleMindmapToolbarAction('toggle-properties')"
+      @mm-toggle-style="handleMindmapToolbarAction('toggle-style')"
     />
 
     <div class="main-layout">
@@ -5868,6 +5927,7 @@ onUnmounted(() => {
 
       <section v-show="settingsContainer !== 'workspace'" class="editor-panel">
         <EditorTabs
+          v-if="!isMindmapTab || tabs.length > 1"
           :tabs="tabs"
           :active-tab-id="activeTabId"
           @tab-click="handleTabClick"
@@ -5884,7 +5944,7 @@ onUnmounted(() => {
         />
 
         <EditorBreadcrumbs
-          v-if="activeTab && !diffStore.isOpen"
+          v-if="activeTab && !diffStore.isOpen && !isMindmapTab"
           :segments="editorBreadcrumbSegments"
           :label="settingsStore.uiLanguage === 'en-US' ? 'File path' : '文件路径'"
           :style="{ '--breadcrumb-editor-background': editorBreadcrumbBackground }"
@@ -5936,7 +5996,9 @@ onUnmounted(() => {
               :document-json="activeTab.content"
               :file-name="activeTab.fileName"
               :document-kind="activeTab.documentKind"
+              :is-dirty="isDirty"
               @change="handleMindmapChange"
+              @membership-required="handleMindmapMembershipRequired"
             />
           </div>
           <ImagePreview
@@ -5950,6 +6012,10 @@ onUnmounted(() => {
             v-if="showMindmapRightPanel"
             @change="handleMindmapChange"
             @contextmenu="handleMindmapRightPanelContextMenu"
+          />
+          <MindmapCanvasStylePanel
+            v-if="showMindmapCanvasStylePanel"
+            @change="handleMindmapChange"
           />
           <div
             v-if="isPreviewableTab"
@@ -6619,6 +6685,45 @@ textarea {
   background: var(--accent-blue);
   color: #fff;
 }
+
+.mindmap-membership-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-backdrop);
+}
+.mindmap-membership-dialog {
+  display: flex;
+  gap: 14px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 22px;
+  color: var(--text-primary);
+  background: var(--panel-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-dialog);
+  box-shadow: var(--shadow-overlay);
+}
+.mindmap-membership-icon {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #fff;
+  background: var(--accent-blue);
+  border-radius: 50%;
+}
+.mindmap-membership-content { min-width: 0; }
+.mindmap-membership-content h2 { margin: 0; font-size: 18px; }
+.mindmap-membership-feature { margin: 10px 0 4px; color: var(--accent-blue); font-weight: 600; }
+.mindmap-membership-reason { margin: 0; color: var(--text-muted); line-height: 1.6; }
+.mindmap-membership-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.mindmap-membership-button { padding: 7px 12px; color: var(--text-primary); background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm, 6px); cursor: pointer; }
+.mindmap-membership-button.primary { color: #fff; background: var(--accent-blue); border-color: var(--accent-blue); }
 
 .file-details-dialog {
   width: min(620px, calc(100vw - 32px));

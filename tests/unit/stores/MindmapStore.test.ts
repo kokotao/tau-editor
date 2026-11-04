@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import {
   DEFAULT_MINDMAP_OUTLINE_WIDTH,
   DEFAULT_MINDMAP_PROPERTIES_WIDTH,
@@ -273,6 +274,113 @@ describe('useMindmapStore', () => {
     expect(store.replaceDocument(current)).toBe(false);
     expect(store.serialized).toBe(before);
     expect(store.canUndo).toBe(false);
+  });
+  it('免费用户可以达到 30 个节点，但新增节点被拒绝且不污染文档与历史', () => {
+    const store = useMindmapStore();
+    const document = createEmptyMindMapDocument('30 节点');
+    let parentId = document.rootTopicId;
+    for (let index = 1; index < 30; index += 1) {
+      const result = addChildTopic(document, parentId, `节点 ${index}`);
+      if (!result.ok) throw new Error('构造测试文档失败');
+      Object.assign(document, result.document);
+      parentId = result.newTopicId as string;
+    }
+    store.loadFromContent('tab-1', serializeMindMapDocument(document));
+    const before = store.serialized;
+    const historyLength = store.history.past.length;
+
+    const result = store.applyCommand('添加节点', (doc) => addChildTopic(doc, parentId));
+    expect(result?.ok).toBe(false);
+    expect(result && !result.ok ? result.error.code : null).toBe('NODE_LIMIT_EXCEEDED');
+    expect(store.nodeLimitNotice).toBe(1);
+    expect(store.serialized).toBe(before);
+    expect(store.history.past).toHaveLength(historyLength);
+  });
+
+  it('不拒绝打开已有超限文档，且允许不增加节点的修改', () => {
+    const store = useMindmapStore();
+    const document = createEmptyMindMapDocument('已有大图');
+    let parentId = document.rootTopicId;
+    for (let index = 1; index < 32; index += 1) {
+      const result = addChildTopic(document, parentId, `节点 ${index}`);
+      if (!result.ok) throw new Error('构造测试文档失败');
+      Object.assign(document, result.document);
+      parentId = result.newTopicId as string;
+    }
+    store.loadFromContent('tab-1', serializeMindMapDocument(document));
+    expect(store.loadError).toBeNull();
+    const result = store.applyCommand('删除节点', (doc) => deleteTopic(doc, parentId));
+    expect(result?.ok).toBe(true);
+    expect(store.nodeLimitNotice).toBe(0);
+  });
+
+  it('会员用户不受 30 节点限制', () => {
+    const quota = useCloudQuotaStore();
+    quota.summary = {
+      usedBytes: 0,
+      permanentBytes: 0,
+      planBytes: 1,
+      rewardBytes: 0,
+      quotaBytes: 1,
+      tier: 'PLUS',
+      tierName: 'Plus',
+      renewAt: null,
+      rewardCapBytes: 0,
+      rewardLifetimeBytes: 0,
+      points: 0,
+    };
+    const store = useMindmapStore();
+    const document = createEmptyMindMapDocument('会员导图');
+    let parentId = document.rootTopicId;
+    for (let index = 1; index < 31; index += 1) {
+      const result = addChildTopic(document, parentId, `节点 ${index}`);
+      if (!result.ok) throw new Error('构造测试文档失败');
+      Object.assign(document, result.document);
+      parentId = result.newTopicId as string;
+    }
+    store.loadFromContent('tab-1', serializeMindMapDocument(document));
+    expect(store.applyCommand('新增节点', (doc) => addChildTopic(doc, parentId))?.ok).toBe(true);
+    expect(store.nodeLimitNotice).toBe(0);
+  });
+
+  it('超限文档中撤销删除仍可用（历史还原不受 30 节点限制）', () => {
+    const store = useMindmapStore();
+    const document = createEmptyMindMapDocument('超限但可编辑');
+    let parentId = document.rootTopicId;
+    for (let index = 1; index < 32; index += 1) {
+      const result = addChildTopic(document, parentId, `节点 ${index}`);
+      if (!result.ok) throw new Error('构造测试文档失败');
+      Object.assign(document, result.document);
+      parentId = result.newTopicId as string;
+    }
+    store.loadFromContent('tab-1', serializeMindMapDocument(document));
+
+    expect(store.applyCommand('删除节点', (doc) => deleteTopic(doc, parentId))?.ok).toBe(true);
+    expect(Object.keys(store.document?.topics ?? {})).toHaveLength(31);
+    // 撤销把节点还原回 32 个：允许，否则用户删除后无法回退
+    expect(store.undo()).toBe(true);
+    expect(Object.keys(store.document?.topics ?? {})).toHaveLength(32);
+    // 重做同样放行
+    expect(store.redo()).toBe(true);
+    expect(Object.keys(store.document?.topics ?? {})).toHaveLength(31);
+  });
+
+  it('免费用户导入超限文档时保留当前文档', () => {
+    const store = useMindmapStore();
+    const { content } = makeContent();
+    store.loadFromContent('tab-1', content);
+    const oversized = createEmptyMindMapDocument('超限导入');
+    let parentId = oversized.rootTopicId;
+    for (let index = 1; index < 31; index += 1) {
+      const result = addChildTopic(oversized, parentId, `节点 ${index}`);
+      if (!result.ok) throw new Error('构造测试文档失败');
+      Object.assign(oversized, result.document);
+      parentId = result.newTopicId as string;
+    }
+    const before = store.serialized;
+    expect(store.replaceDocument(oversized)).toBe(false);
+    expect(store.serialized).toBe(before);
+    expect(store.nodeLimitNotice).toBe(1);
   });
 });
 
@@ -703,6 +811,21 @@ describe('useMindmapStore 阶段 4C：独立关系线', () => {
 describe('useMindmapStore 阶段 4E：多工作表', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    useCloudQuotaStore().summary = {
+      usedBytes: 0, permanentBytes: 0, planBytes: 1, rewardBytes: 0, quotaBytes: 1,
+      tier: 'PLUS', tierName: 'Plus', renewAt: null, rewardCapBytes: 0, rewardLifetimeBytes: 0, points: 0,
+    };
+  });
+
+  it('免费版不能新增工作表且不修改文档或历史', () => {
+    useCloudQuotaStore().summary = null;
+    const store = useMindmapStore();
+    store.loadFromContent('tab-1', makeContent().content);
+    const before = store.serialized;
+    expect(store.addSheet()).toBe(false);
+    expect(store.serialized).toBe(before);
+    expect(store.sheets).toHaveLength(1);
+    expect(store.canUndo).toBe(false);
   });
 
   /** 加载单工作表文档后新增一张工作表，返回两表状态的关键 id。 */

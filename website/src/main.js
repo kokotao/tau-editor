@@ -17,7 +17,19 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.33', date: '2026-11-01', label: '云文档图片签名直链', category: '云端协作', latest: true,
+    version: 'v0.6.36', date: '2026-11-04', label: '思维导图画布与主题样式', category: '思维导图', latest: true,
+    summary: '画布样式、主题模板、批量应用、节点图片与多格式导出集中升级；会员限制、品牌水印和云端分享冲突提示也完成收口。',
+    highlights: [
+      '画布样式面板支持背景色、内置配色和主题样式切换，节点选中后自动打开对应样式入口',
+      '中心主题、分支主题、子主题支持独立模板，并可批量应用到同级主题；连接线箭头、关系线和高级边框样式可配置',
+      '大纲与画布节点选中联动高亮，支持图片节点和更丰富的思维导图工具栏',
+      '免费版导出图片、PDF 等文件铺满 Tau Editor 品牌水印，Plus / Pro 按权益开放更多格式，Pro 支持自定义或关闭水印',
+      '触发思维导图会员限制时显示升级确认框，云端分享覆盖冲突时给出明确状态和恢复路径',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.36',
+  },
+  {
+    version: 'v0.6.33', date: '2026-11-01', label: '云文档图片签名直链', category: '云端协作', latest: false,
     summary: '云文档图片彻底修复：粘贴/导入后 Markdown 直接写入云端签名直链，编辑预览、个人中心、网页、小程序都能直接显示。',
     highlights: [
       '云文档粘贴/导入图片后，Markdown 里写的是云端签名直链，而不是本地相对路径',

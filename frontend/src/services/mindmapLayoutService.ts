@@ -48,15 +48,33 @@ export interface MindmapLayoutOptions {
 
 export const DEFAULT_MINDMAP_LAYOUT_OPTIONS: MindmapLayoutOptions = {
   hGap: 56,
-  vGap: 14,
-  paddingX: 14,
-  paddingY: 8,
-  fontSize: 13,
-  lineHeight: 20,
-  maxTextWidth: 240,
-  minNodeWidth: 64,
-  edgeCurve: 24,
+  vGap: 18,
+  paddingX: 16,
+  paddingY: 10,
+  fontSize: 14,
+  lineHeight: 22,
+  maxTextWidth: 260,
+  minNodeWidth: 72,
+  edgeCurve: 32,
 };
+
+/**
+ * 节点装饰外扩预留（用于并入包围盒，避免 fitView 与 SVG/PDF 导出裁掉装饰）。
+ *
+ * - 标记徽章：绘制在节点左上角上方 12px 处、自身高 14px，故顶部共外扩 26px；
+ *   横向从节点左边缘起按 n*(14+3) 排布。
+ * - 折叠钮：圆心在节点侧边外 10px、半径 7px，故左右各外扩 17px（再留 1px 余量）。
+ */
+export const MINDMAP_MARKER_BADGE_SIZE = 14;
+export const MINDMAP_MARKER_BADGE_GAP = 3;
+export const MINDMAP_MARKER_OVERHANG_TOP = 12 + MINDMAP_MARKER_BADGE_SIZE;
+export const MINDMAP_TOGGLE_OVERHANG = 18;
+
+/** 标记徽章占用的横向宽度（n 个徽章）。 */
+export function mindmapMarkerOverhangRight(markerCount: number): number {
+  if (markerCount <= 0) return 0;
+  return markerCount * (MINDMAP_MARKER_BADGE_SIZE + MINDMAP_MARKER_BADGE_GAP);
+}
 
 /** 边界框内边距（UX-2，v1 固定 12px，落在 10–14 的观感区间）。 */
 export const MINDMAP_BOUNDARY_PADDING = 12;
@@ -84,6 +102,8 @@ export interface MindmapNodeBox {
   width: number;
   height: number;
   lines: string[];
+  /** 该节点实际渲染字号（中心主题 / 一级 / 其余按层级递减）。 */
+  fontSize: number;
   collapsed: boolean;
   hasChildren: boolean;
 }
@@ -181,20 +201,36 @@ export interface MindmapViewport {
 /** 全角/CJK 字符判定（含常见中文标点与全角符号）。 */
 const WIDE_CHAR_RE = /[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/;
 
+/**
+ * 窄字符（按经验约 0.30 字宽）：细笔画拉丁字母与标点。
+ * 分档是为了修正「所有拉丁字符一律 0.56」带来的宽度低估/高估。
+ */
+const NARROW_CHAR_RE = /[iIl1.,:;'`|!\[\](){}\/\\)]/;
+/** 宽字符（约 0.9 字宽）：大写宽体与汉字宽度接近的拉丁字母、部分符号。 */
+const WIDE_LATIN_RE = /[WM@%&mw]/;
+/** 大写字母与数字（约 0.66 字宽）。 */
+const UPPER_DIGIT_RE = /[A-Z0-9]/;
+
+/** 加粗文本相对常规字宽的放大系数（根节点 font-weight:700 需要补偿）。 */
+const BOLD_WIDTH_FACTOR = 1.06;
+
 /** 单个字符的估算宽度（相对字号）。 */
 export function estimateCharWidth(char: string, fontSize: number): number {
   if (WIDE_CHAR_RE.test(char)) return fontSize;
   if (char === ' ') return fontSize * 0.28;
+  if (NARROW_CHAR_RE.test(char)) return fontSize * 0.30;
+  if (WIDE_LATIN_RE.test(char)) return fontSize * 0.90;
+  if (UPPER_DIGIT_RE.test(char)) return fontSize * 0.66;
   return fontSize * 0.56;
 }
 
-/** 估算一段不含换行的文本宽度。 */
-export function measureTextWidth(text: string, fontSize: number): number {
+/** 估算一段不含换行的文本宽度；`bold` 为真时按加粗系数放大。 */
+export function measureTextWidth(text: string, fontSize: number, bold = false): number {
   let width = 0;
   for (const char of Array.from(text)) {
     width += estimateCharWidth(char, fontSize);
   }
-  return width;
+  return bold ? width * BOLD_WIDTH_FACTOR : width;
 }
 
 /**
@@ -249,24 +285,43 @@ export interface MeasuredTopic {
   width: number;
   height: number;
   lines: string[];
+  /** 测量时实际采用的字号（含层级差异），供渲染层与行高定位复用。 */
+  fontSize: number;
+}
+
+/**
+ * 层级字号档位：中心主题 > 一级主题 > 其余。
+ *
+ * 与 `options.fontSize` 的派生关系固定为「以基础字号为二级档」，
+ * 中心 +2px、一级 +1px，保证层级差异明显但不会撑爆紧凑布局。
+ */
+export function mindmapDepthFontSize(baseFontSize: number, depth: number): number {
+  if (depth === 0) return baseFontSize + 2;
+  if (depth === 1) return baseFontSize + 1;
+  return baseFontSize;
 }
 
 /** 测量节点尺寸（文本换行 + 内边距 + 最小宽度）。 */
 export function measureTopic(
   text: string,
   options: MindmapLayoutOptions = DEFAULT_MINDMAP_LAYOUT_OPTIONS,
+  bold = false,
+  depth = 1,
 ): MeasuredTopic {
-  const lines = wrapTopicText(text, options.maxTextWidth, options.fontSize);
+  const fontSize = mindmapDepthFontSize(options.fontSize, depth);
+  const lineHeight = Math.round((options.lineHeight / options.fontSize) * fontSize);
+  const lines = wrapTopicText(text, options.maxTextWidth, fontSize);
   const textWidth = lines.reduce(
-    (max, line) => Math.max(max, measureTextWidth(line, options.fontSize)),
+    (max, line) => Math.max(max, measureTextWidth(line, fontSize, bold)),
     0,
   );
+  // 乘 1.02 安全系数：启发式估算与真实字体渲染仍有小幅误差，留一点余量避免文字贴边。
   const width = Math.max(
     options.minNodeWidth,
-    Math.ceil(textWidth + options.paddingX * 2),
+    Math.ceil(textWidth * 1.02 + options.paddingX * 2),
   );
-  const height = Math.ceil(lines.length * options.lineHeight + options.paddingY * 2);
-  return { width, height, lines };
+  const height = Math.ceil(lines.length * lineHeight + options.paddingY * 2);
+  return { width, height, lines, fontSize };
 }
 
 /* --------------------------------- 内部树 -------------------------------- */
@@ -295,7 +350,9 @@ function buildVisibleTree(
       topic,
       depth,
       side,
-      measured: measureTopic(topic.text ?? '', options),
+      // 根节点在渲染层是 font-weight:700 加粗，测宽时同步加粗补偿，避免标题溢出；
+      // depth 决定层级字号（中心 +2 / 一级 +1 / 其余基础字号）。
+      measured: measureTopic(topic.text ?? '', options, depth === 0, depth),
       collapsed,
       children: [],
     };
@@ -316,28 +373,48 @@ function assignSide(node: InternalNode, side: 'left' | 'right'): void {
   for (const child of node.children) assignSide(child, side);
 }
 
-/** 按子树高度把根的子主题均衡分派到左右两侧，保持各自顺序。 */
+/**
+ * 按子树高度把根的子主题均衡分派到左右两侧，**保持原有顺序**。
+ *
+ * 算法：在有序子主题之间找一个切点 k，使「前 k 个（放右侧）」与
+ * 「其余（放左侧）」的子树高度总和之差最小。相比逐个贪心，结果稳定、
+ * 不会出现「一边塞满一边空荡」，且同一父节点的子主题在两侧各自成块，
+ * 更符合阅读顺序。
+ *
+ * 右侧取前一段、左侧取后一段：让阅读起点（右侧）优先获得靠前的分支。
+ */
 function splitRootChildren(
   children: InternalNode[],
   vGap: number,
   heightOf: (node: InternalNode) => number,
 ): { left: InternalNode[]; right: InternalNode[] } {
-  const left: InternalNode[] = [];
-  const right: InternalNode[] = [];
-  let leftHeight = 0;
+  if (children.length === 0) return { left: [], right: [] };
+  // 单条分支无需拆分，直接放右侧（与旧行为「第一个必在右」一致）
+  if (children.length === 1) return { left: [], right: [...children] };
+
+  const heights = children.map((child) => heightOf(child));
+  const total = heights.reduce((sum, height) => sum + height, 0)
+    + vGap * (children.length - 1);
+
+  let bestIndex = 1;
+  let bestDiff = Number.POSITIVE_INFINITY;
   let rightHeight = 0;
 
-  for (const child of children) {
-    const height = heightOf(child);
-    if (rightHeight <= leftHeight) {
-      right.push(child);
-      rightHeight += height + vGap;
-    } else {
-      left.push(child);
-      leftHeight += height + vGap;
+  for (let k = 1; k < children.length; k += 1) {
+    // 前 k 个归右侧；累加时把右侧内部的 (k-1) 个间距也计入
+    rightHeight += (heights[k - 1] as number) + (k > 1 ? vGap : 0);
+    const leftHeight = total - rightHeight - vGap;
+    const diff = Math.abs(rightHeight - leftHeight);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIndex = k;
     }
   }
-  return { left, right };
+
+  return {
+    right: children.slice(0, bestIndex),
+    left: children.slice(bestIndex),
+  };
 }
 
 function collectByDepth(
@@ -350,6 +427,47 @@ function collectByDepth(
     else depthMap.set(node.depth, [node]);
     collectByDepth(node.children, depthMap);
   }
+}
+
+/**
+ * 双侧布局专用：左右**共享同一套层宽**后镜像，保证整体左右对称、根恒在 x=0。
+ *
+ * 与 `computeColumnCenters` 的差异：每层列宽取「左右两侧该层最大节点宽的较大者」，
+ * 因此左右两侧到根的距离始终相等，不会因某一侧节点更宽而整体视觉重心偏移。
+ */
+function computeSymmetricColumnCenters(
+  rootWidth: number,
+  leftDepth: Map<number, InternalNode[]>,
+  rightDepth: Map<number, InternalNode[]>,
+  hGap: number,
+): { left: Map<number, number>; right: Map<number, number> } {
+  const left = new Map<number, number>();
+  const right = new Map<number, number>();
+  const maxDepth = Math.max(
+    0,
+    ...Array.from(leftDepth.keys()),
+    ...Array.from(rightDepth.keys()),
+  );
+
+  const maxWidthAt = (map: Map<number, InternalNode[]>, depth: number): number => {
+    const nodes = map.get(depth) ?? [];
+    return nodes.reduce((max, node) => Math.max(max, node.measured.width), 0);
+  };
+
+  let previousCenter = 0;
+  let previousWidth = rootWidth;
+
+  for (let depth = 1; depth <= maxDepth; depth += 1) {
+    const layerWidth = Math.max(maxWidthAt(leftDepth, depth), maxWidthAt(rightDepth, depth));
+    if (layerWidth === 0) break;
+    const centerDistance = previousWidth / 2 + hGap + layerWidth / 2;
+    previousCenter += centerDistance;
+    right.set(depth, previousCenter);
+    left.set(depth, -previousCenter);
+    previousWidth = layerWidth;
+  }
+
+  return { left, right };
 }
 
 /** 每一层列中心 X（左右两侧分别计算，root 宽度作为第 0 层基准）。 */
@@ -388,7 +506,16 @@ export function computeMindmapLayout(
   document: MindMapDocument,
   optionOverrides: Partial<MindmapLayoutOptions> = {},
 ): MindmapLayout {
-  const options: MindmapLayoutOptions = { ...DEFAULT_MINDMAP_LAYOUT_OPTIONS, ...optionOverrides };
+  const stored = document.opaqueExtensions?.tauLayoutSpacing;
+  const spacing = stored && typeof stored === 'object' ? stored as Record<string, unknown> : {};
+  const validGap = (value: unknown, fallback: number) => typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(200, value)) : fallback;
+  const options: MindmapLayoutOptions = {
+    ...DEFAULT_MINDMAP_LAYOUT_OPTIONS,
+    hGap: validGap(spacing.hGap, DEFAULT_MINDMAP_LAYOUT_OPTIONS.hGap),
+    vGap: validGap(spacing.vGap, DEFAULT_MINDMAP_LAYOUT_OPTIONS.vGap),
+    ...optionOverrides,
+  };
   const mode = resolveLayoutMode(document.layoutMode);
   const orientation = layoutOrientation(mode);
   const root = buildVisibleTree(document, options);
@@ -409,9 +536,9 @@ export function computeMindmapLayout(
     };
   }
 
-  if (mode === 'org') return computeOrgLayout(root, options);
-  if (mode === 'logic' || mode === 'tree') return computeSingleSideLayout(root, options, mode);
-  return computeTwoSidedLayout(root, options);
+  if (mode === 'org') return computeOrgLayout(root, options, document);
+  if (mode === 'logic' || mode === 'tree') return computeSingleSideLayout(root, options, mode, document);
+  return computeTwoSidedLayout(root, options, document);
 }
 
 /* ------------------------------ 模式与公共部件 ------------------------------ */
@@ -438,6 +565,9 @@ function makeBox(node: InternalNode, x: number, y: number): MindmapNodeBox {
     width: node.measured.width,
     height: node.measured.height,
     lines: node.measured.lines,
+    // 该节点实际使用的字号（含层级差异）：渲染层直接用它与行高定位文字，
+    // 保证「测宽 → 换行 → 渲染」三段完全同源，不会因层级字号不同而错位。
+    fontSize: node.measured.fontSize,
     collapsed: node.collapsed,
     hasChildren: (node.topic.childIds?.length ?? 0) > 0,
   };
@@ -519,6 +649,7 @@ function placeHorizontal(
 function computeTwoSidedLayout(
   root: InternalNode,
   options: MindmapLayoutOptions,
+  document: MindMapDocument,
 ): MindmapLayout {
   const heightOf = createHeightOf(options);
 
@@ -531,8 +662,10 @@ function computeTwoSidedLayout(
   collectByDepth(right, rightDepth);
   collectByDepth(left, leftDepth);
 
-  const rightCenters = computeColumnCenters(root.measured.width, rightDepth, options.hGap, 1);
-  const leftCenters = computeColumnCenters(root.measured.width, leftDepth, options.hGap, -1);
+  // 左右共享层宽并镜像：保证整体对称、根恒在 x=0（不再左右各算一套列宽）
+  const { left: leftCenters, right: rightCenters } = computeSymmetricColumnCenters(
+    root.measured.width, leftDepth, rightDepth, options.hGap,
+  );
 
   const ctx: HorizontalLayoutContext = {
     options,
@@ -549,7 +682,7 @@ function computeTwoSidedLayout(
   placeHorizontal(ctx, rootBox, right, rightCenters, 'right');
   placeHorizontal(ctx, rootBox, left, leftCenters, 'left');
 
-  return finalizeLayout(root, ctx.nodes, ctx.edges, options, 'mindmap', 'horizontal');
+  return finalizeLayout(root, ctx.nodes, ctx.edges, options, 'mindmap', 'horizontal', document);
 }
 
 /**
@@ -566,6 +699,7 @@ function computeSingleSideLayout(
   root: InternalNode,
   options: MindmapLayoutOptions,
   mode: 'logic' | 'tree',
+  document: MindMapDocument,
 ): MindmapLayout {
   const heightOf = createHeightOf(options);
 
@@ -589,7 +723,7 @@ function computeSingleSideLayout(
   ctx.nodes.push(rootBox);
   placeHorizontal(ctx, rootBox, root.children, centers, 'right');
 
-  return finalizeLayout(root, ctx.nodes, ctx.edges, options, mode, 'horizontal');
+  return finalizeLayout(root, ctx.nodes, ctx.edges, options, mode, 'horizontal', document);
 }
 
 /**
@@ -603,6 +737,7 @@ function computeSingleSideLayout(
 function computeOrgLayout(
   root: InternalNode,
   options: MindmapLayoutOptions,
+  document: MindMapDocument,
 ): MindmapLayout {
   // 1) 逐层行高与行中心 Y（子节点 y 严格大于父节点 y）。
   const depthHeights = new Map<number, number>();
@@ -670,10 +805,16 @@ function computeOrgLayout(
 
   place(root, 0);
 
-  return finalizeLayout(root, nodes, edges, options, 'org', 'vertical');
+  return finalizeLayout(root, nodes, edges, options, 'org', 'vertical', document);
 }
 
-/** 三次贝塞尔连线：从父节点外侧连到子节点内侧。 */
+/**
+ * 三次贝塞尔连线：从父节点外侧连到子节点内侧。
+ *
+ * 控制点水平偏移同时受**水平距离**与**纵向跨度**影响：
+ * 只按水平距离算时，父→远端子（dy 很大）的曲线会退化成近乎斜直线；
+ * 引入 dy 项后，长边也能保持「先水平离开父节点、再优雅弯入子节点」的 S 弧。
+ */
 export function buildEdgePath(
   parent: { x: number; y: number; width: number },
   child: { x: number; y: number; width: number },
@@ -682,7 +823,9 @@ export function buildEdgePath(
 ): string {
   const startX = side === 'right' ? parent.x + parent.width / 2 : parent.x - parent.width / 2;
   const endX = side === 'right' ? child.x - child.width / 2 : child.x + child.width / 2;
-  const distance = Math.max(curve, Math.abs(endX - startX) * 0.45);
+  const dx = Math.abs(endX - startX);
+  const dy = Math.abs(child.y - parent.y);
+  const distance = Math.max(curve, dx * 0.5, Math.min(dy * 0.35, curve * 2.5));
   const c1x = side === 'right' ? startX + distance : startX - distance;
   const c2x = side === 'right' ? endX - distance : endX + distance;
   return `M ${round(startX)} ${round(parent.y)} C ${round(c1x)} ${round(parent.y)}, ${round(c2x)} ${round(child.y)}, ${round(endX)} ${round(child.y)}`;
@@ -691,7 +834,9 @@ export function buildEdgePath(
 /**
  * tree 模式连线：正交「树干折线」。
  * 父节点外侧 → 水平走到两列中间 → 竖直走到子节点所在行 → 水平进入子节点内侧。
- * 与贝塞尔的差异仅在外观：单调、正交，读起来更像目录树。
+ *
+ * 树干列取「父节点外沿」与「子节点所在列中心」的中点，而**不依赖子节点自身宽度**：
+ * 同一父节点的所有子节点共用一条竖直主干，而不是宽度不同导致参差不齐的一束竖线。
  */
 export function buildTreeEdgePath(
   parent: { x: number; y: number; width: number },
@@ -700,8 +845,8 @@ export function buildTreeEdgePath(
 ): string {
   const startX = side === 'right' ? parent.x + parent.width / 2 : parent.x - parent.width / 2;
   const endX = side === 'right' ? child.x - child.width / 2 : child.x + child.width / 2;
-  // 树干列取两列之间的中点，保证同一父节点的子节点共用一条竖线。
-  const trunkX = (startX + endX) / 2;
+  // 用「子节点列中心」而不是「子节点左边缘」计算树干，保证兄弟节点共享同一竖干
+  const trunkX = (startX + child.x) / 2;
   return `M ${round(startX)} ${round(parent.y)} L ${round(trunkX)} ${round(parent.y)} L ${round(trunkX)} ${round(child.y)} L ${round(endX)} ${round(child.y)}`;
 }
 
@@ -743,6 +888,32 @@ function extentOfBox(box: MindmapNodeBox): OverlayExtent {
     maxX: box.x + box.width / 2,
     maxY: box.y + box.height / 2,
   };
+}
+
+/**
+ * 计算节点渲染包围盒（含节点框本身 + 标记徽章 + 折叠钮等装饰外扩）。
+ *
+ * 需要文档才能知道每个节点实际挂了多少标记、是否有子节点（折叠钮），
+ * 因此单独抽出来，供 `computeBounds` 与 `finalizeLayout` 复用。
+ */
+function computeNodeExtent(
+  node: MindmapNodeBox,
+  document: MindMapDocument,
+): OverlayExtent {
+  const extent = extentOfBox(node);
+  const topic = document.topics[node.id];
+  const markerCount = topic?.markers?.length ?? 0;
+  if (markerCount > 0) {
+    // 徽章：顶部外扩 26px，横向从节点左边缘向右延展
+    extent.minY = Math.min(extent.minY, node.y - node.height / 2 - MINDMAP_MARKER_OVERHANG_TOP);
+    extent.maxX = Math.max(extent.maxX, node.x - node.width / 2 + mindmapMarkerOverhangRight(markerCount));
+  }
+  if (node.hasChildren) {
+    // 折叠钮：节点左右各外扩 18px
+    extent.minX = Math.min(extent.minX, node.x - node.width / 2 - MINDMAP_TOGGLE_OVERHANG);
+    extent.maxX = Math.max(extent.maxX, node.x + node.width / 2 + MINDMAP_TOGGLE_OVERHANG);
+  }
+  return extent;
 }
 
 function extentOfFrame(frame: { x: number; y: number; width: number; height: number }): OverlayExtent {
@@ -908,9 +1079,10 @@ function finalizeLayout(
   options: MindmapLayoutOptions,
   mode: MindMapLayoutMode,
   orientation: MindmapEdgeOrientation,
+  document: MindMapDocument,
 ): MindmapLayout {
   const { boundaries, summaries } = computeOverlays(root, nodes, orientation);
-  let bounds = computeBounds(nodes);
+  let bounds = computeBounds(nodes, document);
   let extent: OverlayExtent = {
     minX: bounds.minX,
     minY: bounds.minY,
@@ -931,7 +1103,11 @@ function finalizeLayout(
   return { nodes, edges, boundaries, summaries, bounds, options, mode, orientation };
 }
 
-function computeBounds(nodes: MindmapNodeBox[]): MindmapLayoutBounds {
+/**
+ * 计算整体包围盒：包含节点框本身，以及标记徽章、折叠钮等装饰外扩，
+ * 保证 `fitView` 与 SVG/PDF 导出都不会裁掉这些装饰。
+ */
+function computeBounds(nodes: MindmapNodeBox[], document?: MindMapDocument): MindmapLayoutBounds {
   if (nodes.length === 0) {
     return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
   }
@@ -940,23 +1116,39 @@ function computeBounds(nodes: MindmapNodeBox[]): MindmapLayoutBounds {
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (const node of nodes) {
-    minX = Math.min(minX, node.x - node.width / 2);
-    minY = Math.min(minY, node.y - node.height / 2);
-    maxX = Math.max(maxX, node.x + node.width / 2);
-    maxY = Math.max(maxY, node.y + node.height / 2);
+    const extent = document ? computeNodeExtent(node, document) : extentOfBox(node);
+    minX = Math.min(minX, extent.minX);
+    minY = Math.min(minY, extent.minY);
+    maxX = Math.max(maxX, extent.maxX);
+    maxY = Math.max(maxY, extent.maxY);
   }
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/** 「适配内容」的缩放约束：min/max 为硬边界，readableMin 为可读性下限（可选）。 */
+export interface MindmapFitZoomRange {
+  min: number;
+  max: number;
+  /**
+   * 可读性下限：当「装得下」所需的缩放小于该值时，不再继续硬缩，
+   * 而是停在该比例（内容可能超出视口，交由用户平移查看），避免大图字号小到不可读。
+   */
+  readableMin?: number;
 }
 
 /**
  * 计算「适配内容」视口：把布局整体包围盒缩放到容器内并居中。
  * 画布变换约定：screen = world * zoom + translate。
+ *
+ * 大图保护：若装得下所需的缩放低于 `readableMin`，则停在 `readableMin`，
+ * 并以 `focus`（通常是根节点世界坐标）为中心定位，保证打开时能看清主体内容。
  */
 export function computeFitViewport(
   bounds: MindmapLayoutBounds,
   viewport: ViewportSize,
   padding = 48,
-  zoomRange: { min: number; max: number } = { min: 0.1, max: 2 },
+  zoomRange: MindmapFitZoomRange = { min: 0.1, max: 2 },
+  focus?: { x: number; y: number },
 ): MindmapViewport {
   const availableWidth = Math.max(1, viewport.width - padding * 2);
   const availableHeight = Math.max(1, viewport.height - padding * 2);
@@ -969,7 +1161,22 @@ export function computeFitViewport(
     availableHeight / bounds.height,
     zoomRange.max,
   );
-  const zoom = Math.max(zoomRange.min, scale);
+
+  const readableMin = zoomRange.readableMin;
+  const clampedScale = Math.max(zoomRange.min, scale);
+  if (readableMin !== undefined && clampedScale < readableMin) {
+    // 大图：停在可读下限，并以 focus（根节点）为中心，而不是包围盒中心
+    const zoom = Math.min(zoomRange.max, readableMin);
+    const focusX = focus?.x ?? bounds.minX + bounds.width / 2;
+    const focusY = focus?.y ?? bounds.minY + bounds.height / 2;
+    return {
+      x: viewport.width / 2 - focusX * zoom,
+      y: viewport.height / 2 - focusY * zoom,
+      zoom,
+    };
+  }
+
+  const zoom = clampedScale;
   const centerX = bounds.minX + bounds.width / 2;
   const centerY = bounds.minY + bounds.height / 2;
   return {

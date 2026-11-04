@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
+import { createEmptyMindMapDocument, parseMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
 import {
   addChildTopic,
   addSiblingTopic,
@@ -13,6 +13,7 @@ import {
   renameTopic,
   resetDocument,
   setTopicCollapsed,
+  setTopicTextStyle,
 } from '@/services/mindmap/mindmapCommands';
 import type { MindMapCommandResult } from '@/services/mindmap/mindmapCommands';
 import type { MindMapDocument } from '@/types/mindmap';
@@ -48,6 +49,17 @@ function expectFail(result: MindMapCommandResult, code: string) {
 }
 
 const freeze = (doc: MindMapDocument) => serializeMindMapDocument(doc);
+
+describe('renameTopic text styles', () => {
+  it('keeps formatting on unchanged characters after a Unicode insertion or deletion', () => {
+    const doc = docWithTree();
+    doc.topics.a = { ...doc.topics.a!, text: '甲😀乙', textStyles: [{ start: 1, end: 3, color: '#ff0000' }] };
+    const inserted = expectOk(renameTopic(doc, 'a', '甲新😀乙')).document;
+    expect(inserted.topics.a?.textStyles).toEqual([{ start: 2, end: 4, color: '#ff0000' }]);
+    const deleted = expectOk(renameTopic(inserted, 'a', '甲乙')).document;
+    expect(deleted.topics.a?.textStyles).toEqual([{ start: 1, end: 2, color: '#ff0000' }]);
+  });
+});
 
 describe('addChildTopic', () => {
   it('追加子节点并展开父节点', () => {
@@ -99,6 +111,42 @@ describe('renameTopic', () => {
     const result = expectOk(renameTopic(doc, doc.rootTopicId, '新标题'));
     expect(result.document.title).toBe('新标题');
     expect(result.document.topics[doc.rootTopicId]?.text).toBe('新标题');
+  });
+});
+
+describe('setTopicTextStyle', () => {
+  it('stores Unicode-indexed foreground and background ranges and serializes them', () => {
+    const doc = docWithTree();
+    doc.topics.a!.text = 'A😀字B';
+    const result = expectOk(setTopicTextStyle(doc, 'a', 1, 3, {
+      color: '#123456', background: '#fff000',
+    }));
+    expect(result.document.topics.a?.textStyles).toEqual([
+      { start: 1, end: 3, color: '#123456', background: '#fff000' },
+    ]);
+    expect(parseMindMapDocument(serializeMindMapDocument(result.document)).topics.a?.textStyles)
+      .toEqual(result.document.topics.a?.textStyles);
+    expect(doc.topics.a?.textStyles).toBeUndefined();
+  });
+
+  it('overwrites only requested style property and clears ranges when empty', () => {
+    let doc = docWithTree();
+    doc.topics.a!.text = 'abcdef';
+    doc.topics.a!.textStyles = [{ start: 1, end: 5, color: '#111111', background: '#eeeeee' }];
+    doc = expectOk(setTopicTextStyle(doc, 'a', 2, 4, { color: '#222222' })).document;
+    expect(doc.topics.a?.textStyles).toEqual([
+      { start: 1, end: 2, color: '#111111', background: '#eeeeee' },
+      { start: 2, end: 4, color: '#222222', background: '#eeeeee' },
+      { start: 4, end: 5, color: '#111111', background: '#eeeeee' },
+    ]);
+    doc = expectOk(setTopicTextStyle(doc, 'a', 0, 6, { color: null, background: null })).document;
+    expect(doc.topics.a?.textStyles).toBeUndefined();
+  });
+
+  it('rejects invalid code-point bounds', () => {
+    const doc = docWithTree();
+    expectFail(setTopicTextStyle(doc, 'a', -1, 1, { color: '#fff' }), 'INVALID_TEXT_RANGE');
+    expectFail(setTopicTextStyle(doc, 'a', 0, 2, { color: '#fff' }), 'INVALID_TEXT_RANGE');
   });
 });
 

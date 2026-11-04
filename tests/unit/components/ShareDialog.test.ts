@@ -341,6 +341,21 @@ describe('ShareDialog 一键分享', () => {
     expect(wrapper.find('[data-testid="share-dialog-generate"]').exists()).toBe(true);
   });
 
+  it('用户已确认覆盖后若再次冲突，不重复显示同一个确认框', async () => {
+    mocks.syncByPath
+      .mockResolvedValueOnce({ status: 'conflict', message: '云端内容不同' })
+      .mockResolvedValueOnce({ status: 'conflict', message: '云端又有新版本' });
+    const wrapper = mountDialog();
+    await settle();
+
+    await wrapper.get('[data-testid="share-dialog-overwrite"]').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-testid="share-dialog-conflict"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="share-dialog-overwrite"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="share-dialog-error"]').text()).toContain('云端又有新版本');
+  });
+
   it('分享域名未配置时提示且不复制链接', async () => {
     mocks.shareConfig.mockResolvedValue({
       shareBaseUrl: '',

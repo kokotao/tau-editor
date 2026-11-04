@@ -146,6 +146,24 @@
             </article>
           </div>
 
+          <section class="cloud-upgrade__mindmap" data-testid="cloud-upgrade-mindmap-comparison">
+            <div class="cloud-upgrade__mindmap-head">
+              <div>
+                <h3 class="cloud-upgrade__section-title">思维导图专属权益</h3>
+                <p class="cloud-upgrade__mindmap-subtitle">升级后，节点规模、视觉表达和素材能力一起提升。</p>
+              </div>
+              <span class="cd-pill cd-pill--warning">PLUS / PRO</span>
+            </div>
+            <div class="cloud-upgrade__comparison" role="table" aria-label="思维导图会员权益对比">
+              <div class="cloud-upgrade__comparison-row cloud-upgrade__comparison-row--head" role="row">
+                <span role="columnheader">功能</span><span role="columnheader">免费版</span><span role="columnheader">Plus</span><span role="columnheader">Pro</span>
+              </div>
+              <div v-for="row in mindmapComparisonRows" :key="row.feature" class="cloud-upgrade__comparison-row" role="row">
+                <span role="cell">{{ row.feature }}</span><span role="cell">{{ row.free }}</span><span role="cell">{{ row.plus }}</span><span role="cell">{{ row.pro }}</span>
+              </div>
+            </div>
+          </section>
+
           <!-- 支付通道不可用：不弹二维码，直接给人工通道 -->
           <section
             v-if="payChannelDown"
@@ -388,6 +406,15 @@ const store = useCloudQuotaStore();
 const cloudSyncStore = useCloudSyncStore();
 
 const copy = computed(() => getCloudUpgradePlanI18n(settingsStore.uiLanguage));
+
+const mindmapComparisonRows = [
+  { feature: '节点规模', free: '最多 30 个', plus: '不限节点', pro: '不限节点' },
+  { feature: '图片节点', free: '不支持', plus: '支持内联图片', pro: '支持内联图片' },
+  { feature: '彩色视觉导出', free: '单色 + 水印', plus: '彩色导出', pro: '彩色导出' },
+  { feature: '工作表', free: '每个文件 1 个', plus: '支持多工作表', pro: '支持多工作表' },
+  { feature: '导出格式', free: 'TAUMAP、PDF、JPG、MD', plus: '免费版 + FreeMind、SVG', pro: '全部格式（含 PNG、OPML）' },
+    { feature: '导出水印', free: 'TauEditor 品牌标记', plus: '无水印或自定义水印', pro: '无水印或自定义水印' },
+];
 
 // ------------------------------------------------------------------
 // 尺寸换算（保持两位小数：1 MB → 1.00 MB，8 GB → 8.00 GB）
@@ -951,6 +978,24 @@ onBeforeUnmount(() => {
 .cloud-upgrade__tier--current {
   background: var(--cd-active);
 }
+
+.cloud-upgrade__mindmap {
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: var(--cd-bg-card);
+  border: 1px solid var(--cd-border-soft);
+  border-radius: var(--cd-r-dialog);
+}
+.cloud-upgrade__mindmap-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.cloud-upgrade__mindmap-head .cloud-upgrade__section-title { margin-bottom: 2px; }
+.cloud-upgrade__mindmap-subtitle { margin: 0; color: var(--cd-text-3); font-size: var(--cd-fs-label); }
+.cloud-upgrade__comparison { overflow-x: auto; margin-top: 12px; border: 1px solid var(--cd-border-soft); border-radius: 6px; }
+.cloud-upgrade__comparison-row { display: grid; grid-template-columns: minmax(120px, 1.2fr) repeat(3, minmax(92px, 1fr)); min-width: 490px; border-top: 1px solid var(--cd-border-soft); }
+.cloud-upgrade__comparison-row:first-child { border-top: 0; }
+.cloud-upgrade__comparison-row > span { padding: 8px 9px; color: var(--cd-text-2); font-size: var(--cd-fs-label); }
+.cloud-upgrade__comparison-row > span:not(:first-child) { text-align: center; border-left: 1px solid var(--cd-border-soft); }
+.cloud-upgrade__comparison-row--head { background: var(--cd-active); }
+.cloud-upgrade__comparison-row--head > span { color: var(--cd-text); font-weight: 600; }
 
 .cloud-upgrade__tier-head {
   display: flex;

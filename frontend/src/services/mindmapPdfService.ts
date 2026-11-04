@@ -329,6 +329,9 @@ export async function exportMindmapPdf(
       background,
       ...(options.padding !== undefined ? { padding: options.padding } : {}),
       scale,
+      colorMode: options.colorMode ?? 'monochrome',
+      watermark: options.watermark ?? false,
+      watermarkText: options.watermarkText,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -389,6 +392,9 @@ export async function printMindmap(
     background: options.background ?? 'transparent',
     ...(options.padding !== undefined ? { padding: options.padding } : {}),
     ...(options.scale !== undefined ? { scale: options.scale } : {}),
+    colorMode: options.colorMode ?? 'monochrome',
+    watermark: options.watermark ?? false,
+    watermarkText: options.watermarkText,
   });
   const html = buildPrintHtml(rendered.svg, rendered.width, rendered.height);
 

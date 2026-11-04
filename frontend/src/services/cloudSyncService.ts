@@ -829,7 +829,30 @@ export async function syncDocumentByPath(
       payload.visibility = input.visibility;
     }
 
-    const savedOutcome = await saveCloudDoc(payload);
+    let savedOutcome = await saveCloudDoc(payload);
+    // 用户已确认覆盖后仍可能在读取远端版本与提交之间撞上另一台设备的更新。
+    // 只自动刷新基线并重试一次；不循环重试，避免持续协作时静默覆盖后续编辑。
+    if (!savedOutcome.ok && savedOutcome.kind === 'conflict' && input.overwrite) {
+      const latestOutcome = await findCloudDocByPath(cloudPath);
+      if (!latestOutcome.ok) {
+        return { status: 'failed', kind: latestOutcome.kind, message: latestOutcome.message };
+      }
+      let latestRemote = latestOutcome.data;
+      // 路径列表可能因分类移动/分页索引延迟暂时查不到；覆盖前面已确认过的文档时，
+      // 优先按已知 fileId 读详情，避免把短暂的路径不一致误报为文档已删除。
+      if (!latestRemote && remote?.fileId != null) {
+        const latestDetail = await getCloudDoc(remote.fileId);
+        if (!latestDetail.ok) {
+          return { status: 'failed', kind: latestDetail.kind, message: latestDetail.message };
+        }
+        latestRemote = latestDetail.data;
+      }
+      if (!latestRemote) {
+        return { status: 'failed', message: '云端文档已不存在，请重新打开分享流程后再试' };
+      }
+      payload.baseVersion = latestRemote.version;
+      savedOutcome = await saveCloudDoc(payload);
+    }
     if (!savedOutcome.ok) {
       return {
         status: savedOutcome.kind === 'conflict' ? 'conflict' : 'failed',

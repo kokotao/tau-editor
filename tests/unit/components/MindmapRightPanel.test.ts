@@ -228,6 +228,7 @@ describe('MindmapRightPanel：大纲列', () => {
 
   it('双击改名：emit change 并写入文档，可撤销', async () => {
     const { wrapper, store } = mountPanel();
+    document.body.appendChild(wrapper.element);
     const rowA = wrapper.findAll('.mindmap-row')
       .find((row) => row.attributes('data-topic-id') === 'a');
     await rowA!.trigger('dblclick');
@@ -235,6 +236,7 @@ describe('MindmapRightPanel：大纲列', () => {
 
     const input = wrapper.find('[data-testid="mm-rename-input"]');
     expect(input.exists()).toBe(true);
+    expect(document.activeElement).toBe(input.element);
     await input.setValue('改名后的 A');
     await input.trigger('keydown', { key: 'Enter' });
     await wrapper.vm.$nextTick();
@@ -244,6 +246,7 @@ describe('MindmapRightPanel：大纲列', () => {
 
     expect(store.undo()).toBe(true);
     expect(store.document?.topics.a?.text).toBe('A');
+    wrapper.unmount();
   });
 
   it('折叠/展开走既有命令并 emit change', async () => {

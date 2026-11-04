@@ -12,6 +12,11 @@ import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services
 import { documentToOutline } from '@/services/mindmap/outlineDocument';
 import { buildStoredZip } from './zipFixture';
 import type { MindMapDocument } from '@/types/mindmap';
+import {
+  exportMindmapVisualSvg,
+  resolveMindmapExportPolicy,
+  resolveMindmapVisualExportOptions,
+} from '@/services/mindmapExportService';
 
 function sampleDoc(): MindMapDocument {
   const doc = createEmptyMindMapDocument('示例');
@@ -117,11 +122,59 @@ describe('previewMindmapImport', () => {
   });
 });
 
+describe('导出会员策略', () => {
+  it('未加载、FREE、未知会员档位都强制单色并对视觉导出加 TauEditor 水印', () => {
+    for (const tier of [undefined, null, 'FREE', 'UNKNOWN']) {
+      expect(resolveMindmapExportPolicy(tier)).toEqual({
+        allowedFormats: ['taumap', 'markdown', 'pdf', 'jpg'],
+        canExportColor: false,
+        customWatermark: false,
+        watermark: true,
+        colorMode: 'monochrome',
+      });
+      expect(resolveMindmapVisualExportOptions({ tier, colorMode: 'color' })).toMatchObject({
+        colorMode: 'monochrome',
+        watermark: true,
+      });
+    }
+  });
+
+  it('仅 PLUS / PRO 可以选择彩色且不加免费水印', () => {
+    for (const tier of ['PLUS', 'PRO']) {
+      const allowedFormats = tier === 'PLUS'
+        ? ['taumap', 'markdown', 'pdf', 'jpg', 'freemind', 'svg']
+        : ['taumap', 'markdown', 'opml', 'freemind', 'png', 'jpg', 'svg', 'pdf'];
+      expect(resolveMindmapExportPolicy(tier)).toEqual({
+        allowedFormats,
+        canExportColor: true,
+        customWatermark: true,
+        watermark: false,
+        colorMode: 'monochrome',
+      });
+      expect(resolveMindmapVisualExportOptions({ tier, colorMode: 'color' })).toMatchObject({
+        colorMode: 'color',
+        watermark: false,
+      });
+    }
+  });
+
+  it('会员绕过通用视觉导出入口传入 color 也不会绕过策略', () => {
+    const svg = exportMindmapVisualSvg(sampleDoc(), { tier: 'FREE', colorMode: 'color' });
+    expect(svg.ok).toBe(true);
+    expect(svg.output).toContain('TauEditor');
+    expect(svg.output).not.toContain('FF6B6B');
+
+    const paid = exportMindmapVisualSvg(sampleDoc(), { tier: 'PLUS', colorMode: 'color' });
+    expect(paid.ok).toBe(true);
+    expect(paid.output).not.toContain('TauEditor');
+  });
+});
+
 describe('导出', () => {
-  it('清单包含 taumap/markdown/opml/freemind/png/svg/pdf 共 7 种', () => {
+  it('清单包含 TauMap/Markdown/OPML/FreeMind/JPG/PNG/SVG/PDF 共 8 种', () => {
     const ids = MINDMAP_EXPORT_FORMATS.map((format) => format.id).sort();
-    expect(ids).toEqual(['freemind', 'markdown', 'opml', 'pdf', 'png', 'svg', 'taumap']);
-    expect(MINDMAP_EXPORT_FORMATS).toHaveLength(7);
+    expect(ids).toEqual(['freemind', 'jpg', 'markdown', 'opml', 'pdf', 'png', 'svg', 'taumap']);
+    expect(MINDMAP_EXPORT_FORMATS).toHaveLength(8);
     const svg = MINDMAP_EXPORT_FORMATS.find((format) => format.id === 'svg');
     expect(svg?.extension).toBe('svg');
     expect(svg?.label).toContain('SVG');
@@ -173,6 +226,26 @@ describe('导出', () => {
     // 连线
     expect(result.output).toContain('<path');
     expect(result.lossy && result.lossy.length).toBeGreaterThan(0);
+  });
+
+  it('SVG 视觉导出支持内置彩色主题；单色模式忽略主题颜色', () => {
+    const doc = sampleDoc();
+    doc.themeId = 'rainbow';
+    const monochrome = exportMindmapSvgText(doc);
+    const color = exportMindmapSvgText(doc, { colorMode: 'color' });
+    expect(monochrome.output).not.toContain('#FF6B6B');
+    expect(color.output).toContain('#FF6B6B');
+  });
+
+  it('SVG 视觉导出水印独立于背景并扩展内容高度', () => {
+    const doc = sampleDoc();
+    const clean = exportMindmapSvgText(doc);
+    const marked = exportMindmapSvgText(doc, { watermark: true });
+    expect(clean.ok).toBe(true);
+    expect(marked.ok).toBe(true);
+    expect(clean.output).not.toContain('TauEditor');
+    expect(marked.output).toContain('TauEditor');
+    expect(marked.output).toMatch(/height="\d+"/);
   });
 
   it('SVG 默认透明背景，指定颜色时渲染背景矩形', () => {

@@ -51,6 +51,30 @@ export interface MindMapTopicStyle {
   color?: string;
   fill?: string;
   shape?: string;
+  edgeColor?: string;
+  borderColor?: string;
+  borderWidth?: string;
+  edgeWidth?: string;
+  edgeStyle?: MindMapLineStyle;
+  edgeStartArrow?: MindMapArrowStyle;
+  edgeEndArrow?: MindMapArrowStyle;
+}
+
+export type MindMapLineStyle = 'solid' | 'dashed' | 'dotted';
+export type MindMapArrowStyle = 'none' | 'arrow';
+
+export type MindmapStyleTarget =
+  | { kind: 'canvas' }
+  | { kind: 'topic'; topicId: string }
+  | { kind: 'edge'; childId: string }
+  | { kind: 'relation'; relationId: string };
+
+/** Inline formatting range; offsets are Unicode code-point indexes into topic.text. */
+export interface MindMapTextStyleRange {
+  start: number;
+  end: number;
+  color?: string;
+  background?: string;
 }
 
 /**
@@ -71,6 +95,8 @@ export interface MindMapTopic {
   /** 作为同级顺序的唯一来源；与父节点的 childIds 保持一致（校验保证）。 */
   childIds: string[];
   text: string;
+  /** Inline character formatting. Adjacent equivalent ranges may be merged. */
+  textStyles?: MindMapTextStyleRange[];
   collapsed?: boolean;
   style?: MindMapTopicStyle;
   /** P1 及以后：备注、标签、标记、链接 */
@@ -90,6 +116,9 @@ export interface MindMapRelation {
   targetTopicId: string;
   label?: string;
   style?: string;
+  lineStyle?: MindMapLineStyle;
+  startArrow?: MindMapArrowStyle;
+  endArrow?: MindMapArrowStyle;
 }
 
 export interface MindMapAssetRef {

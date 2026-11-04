@@ -562,9 +562,9 @@ describe('Toolbar.vue', () => {
       expect(center.find('[data-testid="btn-new-file"]').exists()).toBe(false)
       expect(center.find('[data-testid="btn-undo"]').exists()).toBe(false)
 
-      // 24 个控件（23 个 mm-btn + 1 个原生 select）全部在组内
+      // 25 个控件（24 个 mm-btn + 1 个原生 select）全部在组内
       const groupWrapper = wrapper.get('[data-testid="mindmap-toolbar"]')
-      expect(groupWrapper.findAll('button')).toHaveLength(23)
+      expect(groupWrapper.findAll('button')).toHaveLength(24)
       expect(groupWrapper.findAll('select[data-testid="mm-theme-select"]')).toHaveLength(1)
     })
 

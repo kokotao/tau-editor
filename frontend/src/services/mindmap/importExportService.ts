@@ -194,6 +194,7 @@ export type MindmapExportFormatId =
   | 'opml'
   | 'freemind'
   | 'png'
+  | 'jpg'
   | 'svg'
   | 'pdf';
 
@@ -210,6 +211,7 @@ export const MINDMAP_EXPORT_FORMATS: MindmapExportFormat[] = [
   { id: 'opml', label: 'OPML 大纲（.opml）', extension: 'opml' },
   { id: 'freemind', label: 'FreeMind（.mm）', extension: 'mm' },
   { id: 'png', label: 'PNG 图片（.png）', extension: 'png' },
+  { id: 'jpg', label: 'JPG 图片（.jpg）', extension: 'jpg' },
   { id: 'svg', label: 'SVG 矢量图（.svg）', extension: 'svg' },
   { id: 'pdf', label: 'PDF 文档（.pdf）', extension: 'pdf' },
 ];
@@ -218,6 +220,12 @@ export const MINDMAP_EXPORT_FORMATS: MindmapExportFormat[] = [
 export interface MindmapSvgExportOptions {
   /** 'transparent'（默认，不画背景）或 CSS 颜色（如 '#ffffff'）。 */
   background?: 'transparent' | string;
+  padding?: number;
+  /** 彩色导出使用主题；单色导出保持稳定的默认配色。 */
+  colorMode?: 'monochrome' | 'color';
+  /** 免费用户视觉导出品牌水印。 */
+  watermark?: boolean;
+  watermarkText?: string;
 }
 
 /**
@@ -234,6 +242,10 @@ export function exportMindmapSvgText(
   try {
     const rendered = renderMindmapSvg(document, {
       background: options.background ?? 'transparent',
+      ...(options.padding !== undefined ? { padding: options.padding } : {}),
+      colorMode: options.colorMode ?? 'monochrome',
+      watermark: options.watermark ?? false,
+      watermarkText: options.watermarkText,
     });
     const output = rendered.svg.replace(/^<\?xml[^>]*\?>\s*/i, '').trim();
     return {
@@ -259,6 +271,9 @@ export interface MindmapPdfExportOptions {
   background?: 'transparent' | string;
   padding?: number;
   scale?: number;
+  colorMode?: 'monochrome' | 'color';
+  watermark?: boolean;
+  watermarkText?: string;
 }
 
 /** PDF 二进制导出结果：失败时只给分类错误，绝不返回半成品字节。 */
@@ -322,7 +337,7 @@ export async function exportMindmapPdfFile(
  *
  * - 'taumap' | 'markdown' | 'opml' | 'freemind' 走对应适配器；
  * - 'svg' 委托 {@link exportMindmapSvgText}（矢量文本）；
- * - 'png' / 'pdf' 为二进制格式，这里返回明确错误，调用方应改用
+ * - 'png' / 'jpg' / 'pdf' 为二进制格式，这里返回明确错误，调用方应改用
  *   exportMindmapPng / {@link exportMindmapPdfFile}。
  */
 export function exportMindmapText(
@@ -330,8 +345,9 @@ export function exportMindmapText(
   document: MindMapDocument,
 ): MindMapExportResult {
   if (formatId === 'svg') return exportMindmapSvgText(document);
-  if (formatId === 'png' || formatId === 'pdf') {
-    const entry = formatId === 'png' ? 'exportMindmapPng' : 'exportMindmapPdfFile';
+  if (formatId === 'png' || formatId === 'jpg' || formatId === 'pdf') {
+    const entry = formatId === 'png' ? 'exportMindmapPng'
+      : formatId === 'jpg' ? 'exportMindmapJpeg' : 'exportMindmapPdfFile';
     return {
       ok: false,
       output: '',
