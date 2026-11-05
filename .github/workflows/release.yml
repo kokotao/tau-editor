@@ -36,7 +36,10 @@ jobs:
             bundlePath: frontend/src-tauri/target/universal-apple-darwin/release/bundle
             bundleRoot: src-tauri/target/universal-apple-darwin/release/bundle
           - platform: macos-aarch64
-            runner: macos-15-intel
+            # Use the same hosted macOS pool as the proven universal build.
+            # The aarch64 target is cross-compiled by rustup on this runner;
+            # macos-15-intel can remain queued indefinitely on public repos.
+            runner: macos-latest
             os: macos
             args: "--target aarch64-apple-darwin"
             architecture: aarch64
@@ -355,6 +358,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: build-tauri
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
