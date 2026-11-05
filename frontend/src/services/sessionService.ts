@@ -319,12 +319,14 @@ function buildDraftTab(record: RecoveryDraftRecord): RecoveryDraft | null {
   const fileName = typeof metadata.fileName === 'string' && metadata.fileName.length > 0
     ? metadata.fileName
     : filePath?.split(/[\\/]/).filter(Boolean).pop() ?? '未命名';
+  const documentKind = readDocumentKind(metadata.documentKind);
 
   return {
     id,
     filePath,
     fileName,
     language: typeof metadata.language === 'string' ? metadata.language : 'plaintext',
+    documentKind,
     isDirty: true,
     isUntitled: typeof metadata.isUntitled === 'boolean' ? metadata.isUntitled : !filePath,
     isRecoverySaved: true,
@@ -366,6 +368,12 @@ function readLargeFileLoadState(value: unknown): Tab['largeFileLoadState'] {
 
 function readMarkdownPreviewMode(value: unknown): Tab['markdownPreviewMode'] {
   return value === 'edit' || value === 'split' || value === 'preview'
+    ? value
+    : undefined;
+}
+
+function readDocumentKind(value: unknown): Tab['documentKind'] {
+  return value === 'mindmap' || value === 'mindmap-external'
     ? value
     : undefined;
 }

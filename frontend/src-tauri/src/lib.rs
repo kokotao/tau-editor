@@ -25,6 +25,7 @@ pub fn run() {
         .manage(commands::PendingOpenPaths::default())
         .manage(commands::WindowTransferRegistry::default())
         .manage(commands::WorkspaceRegistry::default())
+        .manage(commands::CloudState::default())
         .manage(services::WorkspaceWatcherState::default())
         .manage(services::FileTransactionRegistry::default())
         .manage(services::SearchSessionRegistry::default())
@@ -35,6 +36,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let open_paths = commands::collect_file_paths_from_cli_args(argv.as_slice());
             commands::queue_pending_open_paths(app, open_paths);
+            // 双击文件由 Windows 通过第二实例 argv 唤起：除了把路径入队，
+            // 还要把已存在的主窗口显示并前置，否则文件被静默打开但界面不出现。
+            commands::reveal_main_window(app);
         }))
         .setup(move |app| {
             commands::queue_pending_open_paths(app.handle(), startup_open_paths.clone());
@@ -45,6 +49,8 @@ pub fn run() {
             commands::read_file,
             commands::read_file_bytes,
             commands::write_file,
+            commands::write_file_bytes,
+            commands::copy_file,
             commands::atomic_write_file,
             commands::list_files,
             commands::create_file,
@@ -109,6 +115,48 @@ pub fn run() {
             commands::lsp_provision_status,
             commands::lsp_install_server,
             commands::lsp_workspace_data_dir,
+            commands::cloud_login,
+            commands::cloud_logout,
+            commands::cloud_session,
+            commands::cloud_docs_me,
+            commands::cloud_docs_list,
+            commands::cloud_docs_get,
+            commands::cloud_docs_save,
+            commands::cloud_docs_versions,
+            commands::cloud_docs_restore,
+            commands::cloud_docs_delete,
+            commands::cloud_docs_share_create,
+            commands::cloud_docs_share_status,
+            commands::cloud_docs_share_revoke,
+            commands::cloud_share_config,
+            commands::cloud_docs_assets_list,
+            commands::cloud_docs_asset_upload_file,
+            commands::cloud_docs_asset_download,
+            commands::cloud_inspect_asset_sources,
+            commands::cloud_docs_binary_upload,
+            commands::cloud_categories_list,
+            commands::cloud_category_create,
+            commands::cloud_category_update,
+            commands::cloud_category_delete,
+            commands::cloud_category_share_create,
+            commands::cloud_category_share_status,
+            commands::cloud_category_share_revoke,
+            commands::cloud_docs_move_category,
+            commands::cloud_docs_share_stats,
+            commands::cloud_read_sync_source,
+            commands::cloud_doc_open_target,
+            commands::cloud_dir_exists,
+            commands::cloud_scratch_workspace,
+            commands::cloud_blog_categories,
+            commands::cloud_blog_tags,
+            commands::cloud_quota_summary,
+            commands::cloud_quota_plans,
+            commands::cloud_quota_order_create,
+            commands::cloud_quota_order_status,
+            commands::cloud_quota_order_pay,
+            commands::cloud_checkin_status,
+            commands::cloud_checkin_do,
+            commands::cloud_points,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

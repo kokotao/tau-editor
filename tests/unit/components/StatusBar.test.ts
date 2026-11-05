@@ -48,6 +48,7 @@ describe('StatusBar.vue', () => {
   describe('渲染测试', () => {
     it('应正确渲染状态栏', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -60,6 +61,7 @@ describe('StatusBar.vue', () => {
 
     it('应渲染左右两个区域', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -74,6 +76,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 5, column: 10 },
           encoding: 'utf-8',
@@ -84,8 +87,9 @@ describe('StatusBar.vue', () => {
       expect(wrapper.text()).toContain('行 5, 列 10')
     })
 
-    it('应显示编码', () => {
+    it('应显示编码（只读展示 UTF-8，不再提供会误导的编码下拉）', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -93,29 +97,16 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      const select = wrapper.find('[data-testid="encoding-select"]')
-      expect(select.exists()).toBe(true)
-      expect(select.attributes('data-value')).toBe('utf-8')
-    })
-
-    it('应支持自定义编码并大写显示', async () => {
-      const wrapper = mount(StatusBar, {
-        props: {
-          cursorPosition: { line: 1, column: 1 },
-          encoding: 'gbk',
-          language: 'plaintext',
-        },
-      })
-
-      const select = wrapper.find('[data-testid="encoding-select"]')
-      expect(select.attributes('data-value')).toBe('gbk')
-
-      await select.trigger('click')
-      expect(wrapper.get('[data-testid="encoding-select-option-gbk"]').text()).toBe('GBK')
+      const readonly = wrapper.find('[data-testid="encoding-readonly"]')
+      expect(readonly.exists()).toBe(true)
+      expect(readonly.text()).toBe('UTF-8')
+      // 关键：不能有可选下拉，避免用户以为切换编码真的会转码
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(false)
     })
 
     it('应显示行数', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
@@ -131,6 +122,7 @@ describe('StatusBar.vue', () => {
   describe('光标位置显示', () => {
     it('应显示默认光标位置 (1, 1)', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -141,6 +133,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示自定义光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 100, column: 50 },
         },
@@ -151,6 +144,7 @@ describe('StatusBar.vue', () => {
 
     it('应显示大数值光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 9999, column: 999 },
         },
@@ -163,6 +157,7 @@ describe('StatusBar.vue', () => {
   describe('语言模式选择', () => {
     const mountLanguageBar = (language = 'plaintext') =>
       mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           language,
@@ -223,6 +218,7 @@ describe('StatusBar.vue', () => {
 
     it('语言列表应使用可滚动的自绘菜单并通过方向键选择', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           language: 'plaintext',
@@ -285,34 +281,67 @@ describe('StatusBar.vue', () => {
     })
   })
 
-  describe('编码选择', () => {
+  describe('编码展示（只读）', () => {
     const mountEncodingBar = (encoding = 'utf-8') =>
       mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           encoding,
         },
       })
 
-    it('应显示编码选择下拉框', () => {
+    it('不再渲染可选下拉，只展示 UTF-8（避免「选了 GBK 却不转码」的误导）', () => {
       const wrapper = mountEncodingBar()
-      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="encoding-readonly"]').text()).toBe('UTF-8')
     })
 
-    it('切换编码应发射 encoding-change 事件', async () => {
-      const wrapper = mountEncodingBar()
-      const select = wrapper.get('[data-testid="encoding-select"]')
-      await select.trigger('click')
-      await wrapper.get('[data-testid="encoding-select-option-gb18030"]').trigger('click')
+    it('即使传入其它编码值，也只展示 UTF-8（读写链路固定 UTF-8）', () => {
+      const wrapper = mountEncodingBar('gbk')
+      expect(wrapper.get('[data-testid="encoding-readonly"]').text()).toBe('UTF-8')
+      expect(wrapper.find('[data-testid="encoding-select"]').exists()).toBe(false)
+    })
+  })
 
-      expect(wrapper.emitted('encoding-change')).toBeTruthy()
-      expect(wrapper.emitted('encoding-change')![0]).toEqual(['gb18030'])
+  describe('云端同步状态', () => {
+    const mountWithCloudState = (
+      cloudSyncState: 'synced' | 'saving' | 'failed' | 'offline' | null,
+      cloudSyncError: string | null = null,
+    ) =>
+      mount(StatusBar, {
+        global: { stubs: { teleport: true } },
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+          cloudSyncState,
+          cloudSyncError,
+        },
+      })
+
+    it('失败时必须渲染可见徽标（本地已保存但云端没落地，不能静默）', () => {
+      const wrapper = mountWithCloudState('failed', '令牌已过期')
+      const badge = wrapper.get('[data-testid="cloud-sync-failed"]')
+      expect(badge.exists()).toBe(true)
+      expect(badge.attributes('title')).toBe('令牌已过期')
+    })
+
+    it('点击失败徽标应请求重试', async () => {
+      const wrapper = mountWithCloudState('failed')
+      await wrapper.get('[data-testid="cloud-sync-failed"]').trigger('click')
+      expect(wrapper.emitted('retry-cloud-sync')).toBeTruthy()
+    })
+
+    it('已同步/未登录时不显示失败徽标', () => {
+      expect(mountWithCloudState('synced').find('[data-testid="cloud-sync-failed"]').exists()).toBe(false)
+      expect(mountWithCloudState(null).find('[data-testid="cloud-sync-failed"]').exists()).toBe(false)
+      expect(mountWithCloudState('offline').find('[data-testid="cloud-sync-failed"]').exists()).toBe(false)
     })
   })
 
   describe('自动保存状态', () => {
     it('autoSaveEnabled=true 时应显示自动保存图标', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -325,6 +354,7 @@ describe('StatusBar.vue', () => {
 
     it('autoSaveEnabled=true 时应显示自动保存文本', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -336,6 +366,7 @@ describe('StatusBar.vue', () => {
 
     it('autoSaveEnabled=false 时应隐藏自动保存状态', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: false,
@@ -349,6 +380,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（刚刚）', () => {
       const now = new Date()
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -362,6 +394,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（分钟前）', () => {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -375,6 +408,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（小时前）', () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -388,6 +422,7 @@ describe('StatusBar.vue', () => {
     it('应显示最后保存时间（时间格式）', () => {
       const yesterday = new Date(Date.now() - 25 * 60 * 60 * 1000)
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -402,6 +437,7 @@ describe('StatusBar.vue', () => {
 
     it('无 lastSaveTime 时应隐藏时间', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -409,9 +445,8 @@ describe('StatusBar.vue', () => {
         },
       })
 
-      // 不应显示时间相关的文本
-      const statusValue = wrapper.find('.status-value')
-      expect(statusValue.exists()).toBe(false)
+      // 不应显示时间相关的文本（编码是只读文本，不算「时间」）
+      expect(wrapper.find('[data-testid="auto-save-status"]').exists()).toBe(false)
     })
   })
 
@@ -420,6 +455,7 @@ describe('StatusBar.vue', () => {
       editorStore.setContent('line1\nline2\nline3')
       
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -432,6 +468,7 @@ describe('StatusBar.vue', () => {
       editorStore.setContent('')
       
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -444,6 +481,7 @@ describe('StatusBar.vue', () => {
       editorStore.setContent('line1\nline2\nline3\nline4\nline5')
       
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -456,6 +494,7 @@ describe('StatusBar.vue', () => {
   describe('样式类', () => {
     it('状态栏应有正确的类名', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -467,6 +506,7 @@ describe('StatusBar.vue', () => {
 
     it('状态项应有 status-item 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -478,6 +518,7 @@ describe('StatusBar.vue', () => {
 
     it('状态标签应有 status-label 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -488,6 +529,7 @@ describe('StatusBar.vue', () => {
 
     it('语言选择框应有 status-select 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -498,6 +540,7 @@ describe('StatusBar.vue', () => {
 
     it('自动保存图标应有 status-icon 类', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
           autoSaveEnabled: true,
@@ -511,6 +554,7 @@ describe('StatusBar.vue', () => {
   describe('默认 Props', () => {
     it('应使用默认光标位置', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -519,15 +563,16 @@ describe('StatusBar.vue', () => {
 
     it('应使用默认编码', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
-      const select = wrapper.find('[data-testid="encoding-select"]')
-      expect(select.attributes('data-value')).toBe('utf-8')
+      expect(wrapper.get('[data-testid="encoding-readonly"]').text()).toBe('UTF-8')
     })
 
     it('应使用默认语言', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -537,6 +582,7 @@ describe('StatusBar.vue', () => {
 
     it('应默认启用自动保存', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {},
       })
 
@@ -547,6 +593,7 @@ describe('StatusBar.vue', () => {
   describe('响应式更新', () => {
     it('光标位置变化应更新显示', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -559,6 +606,7 @@ describe('StatusBar.vue', () => {
 
     it('语言变化应更新选择框', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           language: 'plaintext',
         },
@@ -572,6 +620,7 @@ describe('StatusBar.vue', () => {
 
     it('自动保存状态变化应更新显示', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           autoSaveEnabled: true,
         },
@@ -588,6 +637,7 @@ describe('StatusBar.vue', () => {
   describe('作者信息弹窗', () => {
     it('点击作者入口应打开弹窗并展示 GitHub 链接', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -607,6 +657,7 @@ describe('StatusBar.vue', () => {
 
     it('点击遮罩应关闭作者弹窗', async () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -622,6 +673,7 @@ describe('StatusBar.vue', () => {
   describe('可点击性', () => {
     it('状态项应可点击', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           cursorPosition: { line: 1, column: 1 },
         },
@@ -635,6 +687,7 @@ describe('StatusBar.vue', () => {
 
     it('语言选择框应可交互', () => {
       const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
         props: {
           language: 'plaintext',
         },

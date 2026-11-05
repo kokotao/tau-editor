@@ -2,10 +2,18 @@ import { defineStore } from 'pinia';
 import type { WorkspaceChangeKind } from '@/lib/tauri';
 import { normalizeWorkspacePath } from '@/services/workspaceWatcherService';
 
+/**
+ * 冲突来源：`disk` 是磁盘/外部程序改动（走外部变更提示），
+ * `cloud` 是云同步的版本冲突（走云同步面板的双向覆盖按钮）。两者提示入口不同，不能混用。
+ */
+export type FileConflictSource = 'disk' | 'cloud';
+
 export interface FileConflictRecord {
   /** 磁盘上的绝对路径（保留原始大小写） */
   path: string;
   kind: WorkspaceChangeKind;
+  /** 冲突来源；旧记录没有该字段时按磁盘变更处理 */
+  source: FileConflictSource;
   detectedAt: number;
   diskModifiedMs: number | null;
   diskSize: number | null;
@@ -16,6 +24,8 @@ export interface FileConflictRecord {
 export interface FileConflictInput {
   path: string;
   kind: WorkspaceChangeKind;
+  /** 省略时按 `disk`（磁盘外部变更）处理 */
+  source?: FileConflictSource;
   diskModifiedMs?: number | null;
   diskSize?: number | null;
   baselineModifiedMs?: number | null;
@@ -45,6 +55,7 @@ export const useFileConflictsStore = defineStore('fileConflicts', {
       this.records[key] = {
         path: input.path,
         kind: input.kind,
+        source: input.source ?? 'disk',
         detectedAt: input.detectedAt ?? Date.now(),
         diskModifiedMs: input.diskModifiedMs ?? null,
         diskSize: input.diskSize ?? null,

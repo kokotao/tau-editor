@@ -33,7 +33,8 @@
     "test:rust:watch": "cd frontend/src-tauri && cargo watch -x test",
     "test:all": "pnpm test:unit && pnpm test:rust && pnpm test:e2e",
     "prepare": "husky install",
-    "precommit": "lint-staged"
+    "precommit": "lint-staged",
+    "test:mindmap:bench": "vitest run tests/unit/services/mindmap/mindmapLayoutPerformance.test.ts --reporter=verbose"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

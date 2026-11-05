@@ -67,6 +67,15 @@ pub fn queue_pending_open_paths(app_handle: &AppHandle, incoming_paths: Vec<Stri
     let _ = app_handle.emit(OPEN_FILE_EVENT, &unique_paths);
 }
 
+/// 把已存在的主窗口从最小化/后台状态恢复并前置，用于双击文件唤起已有实例的场景。
+pub fn reveal_main_window(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 fn resolve_arg_to_file_path(arg: &OsStr) -> Option<String> {
     let raw = arg.to_string_lossy().trim().to_string();
     if raw.is_empty() || raw.starts_with('-') {

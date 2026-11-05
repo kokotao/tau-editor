@@ -1,0 +1,36 @@
+{
+  "format": "tau-mindmap",
+  "schemaVersion": 1,
+  "id": "doc_test_golden",
+  "title": "测试导图",
+  "rootTopicId": "t_root",
+  "layoutMode": "mindmap",
+  "themeId": "default",
+  "saveMode": "native",
+  "topics": {
+    "t_root": {
+      "id": "t_root",
+      "parentId": null,
+      "childIds": ["t_a", "t_b"],
+      "text": "中心主题"
+    },
+    "t_a": {
+      "id": "t_a",
+      "parentId": "t_root",
+      "childIds": ["t_a1"],
+      "text": "分支 A"
+    },
+    "t_b": {
+      "id": "t_b",
+      "parentId": "t_root",
+      "childIds": [],
+      "text": "分支 B"
+    },
+    "t_a1": {
+      "id": "t_a1",
+      "parentId": "t_a",
+      "childIds": [],
+      "text": "分支 A1"
+    }
+  }
+}

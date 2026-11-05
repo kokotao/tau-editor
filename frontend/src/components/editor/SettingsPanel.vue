@@ -661,6 +661,15 @@
           </div>
 
           <div
+            v-if="activeCategoryValue === 'cloudSync'"
+            class="settings-section animate__animated animate__fadeInUp animate__faster"
+            data-testid="settings-cloud-sync"
+          >
+            <!-- 版式与交互全部收敛在 settings/CloudSyncSettingsSection.vue（设计稿二） -->
+            <CloudSyncSettingsSection @open-cloud-browser="emit('open-cloud-browser')" />
+          </div>
+
+          <div
             v-if="activeCategoryValue === 'fileAssociations'"
             class="settings-section animate__animated animate__fadeInUp animate__faster"
             data-testid="settings-file-associations-section"
@@ -940,6 +949,7 @@ import {
 } from '@/stores/settings';
 import { useProvidersStore } from '@/stores/providers';
 import { useLspServersStore } from '@/stores/lspServers';
+import { useCloudSyncStore } from '@/stores/cloudSync';
 import {
   appCommands,
   settingsCommands,
@@ -971,16 +981,18 @@ import {
 import wechatDonateQr from '@/assets/donation/WeChatPay.jpg';
 import alipayDonateQr from '@/assets/donation/AliPay.jpg';
 import ThemeMarketplacePanel from './ThemeMarketplacePanel.vue';
+import CloudSyncSettingsSection from './settings/CloudSyncSettingsSection.vue';
 import { ThemeMarketplaceService, type ThemeMarketplaceCatalogItem, type ThemeMarketplacePackage } from '@/services/themeMarketplaceService';
 import type { ThemeUiOverrides } from '@/utils/themePackage';
 
-export type SettingsCategory = 'general' | 'themes' | 'editor' | 'fileAssociations' | 'updates' | 'about';
+export type SettingsCategory = 'general' | 'themes' | 'editor' | 'cloudSync' | 'fileAssociations' | 'updates' | 'about';
 type SettingsMode = 'workspace' | 'drawer';
 
 const categoryIconNames: Record<SettingsCategory, string> = {
   general: 'icon-settings',
   themes: 'icon-palette',
   editor: 'icon-code',
+  cloudSync: 'icon-cloud-sync',
   fileAssociations: 'icon-list',
   updates: 'icon-cloud-download',
   about: 'icon-info',
@@ -998,6 +1010,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   close: [];
   'open-workspace': [];
+  'open-cloud-browser': [];
   'update:activeCategory': [category: SettingsCategory];
   'update-availability': [state: {
     available: boolean;
@@ -1013,6 +1026,8 @@ const settingsStore = useSettingsStore();
 const marketplaceService = new ThemeMarketplaceService();
 const providersStore = useProvidersStore();
 const lspServersStore = useLspServersStore();
+// 云同步分区的账号 / 配额 / 队列交互都在子组件里，此处只负责桌面端会话恢复
+const cloudSyncStore = useCloudSyncStore();
 const copy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
 const autoSaveStatus = ref(settingsStore.autoSaveEnabled);
 watch(
@@ -1070,6 +1085,11 @@ const lspServerStateLabel = (server: {
   return english ? 'Not prepared' : '尚未准备';
 };
 
+// ------------------------------------------------------------------
+// 云同步分区的表单 / 同步 / 冲突 / 拉取逻辑已整体迁到 settings/CloudSyncSettingsSection.vue，
+// 这里只保留会话初始化：桌面端启动时恢复云同步会话（行为与抽离前一致）。
+// ------------------------------------------------------------------
+
 const appVersionInfo = ref<AppVersionInfo | null>(null);
 const updateInfo = ref<GithubUpdateInfo | null>(null);
 const releaseNotesHtml = ref('');
@@ -1094,6 +1114,7 @@ const categories = computed<Array<{ id: SettingsCategory; label: string }>>(() =
     { id: 'general', label: copy.value.settingsGeneral },
     { id: 'themes', label: copy.value.themeMarketplace },
     { id: 'editor', label: copy.value.settingsEditor },
+    { id: 'cloudSync', label: copy.value.settingsCloudSync },
   ];
   if (isWindows.value) {
     list.push({ id: 'fileAssociations', label: copy.value.fileAssociations });
@@ -2184,6 +2205,11 @@ watch(
 onMounted(async () => {
   await loadVersionInfo();
   void lspServersStore.refresh();
+  // 桌面端启动时恢复云同步会话；Web 版没有凭据来源，initialize 内部会直接返回未登录。
+  // typeof 守卫兼容只对 @/lib/tauri 做部分 mock 的测试环境。
+  if (typeof isTauriApp === 'function' && isTauriApp()) {
+    void cloudSyncStore.initialize();
+  }
   if (isWorkspaceMode.value) {
     await checkForUpdate(true);
   }
@@ -3988,5 +4014,300 @@ defineExpose({
   .settings-panel--workspace .settings-editor-theme-item {
     grid-template-columns: 1fr;
   }
+}
+
+/* 云同步（lizi 账号）区块 */
+.cloud-sync-form {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.cloud-sync-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary, #f8fafc);
+  font-size: var(--font-size-ui-sm, 12px);
+}
+
+.cloud-sync-input:focus {
+  outline: none;
+  border-color: var(--accent-brand, #38bdf8);
+}
+
+.cloud-sync-input:disabled {
+  opacity: 0.6;
+}
+
+.cloud-sync-register {
+  margin: 6px 0 0;
+}
+
+.cloud-sync-register-link {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--accent-brand, #7cc7ff);
+  text-decoration: underline;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.cloud-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cloud-sync-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.cloud-sync-account-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cloud-sync-account-name {
+  color: var(--text-primary, #f8fafc);
+  font-size: var(--font-size-ui-md, 13px);
+  font-weight: 600;
+}
+
+.cloud-sync-account-id {
+  color: var(--text-muted, #94a3b8);
+  font-size: var(--font-size-ui-sm, 12px);
+  word-break: break-all;
+}
+
+.cloud-sync-quota {
+  margin-top: 12px;
+}
+
+.cloud-sync-quota-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: var(--font-size-ui-sm, 12px);
+}
+
+.cloud-sync-quota-issue {
+  max-width: 68%;
+  font-size: var(--font-size-ui-xs, 11px);
+  color: var(--state-warning, #fbbf24);
+  text-align: right;
+  word-break: break-word;
+}
+
+.cloud-sync-quota-bar {
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.06));
+}
+
+.cloud-sync-quota-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-brand, #38bdf8);
+  transition: width 240ms ease;
+}
+
+.cloud-sync-result {
+  margin: 12px 0 0;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: var(--font-size-ui-sm, 12px);
+  line-height: 1.45;
+}
+
+.cloud-sync-result--success {
+  color: var(--state-success, #34d399);
+}
+
+.cloud-sync-result--warning {
+  color: var(--state-warning, #fbbf24);
+}
+
+.cloud-sync-result--info {
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.cloud-sync-result--error {
+  color: var(--state-danger, #f87171);
+}
+
+/* 自动同步：开关行 + 防抖输入，沿用云同步区块间距 */
+.cloud-sync-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+}
+
+.cloud-sync-auto-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+}
+
+.cloud-sync-auto-debounce {
+  gap: 8px;
+}
+
+.cloud-sync-auto-debounce .cloud-sync-input {
+  max-width: 96px;
+}
+
+/* 版本历史：列表行 + 恢复按钮 */
+.cloud-sync-versions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+}
+
+.cloud-sync-version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cloud-sync-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.18));
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.cloud-sync-version-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cloud-sync-version-title {
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-sync-version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.cloud-sync-version-remark {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 冲突处理：双按钮区域 */
+.cloud-sync-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--state-warning, #fbbf24);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+}
+
+.cloud-sync-conflict-title {
+  margin: 0;
+  color: var(--state-warning, #fbbf24);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-sync-conflict .cloud-sync-register {
+  margin: 6px 0 0;
+}
+
+.cloud-sync-register-link {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--accent-brand, #7cc7ff);
+  text-decoration: underline;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.cloud-sync-actions {
+  margin-top: 4px;
+}
+
+/* 文档属性：分类 / 标签 / 可见性 */
+.cloud-sync-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+}
+
+.cloud-sync-meta-title {
+  margin: 0;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-sync-meta .settings-item {
+  margin-bottom: 0;
+}
+
+.cloud-sync-meta select.cloud-sync-input {
+  appearance: auto;
+  padding-right: 6px;
+  /* 原生下拉弹出层在部分 WebView2 版本里不继承 color-scheme，这里显式给出可读配色 */
+  color-scheme: inherit;
+}
+
+.cloud-sync-meta select.cloud-sync-input option {
+  color: var(--text-primary, #f8fafc);
+  background-color: var(--panel-elevated, #151d2d);
+}
+
+.cloud-sync-meta select.cloud-sync-input option:checked,
+.cloud-sync-meta select.cloud-sync-input option:hover {
+  color: var(--text-primary, #f8fafc);
+  background-color: var(--surface-active, rgba(124, 199, 255, 0.14));
 }
 </style>

@@ -206,7 +206,7 @@
             @context-menu="handleNestedContextMenu"
             @compare-with-current="(entry) => emit('compare-with-current', entry)"
             @run-provider-action="(actionId, entry) => emit('run-provider-action', actionId, entry)"
-            @new-file="emit('new-file')"
+            @new-file="(typeId?: string) => emit('new-file', typeId)"
             @new-folder="emit('new-folder')"
             @rename="(entry) => emit('rename', entry)"
             @delete="(entry) => emit('delete', entry)"
@@ -229,8 +229,52 @@
         :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
         @click.stop
       >
-      <div class="context-menu-item" @click="handleNewFile">
-        {{ copy.newFile }}
+      <div
+        ref="newFileSubmenuHostRef"
+        class="context-menu-item has-submenu"
+        data-testid="file-tree-new-file"
+        :class="{ 'is-submenu-open': newFileSubmenuVisible }"
+        aria-haspopup="menu"
+        :aria-expanded="newFileSubmenuVisible ? 'true' : 'false'"
+        @mouseenter="openNewFileSubmenu"
+        @mouseleave="closeNewFileSubmenu"
+        @click.stop="toggleNewFileSubmenu"
+      >
+        <span class="context-menu-label">{{ copy.newFile }}</span>
+        <span class="context-menu-caret" aria-hidden="true">▸</span>
+        <div
+          v-if="newFileSubmenuVisible"
+          ref="newFileSubmenuRef"
+          class="context-submenu"
+          :class="{ 'is-flip-left': newFileSubmenuFlipLeft }"
+          data-testid="file-tree-new-file-submenu"
+          role="menu"
+          :aria-label="copy.chooseFileType"
+          @click.stop
+        >
+          <div class="context-submenu-title">{{ copy.chooseFileType }}</div>
+          <div
+            v-for="option in newFileTypeOptions"
+            :key="option.id"
+            class="context-menu-item"
+            role="menuitem"
+            :data-testid="`file-tree-new-file-${option.id}`"
+            @click.stop="handleNewFile(option.id)"
+          >
+            <span class="context-menu-label">{{ newFileTypeLabel(option, settingsStore.uiLanguage) }}</span>
+            <span class="context-menu-shortcut">.{{ option.extension }}</span>
+          </div>
+          <!-- UX-3A custom：固定类型之后追加「自定义格式…」，由 App 询问扩展名 -->
+          <div class="context-menu-divider"></div>
+          <div
+            class="context-menu-item"
+            role="menuitem"
+            data-testid="file-tree-new-file-custom"
+            @click.stop="handleNewFile('custom')"
+          >
+            <span class="context-menu-label">{{ copy.newFileCustom }}</span>
+          </div>
+        </div>
       </div>
       <div class="context-menu-item" @click="handleNewFolder">
         {{ copy.newFolder }}
@@ -238,6 +282,36 @@
       <div class="context-menu-divider"></div>
       <div v-if="contextMenu.entry" class="context-menu-item" @click="handleRename">
         {{ copy.rename }}
+      </div>
+      <!-- 文件夹整目录同步（R3）：以文件夹名为云端分类，逐文件串行上传 -->
+      <div
+        v-if="contextMenu.entry?.type === 'folder'"
+        class="context-menu-item"
+        data-testid="file-tree-upload-folder"
+        :title="copy.uploadFolderHint"
+        @click="handleUploadFolder"
+      >
+        {{ copy.uploadFolder }}
+      </div>
+      <div
+        v-if="contextMenu.entry?.type === 'file'"
+        class="context-menu-item"
+        data-testid="file-tree-sync-to-cloud"
+        :class="{ disabled: cloudActionState.disabled }"
+        :title="cloudActionState.hint || copy.syncToCloudHint"
+        @click="handleSyncToCloud"
+      >
+        {{ syncToCloudLabel }}
+      </div>
+      <div
+        v-if="contextMenu.entry?.type === 'file'"
+        class="context-menu-item"
+        data-testid="file-tree-share"
+        :class="{ disabled: cloudActionState.disabled }"
+        :title="cloudActionState.hint || copy.shareHint"
+        @click="handleShare"
+      >
+        {{ isEntryShared(contextMenu.entry) ? copy.shareAlready : copy.share }}
       </div>
       <div
         v-if="contextMenu.entry?.type === 'file'"
@@ -272,6 +346,7 @@
       </div>
       </div>
     </Teleport>
+
   </div>
 </template>
 
@@ -280,6 +355,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import type { FileTreeNode } from '@/stores/fileSystem';
 import { useSettingsStore } from '@/stores/settings';
 import { getFileTreeI18n } from '@/i18n/ui';
+import { isCloudSyncEligibleFile } from '@/services/cloudSyncService';
+import { isMacroDocPath, validateBinaryDocLocal } from '@/services/cloudBinaryService';
+import { NEW_FILE_TYPE_OPTIONS, newFileTypeLabel } from '@/services/newFileTypeOptions';
 import LoadingSpinner from '../ui/LoadingSpinner.vue';
 
 // Props
@@ -293,6 +371,10 @@ interface FileTreeProps {
   providerActions?: Array<{ id: string; title: string }>;
   canRevealCurrentFile?: boolean;
   locatingCurrentFile?: boolean;
+  /** 已分享过的本地路径（右键菜单显示「分享（已分享）」） */
+  sharedPaths?: string[];
+  /** 已完成二进制同步的本地路径（菜单显示「已同步」） */
+  syncedPaths?: string[];
 }
 
 const props = withDefaults(defineProps<FileTreeProps>(), {
@@ -303,6 +385,8 @@ const props = withDefaults(defineProps<FileTreeProps>(), {
   providerActions: () => [],
   canRevealCurrentFile: false,
   locatingCurrentFile: false,
+  sharedPaths: () => [],
+  syncedPaths: () => [],
   workspaceLabel: '我的工作区',
 });
 const settingsStore = useSettingsStore();
@@ -326,17 +410,21 @@ const emit = defineEmits<{
   'folder-toggle': [folderPath: string];
   'contextMenu': [entry: FileTreeNode | null, event: MouseEvent];
   'refresh': [];
-  'new-file': [];
+  /** 新建文件：typeId 取自 newFileTypeOptions（省略时宿主按 Markdown 处理，兼容旧调用） */
+  'new-file': [typeId?: string];
   'new-folder': [];
   'rename': [entry: FileTreeNode];
   'details': [entry: FileTreeNode];
   'compare-with-current': [entry: FileTreeNode];
+  'sync-to-cloud': [entry: FileTreeNode];
+  'upload-folder': [entry: FileTreeNode];
+  'share': [entry: FileTreeNode];
   'run-provider-action': [actionId: string, entry: FileTreeNode];
   'delete': [entry: FileTreeNode];
   'reveal-current-file': [];
   'copy-current-file-path': [];
   'reveal-current-file-manager': [];
-}>();
+}>(); 
 
 // State
 const contextMenu = ref({
@@ -346,6 +434,15 @@ const contextMenu = ref({
   entry: null as FileTreeNode | null,
 });
 const contextMenuRef = ref<HTMLElement | null>(null);
+/** 新建文件二级菜单（UX-3A）：主项 hover / 点击展开类型列表 */
+const newFileSubmenuVisible = ref(false);
+const newFileSubmenuFlipLeft = ref(false);
+const newFileSubmenuHostRef = ref<HTMLElement | null>(null);
+const newFileSubmenuRef = ref<HTMLElement | null>(null);
+/** 二级菜单与视口右边缘的最小留白 */
+const SUBMENU_VIEWPORT_MARGIN = 8;
+/** 本地可新建的全部类型（目录见 services/newFileTypeOptions） */
+const newFileTypeOptions = NEW_FILE_TYPE_OPTIONS;
 const fileTreeRootRef = ref<HTMLElement | null>(null);
 let revealPulseTimer: ReturnType<typeof setTimeout> | null = null;
 const CONTEXT_MENU_MARGIN = 8;
@@ -587,8 +684,39 @@ const handleRootContextMenu = (event: MouseEvent) => {
   emit('contextMenu', null, event);
 };
 
-const handleNewFile = () => {
-  emit('new-file');
+/**
+ * 展开新建文件二级菜单。
+ *
+ * 默认向右展开；若菜单右侧空间不足则翻转到左侧（happy-dom 里 rect 全为 0，
+ * 此时保持默认方向即可，不影响单测断言）。
+ */
+const openNewFileSubmenu = () => {
+  newFileSubmenuVisible.value = true;
+  void nextTick(() => {
+    const submenu = newFileSubmenuRef.value;
+    const host = newFileSubmenuHostRef.value;
+    if (!submenu || !host) return;
+    const rect = submenu.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    newFileSubmenuFlipLeft.value = rect.width > 0
+      && hostRect.right + rect.width > window.innerWidth - SUBMENU_VIEWPORT_MARGIN;
+  });
+};
+
+const closeNewFileSubmenu = () => {
+  newFileSubmenuVisible.value = false;
+  newFileSubmenuFlipLeft.value = false;
+};
+
+const toggleNewFileSubmenu = () => {
+  if (newFileSubmenuVisible.value) closeNewFileSubmenu();
+  else openNewFileSubmenu();
+};
+
+/** 选中某个类型：带上 typeId 交给宿主创建（默认 Markdown 由宿主兜底）。 */
+const handleNewFile = (typeId?: string) => {
+  closeNewFileSubmenu();
+  emit('new-file', typeId);
   contextMenu.value.visible = false;
 };
 
@@ -619,6 +747,76 @@ const handleCompareWithCurrent = () => {
   contextMenu.value.visible = false;
 };
 
+/** 右键「同步至云端」的可用性：非文本白名单 / 超 12MB 时禁用并给出原因。 */
+/**
+ * 右键云操作可用性三态：binary（pdf/doc/xls/ppt → 二进制上传）/ text（文本同步）/ none（禁用）。
+ */
+const cloudActionState = computed<{ disabled: boolean; hint: string; mode: 'text' | 'binary' | 'none' }>(() => {
+  const entry = contextMenu.value.entry;
+  if (!entry || entry.type !== 'file') {
+    return { disabled: false, hint: '', mode: 'none' };
+  }
+  // 宏格式优先拒绝（即使扩展名在白名单里也不能上传）
+  if (isMacroDocPath(entry.path)) {
+    return {
+      disabled: true,
+      hint: '不支持含宏的 Office 文件（docm/xlsm/pptm），请另存为普通格式后再上传',
+      mode: 'none',
+    };
+  }
+  const binary = validateBinaryDocLocal(entry.path, entry.size ?? null);
+  if (binary.eligible) {
+    return { disabled: false, hint: '', mode: 'binary' };
+  }
+  const text = isCloudSyncEligibleFile(entry.path, entry.size ?? null);
+  if (text.eligible) {
+    return { disabled: false, hint: '', mode: 'text' };
+  }
+  // 图片/二进制预览用文本同步的原因更具体；否则用二进制校验原因
+  return { disabled: true, hint: text.reason ?? binary.reason ?? '', mode: 'none' };
+});
+
+const isEntryShared = (entry: FileTreeNode | null | undefined): boolean =>
+  Boolean(entry && props.sharedPaths.includes(entry.path));
+
+/** 二进制文档已上传过 → 菜单显示「已同步」。 */
+const isEntrySynced = (entry: FileTreeNode | null | undefined): boolean =>
+  Boolean(entry && props.syncedPaths.includes(entry.path));
+
+const syncToCloudLabel = computed(() =>
+  isEntrySynced(contextMenu.value.entry) ? copy.value.alreadySynced : copy.value.syncToCloud,
+);
+
+const handleShare = () => {
+  const entry = contextMenu.value.entry;
+  const disabled = cloudActionState.value.disabled;
+  contextMenu.value.visible = false;
+  if (disabled || entry?.type !== 'file') {
+    return;
+  }
+  emit('share', entry);
+};
+
+const handleSyncToCloud = () => {
+  const entry = contextMenu.value.entry;
+  const disabled = cloudActionState.value.disabled;
+  contextMenu.value.visible = false;
+  if (disabled || entry?.type !== 'file') {
+    return;
+  }
+  emit('sync-to-cloud', entry);
+};
+
+/** 文件夹右键「上传该文件夹到云端」：登录态与工作区校验交给 App（与「同步至云端」一致）。 */
+const handleUploadFolder = () => {
+  const entry = contextMenu.value.entry;
+  contextMenu.value.visible = false;
+  if (entry?.type !== 'folder') {
+    return;
+  }
+  emit('upload-folder', entry);
+};
+
 const handleRunProviderAction = (actionId: string) => {
   const entry = contextMenu.value.entry;
   if (entry?.type === 'file') {
@@ -637,6 +835,7 @@ const handleDelete = () => {
 // 点击其他地方关闭右键菜单
 const closeContextMenu = () => {
   contextMenu.value.visible = false;
+  closeNewFileSubmenu();
 };
 
 const handleExternalContextMenuOpen = () => {
@@ -992,8 +1191,75 @@ onUnmounted(() => {
   background: var(--n-hover-color, #2a2d2e);
 }
 
+.context-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.context-menu-item.disabled:hover {
+  background: transparent;
+}
+
 .context-menu-item.danger:hover {
   background: #d84545;
+}
+
+/* 新建文件二级类型菜单（UX-3A） */
+.context-menu-item.has-submenu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-menu-item.is-submenu-open {
+  background: var(--n-hover-color, #2a2d2e);
+}
+
+.context-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.context-menu-caret {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.context-menu-shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.55;
+  font-family: var(--font-code, monospace);
+}
+
+.context-submenu {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  z-index: 20001;
+  min-width: 180px;
+  margin-left: 2px;
+  padding: 4px 0;
+  background: var(--n-color, #252526);
+  border: 1px solid var(--n-border-color, #333);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* 右侧放不下时翻转到左侧 */
+.context-submenu.is-flip-left {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 2px;
+}
+
+.context-submenu-title {
+  padding: 4px 16px 6px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  opacity: 0.55;
 }
 
 .context-menu-divider {

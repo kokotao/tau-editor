@@ -385,6 +385,27 @@ describe('EditorCore.vue', () => {
     expect(editorStore.selection).toEqual({ start: 10, end: 20 });
   });
 
+  it('scroll-change 载荷应保留既有字段并增量携带 topLine（首个可见行号）', async () => {
+    const wrapper = mount(EditorCore, {
+      props: { modelId: 'test-scroll-topline' },
+    });
+
+    await flushPromises();
+
+    const editorInstance = monacoMocks.create.mock.results[0]?.value as Record<string, unknown>;
+    editorInstance.getVisibleRanges = () => [{ startLineNumber: 37, endLineNumber: 52 }];
+
+    scrollCallback?.();
+
+    const payload = wrapper.emitted('scroll-change')?.at(-1)?.[0] as {
+      top: number;
+      height: number;
+      scrollHeight: number;
+      topLine: number;
+    };
+    expect(payload).toEqual({ top: 12, height: 460, scrollHeight: 1200, topLine: 37 });
+  });
+
   it('应注册保存快捷键并触发 model-save', async () => {
     const wrapper = mount(EditorCore, {
       props: { modelId: 'test-4' },

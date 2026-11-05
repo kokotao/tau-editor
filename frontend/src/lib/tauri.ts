@@ -902,6 +902,16 @@ export const fileCommands = {
     await invokeCommand<void>('write_file', { path, content });
   },
 
+  /** 以二进制方式写入文件（PNG 等图片导出用），不做任何转码。 */
+  async writeFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+    await invokeCommand<void>('write_file_bytes', { path, bytes: Array.from(bytes) });
+  },
+
+  /** 按字节复制文件（二进制安全，目标已存在时后端报错而不是覆盖），返回复制字节数 */
+  async copyFile(source: string, target: string): Promise<number> {
+    return invokeCommand<number>('copy_file', { source, target });
+  },
+
   async listFiles(dir: string): Promise<FileEntry[]> {
     const entries = await invokeCommand<Array<Omit<FileEntry, 'type'> & { type?: FileEntryType; file_type?: FileEntryType }>>(
       'list_files',
@@ -1182,5 +1192,643 @@ export const appCommands = {
     await invokeCommand<void>('reveal_in_file_manager', {
       path,
     });
+  },
+};
+
+export interface CloudSessionInfo {
+  signedIn: boolean;
+  userId: string | null;
+  username: string | null;
+  baseUrl: string;
+}
+
+export interface CloudDocSpace {
+  userId: string;
+  usedBytes: number;
+  quotaBytes: number;
+  fileCount: number;
+  maxVersionPerFile: number;
+}
+
+// ------------------------- 云配额 / 签到 / 积分（会员体系） -------------------------
+
+/** 云存储档位枚举（后端返回大写，前端只做展示映射）。 */
+export type CloudQuotaTier = 'FREE' | 'PLUS' | 'PRO';
+
+/** 套餐计费周期。 */
+export type CloudQuotaCycle = 'MONTH' | 'YEAR' | 'ONE_TIME';
+
+/** 套餐分组：PACK 为一次性永久扩容包。 */
+export type CloudQuotaPlanTier = 'PLUS' | 'PRO' | 'PACK';
+
+/** `GET /miniProgram/cloud/quota/summary`：真实用量 + 配额构成 + 当前档位。 */
+export interface CloudQuotaSummary {
+  usedBytes: number;
+  /** 永久配额（角色能力/全局默认），8 GB 老账号体现在这里 */
+  permanentBytes: number;
+  /** 付费档位授予的容量（未过期） */
+  planBytes: number;
+  /** 签到临时容量（30 天滑动窗口内有效） */
+  rewardBytes: number;
+  /** 有效配额 = permanentBytes + planBytes + rewardBytes */
+  quotaBytes: number;
+  tier: CloudQuotaTier;
+  tierName: string;
+  /** 订阅到期时间，无订阅为 null */
+  renewAt: string | null;
+  /** 签到终身累计封顶 */
+  rewardCapBytes: number;
+  /** 签到终身累计已发放 */
+  rewardLifetimeBytes: number;
+  /** 当前积分余额 */
+  points: number;
+}
+
+/** `GET /miniProgram/cloud/quota/plans` 的单个 SKU（同一档位按月/按年是两行）。 */
+export interface CloudQuotaPlan {
+  planId: number;
+  code: string;
+  tier: CloudQuotaPlanTier;
+  name: string;
+  bytes: number;
+  cycle: CloudQuotaCycle;
+  /** 单位：分 */
+  price: number;
+  originalPrice?: number;
+  sortOrder?: number;
+  featured?: boolean;
+}
+
+/** 订单（创建/查询共用）。 */
+export interface CloudQuotaOrder {
+  orderNo: string;
+  planName?: string;
+  amount: number;
+  status: 'PENDING_PAY' | 'PAID' | 'CLOSED' | 'REFUNDED' | 'PAY_FAILED' | string;
+  paidAt?: string | null;
+}
+
+/** Native 扫码支付参数：`codeUrl` 是 weixin:// 链接，前端渲染成二维码。 */
+export interface CloudQuotaPay {
+  orderNo: string;
+  codeUrl: string;
+  expireAt?: string | null;
+}
+
+/** `GET /miniProgram/cloud/checkin`。 */
+export interface CloudCheckinStatus {
+  todayChecked: boolean;
+  streakDays: number;
+  rewardActiveBytes: number;
+  rewardLifetimeBytes: number;
+  rewardCapBytes: number;
+  nextResetAt?: string | null;
+  points: number;
+}
+
+/** `POST /miniProgram/cloud/checkin`。 */
+export interface CloudCheckinResult {
+  grantedBytes: number;
+  doubled: boolean;
+  streakDays: number;
+  points: number;
+  pointsDelta: number;
+  rewardActiveBytes: number;
+  expiresAt?: string | null;
+  checkinDate?: string | null;
+}
+
+/** 积分流水项。 */
+export interface CloudPointEntry {
+  reason: string;
+  delta: number;
+  createdAt: string;
+}
+
+/** `GET /miniProgram/cloud/points`。 */
+export interface CloudPoints {
+  balance: number;
+  lifetimeEarned: number;
+  recent: CloudPointEntry[];
+}
+
+export interface CloudDocItem {
+  fileId: number;
+  path: string;
+  title: string;
+  contentHash: string | null;
+  size: number;
+  version: number;
+  category: string | null;
+  /** 分类 id：雪花 id，Rust 侧统一按字符串下发（> 2^53，不能过 JS number） */
+  categoryId: string | null;
+  tags: string | null;
+  visibility: string | null;
+  publishedArticleId: number | null;
+  updatedAt: string | null;
+}
+
+/** Rust 侧对 CloudDocItem 使用 serde(flatten)，因此详情字段与列表项同层展开。 */
+export interface CloudDocDetail extends CloudDocItem {
+  content: string | null;
+  createdAt: string | null;
+}
+
+export interface CloudDocVersion {
+  versionId: number;
+  version: number;
+  contentHash: string | null;
+  size: number;
+  remark: string | null;
+  createdAt: string | null;
+}
+
+export interface CloudDocPage {
+  records: CloudDocItem[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface CloudDocSavePayload {
+  path: string;
+  title?: string | null;
+  content?: string | null;
+  contentBase64?: string | null;
+  contentHash?: string | null;
+  baseVersion?: number | null;
+  category?: string | null;
+  /** 分类 id：雪花 id 按字符串透传；number 仅为兼容旧调用方与旧持久化数据（Rust 侧两种都收） */
+  categoryId?: string | number | null;
+  tags?: string | null;
+  visibility?: string | null;
+}
+
+export interface CloudDocSaveResult {
+  fileId: number;
+  version: number;
+  contentHash: string;
+  size: number;
+  updatedAt: string | null;
+}
+
+export interface CloudSyncSource {
+  content: string;
+  contentHash: string;
+  size: number;
+  modifiedMs: number | null;
+}
+
+/** 云端文档打开方式（Rust `CloudOpenAction`）。 */
+export type CloudDocOpenAction =
+  | 'openExisting'
+  | 'writeAndOpen'
+  | 'confirmOverwrite'
+  | 'rejected';
+
+/** 云端文档在本机的落点与打开方式（Rust `cloud_doc_open_target`）。 */
+export interface CloudDocOpenTarget {
+  cloudPath: string;
+  relativePath: string;
+  absolutePath: string;
+  exists: boolean;
+  sameContent: boolean;
+  openable: boolean;
+  action: CloudDocOpenAction;
+  reasonCode: string | null;
+  reason: string | null;
+}
+
+/** 云文档图片附件（Rust `CloudAssetInfo`）。 */
+export interface CloudAssetInfo {
+  assetId: number;
+  relPath: string;
+  fileName: string;
+  mime?: string | null;
+  size?: number;
+  contentHash?: string | null;
+  /**
+   * 图片签名直链（匿名可读，直接写进 Markdown 由任何端加载）。
+   * 旧后端不返回该字段，因此为可选。
+   */
+  url?: string | null;
+}
+
+/** 本地图片探测结果（Rust `CloudAssetSourceInfo`）。 */
+export interface CloudAssetSourceInfo {
+  path: string;
+  exists: boolean;
+  size: number;
+  contentHash: string | null;
+  supported: boolean;
+  reason: string | null;
+}
+
+/** 图片下载落盘结果（Rust `CloudAssetDownloadResult`）。 */
+export interface CloudAssetDownloadResult {
+  status: 'written' | 'skippedSame' | 'skippedConflict';
+  localPath: string;
+  size: number;
+  reason: string | null;
+}
+
+/** 分享统计「最近访问」条目。 */
+export interface CloudShareVisit {
+  time?: string | null;
+  ipMasked?: string | null;
+  fingerprintShort?: string | null;
+  ua?: string | null;
+  referer?: string | null;
+  isNewVisitor?: boolean;
+}
+
+/** 分享统计按天聚合。 */
+export interface CloudShareDailyPoint {
+  date: string;
+  views: number;
+  visitors: number;
+}
+
+/** 分享统计整体（Rust `CloudShareStats`）。 */
+export interface CloudShareStats {
+  shareUrl?: string | null;
+  totalViews: number;
+  uniqueVisitors: number;
+  firstViewAt?: string | null;
+  lastViewAt?: string | null;
+  daily: CloudShareDailyPoint[];
+  recent: CloudShareVisit[];
+}
+
+/** 二进制文档上传结果（Rust `CloudBinaryUploadResult`）。 */
+export interface CloudBinaryUploadResult {
+  fileId: number;
+  version: number;
+  contentHash?: string | null;
+  size?: number;
+  updatedAt?: string | null;
+}
+
+/** 文件夹（分类）分享创建入参（Rust `CloudCategoryShareCreatePayload`）。 */
+export interface CloudCategoryShareCreatePayload {
+  /** 访问密码；null/缺省 = 不设置密码 */
+  password?: string | null;
+  /** 有效期天数；null/缺省 = 永久 */
+  expiresInDays?: number | null;
+  /** 是否包含子分类文档；null/缺省 = 服务端默认（包含） */
+  includeSubCategories?: boolean | null;
+}
+
+/** 文件夹（分类）分享信息（Rust `CategoryShareInfo`；创建与查询共用）。 */
+export interface CloudCategoryShareInfo {
+  /** 是否已分享；false 时其余字段无意义 */
+  shared: boolean;
+  /** URL 安全 token */
+  token: string | null;
+  /** 后端返回的相对短链 `/s/f/{token}`；完整链接由前端按分享域名拼装 */
+  url: string | null;
+  hasPassword: boolean;
+  /** 过期时间；null = 永久 */
+  expiresAt: string | null;
+  includeSubCategories: boolean;
+  /** 分享范围内的文档数 */
+  docCount: number;
+  /** 仅创建时有意义：true = 新建，false = 重新生成（换了 token） */
+  created: boolean;
+}
+
+/** 分享创建结果（Rust `CloudShareInfo`）。 */
+export interface CloudShareInfo {
+  shareUrl: string;
+  token: string;
+  createdAt: string | null;
+  expiresAt: string | null;
+  hasPassword: boolean;
+  visitCount: number;
+  syncedVersion: number | null;
+  categoryApplied: string | null;
+  appliedDefaultCategory: boolean | null;
+  /** 文件扩展名（不含点），分享页据此选择渲染器 */
+  fileExt?: string | null;
+  /** markdown / code / text / image / pdf / office / other */
+  fileKind?: string | null;
+  fileName?: string | null;
+}
+
+/** 分享状态（Rust `CloudShareStatus`）。 */
+export interface CloudShareStatus {
+  shared: boolean;
+  shareUrl?: string | null;
+  token?: string | null;
+  createdAt?: string | null;
+  expiresAt?: string | null;
+  hasPassword?: boolean | null;
+  visitCount?: number | null;
+  fileExt?: string | null;
+  fileKind?: string | null;
+  fileName?: string | null;
+}
+
+/** 分享站点配置（Rust `CloudShareConfig`）。 */
+export interface CloudShareConfig {
+  shareBaseUrl: string | null;
+  defaultCategory: string | null;
+  maxExpireDays: number | null;
+}
+
+/** 分享创建入参：`expiresInDays` 为 null 表示永久，`password` 为空表示无密码。 */
+export interface CloudShareCreatePayload {
+  regenerate?: boolean;
+  expiresInDays?: number | null;
+  /** null / 缺省 = 不修改（已有密码则保留） */
+  password?: string | null;
+  /** 显式清除密码（契约：不能用 password: null 表达清除） */
+  clearPassword?: boolean | null;
+}
+
+/**
+ * 博客分类节点（云文档属性面板的分类候选）。
+ * 服务端 `category` 表为多级树，id/parentId 是被序列化成字符串的雪花 ID；
+ * 根节点 parentId 统一为 null。分类表为空时 Rust 侧会把「分类名数组」归一化成同结构的扁平节点。
+ */
+export interface CloudCategoryNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  children: CloudCategoryNode[];
+}
+
+/**
+ * 云文档桥接。桌面端的网络请求、JWT 与 keyring 全部在 Rust 侧完成，
+ * 前端只负责传参，不持有也不落盘任何凭据。
+ */
+export const cloudCommands = {
+  async login(
+    baseUrl: string | null,
+    username: string,
+    password: string,
+  ): Promise<CloudSessionInfo> {
+    return invokeCommand<CloudSessionInfo>('cloud_login', { baseUrl, username, password });
+  },
+
+  async logout(): Promise<void> {
+    await invokeCommand<void>('cloud_logout');
+  },
+
+  async session(): Promise<CloudSessionInfo> {
+    return invokeCommand<CloudSessionInfo>('cloud_session');
+  },
+
+  async me(): Promise<CloudDocSpace> {
+    return invokeCommand<CloudDocSpace>('cloud_docs_me');
+  },
+
+  async list(query: {
+    pathPrefix?: string | null;
+    keyword?: string | null;
+    page?: number;
+    size?: number;
+  }): Promise<CloudDocPage> {
+    return invokeCommand<CloudDocPage>('cloud_docs_list', {
+      pathPrefix: query.pathPrefix ?? null,
+      keyword: query.keyword ?? null,
+      page: query.page ?? 1,
+      size: query.size ?? 50,
+    });
+  },
+
+  async get(fileId: number): Promise<CloudDocDetail> {
+    return invokeCommand<CloudDocDetail>('cloud_docs_get', { fileId });
+  },
+
+  async save(payload: CloudDocSavePayload): Promise<CloudDocSaveResult> {
+    return invokeCommand<CloudDocSaveResult>('cloud_docs_save', { payload });
+  },
+
+  async versions(fileId: number): Promise<CloudDocVersion[]> {
+    return invokeCommand<CloudDocVersion[]>('cloud_docs_versions', { fileId });
+  },
+
+  async restore(fileId: number, versionId: number): Promise<CloudDocSaveResult> {
+    return invokeCommand<CloudDocSaveResult>('cloud_docs_restore', { fileId, versionId });
+  },
+
+  async remove(fileId: number): Promise<void> {
+    await invokeCommand<void>('cloud_docs_delete', { fileId });
+  },
+
+  /** 判定云文档在本机的落点与打开方式（纯本地探测，不产生云端请求）。 */
+  async openTarget(input: {
+    workspaceRoot: string;
+    workspaceName: string;
+    cloudPath: string;
+    remoteHash?: string | null;
+  }): Promise<CloudDocOpenTarget> {
+    return invokeCommand<CloudDocOpenTarget>('cloud_doc_open_target', {
+      workspaceRoot: input.workspaceRoot,
+      workspaceName: input.workspaceName,
+      cloudPath: input.cloudPath,
+      remoteHash: input.remoteHash ?? null,
+    });
+  },
+
+  /** 批量探测目录是否存在（云文档落位解析用，一次往返）。 */
+  async dirExists(paths: string[]): Promise<boolean[]> {
+    return invokeCommand<boolean[]>('cloud_dir_exists', { paths });
+  },
+
+  /** 确保云文档临时工作区目录存在并返回绝对路径。 */
+  async scratchWorkspace(workspaceName: string): Promise<string> {
+    return invokeCommand<string>('cloud_scratch_workspace', { workspaceName });
+  },
+
+  /** 读取本地待同步源文件并返回内容与 sha256（Rust 计算，避免前端重复实现哈希）。 */
+  async readSyncSource(path: string, maxBytes: number): Promise<CloudSyncSource> {
+    return invokeCommand<CloudSyncSource>('cloud_read_sync_source', { path, maxBytes });
+  },
+
+  /**
+   * 博客分类树（公开接口，未登录也可取；Rust 已把「分类表树」与「分类名数组」归一化成同结构）。
+   */
+  async blogCategories(): Promise<CloudCategoryNode[]> {
+    return invokeCommand<CloudCategoryNode[]>('cloud_blog_categories');
+  },
+
+  /** 博客标签候选（公开接口，未登录也可取；Rust 侧已去重并按字典序排序）。 */
+  async blogTags(): Promise<string[]> {
+    return invokeCommand<string[]>('cloud_blog_tags');
+  },
+
+  /** 生成/复用云文档分享链接。 */
+  async shareCreate(fileId: number, payload: CloudShareCreatePayload = {}): Promise<CloudShareInfo> {
+    return invokeCommand<CloudShareInfo>('cloud_docs_share_create', {
+      fileId,
+      regenerate: payload.regenerate ?? false,
+      expiresInDays: payload.expiresInDays ?? null,
+      // password=null 表示「不修改」；清除密码必须用 clearPassword=true
+      password: payload.password ?? null,
+      clearPassword: payload.clearPassword === true ? true : null,
+    });
+  },
+
+  /** 查询云文档当前分享状态。 */
+  async shareStatus(fileId: number): Promise<CloudShareStatus> {
+    return invokeCommand<CloudShareStatus>('cloud_docs_share_status', { fileId });
+  },
+
+  /** 撤销分享（旧链接立即失效）。 */
+  async shareRevoke(fileId: number): Promise<void> {
+    await invokeCommand<void>('cloud_docs_share_revoke', { fileId });
+  },
+
+  /** 分享站点配置：分享域名 / 默认分类 / 有效期上限。 */
+  async shareConfig(): Promise<CloudShareConfig> {
+    return invokeCommand<CloudShareConfig>('cloud_share_config');
+  },
+
+  /** 分享统计（owner 可读）。 */
+  async shareStats(fileId: number, days = 30): Promise<CloudShareStats> {
+    return invokeCommand<CloudShareStats>('cloud_docs_share_stats', { fileId, days });
+  },
+
+  /** 云端分类树（管理接口，需登录）。 */
+  async categoriesList(): Promise<CloudCategoryNode[]> {
+    return invokeCommand<CloudCategoryNode[]>('cloud_categories_list');
+  },
+
+  /** 新建分类（POST /categories）；parentId 用字符串透传雪花 id。 */
+  async categoryCreate(name: string, parentId?: string | null): Promise<CloudCategoryNode> {
+    return invokeCommand<CloudCategoryNode>('cloud_category_create', {
+      name,
+      parentId: parentId ?? null,
+    });
+  },
+
+  /** 重命名分类（PUT /categories/{id}，body 只带 name）。 */
+  async categoryUpdate(id: string, name: string): Promise<CloudCategoryNode> {
+    return invokeCommand<CloudCategoryNode>('cloud_category_update', { id, name });
+  },
+
+  /** 删除分类（DELETE /categories/{id}）。 */
+  async categoryDelete(id: string): Promise<void> {
+    await invokeCommand<void>('cloud_category_delete', { id });
+  },
+
+  /** 创建（或重新生成）文件夹分享链接（POST /categories/{id}/folder-share）。 */
+  async categoryShareCreate(
+    categoryId: string,
+    payload: CloudCategoryShareCreatePayload = {},
+  ): Promise<CloudCategoryShareInfo> {
+    return invokeCommand<CloudCategoryShareInfo>('cloud_category_share_create', {
+      // 雪花 id 按字符串透传，避免 JSON number 丢精度
+      categoryId,
+      password: payload.password ?? null,
+      expiresInDays: payload.expiresInDays ?? null,
+      includeSubCategories: payload.includeSubCategories ?? null,
+    });
+  },
+
+  /** 查询文件夹分享状态（GET 同路径）；未分享时返回 `shared: false`。 */
+  async categoryShareStatus(categoryId: string): Promise<CloudCategoryShareInfo> {
+    return invokeCommand<CloudCategoryShareInfo>('cloud_category_share_status', { categoryId });
+  },
+
+  /** 撤销文件夹分享（DELETE 同路径）：旧链接立即失效。 */
+  async categoryShareRevoke(categoryId: string): Promise<void> {
+    await invokeCommand<void>('cloud_category_share_revoke', { categoryId });
+  },
+
+  /** 把云文档移动到指定分类（categoryId 为字符串雪花 id；null 表示取消分类）。 */
+  async moveDocCategory(fileId: number, categoryId: string | null): Promise<void> {
+    await invokeCommand<void>('cloud_docs_move_category', { fileId, categoryId });
+  },
+
+  /** 上传二进制文档（pdf/doc/xls/ppt 等，multipart，字节不经前端）。 */
+  async binaryUpload(input: {
+    path: string;
+    title?: string | null;
+    category?: string | null;
+    tags?: string | null;
+    localPath: string;
+  }): Promise<CloudBinaryUploadResult> {
+    return invokeCommand<CloudBinaryUploadResult>('cloud_docs_binary_upload', {
+      path: input.path,
+      title: input.title ?? null,
+      category: input.category ?? null,
+      tags: input.tags ?? null,
+      localPath: input.localPath,
+    });
+  },
+
+  /** 文档图片附件列表。 */
+  async assetsList(fileId: number): Promise<CloudAssetInfo[]> {
+    return invokeCommand<CloudAssetInfo[]>('cloud_docs_assets_list', { fileId });
+  },
+
+  /** 探测一批本地图片（存在性/大小/hash/扩展名/魔数）。 */
+  async inspectAssetSources(paths: string[]): Promise<CloudAssetSourceInfo[]> {
+    return invokeCommand<CloudAssetSourceInfo[]>('cloud_inspect_asset_sources', { paths });
+  },
+
+  /** 上传单张本地图片（Rust 侧做大小/扩展名/魔数校验）。 */
+  async assetUploadFile(fileId: number, relPath: string, localPath: string): Promise<CloudAssetInfo> {
+    return invokeCommand<CloudAssetInfo>('cloud_docs_asset_upload_file', { fileId, relPath, localPath });
+  },
+
+  /** 下载云端图片并写入 workspace 相对路径（同 hash 跳过、冲突不覆盖）。 */
+  async assetDownload(input: {
+    fileId: number;
+    assetId: number;
+    workspaceRoot: string;
+    documentPath: string;
+    relPath: string;
+    expectedHash?: string | null;
+  }): Promise<CloudAssetDownloadResult> {
+    return invokeCommand<CloudAssetDownloadResult>('cloud_docs_asset_download', {
+      fileId: input.fileId,
+      assetId: input.assetId,
+      workspaceRoot: input.workspaceRoot,
+      documentPath: input.documentPath,
+      relPath: input.relPath,
+      expectedHash: input.expectedHash ?? null,
+    });
+  },
+};
+
+/**
+ * 云配额 / 签到 / 积分桥接：会员体系（支付、积分、签到）由 Rust 侧带 JWT 请求，
+ * 前端只传参，不接触令牌。命令名与 `commands/cloud.rs` 一一对应。
+ */
+export const cloudQuotaCommands = {
+  async summary(): Promise<CloudQuotaSummary> {
+    return invokeCommand<CloudQuotaSummary>('cloud_quota_summary');
+  },
+
+  async plans(): Promise<CloudQuotaPlan[]> {
+    return invokeCommand<CloudQuotaPlan[]>('cloud_quota_plans');
+  },
+
+  async createOrder(planId: number, clientOrderNo: string): Promise<CloudQuotaOrder> {
+    return invokeCommand<CloudQuotaOrder>('cloud_quota_order_create', { planId, clientOrderNo });
+  },
+
+  async orderStatus(orderNo: string): Promise<CloudQuotaOrder> {
+    return invokeCommand<CloudQuotaOrder>('cloud_quota_order_status', { orderNo });
+  },
+
+  async payQr(orderNo: string): Promise<CloudQuotaPay> {
+    return invokeCommand<CloudQuotaPay>('cloud_quota_order_pay', { orderNo });
+  },
+
+  async checkinStatus(): Promise<CloudCheckinStatus> {
+    return invokeCommand<CloudCheckinStatus>('cloud_checkin_status');
+  },
+
+  async checkin(): Promise<CloudCheckinResult> {
+    return invokeCommand<CloudCheckinResult>('cloud_checkin_do');
+  },
+
+  async points(): Promise<CloudPoints> {
+    return invokeCommand<CloudPoints>('cloud_points');
   },
 };

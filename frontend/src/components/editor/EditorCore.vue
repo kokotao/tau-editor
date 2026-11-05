@@ -55,6 +55,7 @@
           type="button"
           class="editor-context-item"
           :data-testid="`editor-context-item-${entry.key}`"
+          :title="entry.hint ?? entry.label"
           :disabled="!entry.enabled"
           @click="handleContextMenuEntryClick(entry)"
         >
@@ -104,6 +105,8 @@ import { useEditorStore } from '@/stores/editor';
 import { useSettingsStore } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notification';
 import { getEditorCoreI18n } from '@/i18n/ui';
+import { isCloudSyncEligibleFile } from '@/services/cloudSyncService';
+import { isMacroDocPath, validateBinaryDocLocal } from '@/services/cloudBinaryService';
 import { appCommands } from '@/lib/tauri';
 import { ensureMonacoSetup } from '@/lib/monaco/setupMonaco';
 import { getMonacoLspBridge, type MonacoHierarchyItem } from '@/services/lsp/monacoLspBridge';
@@ -164,12 +167,14 @@ const SUPPORTED_LANGUAGES = [
 const emit = defineEmits<{
   'content-change': [content: string, modelId: string];
   'cursor-change': [position: { line: number; column: number }];
-  'scroll-change': [state: { top: number; height: number; scrollHeight: number }];
+  'scroll-change': [state: { top: number; height: number; scrollHeight: number; topLine: number }];
   'model-save': [];
   'editor-blur': [modelId: string];
   'markdown-image-request': [];
   'markdown-image-paste': [payload: { fileName: string; bytes: Uint8Array }];
   'find-references': [];
+  'sync-to-cloud': [];
+  'share': [];
   'error': [error: Error];
 }>();
 
@@ -191,6 +196,10 @@ let pendingContentModelId: string | null = null;
 let suppressContentEmit = false;
 let referencesCancellation: monaco.CancellationTokenSource | null = null;
 let hierarchyCancellation: monaco.CancellationTokenSource | null = null;
+/** 程序化设置滚动位置时的短时抑制，避免预览同步回环。 */
+let suppressScrollChangeEmit = false;
+let suppressScrollChangeTimer: ReturnType<typeof setTimeout> | null = null;
+const suppressScrollChangeWindowMs = 120;
 
 let contentUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let lineCountSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -221,6 +230,8 @@ type ContextMenuItem = {
   label: string;
   enabled: boolean;
   action: () => Promise<void> | void;
+  /** 禁用原因等提示，渲染为 title */
+  hint?: string;
 };
 
 type ContextMenuSubmenu = {
@@ -245,14 +256,18 @@ const markdownQuickActions: Array<{ value: MarkdownAction; label: string; glyph:
 ];
 
 const emitScrollState = () => {
-  if (!editor.value) {
+  if (!editor.value || suppressScrollChangeEmit) {
     return;
   }
 
+  // topLine 是纯增量字段（目录联动高亮用），既有 top/height/scrollHeight 保持
+  // 原语义，避免影响预览区依据它们做的比例同步。
+  const topLine = editor.value.getVisibleRanges?.()[0]?.startLineNumber ?? 1;
   emit('scroll-change', {
     top: editor.value.getScrollTop(),
     height: editor.value.getLayoutInfo().height,
     scrollHeight: editor.value.getScrollHeight(),
+    topLine: Number.isFinite(topLine) && topLine > 0 ? topLine : 1,
   });
 };
 
@@ -827,6 +842,31 @@ const handleRevealInFolder = async () => {
 
 const hasFilePath = computed(() => Boolean(props.filePath && props.filePath.trim().length > 0));
 
+/**
+ * 云操作菜单项可用性：没有磁盘文件 / 宏格式 / 既非文本也非可上传二进制时禁用并给原因。
+ */
+const cloudActionState = computed<{ disabled: boolean; hint: string; mode: 'text' | 'binary' | 'none' }>(() => {
+  const filePath = props.filePath?.trim() ?? '';
+  if (!filePath) {
+    return { disabled: true, hint: '当前文档没有磁盘文件（先保存后再上传）', mode: 'none' };
+  }
+  if (isMacroDocPath(filePath)) {
+    return {
+      disabled: true,
+      hint: '不支持含宏的 Office 文件（docm/xlsm/pptm），请另存为普通格式后再上传',
+      mode: 'none',
+    };
+  }
+  const binary = validateBinaryDocLocal(filePath, null);
+  if (binary.eligible) {
+    return { disabled: false, hint: '', mode: 'binary' };
+  }
+  const eligibility = isCloudSyncEligibleFile(filePath, null);
+  return eligibility.eligible
+    ? { disabled: false, hint: '', mode: 'text' }
+    : { disabled: true, hint: eligibility.reason ?? binary.reason ?? '', mode: 'none' };
+});
+
 const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
   {
     type: 'item',
@@ -1009,6 +1049,23 @@ const contextMenuEntries = computed<ContextMenuEntry[]>(() => [
     label: i18n.value.contextRevealInFolder,
     enabled: hasFilePath.value,
     action: handleRevealInFolder,
+  },
+  { type: 'divider', key: 'divider-cloud' },
+  {
+    type: 'item',
+    key: 'sync-to-cloud',
+    label: '同步至云端',
+    enabled: !cloudActionState.value.disabled,
+    hint: cloudActionState.value.hint,
+    action: () => emit('sync-to-cloud'),
+  },
+  {
+    type: 'item',
+    key: 'share',
+    label: '一键分享',
+    enabled: !cloudActionState.value.disabled,
+    hint: cloudActionState.value.hint,
+    action: () => emit('share'),
   },
 ]);
 
@@ -1382,6 +1439,24 @@ defineExpose({
     const model = editor.value.getModel();
     if (model) {
       monaco.editor.setModelLanguage(model, language);
+    }
+  },
+  setScrollTop: (top: number) => {
+    if (!editor.value) {
+      return;
+    }
+    const scrollable = Math.max(0, editor.value.getScrollHeight() - editor.value.getLayoutInfo().height);
+    if (scrollable > 0) {
+      suppressScrollChangeEmit = true;
+      if (suppressScrollChangeTimer) {
+        clearTimeout(suppressScrollChangeTimer);
+      }
+      suppressScrollChangeTimer = setTimeout(() => {
+        suppressScrollChangeEmit = false;
+        suppressScrollChangeTimer = null;
+        emitScrollState();
+      }, suppressScrollChangeWindowMs);
+      editor.value.setScrollTop(Math.min(scrollable, Math.max(0, top)));
     }
   },
   setTheme: (theme: string) => {

@@ -462,6 +462,90 @@ describe('FileTree.vue', () => {
       expect(teleportedMenu()).not.toBeNull()
     })
 
+    it('文件右键应出现「同步至云端」与「一键分享」，点击后 emit 对应事件', async () => {
+      const tree = [
+        { name: 'notes.md', path: '/project/notes.md', type: 'file' as const },
+    ]
+      const wrapper = mount(FileTree, { props: { fileTree: tree } })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const syncItem = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]')
+      const shareItem = document.body.querySelector('[data-testid="file-tree-share"]')
+      expect(syncItem).not.toBeNull()
+      expect(shareItem).not.toBeNull()
+      expect(shareItem?.textContent).toContain('一键分享')
+
+      syncItem?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('sync-to-cloud')?.[0]?.[0]).toMatchObject({ path: '/project/notes.md' })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+      document.body.querySelector('[data-testid="file-tree-share"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('share')?.[0]?.[0]).toMatchObject({ path: '/project/notes.md' })
+    })
+
+    it('二进制文件禁用同步/分享并给出原因', async () => {
+      const tree = [{ name: 'pic.png', path: '/project/pic.png', type: 'file' as const }]
+      const wrapper = mount(FileTree, { props: { fileTree: tree } })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const syncItem = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]') as HTMLElement
+      const shareItem = document.body.querySelector('[data-testid="file-tree-share"]') as HTMLElement
+      expect(syncItem.className).toContain('disabled')
+      expect(shareItem.className).toContain('disabled')
+      expect(syncItem.getAttribute('title')).toContain('二进制')
+
+      syncItem.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('sync-to-cloud')).toBeUndefined()
+      expect(wrapper.emitted('share')).toBeUndefined()
+    })
+
+    it('pdf 等二进制文档允许同步/分享，已同步后显示「已同步」', async () => {
+      const tree = [{ name: 'report.pdf', path: '/project/report.pdf', type: 'file' as const }]
+      const wrapper = mount(FileTree, {
+        props: { fileTree: tree, syncedPaths: ['/project/report.pdf'] },
+      })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const sync = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]') as HTMLElement
+      const share = document.body.querySelector('[data-testid="file-tree-share"]') as HTMLElement
+      expect(sync.className).not.toContain('disabled')
+      expect(sync.textContent).toContain('已同步')
+      expect(share.className).not.toContain('disabled')
+
+      sync.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('sync-to-cloud')?.[0]?.[0]).toMatchObject({ path: '/project/report.pdf' })
+    })
+
+    it('宏格式 docm 禁用同步/分享并给出宏原因', async () => {
+      const tree = [{ name: 'report.docm', path: '/project/report.docm', type: 'file' as const }]
+      const wrapper = mount(FileTree, { props: { fileTree: tree } })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const sync = document.body.querySelector('[data-testid="file-tree-sync-to-cloud"]') as HTMLElement
+      expect(sync.className).toContain('disabled')
+      expect(sync.getAttribute('title')).toContain('宏')
+    })
+
+    it('已分享过的文件显示「分享（已分享）」', async () => {
+      const tree = [{ name: 'notes.md', path: '/project/notes.md', type: 'file' as const }]
+      const wrapper = mount(FileTree, {
+        props: { fileTree: tree, sharedPaths: ['/project/notes.md'] },
+      })
+
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      expect(document.body.querySelector('[data-testid="file-tree-share"]')?.textContent).toContain('已分享')
+    })
+
     it('空工作区右键应显示创建菜单并隐藏无目标操作', async () => {
       const wrapper = mount(FileTree, {
         props: {
@@ -606,7 +690,7 @@ describe('FileTree.vue', () => {
       expect(teleportedMenu()).toBeNull()
     })
 
-    it('点击"新建文件"应发射 new-file 事件', async () => {
+    it('点击"新建文件"展开二级类型菜单，选择 Markdown 后发射带 typeId 的 new-file 事件', async () => {
       const wrapper = mount(FileTree, {
         props: {
           fileTree: mockFileTree,
@@ -619,12 +703,45 @@ describe('FileTree.vue', () => {
         clientY: 200,
       })
 
-      const newFileItem = document.body.querySelector('.context-menu-item') as HTMLElement
+      // UX-3A：主项先展开二级菜单，不直接创建
+      const newFileItem = document.body.querySelector('[data-testid="file-tree-new-file"]') as HTMLElement
+      expect(newFileItem).not.toBeNull()
       newFileItem.click()
+      await nextTick()
+
+      const submenu = document.body.querySelector('[data-testid="file-tree-new-file-submenu"]')
+      expect(submenu).not.toBeNull()
+      expect(wrapper.emitted('new-file')).toBeFalsy()
+
+      const markdownItem = document.body.querySelector('[data-testid="file-tree-new-file-markdown"]') as HTMLElement
+      markdownItem.click()
 
       expect(wrapper.emitted('new-file')).toBeTruthy()
+      expect(wrapper.emitted('new-file')![0]).toEqual(['markdown'])
       await nextTick()
       expect(teleportedMenu()).toBeNull()
+    })
+
+    it('二级菜单列出全部本地类型，选择 opml 时带上对应 typeId', async () => {
+      const wrapper = mount(FileTree, {
+        props: {
+          fileTree: mockFileTree,
+        },
+      })
+      await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      // 悬停主项也能展开（任务要求 hover / 点击均可）
+      const newFileItem = document.body.querySelector('[data-testid="file-tree-new-file"]') as HTMLElement
+      newFileItem.dispatchEvent(new MouseEvent('mouseenter'))
+      await nextTick()
+
+      const typeIds = ['markdown', 'taumap', 'freemind', 'opml', 'plaintext', 'json']
+      for (const typeId of typeIds) {
+        expect(document.body.querySelector(`[data-testid="file-tree-new-file-${typeId}"]`)).not.toBeNull()
+      }
+
+      (document.body.querySelector('[data-testid="file-tree-new-file-opml"]') as HTMLElement).click()
+      expect(wrapper.emitted('new-file')![0]).toEqual(['opml'])
     })
 
     it('点击"新建文件夹"应发射 new-folder 事件', async () => {
@@ -702,6 +819,50 @@ describe('FileTree.vue', () => {
       expect(wrapper.emitted('delete')![0][0]).toEqual(mockFileTree[0])
       await nextTick()
       expect(teleportedMenu()).toBeNull()
+    })
+  })
+
+  describe('文件夹上传到云端（R3）', () => {
+    const uploadMenuItem = () => document.body.querySelector('[data-testid="file-tree-upload-folder"]') as HTMLElement | null
+
+    it('文件夹右键应出现「上传该文件夹到云端」并带提示文案', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: mockFileTree } })
+
+      await wrapper.find('[data-node-path="/project/src"]').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      const item = uploadMenuItem()
+      expect(item).not.toBeNull()
+      expect(item?.textContent).toContain('上传该文件夹到云端')
+      expect(item?.getAttribute('title')).toBe('递归同步该文件夹到 lizi 云端（以文件夹名作为分类）')
+    })
+
+    it('点击该项应 emit upload-folder 并关闭菜单', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: mockFileTree } })
+
+      await wrapper.find('[data-node-path="/project/src"]').trigger('contextmenu', { clientX: 100, clientY: 200 })
+      uploadMenuItem()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      expect(wrapper.emitted('upload-folder')?.[0]?.[0]).toEqual(mockFileTree[0])
+      expect(teleportedMenu()).toBeNull()
+    })
+
+    it('文件右键不应出现该菜单项', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: mockFileTree } })
+
+      await wrapper.find('[data-node-path="/project/package.json"]').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      expect(uploadMenuItem()).toBeNull()
+      expect(teleportedMenu()?.textContent).not.toContain('上传该文件夹到云端')
+    })
+
+    it('工作区空白区域右键（无目标条目）不应出现该菜单项', async () => {
+      const wrapper = mount(FileTree, { props: { fileTree: [] } })
+
+      await wrapper.find('.file-tree-content').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+      expect(teleportedMenu()).not.toBeNull()
+      expect(uploadMenuItem()).toBeNull()
     })
   })
 
@@ -852,5 +1013,33 @@ describe('FileTree.vue', () => {
 
       expect(removeEventListenerSpy).toHaveBeenCalledWith('click', expect.any(Function))
     })
+  })
+})
+
+/* ---------------------- UX-3A custom：自定义格式二级菜单项 ---------------------- */
+
+describe('FileTree 自定义格式（custom）', () => {
+  it('二级菜单固定类型之后提供「自定义格式…」，点击 emit custom', async () => {
+    const wrapper = vueMount(FileTree, { props: { fileTree: mockFileTree } })
+    await wrapper.find('.file-tree-item').trigger('contextmenu', { clientX: 100, clientY: 200 })
+
+    const newFileItem = document.body.querySelector('[data-testid="file-tree-new-file"]') as HTMLElement
+    newFileItem.click()
+    await nextTick()
+
+    // 6 个固定类型仍然存在
+    for (const typeId of ['markdown', 'taumap', 'freemind', 'opml', 'plaintext', 'json']) {
+      expect(document.body.querySelector(`[data-testid="file-tree-new-file-${typeId}"]`)).not.toBeNull()
+    }
+
+    const customItem = document.body.querySelector('[data-testid="file-tree-new-file-custom"]') as HTMLElement
+    expect(customItem).not.toBeNull()
+    expect(customItem.textContent).toContain('自定义格式')
+
+    customItem.click()
+    expect(wrapper.emitted('new-file')![0]).toEqual(['custom'])
+    await nextTick()
+    // 选择后整棵右键菜单关闭（与固定类型一致）
+    expect(teleportedMenu()).toBeNull()
   })
 })

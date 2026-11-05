@@ -593,6 +593,98 @@ pub async fn write_file(path: String, content: String) -> Result<(), String> {
         .map_err(|e| format!("写入文件失败：{}", e))
 }
 
+/// 以二进制方式写入文件（供 PNG 等图片导出使用）
+///
+/// 与 `write_file` 的字符串入参不同，这里按字节原样落盘，不做任何转码；
+/// 路径校验与父目录创建行为与 `write_file` 保持一致。
+///
+/// # 参数
+/// * `path` - 目标文件路径
+/// * `bytes` - 要写入的原始字节
+///
+/// # 返回
+/// * `Ok(())` - 写入成功
+/// * `Err(String)` - 错误信息
+///
+/// @author Albert_Luo
+/// @date 2026-10-30
+#[tauri::command]
+pub async fn write_file_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    validate_path(&path)?;
+
+    // 确保父目录存在
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("创建目录失败：{}", e))?;
+    }
+
+    fs::write(&path, bytes)
+        .await
+        .map_err(|e| format!("写入文件失败：{}", e))
+}
+
+/// 按字节复制文件（二进制安全）
+///
+/// 与 `write_file` 的字符串入参不同，这里不做任何转码，docx/pdf 等二进制文件
+/// 可以原样落到工作区。目标已存在时返回 `Err`，由调用方决定是否跳过同名。
+///
+/// # 参数
+/// * `source` - 源文件路径
+/// * `target` - 目标文件路径（父目录不存在时自动创建）
+///
+/// # 返回
+/// * `Ok(u64)` - 复制的字节数
+/// * `Err(String)` - 错误信息
+#[tauri::command]
+pub async fn copy_file(source: String, target: String) -> Result<u64, String> {
+    validate_path(&source)?;
+    validate_path(&target)?;
+
+    let metadata = fs::metadata(&source)
+        .await
+        .map_err(|e| format!("读取源文件失败：{}", e))?;
+    if !metadata.is_file() {
+        return Err("源路径不是普通文件".to_string());
+    }
+    if Path::new(&target).exists() {
+        return Err(format!("目标文件已存在：{}", target));
+    }
+
+    // 确保父目录存在（与 write_file 行为一致）
+    if let Some(parent) = Path::new(&target).parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("创建目录失败：{}", e))?;
+    }
+
+    let mut reader = fs::File::open(&source)
+        .await
+        .map_err(|e| format!("打开源文件失败：{}", e))?;
+    // create_new 在落盘那一刻再挡一次并发，避免覆盖刚出现的同名文件
+    let mut writer = fs::File::create_new(&target).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("目标文件已存在：{}", target)
+        } else {
+            format!("创建目标文件失败：{}", e)
+        }
+    })?;
+
+    let copied = tokio::io::copy(&mut reader, &mut writer).await;
+    // Windows 上不能删除仍被打开的句柄，先关掉再清理
+    drop(writer);
+    drop(reader);
+
+    match copied {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => {
+            // 半成品会让下次重试撞上「目标已存在」，失败时清掉
+            let _ = fs::remove_file(&target).await;
+            Err(format!("复制文件失败：{}", e))
+        }
+    }
+}
+
 /// 原子写入文件内容
 ///
 /// 先写入临时文件，然后原子性地重命名到目标路径
@@ -984,5 +1076,85 @@ mod tests {
         let content = result.unwrap();
         assert!(content.contains("[SQLite Preview]"));
         assert!(content.contains("Table: notes"));
+    }
+
+    #[tokio::test]
+    async fn test_copy_file_keeps_binary_bytes() {
+        let temp_dir = TempDir::new().unwrap();
+        let source = temp_dir.path().join("report.docx");
+        let target = temp_dir.path().join("report-copy.docx");
+        // docx 头 + 非 UTF-8 字节：字符串通道会损坏，字节通道必须原样
+        let bytes: Vec<u8> = vec![0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0xfe, 0x80];
+        fs::write(&source, &bytes).unwrap();
+
+        let copied = copy_file(
+            source.to_string_lossy().to_string(),
+            target.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(copied, bytes.len() as u64);
+        assert_eq!(fs::read(&target).unwrap(), bytes);
+    }
+
+    #[tokio::test]
+    async fn test_copy_file_refuses_existing_target() {
+        let temp_dir = TempDir::new().unwrap();
+        let source = temp_dir.path().join("source.md");
+        let target = temp_dir.path().join("same-name.md");
+        fs::write(&source, b"new content").unwrap();
+        fs::write(&target, b"keep me").unwrap();
+
+        let error = copy_file(
+            source.to_string_lossy().to_string(),
+            target.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("已存在"), "unexpected error: {error}");
+        // 同名文件不能被覆盖
+        assert_eq!(fs::read(&target).unwrap(), b"keep me");
+    }
+
+    #[tokio::test]
+    async fn test_copy_file_creates_missing_parent_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let source = temp_dir.path().join("plain.md");
+        let target = temp_dir.path().join("nested").join("deeper").join("out.md");
+        fs::write(&source, b"hello").unwrap();
+
+        let copied = copy_file(
+            source.to_string_lossy().to_string(),
+            target.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(copied, 5);
+        assert!(target.is_file());
+        assert_eq!(fs::read(&target).unwrap(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_bytes_roundtrip_binary_safe() {
+        let temp_dir = TempDir::new().unwrap();
+        let target = temp_dir.path().join("nested").join("image.png");
+        // 含非 UTF-8 字节，验证不会做任何转码
+        let payload: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00, 0xFE];
+
+        write_file_bytes(target.to_string_lossy().to_string(), payload.clone())
+            .await
+            .unwrap();
+
+        assert!(target.is_file());
+        assert_eq!(fs::read(&target).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn test_write_file_bytes_rejects_empty_path() {
+        let result = write_file_bytes(String::new(), vec![1, 2, 3]).await;
+        assert!(result.is_err());
     }
 }

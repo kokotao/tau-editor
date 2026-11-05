@@ -4,6 +4,7 @@ import { createCommandExecutor, createCommandRegistry } from '@/services/command
 function createActions() {
   return {
     newFile: vi.fn(),
+    newMindmap: vi.fn(),
     openFile: vi.fn(),
     openFolder: vi.fn(),
     save: vi.fn(),
@@ -46,6 +47,24 @@ describe('commandRegistry', () => {
 
     expect(enCommands.find((command) => command.id === 'commandPalette.open')?.title).toBe('Open Command Palette');
     expect(enCommands.find((command) => command.id === 'search.findText')?.title).toBe('Find Text');
+  });
+
+  it('应注册新建思维导图命令并支持双语标题与执行', async () => {
+    const actions = createActions();
+    const zhCommands = createCommandRegistry(actions, 'zh-CN');
+    const enCommands = createCommandRegistry(actions, 'en-US');
+
+    const zhCommand = zhCommands.find((command) => command.id === 'file.newMindmap');
+    const enCommand = enCommands.find((command) => command.id === 'file.newMindmap');
+
+    expect(zhCommand?.title).toBe('新建思维导图');
+    expect(zhCommand?.keywords).toContain('思维导图');
+    expect(enCommand?.title).toBe('New Mind Map');
+    expect(zhCommand?.category).toBe('file');
+
+    const runCommand = createCommandExecutor(zhCommands, 'zh-CN');
+    await runCommand('file.newMindmap');
+    expect(actions.newMindmap).toHaveBeenCalledTimes(1);
   });
 
   it('执行器找不到命令时应返回本地化错误', async () => {

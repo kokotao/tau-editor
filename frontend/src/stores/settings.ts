@@ -150,10 +150,17 @@ export interface EditorSettings {
   confirmBeforeClose: boolean;
   restoreLastSession: boolean;
   uiLanguage: UiLanguage;
+
+  /** 左侧边栏当前面板：工作区文件树 / 云端文档（互斥显示，持久化记住上次选择） */
+  sidebarPanel: SidebarPanel;
+
+  /** 同步文档内图片（md 相对图片附件），默认开启 */
+  syncDocumentImages: boolean;
 }
 
 // localStorage 键名
 const STORAGE_KEY = 'text-editor-settings';
+export type SidebarPanel = 'workspace' | 'cloud';
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
 export const DEFAULT_UI_FONT_FAMILY = "'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif";
 export const DEFAULT_UI_FONT_SIZE = 11;
@@ -510,6 +517,8 @@ export const useSettingsStore = defineStore('settings', {
     confirmBeforeClose: true,
     restoreLastSession: true,
     uiLanguage: 'zh-CN',
+    sidebarPanel: 'workspace',
+    syncDocumentImages: true,
   }),
 
   getters: {
@@ -606,6 +615,10 @@ export const useSettingsStore = defineStore('settings', {
             this.markdownPreviewMode = 'edit';
           }
           this.uiLanguage = normalizeUiLanguage(this.uiLanguage);
+          // 侧栏面板非法值（旧版本没有该字段）回落到工作区
+          this.sidebarPanel = this.sidebarPanel === 'cloud' ? 'cloud' : 'workspace';
+          // 旧版本没有该字段：默认开启
+          this.syncDocumentImages = this.syncDocumentImages !== false;
           console.log('[Settings] 从 localStorage 加载设置成功');
         }
       } catch (error) {
@@ -656,6 +669,8 @@ export const useSettingsStore = defineStore('settings', {
           confirmBeforeClose: this.confirmBeforeClose,
           restoreLastSession: this.restoreLastSession,
           uiLanguage: this.uiLanguage,
+          sidebarPanel: this.sidebarPanel,
+          syncDocumentImages: this.syncDocumentImages,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
         console.log('[Settings] 保存设置到 localStorage');
@@ -763,6 +778,9 @@ export const useSettingsStore = defineStore('settings', {
 
       root.classList.remove('light', 'dark', 'theme-light', 'theme-dark', ...themeSkinClasses);
       root.classList.add(themeState.resolvedTheme, `theme-${themeState.resolvedTheme}`, `skin-${themeState.skin}`);
+      // 原生控件（select 下拉弹层、滚动条等）由 color-scheme 决定配色：
+      // 自定义主题包不会带 skin-* 类名，必须在这里显式同步，否则深色主题下会出现白底下浅色文字。
+      root.style.colorScheme = themeState.resolvedTheme;
       // 每次应用前都清理内联变量，避免旧模式的背景/面板颜色锁死后续 CSS skin 切换。
       const allThemeVars = [
         '--bg-app', '--panel-base', '--panel-elevated', '--text-primary', '--text-secondary', '--accent-brand',
@@ -1082,6 +1100,12 @@ export const useSettingsStore = defineStore('settings', {
     toggleTheme() {
       const newTheme = this.theme === 'dark' ? 'light' : 'dark';
       this.updateSettings({ theme: newTheme });
+    },
+
+    /** 切换左侧边栏面板（工作区 / 云端文档），并持久化记住上次选择。 */
+    setSidebarPanel(panel: SidebarPanel) {
+      this.sidebarPanel = panel === 'cloud' ? 'cloud' : 'workspace';
+      this.saveToStorage();
     },
 
     // 调整字体大小

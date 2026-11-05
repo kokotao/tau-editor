@@ -31,11 +31,19 @@ describe('FileConflictsStore', () => {
     expect(conflicts.find('/ws/notes.md')).toEqual({
       path: '/ws/notes.md',
       kind: 'modified',
+      // 未显式指定来源时按磁盘外部变更处理
+      source: 'disk',
       detectedAt: 1900,
       diskModifiedMs: 1700,
       diskSize: 128,
       baselineModifiedMs: 1600,
     });
+  });
+
+  it('显式指定来源为 cloud 时应保留（云冲突与磁盘冲突走不同提示入口）', () => {
+    conflicts.flag({ path: '/ws/cloud.md', kind: 'modified', source: 'cloud' });
+
+    expect(conflicts.find('/ws/cloud.md')?.source).toBe('cloud');
   });
 
   it('重复标记同一路径返回 false 并刷新最新状态', () => {

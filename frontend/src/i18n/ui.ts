@@ -33,6 +33,7 @@ export type EditorLanguageMode =
 export type CommandId =
   | 'commandPalette.open'
   | 'file.new'
+  | 'file.newMindmap'
   | 'file.open'
   | 'file.openFolder'
   | 'file.save'
@@ -57,7 +58,11 @@ export type CommandId =
   | 'editor.goForward'
   | 'workspace.searchSymbols'
   | 'view.toggleSidebar'
-  | 'view.toggleSettings';
+  | 'view.toggleSettings'
+  | 'cloud.login'
+  | 'cloud.logout'
+  | 'cloud.syncNow'
+  | 'cloud.browse';
 
 interface CommandText {
   title: string;
@@ -272,6 +277,76 @@ interface SettingsPanelText {
   statusInstalling: string;
   statusInstallTriggered: string;
   statusErrorPrefix: string;
+  settingsCloudSync: string;
+  cloudSyncDesc: string;
+  cloudSyncServerUrl: string;
+  cloudSyncUsername: string;
+  cloudSyncPassword: string;
+  cloudSyncLogin: string;
+  cloudSyncLoggingIn: string;
+  cloudSyncLogout: string;
+  cloudSyncSignedOut: string;
+  cloudSyncSignedInAs: (username: string) => string;
+  cloudSyncLoginRequired: string;
+  cloudSyncRegisterHint: string;
+  cloudSyncRegisterAction: string;
+  cloudSyncQuotaLabel: string;
+  cloudSyncQuotaReading: string;
+  cloudSyncQuotaFailed: (kind: string, message: string) => string;
+  cloudSyncSyncNow: string;
+  cloudSyncSyncing: string;
+  cloudSyncResultSynced: (version?: number) => string;
+  cloudSyncResultConflict: string;
+  /** 云文档在线编辑：409 冲突通知（标题） */
+  cloudDocSaveConflictTitle: string;
+  /** 云文档在线编辑：409 冲突通知（正文，附服务端原因） */
+  cloudDocSaveConflictBody: (message: string) => string;
+  cloudSyncResultFailed: (message: string) => string;
+  cloudSyncResultSkipped: (reason: string) => string;
+  cloudSyncAutoLabel: string;
+  cloudSyncAutoUnavailable: string;
+  cloudSyncDebounceLabel: string;
+  cloudSyncQueueEmpty: string;
+  cloudSyncQueueStatus: (pending: number, failed: number) => string;
+  cloudSyncRetryQueue: string;
+  cloudSyncVersions: string;
+  cloudSyncVersionsLoading: string;
+  cloudSyncVersionsEmpty: string;
+  cloudSyncVersionLabel: (version: number) => string;
+  cloudSyncVersionRestore: string;
+  cloudSyncVersionRestored: (version: number) => string;
+  cloudSyncVersionHint: string;
+  cloudSyncConflictTitle: string;
+  cloudSyncConflictHint: string;
+  cloudSyncKeepLocal: string;
+  cloudSyncKeepRemote: string;
+  cloudSyncKeepLocalDone: (version?: number) => string;
+  cloudSyncKeepRemoteDone: (version?: number) => string;
+  cloudSyncPull: string;
+  cloudSyncBrowse: string;
+  cloudSyncImagesLabel: string;
+  cloudSyncImagesHint: string;
+  cloudSyncPulling: string;
+  cloudSyncPullConfirmTitle: string;
+  cloudSyncPullConfirmHint: string;
+  cloudSyncPullConfirmOk: string;
+  cloudSyncPullConfirmCancel: string;
+  cloudSyncPullCancelled: string;
+  cloudSyncMetaTitle: string;
+  cloudSyncMetaHint: string;
+  cloudSyncMetaFirstSyncHint: string;
+  cloudSyncMetaLoading: string;
+  cloudSyncMetaCategory: string;
+  cloudSyncMetaCategoryNone: string;
+  cloudSyncMetaCategoryPlaceholder: string;
+  cloudSyncMetaCategoriesFailed: string;
+  cloudSyncMetaTags: string;
+  cloudSyncMetaTagsPlaceholder: string;
+  cloudSyncMetaVisibilityPublic: string;
+  cloudSyncMetaVisibilityPrivate: string;
+  cloudSyncMetaSave: string;
+  cloudSyncMetaSaving: string;
+  cloudSyncMetaSaved: (version?: number) => string;
 }
 
 interface AppText {
@@ -290,8 +365,25 @@ interface AppText {
   openFile: string;
   newFile: string;
   recentFolders: string;
+  sidebarTabWorkspace: string;
+  sidebarTabCloud: string;
   noRecentFolders: string;
   openRecentFolder: string;
+  /** 冷启动发现上次的临时工作区已被系统清理 */
+  scratchWorkspaceClearedTitle: string;
+  scratchWorkspaceClearedMessage: (path: string) => string;
+  /** 云文档粘贴/导入图片后立即上传云端：成功提示 */
+  markdownImageCloudUploaded: string;
+  /** 上传失败（不阻断插入） */
+  markdownImageCloudUploadFailedTitle: string;
+  markdownImageCloudUploadFailedHint: (reason: string) => string;
+  /** 预检跳过（格式/大小/路径不合规，不阻断插入） */
+  markdownImageCloudUploadSkippedTitle: string;
+  markdownImageCloudUploadSkippedHint: (reason: string) => string;
+  markdownImageCloudSkipUnsupported: string;
+  markdownImageCloudSkipTooLarge: string;
+  markdownImageCloudSkipInvalidPath: string;
+  markdownImageCloudSkipMissingLocal: string;
 }
 
 interface ToolbarText {
@@ -357,21 +449,66 @@ interface FileTreeText {
   emptyHint: string;
   loading: string;
   newFile: string;
+  /** 右键「新建文件」的二级菜单标题（UX-3A） */
+  chooseFileType: string;
+  /** 二级菜单末尾的「自定义格式…」项（UX-3A custom） */
+  newFileCustom: string;
   newFolder: string;
   rename: string;
   delete: string;
   compareWithCurrent: string;
+  syncToCloud: string;
+  syncToCloudHint: string;
+  share: string;
+  shareAlready: string;
+  shareHint: string;
+  alreadySynced: string;
   fileDetails: string;
   locateCurrentFile: string;
   copyCurrentFilePath: string;
   revealCurrentFile: string;
   currentFileUnavailable: string;
+  /** 文件夹右键：把整个文件夹同步到云端（R3） */
+  uploadFolder: string;
+  uploadFolderHint: string;
+  uploadFolderTitle: string;
+  /** 确认文案：将上传 N 个、跳过 M 个 */
+  uploadFolderConfirm: (total: number, skipped: number) => string;
+  /** 目标分类提示：同名分类不存在时会新建 */
+  uploadFolderCategoryHint: (categoryName: string) => string;
+  uploadFolderEmpty: string;
+  uploadFolderLoginRequired: string;
+  uploadFolderProgress: (done: number, total: number) => string;
+  uploadFolderDone: (ok: number) => string;
+  uploadFolderPartial: (ok: number, failed: number, skipped: number) => string;
+  /** 上传中：转到后台继续（不中断队列） */
+  uploadBackground: string;
+  uploadBackgroundHint: string;
+  /** 状态栏徽标：云上传 24/460 */
+  uploadRunningBadge: (done: number, total: number) => string;
+  /** 图片附件同步规则说明（png/jpg/jpeg/gif/webp、≤20MB、仅相对路径） */
+  uploadAssetsTitle: string;
+  uploadAssetsRules: string;
+  /** 图片附件结果：已同步 X 张，失败 Y 张，跳过 Z 张 */
+  uploadAssetsSummary: (ok: number, failed: number, skipped: number) => string;
+  /** N 处图片引用未同步（跨目录 / 绝对路径 / 外链 / 格式不支持） */
+  uploadAssetsUnsupported: (count: number) => string;
+  /** 设置里关闭了图片附件同步 */
+  uploadAssetsDisabled: string;
+  /** 后台进行时上传完成的提示 */
+  uploadFinishedInBackground: string;
+  /** 已有上传任务进行中：N/M，已为你打开进度窗口 */
+  uploadFolderBusy: (done: number, total: number) => string;
 }
 
 interface StatusBarText {
   rowCol: (line: number, column: number) => string;
   lineCount: (lineCount: number) => string;
   autoSave: string;
+  /** 云端同步失败徽标（本地已保存、云端没落地，必须可见） */
+  cloudSyncFailedTitle: string;
+  cloudSyncRetry: string;
+  cloudSyncSaving: string;
   encoding: string;
   encodingTitle: string;
   encodingOptions: Record<EditorEncoding, string>;
@@ -473,6 +610,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '新建文件',
       keywords: ['新建', '新文件', '空白文件', 'new', 'untitled'],
     },
+    'file.newMindmap': {
+      title: '新建思维导图',
+      keywords: ['思维导图', '导图', '脑图', '新建导图', 'mindmap', 'mind map', 'taumap'],
+    },
     'file.open': {
       title: '打开文件',
       keywords: ['打开', '文件', '选择文件', 'open', 'file'],
@@ -573,6 +714,22 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '切换设置工作区',
       keywords: ['设置', '偏好', '配置', '工作区', 'settings', 'preferences', 'workspace'],
     },
+    'cloud.login': {
+      title: '登录 lizi 云账号',
+      keywords: ['登录', '账号', '云同步', '云文档', 'lizi', 'cloud', 'login', 'sign in'],
+    },
+    'cloud.logout': {
+      title: '退出 lizi 云账号',
+      keywords: ['退出', '登出', '注销', '云同步', 'lizi', 'cloud', 'logout', 'sign out'],
+    },
+    'cloud.syncNow': {
+      title: '同步当前文档到云端',
+      keywords: ['同步', '上传', '云文档', 'sync', 'upload', 'cloud'],
+    },
+    'cloud.browse': {
+      title: '浏览云端文档',
+      keywords: ['云文档', '浏览', '打开', '云端', 'cloud', 'browse', 'open'],
+    },
   },
   'en-US': {
     'commandPalette.open': {
@@ -582,6 +739,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'file.new': {
       title: 'New File',
       keywords: ['new', 'untitled', '新建', '新文件'],
+    },
+    'file.newMindmap': {
+      title: 'New Mind Map',
+      keywords: ['mindmap', 'mind map', 'mindmap', 'taumap', '思维导图', '导图'],
     },
     'file.open': {
       title: 'Open File',
@@ -682,6 +843,22 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'view.toggleSettings': {
       title: 'Toggle Settings Workspace',
       keywords: ['settings', 'preferences', 'workspace', '配置', '设置'],
+    },
+    'cloud.login': {
+      title: 'Sign In to lizi Cloud',
+      keywords: ['login', 'sign in', 'account', 'cloud', 'sync', '登录', '账号'],
+    },
+    'cloud.logout': {
+      title: 'Sign Out of lizi Cloud',
+      keywords: ['logout', 'sign out', 'account', 'cloud', '退出', '登出'],
+    },
+    'cloud.syncNow': {
+      title: 'Sync Current Document to Cloud',
+      keywords: ['sync', 'upload', 'cloud document', '同步', '上传'],
+    },
+    'cloud.browse': {
+      title: 'Browse Cloud Documents',
+      keywords: ['cloud', 'browse', 'open', 'document', '云文档', '浏览'],
     },
   },
 };
@@ -910,6 +1087,75 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     statusInstalling: '正在下载并启动安装程序，请稍候...',
     statusInstallTriggered: '安装程序已启动，请按系统提示完成安装。',
     statusErrorPrefix: '更新失败',
+    settingsCloudSync: '云同步',
+    cloudSyncDesc: '登录 lizi 账号后，可把当前 Markdown 文档手动同步到云端；凭据只保存在本机。',
+    cloudSyncServerUrl: '服务器地址',
+    cloudSyncUsername: '用户名',
+    cloudSyncPassword: '密码',
+    cloudSyncLogin: '登录',
+    cloudSyncLoggingIn: '登录中…',
+    cloudSyncLogout: '退出登录',
+    cloudSyncSignedOut: '已退出 lizi 云账号。',
+    cloudSyncSignedInAs: (username) => `已登录：${username}`,
+    cloudSyncLoginRequired: '请先在设置页登录 lizi 云账号。',
+    cloudSyncRegisterHint: '还没有账号？',
+    cloudSyncRegisterAction: '去注册',
+    cloudSyncQuotaLabel: '云端配额',
+    cloudSyncQuotaReading: '正在读取云端配额…',
+    cloudSyncQuotaFailed: (kind, message) => `配额不可用（${kind}）：${message}`,
+    cloudSyncSyncNow: '同步当前文档',
+    cloudSyncSyncing: '同步中…',
+    cloudSyncResultSynced: (version) => (version ? `同步成功，云端版本 v${version}。` : '同步成功。'),
+    cloudSyncResultConflict: '云端与本地都已修改，请先手动比对后再同步。',
+    cloudDocSaveConflictTitle: '云端保存冲突',
+    cloudDocSaveConflictBody: (message) =>
+      `云端已有更新的版本，自动保存已暂停${message ? `：${message}` : '。'}`,
+    cloudSyncResultFailed: (message) => `同步失败：${message}`,
+    cloudSyncResultSkipped: (reason) => `当前文档未同步：${reason}`,
+    cloudSyncAutoLabel: '自动同步',
+    cloudSyncAutoUnavailable: '自动同步仅在 Tau 桌面端且已登录时可用。',
+    cloudSyncDebounceLabel: '保存后延迟（秒）',
+    cloudSyncQueueEmpty: '同步队列为空。',
+    cloudSyncQueueStatus: (pending, failed) => `队列：待同步 ${pending} · 失败 ${failed}`,
+    cloudSyncRetryQueue: '重试失败项',
+    cloudSyncVersions: '版本历史',
+    cloudSyncVersionsLoading: '正在读取版本历史…',
+    cloudSyncVersionsEmpty: '暂无历史版本',
+    cloudSyncVersionLabel: (version) => `版本 v${version}`,
+    cloudSyncVersionRestore: '恢复',
+    cloudSyncVersionRestored: (version) => `已恢复到 v${version}，云端生成了新版本。`,
+    cloudSyncVersionHint: '恢复只会新增版本，不会删除任何历史。',
+    cloudSyncConflictTitle: '冲突处理',
+    cloudSyncConflictHint: '本地与云端都修改过该文档，请选择保留哪一份。',
+    cloudSyncKeepLocal: '用本地覆盖云端',
+    cloudSyncKeepRemote: '用云端覆盖本地',
+    cloudSyncKeepLocalDone: (version) => (version ? `已用本地内容覆盖云端（v${version}）。` : '已用本地内容覆盖云端。'),
+    cloudSyncKeepRemoteDone: (version) => (version ? `已用云端内容覆盖本地（v${version}）。` : '已用云端内容覆盖本地。'),
+    cloudSyncPull: '从云端拉取',
+    cloudSyncBrowse: '浏览云端文档',
+    cloudSyncImagesLabel: '同步文档内图片',
+    cloudSyncImagesHint: '同步/分享时自动上传 md 引用的相对图片（png/jpg/jpeg/gif/webp，单张 ≤20MB，计入云端配额）',
+    cloudSyncPulling: '拉取中…',
+    cloudSyncPullConfirmTitle: '确认覆盖未保存的修改',
+    cloudSyncPullConfirmHint: '当前文档有未保存的修改，用云端内容覆盖会丢弃这些修改。',
+    cloudSyncPullConfirmOk: '丢弃修改并覆盖',
+    cloudSyncPullConfirmCancel: '取消',
+    cloudSyncPullCancelled: '已取消覆盖，本地内容保持不变。',
+    cloudSyncMetaTitle: '文档属性',
+    cloudSyncMetaHint: '随保存同步上传',
+    cloudSyncMetaFirstSyncHint: 'No cloud version yet',
+    cloudSyncMetaLoading: '正在读取云端属性…',
+    cloudSyncMetaCategory: '分类',
+    cloudSyncMetaCategoryNone: '不分类',
+    cloudSyncMetaCategoryPlaceholder: '输入分类名称',
+    cloudSyncMetaCategoriesFailed: '分类列表加载失败，可手动输入分类名称。',
+    cloudSyncMetaTags: '标签',
+    cloudSyncMetaTagsPlaceholder: '用英文逗号分隔，例如：笔记, 云同步',
+    cloudSyncMetaVisibilityPublic: '公开（可在博客与小程序浏览）',
+    cloudSyncMetaVisibilityPrivate: '私有（仅自己可见）',
+    cloudSyncMetaSave: '保存并同步',
+    cloudSyncMetaSaving: '保存中…',
+    cloudSyncMetaSaved: (version) => (version ? `属性已保存并同步到云端（v${version}）。` : '属性已保存并同步到云端。'),
   },
   'en-US': {
     title: 'Settings',
@@ -1082,6 +1328,75 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     statusInstalling: 'Downloading installer and starting setup...',
     statusInstallTriggered: 'Installer launched. Please follow system prompts to finish installation.',
     statusErrorPrefix: 'Update failed',
+    settingsCloudSync: 'Cloud Sync',
+    cloudSyncDesc: 'Sign in to your lizi account to push the current Markdown document to the cloud. Credentials stay on this device.',
+    cloudSyncServerUrl: 'Server URL',
+    cloudSyncUsername: 'Username',
+    cloudSyncPassword: 'Password',
+    cloudSyncLogin: 'Sign In',
+    cloudSyncLoggingIn: 'Signing in…',
+    cloudSyncLogout: 'Sign Out',
+    cloudSyncSignedOut: 'Signed out of lizi Cloud.',
+    cloudSyncSignedInAs: (username) => `Signed in as ${username}`,
+    cloudSyncLoginRequired: 'Sign in to your lizi account in Settings first.',
+    cloudSyncRegisterHint: 'No account yet?',
+    cloudSyncRegisterAction: 'Sign up',
+    cloudSyncQuotaLabel: 'Cloud quota',
+    cloudSyncQuotaReading: 'Reading cloud quota…',
+    cloudSyncQuotaFailed: (kind, message) => `Quota unavailable (${kind}): ${message}`,
+    cloudSyncSyncNow: 'Sync Current Document',
+    cloudSyncSyncing: 'Syncing…',
+    cloudSyncResultSynced: (version) => (version ? `Synced. Cloud version v${version}.` : 'Synced to the cloud.'),
+    cloudSyncResultConflict: 'Both the cloud copy and the local file changed. Compare them before syncing again.',
+    cloudDocSaveConflictTitle: 'Cloud save conflict',
+    cloudDocSaveConflictBody: (message) =>
+      `A newer version exists in the cloud, so auto-save is paused${message ? `: ${message}` : '.'}`,
+    cloudSyncResultFailed: (message) => `Sync failed: ${message}`,
+    cloudSyncResultSkipped: (reason) => `Document not synced: ${reason}`,
+    cloudSyncAutoLabel: 'Auto sync',
+    cloudSyncAutoUnavailable: 'Auto sync is available in the Tau desktop app after signing in.',
+    cloudSyncDebounceLabel: 'Delay after save (seconds)',
+    cloudSyncQueueEmpty: 'Sync queue is empty.',
+    cloudSyncQueueStatus: (pending, failed) => `Queue: ${pending} pending · ${failed} failed`,
+    cloudSyncRetryQueue: 'Retry failed',
+    cloudSyncVersions: 'Version History',
+    cloudSyncVersionsLoading: 'Loading version history…',
+    cloudSyncVersionsEmpty: 'No version history yet',
+    cloudSyncVersionLabel: (version) => `Version v${version}`,
+    cloudSyncVersionRestore: 'Restore',
+    cloudSyncVersionRestored: (version) => `Restored v${version}. The cloud now has a new version.`,
+    cloudSyncVersionHint: 'Restoring only adds a new version; no history is removed.',
+    cloudSyncConflictTitle: 'Resolve Conflict',
+    cloudSyncConflictHint: 'Both the cloud copy and the local file changed. Choose which one to keep.',
+    cloudSyncKeepLocal: 'Overwrite Cloud with Local',
+    cloudSyncKeepRemote: 'Overwrite Local with Cloud',
+    cloudSyncKeepLocalDone: (version) => (version ? `Cloud overwritten with local content (v${version}).` : 'Cloud overwritten with local content.'),
+    cloudSyncKeepRemoteDone: (version) => (version ? `Local overwritten with cloud content (v${version}).` : 'Local overwritten with cloud content.'),
+    cloudSyncPull: 'Pull from Cloud',
+    cloudSyncBrowse: 'Browse Cloud Documents',
+    cloudSyncImagesLabel: 'Sync images in documents',
+    cloudSyncImagesHint: 'Upload relative images referenced by Markdown on sync/share (png/jpg/jpeg/gif/webp, 20MB each, counts toward quota)',
+    cloudSyncPulling: 'Pulling…',
+    cloudSyncPullConfirmTitle: 'Unsaved changes will be discarded',
+    cloudSyncPullConfirmHint: 'This document has unsaved changes. Overwriting it with the cloud copy discards them.',
+    cloudSyncPullConfirmOk: 'Discard and Overwrite',
+    cloudSyncPullConfirmCancel: 'Cancel',
+    cloudSyncPullCancelled: 'Overwrite cancelled. Local content kept.',
+    cloudSyncMetaTitle: 'Document Properties',
+    cloudSyncMetaHint: 'Uploaded on every save & sync',
+    cloudSyncMetaFirstSyncHint: 'No cloud version yet',
+    cloudSyncMetaLoading: 'Loading cloud properties…',
+    cloudSyncMetaCategory: 'Category',
+    cloudSyncMetaCategoryNone: 'No category',
+    cloudSyncMetaCategoryPlaceholder: 'Enter a category name',
+    cloudSyncMetaCategoriesFailed: 'Failed to load categories. You can type a category name instead.',
+    cloudSyncMetaTags: 'Tags',
+    cloudSyncMetaTagsPlaceholder: 'Separate with commas, e.g. notes, cloud-sync',
+    cloudSyncMetaVisibilityPublic: 'Public (visible on the blog and mini program)',
+    cloudSyncMetaVisibilityPrivate: 'Private (only visible to you)',
+    cloudSyncMetaSave: 'Save & Sync',
+    cloudSyncMetaSaving: 'Saving…',
+    cloudSyncMetaSaved: (version) => (version ? `Properties saved and synced to the cloud (v${version}).` : 'Properties saved and synced to the cloud.'),
   },
 };
 
@@ -1102,8 +1417,21 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     openFile: '打开文件',
     newFile: '新建文件',
     recentFolders: '最近打开的文件夹',
+    sidebarTabWorkspace: '工作区',
+    sidebarTabCloud: '云端文档',
     noRecentFolders: '暂无最近打开的文件夹',
     openRecentFolder: '打开此文件夹',
+    scratchWorkspaceClearedTitle: '临时工作区已被清理',
+    scratchWorkspaceClearedMessage: (path) => `上次的临时工作区（${path}）已不存在，可能是系统清理了临时目录。已回到未打开工作区状态，云文档可重新打开。`,
+    markdownImageCloudUploaded: '图片已插入并同步到云端',
+    markdownImageCloudUploadFailedTitle: '图片已插入，但云端同步失败',
+    markdownImageCloudUploadFailedHint: (reason) => `${reason}。图片已插入且本地可预览，可稍后使用「同步至云端」重试。`,
+    markdownImageCloudUploadSkippedTitle: '图片已插入（未上传云端）',
+    markdownImageCloudUploadSkippedHint: (reason) => `${reason}。可稍后使用「同步至云端」重试。`,
+    markdownImageCloudSkipUnsupported: '云端只支持 png/jpg/jpeg/gif/webp 图片',
+    markdownImageCloudSkipTooLarge: '图片超过云端单图 20 MiB 上限',
+    markdownImageCloudSkipInvalidPath: '图片相对路径不在文档目录内',
+    markdownImageCloudSkipMissingLocal: '无法确定图片的本地路径',
   },
   'en-US': {
     appLabel: 'Tau Editor',
@@ -1121,8 +1449,21 @@ const APP_TEXTS: Record<UiLanguage, AppText> = {
     openFile: 'Open File',
     newFile: 'New File',
     recentFolders: 'Recently opened folders',
+    sidebarTabWorkspace: 'Workspace',
+    sidebarTabCloud: 'Cloud Docs',
     noRecentFolders: 'No recently opened folders',
     openRecentFolder: 'Open this folder',
+    scratchWorkspaceClearedTitle: 'Temporary workspace was cleaned up',
+    scratchWorkspaceClearedMessage: (path) => `The temporary workspace (${path}) no longer exists — the system may have cleared the temp folder. You are back to "no workspace opened"; open the cloud document again to continue.`,
+    markdownImageCloudUploaded: 'Image inserted and synced to cloud',
+    markdownImageCloudUploadFailedTitle: 'Image inserted, but cloud upload failed',
+    markdownImageCloudUploadFailedHint: (reason) => `${reason}. The image is inserted and previews locally; retry later with "Sync to cloud".`,
+    markdownImageCloudUploadSkippedTitle: 'Image inserted (not uploaded to cloud)',
+    markdownImageCloudUploadSkippedHint: (reason) => `${reason}. You can retry later with "Sync to cloud".`,
+    markdownImageCloudSkipUnsupported: 'Cloud only supports png/jpg/jpeg/gif/webp images',
+    markdownImageCloudSkipTooLarge: 'Image exceeds the 20 MiB per-image cloud limit',
+    markdownImageCloudSkipInvalidPath: 'The image path is outside the document folder',
+    markdownImageCloudSkipMissingLocal: 'The local image path could not be resolved',
   },
 };
 
@@ -1251,15 +1592,47 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     emptyHint: '右键创建文件/文件夹，或点击右上角刷新',
     loading: '加载文件树...',
     newFile: '新建文件',
+    chooseFileType: '选择文件类型',
+    newFileCustom: '自定义格式…',
     newFolder: '新建文件夹',
     rename: '重命名',
     delete: '删除',
     compareWithCurrent: '与当前文件对比',
+    syncToCloud: '同步至云端',
+    syncToCloudHint: '把该文档上传/更新到 lizi 云端',
+    share: '一键分享',
+    shareAlready: '分享（已分享）',
+    shareHint: '同步到云端并生成分享链接',
+    alreadySynced: '已同步',
     fileDetails: '文件详情',
     locateCurrentFile: '定位当前文件',
     copyCurrentFilePath: '复制当前文件路径',
     revealCurrentFile: '在文件管理器中显示',
     currentFileUnavailable: '当前文件不在工作区',
+    uploadFolder: '上传该文件夹到云端',
+    uploadFolderHint: '递归同步该文件夹到 lizi 云端（以文件夹名作为分类）',
+    uploadFolderTitle: '上传文件夹到云端',
+    uploadFolderConfirm: (total, skipped) =>
+      skipped > 0
+        ? `将上传 ${total} 个文件，另有 ${skipped} 个文件会被跳过。是否继续？`
+        : `将上传 ${total} 个文件。是否继续？`,
+    uploadFolderCategoryHint: (categoryName) => `上传后归入云端分类「${categoryName}」（不存在会自动新建）`,
+    uploadFolderEmpty: '该文件夹没有可上传的文件',
+    uploadFolderLoginRequired: '请先登录 lizi 账号后再上传',
+    uploadFolderProgress: (done, total) => `正在上传 ${done}/${total}`,
+    uploadFolderDone: (ok) => `已上传 ${ok} 个文件到云端`,
+    uploadFolderPartial: (ok, failed, skipped) =>
+      `上传结束：成功 ${ok}，失败 ${failed}，跳过 ${skipped}`,
+    uploadBackground: '后台进行',
+    uploadBackgroundHint: '关闭窗口不会中断上传，可从底部状态栏查看进度',
+    uploadRunningBadge: (done, total) => `云上传 ${done}/${total}`,
+    uploadAssetsTitle: '图片附件',
+    uploadAssetsRules: 'Markdown 引用的图片会作为文档附件同步：png/jpg/jpeg/gif/webp，单张 ≤20MB，仅同目录或子目录相对路径',
+    uploadAssetsSummary: (ok, failed, skipped) => `图片附件：已同步 ${ok} 张，失败 ${failed} 张，跳过 ${skipped} 张`,
+    uploadAssetsUnsupported: (count) => `${count} 处图片引用未同步（跨目录、绝对路径、外链或格式不支持）`,
+    uploadAssetsDisabled: '设置中已关闭「同步 Markdown 图片附件」，本次不会上传图片',
+    uploadFinishedInBackground: '后台上传已完成',
+    uploadFolderBusy: (done, total) => `已有上传任务进行中（${done}/${total}），已为你打开进度窗口`,
   },
   'en-US': {
     workspace: 'Workspace',
@@ -1273,15 +1646,48 @@ const FILE_TREE_TEXTS: Record<UiLanguage, FileTreeText> = {
     emptyHint: 'Right-click to create files/folders, or click refresh above',
     loading: 'Loading file tree...',
     newFile: 'New File',
+    chooseFileType: 'Choose file type',
+    newFileCustom: 'Custom format…',
     newFolder: 'New Folder',
     rename: 'Rename',
     delete: 'Delete',
     compareWithCurrent: 'Compare with Current File',
+    syncToCloud: 'Sync to Cloud',
+    syncToCloudHint: 'Upload or update this document in lizi cloud',
+    share: 'Share',
+    shareAlready: 'Share (already shared)',
+    shareHint: 'Sync to cloud and create a share link',
+    alreadySynced: 'Synced',
     fileDetails: 'File Details',
     locateCurrentFile: 'Locate Current File',
     copyCurrentFilePath: 'Copy Current File Path',
     revealCurrentFile: 'Reveal in File Manager',
     currentFileUnavailable: 'Current file is not in the workspace',
+    uploadFolder: 'Upload this folder to cloud',
+    uploadFolderHint: 'Recursively sync this folder to lizi cloud (folder name becomes the category)',
+    uploadFolderTitle: 'Upload folder to cloud',
+    uploadFolderConfirm: (total, skipped) =>
+      skipped > 0
+        ? `${total} file(s) will be uploaded and ${skipped} skipped. Continue?`
+        : `${total} file(s) will be uploaded. Continue?`,
+    uploadFolderCategoryHint: (categoryName) =>
+      `Files will be grouped under cloud category "${categoryName}" (created when missing)`,
+    uploadFolderEmpty: 'No uploadable file in this folder',
+    uploadFolderLoginRequired: 'Sign in to your lizi account before uploading',
+    uploadFolderProgress: (done, total) => `Uploading ${done}/${total}`,
+    uploadFolderDone: (ok) => `${ok} file(s) uploaded to cloud`,
+    uploadFolderPartial: (ok, failed, skipped) =>
+      `Upload finished: ${ok} succeeded, ${failed} failed, ${skipped} skipped`,
+    uploadBackground: 'Run in background',
+    uploadBackgroundHint: 'Closing this window keeps the upload running; check progress from the status bar',
+    uploadRunningBadge: (done, total) => `Cloud upload ${done}/${total}`,
+    uploadAssetsTitle: 'Image attachments',
+    uploadAssetsRules: 'Images referenced by Markdown sync as document attachments: png/jpg/jpeg/gif/webp, max 20MB each, same or sub-directory relative paths only',
+    uploadAssetsSummary: (ok, failed, skipped) => `Images: ${ok} synced, ${failed} failed, ${skipped} skipped`,
+    uploadAssetsUnsupported: (count) => `${count} image reference(s) not synced (cross-directory, absolute path, external URL or unsupported format)`,
+    uploadAssetsDisabled: 'Image attachment sync is disabled in settings; no images will be uploaded',
+    uploadFinishedInBackground: 'Background upload finished',
+    uploadFolderBusy: (done, total) => `An upload is already running (${done}/${total}); opened its progress window`,
   },
 };
 
@@ -1290,6 +1696,9 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     rowCol: (line, column) => `行 ${line}, 列 ${column}`,
     lineCount: (lineCount) => `Ln ${lineCount}`,
     autoSave: '自动保存',
+    cloudSyncFailedTitle: '云端未同步',
+    cloudSyncRetry: '重试',
+    cloudSyncSaving: '云端同步中',
     encoding: '编码',
     encodingTitle: '文件编码',
     encodingOptions: {
@@ -1340,6 +1749,9 @@ const STATUS_BAR_TEXTS: Record<UiLanguage, StatusBarText> = {
     rowCol: (line, column) => `Ln ${line}, Col ${column}`,
     lineCount: (lineCount) => `Lines ${lineCount}`,
     autoSave: 'Auto Save',
+    cloudSyncFailedTitle: 'Cloud not synced',
+    cloudSyncRetry: 'Retry',
+    cloudSyncSaving: 'Syncing to cloud',
     encoding: 'Encoding',
     encodingTitle: 'File Encoding',
     encodingOptions: {
@@ -1599,4 +2011,1892 @@ export function getMarkdownPreviewI18n(locale: UiLanguage): MarkdownPreviewText 
 
 export function getEditorCoreI18n(locale: UiLanguage): EditorCoreText {
   return EDITOR_CORE_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 云端文档浏览器
+// ---------------------------------------------------------------------------
+interface CloudDocBrowserText {
+  title: string;
+  close: string;
+  searchPlaceholder: string;
+  search: string;
+  refresh: string;
+  loading: string;
+  retry: string;
+  empty: string;
+  emptySearch: string;
+  open: string;
+  count: (files: number, total: number) => string;
+  truncated: (shown: number, total: number) => string;
+  updatedAt: (value: string) => string;
+  version: (version: number) => string;
+  noContent: string;
+  openFailed: (message: string) => string;
+  workspaceRequired: string;
+  /** 云文档落位：静默打开已有工作区后的提示 */
+  landingSilentOpen: (workspaceName: string) => string;
+  /** 云文档落位：落到临时工作区后的提示 */
+  landingScratch: string;
+  /** 云文档落位：原工作区已不存在时的提示 */
+  landingStaleBinding: (path: string) => string;
+  loginHint: string;
+  loginAction: string;
+  emptyDetail: (total: number, received: number, pages: number) => string;
+  groupUncategorized: string;
+  groupCustom: string;
+  meError: (kind: string, message: string) => string;
+  confirmTitle: string;
+  confirmHint: (cloudPath: string) => string;
+  overwrite: string;
+  saveAs: string;
+  cancel: string;
+  cancelled: string;
+  saveAsDone: (path: string) => string;
+  /** 设计稿一「三栏工作台」外壳文案 */
+  shell: CloudDocBrowserShellText;
+}
+
+/**
+ * 云文档浏览弹窗「三栏工作台」外壳文案（设计稿一，SPEC §1.3）。
+ * 独立成组，避免与树/侧栏共用的 CloudDocBrowserText 顶层字段混淆。
+ */
+interface CloudDocBrowserShellText {
+  /** 左栏：工作空间（数据驱动：由云端路径 `tau/<workspace>/…` 派生，无后端空间实体） */
+  workspaceSection: string;
+  /** 首项固定「全部云端文档」 */
+  workspaceAll: string;
+  /** 一份文档都反查不出工作空间时的提示 */
+  workspaceNone: string;
+  /** 计数胶囊里的作用域提示 */
+  workspaceScope: (workspace: string) => string;
+  /** 左栏：目录树 */
+  treeSection: string;
+  collapseAll: string;
+  /** 左栏：标签 */
+  tagsSection: string;
+  noTags: string;
+  /** 左栏底栏 */
+  syncEngine: string;
+  syncReady: string;
+  storageSettings: string;
+  quotaUnknown: string;
+  capacity: (label: string) => string;
+  /** 每日签到入口（云端文档面板头部，避免只能进「设置 → 云同步」找） */
+  checkin: string;
+  checkinDone: string;
+  checkinGranted: (capacity: string) => string;
+  /** 标题栏 */
+  searchFull: string;
+  shortcut: string;
+  closeWindow: string;
+  refreshHint: string;
+  /** 中间栏 */
+  rootCrumb: string;
+  formatAll: (count: number) => string;
+  formatMarkdown: (count: number) => string;
+  formatWord: (count: number) => string;
+  formatCode: (count: number) => string;
+  viewList: string;
+  viewGrid: string;
+  currentDir: (path: string) => string;
+  selectedCount: (count: number) => string;
+  allSynced: string;
+  filterEmpty: string;
+  clearFilters: string;
+  /** 右栏检查器 */
+  badgeMarkdown: string;
+  badgeWord: string;
+  badgeCode: string;
+  badgeJson: string;
+  badgeImage: string;
+  badgeFile: string;
+  syncing: string;
+  creatorHash: (creator: string, hash: string) => string;
+  creatorSelf: string;
+  /** 检查器主按钮：与树的选择弹窗同一文案（「在编辑器中打开」） */
+  editInEditor: string;
+  downloadCopy: string;
+  shareLink: string;
+  desktopOnly: string;
+  snapshotTitle: string;
+  versionTitle: string;
+  versionCurrent: (version: number) => string;
+  versionInitial: string;
+  versionInitialHint: string;
+  versionSyncedHint: (version: number) => string;
+  historyAction: string;
+  noSelection: string;
+  noSelectionHint: string;
+}
+
+const CLOUD_DOC_BROWSER_TEXTS: Record<UiLanguage, CloudDocBrowserText> = {
+  'zh-CN': {
+    title: '云端文档',
+    close: '关闭',
+    searchPlaceholder: '搜索云端文档',
+    search: '搜索',
+    refresh: '刷新',
+    loading: '正在加载云端文档…',
+    retry: '重试',
+    empty: '云端还没有文档。',
+    emptySearch: '没有匹配的云端文档。',
+    open: '打开',
+    count: (files, total) => `共 ${files} 个文件 · 云端匹配 ${total} 条`,
+    truncated: (shown, total) => `仅显示前 ${shown} 条（云端共 ${total} 条）`,
+    updatedAt: (value) => `更新 ${value}`,
+    version: (version) => `v${version}`,
+    noContent: '云端文档没有可下载的文本内容',
+    openFailed: (message) => `打开失败：${message}`,
+    workspaceRequired: '请先打开一个工作区，云文档需要落到工作区里。',
+    landingSilentOpen: (workspaceName) => `已自动打开工作区「${workspaceName}」。`,
+    landingScratch: '未找到原工作区，已在临时工作区中打开，仍可正常保存回云端。',
+    landingStaleBinding: (path) => `原工作区已不存在（${path}），已在临时工作区中打开。`,
+    loginHint: '登录 lizi 账号后，可在左侧直接浏览云端文档。',
+    loginAction: '去登录',
+    emptyDetail: (total, received, pages) => `诊断：服务端 total=${total}，实际拉到 ${received} 条，共请求 ${pages} 页。`,
+    groupUncategorized: '未分类',
+    groupCustom: '自定义分类',
+    meError: (kind, message) => `配额接口异常（${kind}）：${message}`,
+    confirmTitle: '本地已有同名文件',
+    confirmHint: (cloudPath) => `${cloudPath} 在本地已存在且内容与云端不同，请选择如何处理。`,
+    overwrite: '覆盖本地',
+    saveAs: '另存为…',
+    cancel: '取消',
+    cancelled: '已取消打开，本地文件未改动。',
+    saveAsDone: (path) => `已另存为 ${path}`,
+    shell: {
+      workspaceSection: '工作空间',
+      workspaceAll: '全部云端文档',
+      workspaceNone: '暂无工作空间',
+      workspaceScope: (workspace) => `工作空间 ${workspace}`,
+      treeSection: '文件目录树',
+      collapseAll: '全部折叠',
+      tagsSection: '标签筛选',
+      noTags: '暂无标签',
+      syncEngine: 'Tau Sync Engine',
+      syncReady: '双向同步就绪',
+      storageSettings: '存储设置',
+      quotaUnknown: '配额待同步',
+      capacity: (label) => `已用容量 ${label}`,
+      checkin: '每日签到',
+      checkinDone: '今日已签到',
+      checkinGranted: (capacity) => (capacity ? `签到成功：+${capacity} 临时容量` : '签到成功'),
+      searchFull: '搜索云端文档与全文…',
+      shortcut: '⌘K',
+      closeWindow: '关闭窗口 (Esc)',
+      refreshHint: '刷新云端数据',
+      rootCrumb: '云端根目录',
+      formatAll: (count) => `全部 (${count})`,
+      formatMarkdown: (count) => `Markdown (${count})`,
+      formatWord: (count) => `Word (${count})`,
+      formatCode: (count) => `代码脚本 (${count})`,
+      viewList: '详细列表视图',
+      viewGrid: '磁贴卡片视图',
+      currentDir: (path) => `当前目录: ${path}`,
+      selectedCount: (count) => `已选定 ${count} 个项目`,
+      allSynced: '所有变更均已安全同步至云端集群',
+      filterEmpty: '当前筛选条件下没有文档。',
+      clearFilters: '清除筛选',
+      badgeMarkdown: 'Markdown 文档',
+      badgeWord: 'Word 文档',
+      badgeCode: '代码脚本',
+      badgeJson: 'JSON 配置',
+      badgeImage: '图片资源',
+      badgeFile: '云端文件',
+      syncing: '云端同步中',
+      creatorHash: (creator, hash) => `创建者: ${creator} · SHA-256: ${hash}`,
+      creatorSelf: '本地工作台',
+      editInEditor: '在编辑器中打开',
+      downloadCopy: '下载副本',
+      shareLink: '分享链接',
+      desktopOnly: '该操作需在 Tau 桌面端使用。',
+      snapshotTitle: '实时快照摘要',
+      versionTitle: '版本记录 (Version History)',
+      versionCurrent: (version) => `v${version} · 当前生效`,
+      versionInitial: 'v1 · 初始创建',
+      versionInitialHint: '从本地工作台初始化同步至云端',
+      versionSyncedHint: (version) => `云端最新版本 v${version}`,
+      historyAction: '查看全部版本',
+      noSelection: '未选择文档',
+      noSelectionHint: '在左侧目录树或中间列表选择一份云端文档，这里会显示它的快照与版本记录。',
+    },
+  },
+  'en-US': {
+    title: 'Cloud Documents',
+    close: 'Close',
+    searchPlaceholder: 'Search cloud documents',
+    search: 'Search',
+    refresh: 'Refresh',
+    loading: 'Loading cloud documents…',
+    retry: 'Retry',
+    empty: 'No cloud documents yet.',
+    emptySearch: 'No cloud documents match the search.',
+    open: 'Open',
+    count: (files, total) => `${files} files · ${total} matched in cloud`,
+    truncated: (shown, total) => `Showing the first ${shown} of ${total} documents`,
+    updatedAt: (value) => `Updated ${value}`,
+    version: (version) => `v${version}`,
+    noContent: 'The cloud document has no downloadable text content',
+    openFailed: (message) => `Failed to open: ${message}`,
+    workspaceRequired: 'Open a workspace first — cloud documents are written into it.',
+    landingSilentOpen: (workspaceName) => `Opened workspace "${workspaceName}" automatically.`,
+    landingScratch: 'Original workspace not found — opened in a temporary workspace. Saving to the cloud still works.',
+    landingStaleBinding: (path) => `The original workspace is gone (${path}) — opened in a temporary workspace.`,
+    loginHint: 'Sign in to lizi to browse cloud documents in the sidebar.',
+    loginAction: 'Sign in',
+    emptyDetail: (total, received, pages) => `Diagnostics: server total=${total}, fetched ${received} records in ${pages} page(s).`,
+    groupUncategorized: 'Uncategorized',
+    groupCustom: 'Custom categories',
+    meError: (kind, message) => `Space API error (${kind}): ${message}`,
+    confirmTitle: 'A local file already exists',
+    confirmHint: (cloudPath) => `${cloudPath} exists locally with different content. Choose how to proceed.`,
+    overwrite: 'Overwrite local',
+    saveAs: 'Save as…',
+    cancel: 'Cancel',
+    cancelled: 'Open cancelled. Local file untouched.',
+    saveAsDone: (path) => `Saved as ${path}`,
+    shell: {
+      workspaceSection: 'Workspaces',
+      workspaceAll: 'All cloud documents',
+      workspaceNone: 'No workspaces yet',
+      workspaceScope: (workspace) => `workspace ${workspace}`,
+      treeSection: 'File tree',
+      collapseAll: 'Collapse all',
+      tagsSection: 'Filter by tag',
+      noTags: 'No tags yet',
+      syncEngine: 'Tau Sync Engine',
+      syncReady: 'Two-way sync ready',
+      storageSettings: 'Storage settings',
+      quotaUnknown: 'Quota pending',
+      capacity: (label) => `Used ${label}`,
+      checkin: 'Daily check-in',
+      checkinDone: 'Checked in today',
+      checkinGranted: (capacity) => (capacity ? `Checked in: +${capacity} temporary space` : 'Checked in'),
+      searchFull: 'Search cloud documents and full text…',
+      shortcut: '⌘K',
+      closeWindow: 'Close window (Esc)',
+      refreshHint: 'Refresh cloud data',
+      rootCrumb: 'Cloud root',
+      formatAll: (count) => `All (${count})`,
+      formatMarkdown: (count) => `Markdown (${count})`,
+      formatWord: (count) => `Word (${count})`,
+      formatCode: (count) => `Scripts (${count})`,
+      viewList: 'Detailed list view',
+      viewGrid: 'Tile card view',
+      currentDir: (path) => `Current: ${path}`,
+      selectedCount: (count) => `${count} selected`,
+      allSynced: 'All changes safely synced to the cloud cluster',
+      filterEmpty: 'No documents match the current filters.',
+      clearFilters: 'Clear filters',
+      badgeMarkdown: 'Markdown doc',
+      badgeWord: 'Word doc',
+      badgeCode: 'Script',
+      badgeJson: 'JSON config',
+      badgeImage: 'Image',
+      badgeFile: 'Cloud file',
+      syncing: 'Syncing to cloud',
+      creatorHash: (creator, hash) => `Creator: ${creator} · SHA-256: ${hash}`,
+      creatorSelf: 'Local workbench',
+      editInEditor: 'Open for editing',
+      downloadCopy: 'Download copy',
+      shareLink: 'Share link',
+      desktopOnly: 'This action is available in the Tau desktop app.',
+      snapshotTitle: 'Live snapshot',
+      versionTitle: 'Version History',
+      versionCurrent: (version) => `v${version} · current`,
+      versionInitial: 'v1 · initial',
+      versionInitialHint: 'Initialized from the local workbench to the cloud',
+      versionSyncedHint: (version) => `Latest cloud revision v${version}`,
+      historyAction: 'View all versions',
+      noSelection: 'No document selected',
+      noSelectionHint: 'Pick a cloud document from the tree or the list to see its snapshot and version history here.',
+    },
+  },
+};
+
+export function getCloudDocBrowserI18n(locale: UiLanguage): CloudDocBrowserText {
+  return CLOUD_DOC_BROWSER_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 右键「同步至云端」弹窗
+// ---------------------------------------------------------------------------
+interface CloudDocSyncText {
+  title: string;
+  categoryLabel: string;
+  searchPlaceholder: string;
+  categoriesLoading: string;
+  categoriesFailed: string;
+  noCategories: string;
+  none: string;
+  newCategoryLabel: string;
+  newCategoryPlaceholder: string;
+  newCategoryHint: string;
+  conflictTitle: string;
+  conflictHint: string;
+  /** 只有云端变了（本地没动）：出口是「拉取云端」，不是「覆盖云端」 */
+  remoteAheadTitle: string;
+  remoteAheadHint: string;
+  pullRemote: string;
+  pullRemoteDone: string;
+  overwrite: string;
+  confirm: string;
+  cancel: string;
+  syncing: string;
+  alreadySynced: string;
+  assetsFailed: (count: number) => string;
+  assetsSummary: (total: number, uploaded: number, unchanged: number) => string;
+  assetsSkipped: (count: number) => string;
+  expandDetails: string;
+  collapseDetails: string;
+  failed: (message: string) => string;
+}
+
+const CLOUD_DOC_SYNC_TEXTS: Record<UiLanguage, CloudDocSyncText> = {
+  'zh-CN': {
+    title: '同步至云端',
+    categoryLabel: '分类',
+    searchPlaceholder: '搜索分类',
+    categoriesLoading: '正在读取分类…',
+    categoriesFailed: '分类列表加载失败，可直接输入新分类名称。',
+    noCategories: '云端还没有分类，可直接输入新分类名称。',
+    none: '不分类',
+    newCategoryLabel: '新建分类',
+    newCategoryPlaceholder: '输入新分类名称',
+    newCategoryHint: '选已有分类会清空这里；填了名称则按新分类上传（只作用于本文档）。支持「后端/Java/Spring」一次建多级。',
+    conflictTitle: '云端已有该文档',
+    conflictHint: '本地与云端都改过，继续将用本地内容覆盖云端。',
+    remoteAheadTitle: '云端版本更新',
+    remoteAheadHint: '本地没有改动、云端有新版本。拉取云端不会覆盖云端内容，也可以取消后自行处理。',
+    pullRemote: '拉取云端',
+    pullRemoteDone: '已拉取云端最新版本到本地',
+    overwrite: '覆盖云端',
+    confirm: '确定同步',
+    cancel: '取消',
+    syncing: '同步中…',
+    alreadySynced: '已是同步状态，无需重复上传',
+    failed: (message) => `同步失败：${message}`,
+    assetsFailed: (count) => `${count} 张图片失败`,
+    assetsSummary: (total, uploaded, unchanged) => `图片 ${total} 张：已上传 ${uploaded}，无变化 ${unchanged}`,
+    assetsSkipped: (count) => `${count} 张图片被跳过`,
+    expandDetails: '展开原因',
+    collapseDetails: '收起',
+  },
+  'en-US': {
+    title: 'Sync to Cloud',
+    categoryLabel: 'Category',
+    searchPlaceholder: 'Search categories',
+    categoriesLoading: 'Loading categories…',
+    categoriesFailed: 'Failed to load categories — type a new category name instead.',
+    noCategories: 'No cloud categories yet — type a new category name.',
+    none: 'No category',
+    newCategoryLabel: 'New category',
+    newCategoryPlaceholder: 'Type a new category name',
+    newCategoryHint: 'Picking an existing category clears this field; a typed name is uploaded only for this document. Use A/B/C to create multiple levels at once.',
+    conflictTitle: 'The cloud copy already exists',
+    conflictHint: 'Both local and cloud changed. Continuing overwrites the cloud copy with local content.',
+    remoteAheadTitle: 'Cloud has a newer version',
+    remoteAheadHint: 'You made no local changes but the cloud copy is newer. Pulling the cloud version never overwrites the cloud, and you can cancel instead.',
+    pullRemote: 'Pull from cloud',
+    pullRemoteDone: 'Pulled the latest cloud version into local',
+    overwrite: 'Overwrite cloud',
+    confirm: 'Sync',
+    cancel: 'Cancel',
+    syncing: 'Syncing…',
+    alreadySynced: 'Already in sync — nothing to upload',
+    failed: (message) => `Sync failed: ${message}`,
+    assetsFailed: (count) => `${count} image(s) failed`,
+    assetsSummary: (total, uploaded, unchanged) => `${total} images: uploaded ${uploaded}, unchanged ${unchanged}`,
+    assetsSkipped: (count) => `${count} image(s) skipped`,
+    expandDetails: 'Show reasons',
+    collapseDetails: 'Hide',
+  },
+};
+
+export function getCloudDocSyncI18n(locale: UiLanguage): CloudDocSyncText {
+  return CLOUD_DOC_SYNC_TEXTS[normalizeUiLanguage(locale)];
+}
+// ---------------------------------------------------------------------------
+// 一键分享
+// ---------------------------------------------------------------------------
+interface CloudShareText {
+  title: string;
+  linkLabel: string;
+  copy: string;
+  open: string;
+  regenerate: string;
+  revoke: string;
+  revoked: string;
+  copied: string;
+  copyManually: string;
+  visits: string;
+  createdAt: string;
+  expiresAt: string;
+  permanent: string;
+  passwordLabel: string;
+  passwordPlaceholder: string;
+  passwordState: string;
+  passwordOn: string;
+  clearPasswordLabel: string;
+  expiryLabel: string;
+  expiryPermanent: string;
+  expiryDays: (days: number) => string;
+  customDaysHint: string;
+  expiryCustom: string;
+  generate: string;
+  working: string;
+  syncing: string;
+  conflictTitle: string;
+  conflictHint: string;
+  overwrite: string;
+  cancel: string;
+  close: string;
+  noCloudFile: string;
+  baseUrlMissing: string;
+  fileTypeLabel: string;
+  kindMarkdown: string;
+  kindCode: string;
+  kindText: string;
+  kindImage: string;
+  kindPdf: string;
+  kindOffice: string;
+  kindOther: string;
+  relativeImagesHint: string;
+  autoSynced: (version?: number) => string;
+  imagesStatus: (total: number, synced: number) => string;
+  imagesUnsynced: (pending: number) => string;
+  imagesSyncDisabled: string;
+    expandDetails: '展开原因',
+    collapseDetails: '收起',
+  binaryPreviewOnly: string;
+  binarySizeLabel: string;
+  binaryAlreadySynced: string;
+  defaultCategoryFallback: string;
+  failed: (message: string) => string;
+  syncFailed: (message: string) => string;
+}
+
+const CLOUD_SHARE_TEXTS: Record<UiLanguage, CloudShareText> = {
+  'zh-CN': {
+    title: '一键分享',
+    linkLabel: '分享链接',
+    copy: '复制',
+    open: '打开',
+    regenerate: '重新生成',
+    revoke: '撤销分享',
+    revoked: '已撤销分享，旧链接已失效。',
+    copied: '链接已复制到剪贴板。',
+    copyManually: '自动复制失败，请手动复制上面的链接。',
+    visits: '访问次数',
+    createdAt: '创建时间',
+    expiresAt: '有效期至',
+    permanent: '永久有效',
+    passwordLabel: '访问密码',
+    passwordPlaceholder: '留空表示无密码',
+    passwordState: '访问密码',
+    passwordOn: '已设置',
+    clearPasswordLabel: '重新生成时移除访问密码',
+    expiryLabel: '有效期',
+    expiryPermanent: '永久',
+    expiryDays: (days) => `${days} 天`,
+    customDaysHint: '自定义天数',
+    expiryCustom: '自定义',
+    generate: '生成链接',
+    working: '处理中…',
+    syncing: '正在同步到云端…',
+    conflictTitle: '云端已有该文档',
+    conflictHint: '云端内容与本地不同，继续将用本地内容覆盖云端后再分享。',
+    overwrite: '覆盖云端并继续',
+    cancel: '取消',
+    close: '关闭',
+    noCloudFile: '还没有云端文档，无法生成分享链接。',
+    baseUrlMissing: '分享域名未配置：请到后台配置 SHARE_BASE_URL（仍可生成，但不会复制出错误链接）。',
+    fileTypeLabel: '文件类型',
+    kindMarkdown: 'Markdown 文档',
+    kindCode: '代码',
+    kindText: '纯文本',
+    kindImage: '图片',
+    kindPdf: 'PDF',
+    kindOffice: 'Office 文档',
+    kindOther: '其他文件',
+    relativeImagesHint: '文中含相对路径图片：图片暂不随文档同步，分享页会显示「图片未同步」占位。',
+    autoSynced: (version) => (version ? `已自动同步到云端（v${version}）` : '已自动同步到云端'),
+    imagesStatus: (total, synced) => `图片 ${total} 张，已同步 ${synced} 张`,
+    imagesUnsynced: (pending) => `有 ${pending} 张图片未同步，分享页会显示占位`,
+    imagesSyncDisabled: '「同步文档内图片」已关闭，文中图片不会同步',
+    expandDetails: '展开原因',
+    collapseDetails: '收起',
+    binaryPreviewOnly: '仅在线预览，不提供下载',
+    binarySizeLabel: '大小',
+    binaryAlreadySynced: '云端已有该文件，直接复用（V1 不支持覆盖更新）',
+    defaultCategoryFallback: '分享',
+    failed: (message) => `操作失败：${message}`,
+    syncFailed: (message) => `同步失败：${message}`,
+  },
+  'en-US': {
+    title: 'Share',
+    linkLabel: 'Share link',
+    copy: 'Copy',
+    open: 'Open',
+    regenerate: 'Regenerate',
+    revoke: 'Revoke',
+    revoked: 'Share revoked — the old link no longer works.',
+    copied: 'Link copied to clipboard.',
+    copyManually: 'Auto-copy failed — please copy the link manually.',
+    visits: 'Visits',
+    createdAt: 'Created',
+    expiresAt: 'Expires',
+    permanent: 'Never expires',
+    passwordLabel: 'Access password',
+    passwordPlaceholder: 'Leave empty for no password',
+    passwordState: 'Password',
+    passwordOn: 'Enabled',
+    clearPasswordLabel: 'Remove the access password when regenerating',
+    expiryLabel: 'Expiry',
+    expiryPermanent: 'Permanent',
+    expiryDays: (days) => `${days} day${days === 1 ? '' : 's'}`,
+    customDaysHint: 'custom days',
+    expiryCustom: 'Custom',
+    generate: 'Generate link',
+    working: 'Working…',
+    syncing: 'Syncing to cloud…',
+    conflictTitle: 'The cloud copy already exists',
+    conflictHint: 'Cloud content differs. Continuing overwrites the cloud copy before sharing.',
+    overwrite: 'Overwrite and continue',
+    cancel: 'Cancel',
+    close: 'Close',
+    noCloudFile: 'No cloud document yet — cannot create a share link.',
+    baseUrlMissing: 'Share domain is not configured — set SHARE_BASE_URL in the admin backend (you can still generate, but no link will be copied).',
+    fileTypeLabel: 'File type',
+    kindMarkdown: 'Markdown',
+    kindCode: 'Code',
+    kindText: 'Plain text',
+    kindImage: 'Image',
+    kindPdf: 'PDF',
+    kindOffice: 'Office document',
+    kindOther: 'Other file',
+    relativeImagesHint: 'This document references relative images: they are not synced yet, so the share page shows an “image not synced” placeholder.',
+    autoSynced: (version) => (version ? `Synced to cloud automatically (v${version})` : 'Synced to cloud automatically'),
+    imagesStatus: (total, synced) => `${synced} of ${total} images synced`,
+    imagesUnsynced: (pending) => `${pending} image(s) not synced - the share page shows placeholders`,
+    imagesSyncDisabled: 'Image sync is off - images in this document are not synced',
+    expandDetails: '展开原因',
+    collapseDetails: '收起',
+    binaryPreviewOnly: 'Online preview only - download is not provided',
+    binarySizeLabel: 'Size',
+    binaryAlreadySynced: 'Already in cloud - reused (no overwrite in V1)',
+    defaultCategoryFallback: 'Shared',
+    failed: (message) => `Failed: ${message}`,
+    syncFailed: (message) => `Sync failed: ${message}`,
+  },
+};
+
+export function getCloudShareI18n(locale: UiLanguage): CloudShareText {
+  return CLOUD_SHARE_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 云端文档面板：版本历史 / 属性 / 右键菜单 / 分类管理
+// ---------------------------------------------------------------------------
+interface CloudDocPanelText {
+  historyTitle: (fileName: string) => string;
+  historyEmpty: string;
+  historyLoading: string;
+  versionLabel: (version: number) => string;
+  currentVersion: string;
+  restore: string;
+  restoreDone: (version: number) => string;
+  timeLabel: string;
+  sizeLabel: string;
+  remarkLabel: string;
+
+  propsTitle: string;
+  fileNameLabel: string;
+  pathLabel: string;
+  categoryLabel: string;
+  tagsLabel: string;
+  visibilityLabel: string;
+  visibilityPrivate: string;
+  visibilityPublic: string;
+  currentVersionLabel: string;
+  createdAtLabel: string;
+  updatedAtLabel: string;
+  sharedLabel: string;
+  sharedYes: string;
+  sharedNo: string;
+  save: string;
+  saving: string;
+  saved: string;
+  nothingChanged: string;
+  loadFailed: (message: string) => string;
+
+  menuOpen: string;
+  menuSync: string;
+  menuShare: string;
+  menuProperties: string;
+  menuHistory: string;
+  menuMoveTo: string;
+  menuDelete: string;
+  /** 右键菜单头部标题（设计稿三：云端文档快捷操作） */
+  menuHeader: string;
+  /** 表格模式（设计稿一）列头 */
+  colName: string;
+  colSize: string;
+  colVersion: string;
+  colUpdatedAt: string;
+  colActions: string;
+  /** 表格模式行尾按钮：在编辑器中载入 */
+  loadInEditor: string;
+  /** 资源管理器「云端文档」分区头标题（设计稿三：云端文档库） */
+  libraryTitle: string;
+  /** 分区头文件计数胶囊：6 项文件 */
+  fileCountPill: (count: number) => string;
+  moveRoot: string;
+  deleteConfirm: string;
+  deleteDone: string;
+  moveDone: string;
+  moveFailed: (message: string) => string;
+  deleteFailed: (message: string) => string;
+  syncUnsupported: string;
+
+  newCategory: string;
+  newSubCategory: string;
+  renameCategory: string;
+  deleteCategory: string;
+  deleteCategoryConfirm: string;
+  deleteCategoryDone: string;
+  moveToCustomUnsupported: string;
+  categoryNamePlaceholder: string;
+  maxDepthReached: string;
+  createDone: string;
+  renameDone: string;
+  /** 聚合分组（来自文档分类文本，非真实分类）不支持重命名 */
+  renameUnsupported: string;
+  /** 聚合分组重命名时部分文档迁移失败 */
+  renamePartial: (failed: number) => string;
+  /** 分类右键：在云端新建空文档并打开（R1） */
+  menuNewFile: string;
+  /** 分类右键「新建文件」的二级菜单标题（UX-3A） */
+  chooseFileType: string;
+  /** 二级菜单末尾的「自定义格式…」项（UX-3A custom） */
+  newFileCustom: string;
+  /** 卡片里展示「将创建的类型（含扩展名）」 */
+  newFileTypeHint: (typeName: string, extension: string) => string;
+  /** 自定义格式：扩展名输入框的标题 */
+  customExtensionLabel: string;
+  /** 自定义格式：扩展名输入框占位 */
+  customExtensionPlaceholder: string;
+  /** 自定义格式：扩展名非法时的提示 */
+  customExtensionInvalid: string;
+  /** 自定义格式：卡片类型提示（无扩展名时提示先输入） */
+  customTypeHint: (extension: string) => string;
+  newFileHint: string;
+  newFilePlaceholder: string;
+  newFileDone: (fileName: string) => string;
+  newFileFailed: (message: string) => string;
+  newFileInvalid: string;
+  newFileDuplicate: string;
+  /** 没有真实分类 id 的聚合分组不能新建文件 */
+  newFileUnsupported: string;
+  /** 分类右键：一键分享文件夹（生成 /s/f/{token} 公共目录页） */
+  menuShareFolder: string;
+  folderShareTitle: string;
+  folderShareHint: string;
+  folderShareCreating: string;
+  folderShareLinkLabel: string;
+  folderShareCopy: string;
+  folderShareCopied: string;
+  folderShareRegenerate: string;
+  folderShareRevoke: string;
+  folderShareRevoked: string;
+  folderSharePasswordLabel: string;
+  folderShareExpiresLabel: string;
+  folderShareIncludeSub: string;
+  folderShareDocs: (count: number) => string;
+  folderShareHasPassword: string;
+  folderShareNoPassword: string;
+  folderShareDone: string;
+  folderShareFailed: (message: string) => string;
+  folderShareUnsupported: string;
+  /** 分类右键：批量上传本地文件（R2） */
+  menuUploadFiles: string;
+  uploadDialogTitle: string;
+  uploadDialogTarget: (categoryName: string) => string;
+  uploadPickHint: string;
+  uploadProgress: (done: number, total: number) => string;
+  uploadSummary: (ok: number, skipped: number, failed: number) => string;
+  uploadEmpty: string;
+  uploadAlreadyExists: string;
+  uploadAborted: string;
+  /** 用户主动点「中止上传」时的文案（与配额/登录失效区分） */
+  uploadCancelled: string;
+  uploadTooMany: (max: number) => string;
+  uploadCancel: string;
+  uploadClose: string;
+  uploadReasonUnsupported: string;
+  uploadReasonTooLarge: string;
+  uploadStatusPending: string;
+  uploadStatusUploading: string;
+  uploadStatusDone: string;
+  uploadStatusSkipped: string;
+  uploadStatusFailed: string;
+  confirm: string;
+  cancel: string;
+  close: string;
+  choiceTitle: string;
+  choiceHint: string;
+  choiceSaveAs: string;
+  /** 选择题主按钮：在编辑器中打开（替代已移除的只读预览） */
+  editInEditor: string;
+  previewUnsupported: string;
+  saveAsDone: (path: string) => string;
+  saveAsFailed: (message: string) => string;
+}
+
+const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
+  'zh-CN': {
+    historyTitle: (fileName) => `《${fileName}》的历史版本`,
+    historyEmpty: '暂无历史版本',
+    historyLoading: '正在读取历史版本…',
+    versionLabel: (version) => `版本 v${version}`,
+    currentVersion: '当前版本',
+    restore: '恢复到此版本',
+    restoreDone: (version) => `已恢复到 v${version}`,
+    timeLabel: '时间',
+    sizeLabel: '大小',
+    remarkLabel: '说明',
+
+    propsTitle: '文档属性',
+    fileNameLabel: '文件名',
+    pathLabel: '路径',
+    categoryLabel: '分类',
+    tagsLabel: '标签',
+    visibilityLabel: '可见性',
+    visibilityPrivate: '私有（仅自己可见）',
+    visibilityPublic: '公开（可被博客浏览）',
+    currentVersionLabel: '当前版本',
+    createdAtLabel: '创建时间',
+    updatedAtLabel: '更新时间',
+    sharedLabel: '分享状态',
+    sharedYes: '已分享',
+    sharedNo: '未分享',
+    save: '保存',
+    saving: '保存中…',
+    saved: '已保存',
+    nothingChanged: '没有改动',
+    loadFailed: (message) => `读取失败：${message}`,
+
+    menuOpen: '打开',
+    menuSync: '同步至云端',
+    menuShare: '一键分享',
+    menuProperties: '属性',
+    menuHistory: '历史版本',
+    menuMoveTo: '移动到…',
+    menuDelete: '删除云端文档',
+    menuHeader: '云端文档快捷操作',
+    colName: '文件名称',
+    colSize: '大小',
+    colVersion: '版本',
+    colUpdatedAt: '云端更新时间',
+    colActions: '操作',
+    loadInEditor: '在编辑器中载入',
+    libraryTitle: '云端文档库',
+    fileCountPill: (count) => `${count} 项文件`,
+    moveRoot: '未分类',
+    deleteConfirm: '确定删除这个云端文档吗？删除后不可恢复。',
+    deleteDone: '已删除云端文档',
+    moveDone: '已移动分类',
+    moveFailed: (message) => `移动失败：${message}`,
+    deleteFailed: (message) => `删除失败：${message}`,
+    syncUnsupported: '当前文档不支持云同步',
+
+    newCategory: '新建分类',
+    newSubCategory: '新建子分类',
+    renameCategory: '重命名',
+    deleteCategory: '删除分类',
+    deleteCategoryConfirm: '删除后该分类下的文档会变为未分类，确定删除吗？',
+    deleteCategoryDone: '已删除分类',
+    moveToCustomUnsupported: '该分组来自文档分类文本，暂不支持把文档移入',
+    categoryNamePlaceholder: '输入分类名称（可用 后端/Java 建多级）',
+    maxDepthReached: '分类最多三级，不能继续新建子分类',
+    createDone: '已新建分类',
+    renameDone: '已重命名分类',
+    renameUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接重命名',
+    renamePartial: (failed) => `已重命名分类，但有 ${failed} 篇文档未能迁移，请稍后重试`,
+    menuNewFile: '新建文件',
+    chooseFileType: '选择文件类型',
+    newFileCustom: '自定义格式…',
+    newFileTypeHint: (typeName, extension) => `将创建 ${typeName}（.${extension}），并直接在编辑器中打开`,
+    customExtensionLabel: '扩展名',
+    customExtensionPlaceholder: '不含点，例如 doc / yaml / html',
+    customExtensionInvalid: '扩展名不可用：只能包含字母、数字、-、_、.，长度 1–20，且不能含路径分隔符',
+    customTypeHint: (extension) => (extension
+      ? `将创建 自定义格式（.${extension}），并直接在编辑器中打开`
+      : '请先输入扩展名（1–20 个字母/数字/-/_/.）'),
+    newFileHint: '在云端新建一篇空文档，并直接在编辑器中打开',
+    newFilePlaceholder: '输入文件名，例如 接口设计.md',
+    newFileDone: (fileName) => `已新建并打开：${fileName}`,
+    newFileFailed: (message) => `新建失败：${message}`,
+    newFileInvalid: '文件名不能为空，且不能包含 / \\ : * ? " < > | 或 ..',
+    newFileDuplicate: '云端已存在同名文档，请换一个名字',
+    newFileUnsupported: '该分组来自文档的分类文本，没有独立分类记录，无法直接新建文件',
+    menuShareFolder: '一键分享文件夹',
+    folderShareTitle: '分享文件夹',
+    folderShareHint: '生成一个链接，外部打开即可浏览该分类下的文档目录并在线阅读',
+    folderShareCreating: '正在生成分享链接…',
+    folderShareLinkLabel: '分享链接',
+    folderShareCopy: '复制链接',
+    folderShareCopied: '链接已复制',
+    folderShareRegenerate: '重新生成',
+    folderShareRevoke: '撤销分享',
+    folderShareRevoked: '已撤销文件夹分享',
+    folderSharePasswordLabel: '访问密码（可选）',
+    folderShareExpiresLabel: '有效期（天，留空为永久）',
+    folderShareIncludeSub: '包含子分类',
+    folderShareDocs: (count) => `包含 ${count} 篇文档`,
+    folderShareHasPassword: '有密码',
+    folderShareNoPassword: '无密码',
+    folderShareDone: '文件夹分享已创建',
+    folderShareFailed: (message) => `文件夹分享失败：${message}`,
+    folderShareUnsupported: '该分组没有独立分类记录，无法分享',
+    menuUploadFiles: '上传文件…',
+    uploadDialogTitle: '上传文件到云端',
+    uploadDialogTarget: (categoryName) => `目标分类：${categoryName}`,
+    uploadPickHint: '支持 Markdown/文本/代码 与 pdf/office 文档',
+    uploadProgress: (done, total) => `正在上传 ${done}/${total}`,
+    uploadSummary: (ok, skipped, failed) => `上传结束：成功 ${ok}，跳过 ${skipped}，失败 ${failed}`,
+    uploadEmpty: '没有可上传的文件',
+    uploadAlreadyExists: '云端已存在同名文档，未覆盖',
+    uploadAborted: '上传已中止（配额不足或登录状态失效）',
+    uploadCancelled: '上传已中止（你取消了本次上传）',
+    uploadTooMany: (max) => `一次最多上传 ${max} 个文件，已按前 ${max} 个处理`,
+    uploadCancel: '中止上传',
+    uploadClose: '关闭',
+    uploadReasonUnsupported: '该类型不支持上传到云端',
+    uploadReasonTooLarge: '文件超过大小上限',
+    uploadStatusPending: '等待中',
+    uploadStatusUploading: '上传中',
+    uploadStatusDone: '已完成',
+    uploadStatusSkipped: '已跳过',
+    uploadStatusFailed: '失败',
+    confirm: '确定',
+    cancel: '取消',
+    close: '关闭',
+    choiceTitle: '该云文档不在当前工作区',
+    choiceHint: '可以直接在编辑器里打开并同步回云端，或另存到本地任意位置。',
+    choiceSaveAs: '另存为…',
+    editInEditor: '在编辑器中打开',
+    previewUnsupported: '该类型暂不支持应用内预览，请使用「另存为…」或分享页在线预览',
+    saveAsDone: (path) => `已另存为 ${path}`,
+    saveAsFailed: (message) => `另存失败：${message}`,
+  },
+  'en-US': {
+    historyTitle: (fileName) => `Version history - ${fileName}`,
+    historyEmpty: 'No versions yet',
+    historyLoading: 'Loading versions…',
+    versionLabel: (version) => `Version v${version}`,
+    currentVersion: 'Current',
+    restore: 'Restore this version',
+    restoreDone: (version) => `Restored to v${version}`,
+    timeLabel: 'Time',
+    sizeLabel: 'Size',
+    remarkLabel: 'Note',
+
+    propsTitle: 'Document properties',
+    fileNameLabel: 'Name',
+    pathLabel: 'Path',
+    categoryLabel: 'Category',
+    tagsLabel: 'Tags',
+    visibilityLabel: 'Visibility',
+    visibilityPrivate: 'Private (only you)',
+    visibilityPublic: 'Public (visible on the blog)',
+    currentVersionLabel: 'Version',
+    createdAtLabel: 'Created',
+    updatedAtLabel: 'Updated',
+    sharedLabel: 'Share',
+    sharedYes: 'Shared',
+    sharedNo: 'Not shared',
+    save: 'Save',
+    saving: 'Saving…',
+    saved: 'Saved',
+    nothingChanged: 'Nothing changed',
+    loadFailed: (message) => `Failed to load: ${message}`,
+
+    menuOpen: 'Open',
+    menuSync: 'Sync to cloud',
+    menuShare: 'Share',
+    menuProperties: 'Properties',
+    menuHistory: 'Version history',
+    menuMoveTo: 'Move to…',
+    menuDelete: 'Delete cloud document',
+    menuHeader: 'Cloud document actions',
+    colName: 'Name',
+    colSize: 'Size',
+    colVersion: 'Version',
+    colUpdatedAt: 'Cloud updated',
+    colActions: 'Actions',
+    loadInEditor: 'Load in editor',
+    libraryTitle: 'Cloud library',
+    fileCountPill: (count) => `${count} files`,
+    moveRoot: 'Uncategorized',
+    deleteConfirm: 'Delete this cloud document? This cannot be undone.',
+    deleteDone: 'Cloud document deleted',
+    moveDone: 'Category updated',
+    moveFailed: (message) => `Move failed: ${message}`,
+    deleteFailed: (message) => `Delete failed: ${message}`,
+    syncUnsupported: 'This document cannot be synced',
+
+    newCategory: 'New category',
+    newSubCategory: 'New subcategory',
+    renameCategory: 'Rename',
+    deleteCategory: 'Delete category',
+    deleteCategoryConfirm: 'Documents in this category become uncategorized. Delete it?',
+    deleteCategoryDone: 'Category deleted',
+    moveToCustomUnsupported: 'This group comes from document category text; moving documents into it is not supported',
+    categoryNamePlaceholder: 'Category name (use A/B for multiple levels)',
+    maxDepthReached: 'Categories support up to three levels',
+    createDone: 'Category created',
+    renameDone: 'Category renamed',
+    renameUnsupported: 'This group comes from document category text, not a real category row',
+    renamePartial: (failed) => `Category renamed, but ${failed} document(s) could not be moved`,
+    menuNewFile: 'New file',
+    chooseFileType: 'Choose file type',
+    newFileCustom: 'Custom format…',
+    newFileTypeHint: (typeName, extension) => `Create ${typeName} (.${extension}) and open it in the editor`,
+    customExtensionLabel: 'Extension',
+    customExtensionPlaceholder: 'Without dot, e.g. doc / yaml / html',
+    customExtensionInvalid: 'Invalid extension: letters, digits, - _ . only, length 1–20, no path separators',
+    customTypeHint: (extension) => (extension
+      ? `Create custom format (.${extension}) and open it in the editor`
+      : 'Enter an extension first (1–20 of letters/digits/-/_/.)'),
+    newFileHint: 'Create an empty cloud document and open it in the editor',
+    newFilePlaceholder: 'File name, e.g. api-design.md',
+    newFileDone: (fileName) => `Created and opened: ${fileName}`,
+    newFileFailed: (message) => `Create failed: ${message}`,
+    newFileInvalid: 'File name must not be empty or contain / \\ : * ? " < > | or ..',
+    newFileDuplicate: 'A cloud document with this name already exists - pick another name',
+    newFileUnsupported: 'This group comes from document category text, so no file can be created here',
+    menuShareFolder: 'Share folder',
+    folderShareTitle: 'Share folder',
+    folderShareHint: 'Create a link that opens this category as a public directory with in-browser reading',
+    folderShareCreating: 'Creating share link…',
+    folderShareLinkLabel: 'Share link',
+    folderShareCopy: 'Copy link',
+    folderShareCopied: 'Link copied',
+    folderShareRegenerate: 'Regenerate',
+    folderShareRevoke: 'Revoke sharing',
+    folderShareRevoked: 'Folder sharing revoked',
+    folderSharePasswordLabel: 'Access password (optional)',
+    folderShareExpiresLabel: 'Expires in days (empty = never)',
+    folderShareIncludeSub: 'Include subcategories',
+    folderShareDocs: (count) => `${count} document(s)`,
+    folderShareHasPassword: 'Password protected',
+    folderShareNoPassword: 'No password',
+    folderShareDone: 'Folder sharing created',
+    folderShareFailed: (message) => `Folder sharing failed: ${message}`,
+    folderShareUnsupported: 'This group has no real category record and cannot be shared',
+    menuUploadFiles: 'Upload files…',
+    uploadDialogTitle: 'Upload files to cloud',
+    uploadDialogTarget: (categoryName) => `Target category: ${categoryName}`,
+    uploadPickHint: 'Markdown/text/code files and pdf/office documents are supported',
+    uploadProgress: (done, total) => `Uploading ${done}/${total}`,
+    uploadSummary: (ok, skipped, failed) => `Finished: ${ok} succeeded, ${skipped} skipped, ${failed} failed`,
+    uploadEmpty: 'No uploadable file selected',
+    uploadAlreadyExists: 'Already exists in cloud and was not overwritten',
+    uploadAborted: 'Upload stopped (quota exceeded or session expired)',
+    uploadCancelled: 'Upload stopped (you cancelled this batch)',
+    uploadTooMany: (max) => `At most ${max} files per batch - only the first ${max} will be processed`,
+    uploadCancel: 'Stop upload',
+    uploadClose: 'Close',
+    uploadReasonUnsupported: 'This file type cannot be uploaded to cloud',
+    uploadReasonTooLarge: 'File exceeds the size limit',
+    uploadStatusPending: 'Pending',
+    uploadStatusUploading: 'Uploading',
+    uploadStatusDone: 'Done',
+    uploadStatusSkipped: 'Skipped',
+    uploadStatusFailed: 'Failed',
+    confirm: 'OK',
+    cancel: 'Cancel',
+    close: 'Close',
+    choiceTitle: 'This cloud document is outside the current workspace',
+    choiceHint: 'Open it in the editor and sync changes back, or save a copy anywhere on disk.',
+    choiceSaveAs: 'Save as…',
+    editInEditor: 'Open for editing',
+    previewUnsupported: 'Preview is not available for this type - use Save as or the share page',
+    saveAsDone: (path) => `Saved to ${path}`,
+    saveAsFailed: (message) => `Save failed: ${message}`,
+  },
+};
+
+export function getCloudDocPanelI18n(locale: UiLanguage): CloudDocPanelText {
+  return CLOUD_DOC_PANEL_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 分享统计（查看次数 / 独立访客 / 近 N 天）
+// ---------------------------------------------------------------------------
+interface ShareStatsText {
+  title: string;
+  subtitle: (fileName: string) => string;
+  loading: string;
+  empty: string;
+  error: (message: string) => string;
+  noPermission: string;
+  totalViews: string;
+  uniqueVisitors: string;
+  firstView: string;
+  lastView: string;
+  chartTitle: (days: number) => string;
+  chartEmpty: string;
+  recentTitle: string;
+  recentEmpty: string;
+  newVisitor: string;
+  returningVisitor: string;
+  unknownIp: string;
+  unknownFingerprint: string;
+  viewsUnit: (count: number) => string;
+  refresh: string;
+  close: string;
+  statsLine: (views: number, visitors: number) => string;
+  openStats: string;
+}
+
+const SHARE_STATS_TEXTS: Record<UiLanguage, ShareStatsText> = {
+  'zh-CN': {
+    title: '分享统计',
+    subtitle: (fileName) => `《${fileName}》的分享访问`,
+    loading: '正在读取统计…',
+    empty: '还没有人访问这个分享链接',
+    error: (message) => `读取统计失败：${message}`,
+    noPermission: '只有文档所有者可以查看统计',
+    totalViews: '总访问',
+    uniqueVisitors: '独立访客',
+    firstView: '首次访问',
+    lastView: '最近访问',
+    chartTitle: (days) => `近 ${days} 天访问趋势`,
+    chartEmpty: '这段时间没有访问',
+    recentTitle: '最近访问',
+    recentEmpty: '暂无访问记录',
+    newVisitor: '新访客',
+    returningVisitor: '回访',
+    unknownIp: 'IP 未知',
+    unknownFingerprint: '无指纹',
+    viewsUnit: (count) => `${count} 次`,
+    refresh: '刷新',
+    close: '关闭',
+    statsLine: (views, visitors) => `查看 ${views} 次 · 独立访客 ${visitors}`,
+    openStats: '查看统计',
+  },
+  'en-US': {
+    title: 'Share statistics',
+    subtitle: (fileName) => `Share visits - ${fileName}`,
+    loading: 'Loading statistics…',
+    empty: 'No one has visited this share link yet',
+    error: (message) => `Failed to load statistics: ${message}`,
+    noPermission: 'Only the document owner can view statistics',
+    totalViews: 'Total views',
+    uniqueVisitors: 'Unique visitors',
+    firstView: 'First view',
+    lastView: 'Last view',
+    chartTitle: (days) => `Views in the last ${days} days`,
+    chartEmpty: 'No visits in this period',
+    recentTitle: 'Recent visits',
+    recentEmpty: 'No visits yet',
+    newVisitor: 'New',
+    returningVisitor: 'Returning',
+    unknownIp: 'Unknown IP',
+    unknownFingerprint: 'No fingerprint',
+    viewsUnit: (count) => `${count}`,
+    refresh: 'Refresh',
+    close: 'Close',
+    statsLine: (views, visitors) => `${views} views · ${visitors} unique visitors`,
+    openStats: 'View statistics',
+  },
+};
+
+export function getShareStatsI18n(locale: UiLanguage): ShareStatsText {
+  return SHARE_STATS_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 临时工作区（云文档零工作区落位）
+// ---------------------------------------------------------------------------
+
+interface ScratchWorkspaceText {
+  badge: string;
+  hint: string;
+  saveAs: string;
+  saving: string;
+  saveAsDialogTitle: string;
+  savedTitle: string;
+  savedMessage: (
+    workspaceName: string,
+    copied: number,
+    skipped: number,
+    failed: number,
+  ) => string;
+  saveFailed: string;
+  targetInvalid: string;
+  silentHint: string;
+  /** 另存后有个别标签没能跟着换目录（只提示一次） */
+  relocateSkippedTitle: string;
+  relocateSkippedMessage: (occupied: number, notCopied: number) => string;
+}
+
+const SCRATCH_WORKSPACE_TEXTS: Record<UiLanguage, ScratchWorkspaceText> = {
+  'zh-CN': {
+    badge: '临时工作区 · 来自云文档',
+    hint: '文件暂存在本机临时目录，编辑后保存回云端不受影响。',
+    saveAs: '另存到工作区…',
+    saving: '正在复制…',
+    saveAsDialogTitle: '选择要另存到的工作区目录',
+    savedTitle: '已另存到工作区',
+    savedMessage: (workspaceName, copied, skipped, failed) => [
+      `已复制 ${copied} 个文件到「${workspaceName}」`,
+      skipped > 0 ? `跳过 ${skipped} 个同名文件（不覆盖）` : '',
+      failed > 0 ? `${failed} 个文件复制失败` : '',
+    ].filter(Boolean).join('，') + '。',
+    saveFailed: '另存到工作区失败',
+    targetInvalid: '目标目录不能在临时工作区内部（含自身），请换一个目录。',
+    silentHint: '为云文档自动打开了该工作区',
+    relocateSkippedTitle: '部分标签仍在临时工作区',
+    relocateSkippedMessage: (occupied, notCopied) => [
+      occupied > 0 ? `${occupied} 个标签的目标文件已被其它标签打开` : '',
+      notCopied > 0 ? `${notCopied} 个标签的目标已有同名文件（未覆盖）` : '',
+    ].filter(Boolean).join('，') + '；这些标签保持原路径，未做迁移。',
+  },
+  'en-US': {
+    badge: 'Temporary workspace · from cloud docs',
+    hint: 'Files sit in a local temporary folder; saving back to the cloud is unaffected.',
+    saveAs: 'Save to workspace…',
+    saving: 'Copying…',
+    saveAsDialogTitle: 'Choose the workspace folder to save into',
+    savedTitle: 'Saved to workspace',
+    savedMessage: (workspaceName, copied, skipped, failed) => [
+      `Copied ${copied} file(s) to "${workspaceName}"`,
+      skipped > 0 ? `skipped ${skipped} existing file(s) (no overwrite)` : '',
+      failed > 0 ? `${failed} file(s) failed to copy` : '',
+    ].filter(Boolean).join(', ') + '.',
+    saveFailed: 'Failed to save to workspace',
+    targetInvalid: 'The target folder cannot be inside the temporary workspace (or be itself).',
+    silentHint: 'This workspace was opened automatically for a cloud document',
+    relocateSkippedTitle: 'Some tabs still point at the temporary workspace',
+    relocateSkippedMessage: (occupied, notCopied) => [
+      occupied > 0 ? `${occupied} tab(s) whose target file is already open` : '',
+      notCopied > 0 ? `${notCopied} tab(s) whose target already had a file with that name (not overwritten)` : '',
+    ].filter(Boolean).join(', ') + '; those tabs keep their old path.',
+  },
+};
+
+export function getScratchWorkspaceI18n(locale: UiLanguage): ScratchWorkspaceText {
+  return SCRATCH_WORKSPACE_TEXTS[normalizeUiLanguage(locale)];
+}
+
+/**
+ * 设计稿二（设置-云同步）重排后新增的「展示层」文案：
+ * Bento 遥测四卡、调度中心、队列遥测、自动化策略、媒体资产、安全徽标。
+ * 旧的 SettingsPanelText.cloudSync* 仍承载账号/表单/冲突等既有交互，这里只补设计稿新增词，
+ * 两边都必须是中英文齐全。
+ */
+export interface CloudSyncSettingsText {
+  h1: string;
+  subtitle: string;
+  corePill: string;
+  diagnose: string;
+  diagnosing: string;
+  diagnoseOk: (ms: number) => string;
+  diagnoseFailed: string;
+  tlsPill: string;
+  telemetryLiveVersion: string;
+  telemetryStable: string;
+  telemetryBuild: string;
+  telemetryNoPendingPatch: string;
+  telemetryClusterVersion: string;
+  telemetrySynced: string;
+  telemetryChannel: string;
+  telemetryPlatform: string;
+  telemetryRuntime: string;
+  telemetryLatency: string;
+  telemetryPacketLoss: string;
+  telemetryTunnel: string;
+  telemetryUnknown: string;
+  telemetryMockNote: string;
+  accountUid: string;
+  accountCredential: string;
+  accountSwitch: string;
+  planKnown: string;
+  planUnknown: string;
+  quotaPermanent: string;
+  quotaDocData: string;
+  quotaAttachments: string;
+  quotaSplitUnknown: string;
+  quotaUpgrade: string;
+  schedulerTitle: string;
+  /** 调度中心说明：设计稿原文（与 cloudSyncDesc 的登录口吻不同，已登录也成立） */
+  schedulerHint: string;
+  schedulerIdle: string;
+  schedulerSyncing: string;
+  schedulerError: string;
+  schedulerTask: (id: string) => string;
+  feedbackSyncing: string;
+  queueTitle: string;
+  queueCounts: (pending: number, failed: number) => string;
+  queueEmptyTitle: string;
+  queueEmptyHint: string;
+  queueBlockedHint: (failed: number) => string;
+  queuePendingHint: (pending: number) => string;
+  queueRefresh: string;
+  queueRefreshing: string;
+  automationTitle: string;
+  automationActive: string;
+  automationAutoHint: string;
+  automationDebounceLabel: string;
+  automationDebounceHint: string;
+  automationSec: string;
+  automationConflictTitle: string;
+  automationConflictBranch: string;
+  automationConflictBranchHint: string;
+  automationConflictLocal: string;
+  automationConflictLocalHint: string;
+  mediaTitle: string;
+  mediaCacheLabel: string;
+  mediaCacheUnknown: string;
+  mediaTranscodeLabel: string;
+  mediaEnabled: string;
+  mediaDisabled: string;
+  mediaClearCache: string;
+  mediaClearing: string;
+  mediaCacheCleared: string;
+  mediaAutoTidy: string;
+  securityText: string;
+  signedOutTitle: string;
+  signedOutHint: string;
+  errorTitle: string;
+  errorHint: string;
+}
+
+const CLOUD_SYNC_SETTINGS_TEXTS: Record<UiLanguage, CloudSyncSettingsText> = {
+  'zh-CN': {
+    h1: '云同步服务',
+    subtitle: '基于端到端零知识加密协议（E2EE），实时守护并同步 Markdown 笔记与代码资产',
+    corePill: 'Lizi Sync Core v3',
+    diagnose: '诊断节点链路',
+    diagnosing: '探测链路中…',
+    diagnoseOk: (ms) => `节点延时 ${ms}ms (极佳)`,
+    diagnoseFailed: '链路探测失败',
+    tlsPill: 'TLS 1.3 · AES-GCM-256',
+    telemetryLiveVersion: '当前运行版本',
+    telemetryStable: 'Stable',
+    telemetryBuild: '构建目标',
+    telemetryNoPendingPatch: '无未结补丁',
+    telemetryClusterVersion: '云端集群版本',
+    telemetrySynced: '已同步',
+    telemetryChannel: '通道',
+    telemetryPlatform: '本地环境架构',
+    telemetryRuntime: '运行环境',
+    telemetryLatency: '集群往返时延',
+    telemetryPacketLoss: '/ 0% 丢包',
+    telemetryTunnel: '加密隧道',
+    telemetryUnknown: '—',
+    telemetryMockNote: '设计稿示例值（暂无后端接口）',
+    accountUid: 'UID',
+    accountCredential: '凭据安全托管于 Windows Credential Manager',
+    accountSwitch: '切换账号',
+    planKnown: '永久容量',
+    planUnknown: '未读取配额',
+    quotaPermanent: '永久容量',
+    quotaDocData: '文档数据',
+    quotaAttachments: '嵌入式附件',
+    quotaSplitUnknown: '云端未细分',
+    quotaUpgrade: '扩容方案',
+    schedulerTitle: '文档调度中心',
+    schedulerHint: '登录已绑定的统一开发者通行证后，可对当前 Markdown 知识库一键双向合并。远端增量树与本地冲突引擎已就绪。',
+    schedulerIdle: 'Idle / 就绪状态',
+    schedulerSyncing: 'Syncing / 同步中',
+    schedulerError: 'Error / 异常',
+    schedulerTask: (id) => `Task #${id}`,
+    feedbackSyncing: '正在向集群同步当前索引分支…',
+    queueTitle: '同步队列遥测',
+    queueCounts: (pending, failed) => `${pending} 项挂起 · ${failed} 项阻塞`,
+    queueEmptyTitle: '同步队列为空 (Queue Cleared)',
+    queueEmptyHint: '本地文档快照与分布式持久化节点完全对齐。',
+    queueBlockedHint: (failed) => `有 ${failed} 项同步失败已阻塞队列，重试后才会继续。`,
+    queuePendingHint: (pending) => `有 ${pending} 项正在后台增量提交，完成后队列自动清空。`,
+    queueRefresh: '刷新状态',
+    queueRefreshing: '刷新中…',
+    automationTitle: '自动化触发策略',
+    automationActive: 'Active',
+    automationAutoHint: '文档产生修改后自动在后台触发增量 Diff 提交。',
+    automationDebounceLabel: '保存后延迟防抖 (秒)',
+    automationDebounceHint: '保存后等待静默期再触发远端增量推送，避免快速连击保存产生多余版本快照。',
+    automationSec: 'sec',
+    automationConflictTitle: '多端冲突解决机制',
+    automationConflictBranch: '冲突时自动创建分支副本 (推荐)',
+    automationConflictBranchHint: '保留两端版本，文件名附带设备标识与时间戳',
+    automationConflictLocal: '以本地修改为准覆盖 (Keep Local)',
+    automationConflictLocalHint: '强制覆盖云端冲突文件，适合单人高频写作',
+    mediaTitle: '媒体资产与附件同步',
+    mediaCacheLabel: '本地离线图片缓存池',
+    mediaCacheUnknown: '未统计',
+    mediaTranscodeLabel: '智能 WebP 矢量转码加速',
+    mediaEnabled: '已启用',
+    mediaDisabled: '未启用',
+    mediaClearCache: '清理本地媒体缓存',
+    mediaClearing: '清理中…',
+    mediaCacheCleared: '已清理本地媒体缓存。',
+    mediaAutoTidy: '自动定期整理',
+    securityText: '所有通讯均通过 TLS 1.3 双向认证管道。Tau 绝不会明文存储您的未加密写作草稿与访问密钥。',
+    signedOutTitle: '登录统一开发者通行证',
+    signedOutHint: '登录后即可查看账号、云端配额与同步队列。凭据只保存在本机。',
+    errorTitle: '云同步服务异常',
+    errorHint: '最近一次同步失败，可重试失败项或重新诊断节点链路。',
+  },
+  'en-US': {
+    h1: 'Cloud Sync Service',
+    subtitle: 'End-to-end zero-knowledge encrypted (E2EE); keeps Markdown notes and code assets in sync in real time.',
+    corePill: 'Lizi Sync Core v3',
+    diagnose: 'Diagnose node link',
+    diagnosing: 'Probing link…',
+    diagnoseOk: (ms) => `Node latency ${ms}ms (excellent)`,
+    diagnoseFailed: 'Link probe failed',
+    tlsPill: 'TLS 1.3 · AES-GCM-256',
+    telemetryLiveVersion: 'Running version',
+    telemetryStable: 'Stable',
+    telemetryBuild: 'Build target',
+    telemetryNoPendingPatch: 'No open patches',
+    telemetryClusterVersion: 'Cloud cluster version',
+    telemetrySynced: 'Synced',
+    telemetryChannel: 'Channel',
+    telemetryPlatform: 'Local architecture',
+    telemetryRuntime: 'Runtime',
+    telemetryLatency: 'Cluster round-trip',
+    telemetryPacketLoss: '/ 0% loss',
+    telemetryTunnel: 'Encrypted tunnel',
+    telemetryUnknown: '—',
+    telemetryMockNote: 'Design mock value (no backend endpoint yet)',
+    accountUid: 'UID',
+    accountCredential: 'Credentials are kept in Windows Credential Manager',
+    accountSwitch: 'Switch account',
+    planKnown: 'Lifetime capacity',
+    planUnknown: 'Quota not read',
+    quotaPermanent: 'lifetime capacity',
+    quotaDocData: 'Documents',
+    quotaAttachments: 'Embedded media',
+    quotaSplitUnknown: 'not split by cloud',
+    quotaUpgrade: 'Upgrade plan',
+    schedulerTitle: 'Document Scheduler',
+    schedulerHint: 'Once your unified developer pass is signed in, the current Markdown knowledge base can be merged in both directions in one click. The remote incremental tree and local conflict engine are ready.',
+    schedulerIdle: 'Idle / ready',
+    schedulerSyncing: 'Syncing / in progress',
+    schedulerError: 'Error / attention needed',
+    schedulerTask: (id) => `Task #${id}`,
+    feedbackSyncing: 'Pushing the current index branch to the cluster…',
+    queueTitle: 'Sync Queue Telemetry',
+    queueCounts: (pending, failed) => `${pending} pending · ${failed} blocked`,
+    queueEmptyTitle: 'Sync queue is empty (Queue Cleared)',
+    queueEmptyHint: 'Local snapshots are fully aligned with the distributed persistence nodes.',
+    queueBlockedHint: (failed) => `${failed} item(s) failed and are blocking the queue. Retry to continue.`,
+    queuePendingHint: (pending) => `${pending} item(s) are being pushed incrementally in the background; the queue clears itself when done.`,
+    queueRefresh: 'Refresh status',
+    queueRefreshing: 'Refreshing…',
+    automationTitle: 'Automation Policy',
+    automationActive: 'Active',
+    automationAutoHint: 'Triggers an incremental diff commit in the background after the document changes.',
+    automationDebounceLabel: 'Debounce after save (seconds)',
+    automationDebounceHint: 'Waits for a quiet window after saving before pushing an incremental update, so rapid saves do not create extra version snapshots.',
+    automationSec: 'sec',
+    automationConflictTitle: 'Multi-device conflict policy',
+    automationConflictBranch: 'Create a branch copy on conflict (recommended)',
+    automationConflictBranchHint: 'Keeps both sides; the file name carries the device id and timestamp',
+    automationConflictLocal: 'Overwrite with local changes (Keep Local)',
+    automationConflictLocalHint: 'Force-overwrites the conflicting cloud file. Suits fast single-author writing.',
+    mediaTitle: 'Media Assets & Attachments',
+    mediaCacheLabel: 'Local offline image cache',
+    mediaCacheUnknown: 'not measured',
+    mediaTranscodeLabel: 'Smart WebP transcoding',
+    mediaEnabled: 'Enabled',
+    mediaDisabled: 'Disabled',
+    mediaClearCache: 'Clear local media cache',
+    mediaClearing: 'Clearing…',
+    mediaCacheCleared: 'Local media cache cleared.',
+    mediaAutoTidy: 'Auto tidy-up',
+    securityText: 'All traffic goes through the TLS 1.3 mutual-authentication pipe. Tau never stores your unencrypted drafts or access keys in plain text.',
+    signedOutTitle: 'Sign in with your developer pass',
+    signedOutHint: 'Sign in to see your account, cloud quota and sync queue. Credentials stay on this device.',
+    errorTitle: 'Cloud sync service error',
+    errorHint: 'The last sync failed. Retry the failed items or diagnose the node link again.',
+  },
+};
+
+export function getCloudSyncSettingsI18n(locale: UiLanguage): CloudSyncSettingsText {
+  return CLOUD_SYNC_SETTINGS_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 云文档在线编辑：409 冲突三选一 + 「在编辑器中打开」提示
+// ---------------------------------------------------------------------------
+
+/** 云端保存冲突（409）对话框文案。 */
+export interface CloudDocConflictText {
+  title: string;
+  close: string;
+  intro: string;
+  localLabel: string;
+  localValue: string;
+  remoteLabel: string;
+  remoteUnknown: string;
+  saveCopy: string;
+  saveCopyHint: string;
+  keepMine: string;
+  keepMineHint: string;
+  useRemote: string;
+  useRemoteHint: string;
+  later: string;
+  busy: string;
+}
+
+const CLOUD_DOC_CONFLICT_TEXTS: Record<UiLanguage, CloudDocConflictText> = {
+  'zh-CN': {
+    title: '云端版本冲突',
+    close: '关闭',
+    intro: '云端已存在更新的版本，你的这次保存没有覆盖它。请选择怎么处理这两份内容。',
+    localLabel: '你的版本（本地）',
+    localValue: '尚未保存到云端',
+    remoteLabel: '云端版本',
+    remoteUnknown: '未知',
+    saveCopy: '另存为副本',
+    saveCopyHint: '两端都保留：本地内容作为新文档上传，云端原文档不动（推荐）',
+    keepMine: '保留我的修改',
+    keepMineHint: '以云端最新版本为基线重试一次，用你的内容覆盖云端',
+    useRemote: '用云端版本',
+    useRemoteHint: '丢弃本地这份修改，编辑器内容替换为云端最新版本',
+    later: '稍后处理',
+    busy: '处理中…',
+  },
+  'en-US': {
+    title: 'Cloud version conflict',
+    close: 'Close',
+    intro: 'A newer version already exists in the cloud, so this save did not overwrite it. Choose what to do with both versions.',
+    localLabel: 'Your version (local)',
+    localValue: 'Not saved to cloud yet',
+    remoteLabel: 'Cloud version',
+    remoteUnknown: 'unknown',
+    saveCopy: 'Save as a copy',
+    saveCopyHint: 'Keep both: upload the local content as a new document and leave the cloud one untouched (recommended)',
+    keepMine: 'Keep my changes',
+    keepMineHint: 'Retry once on top of the latest cloud version and overwrite it with your content',
+    useRemote: 'Use the cloud version',
+    useRemoteHint: 'Discard the local changes and replace the editor content with the latest cloud version',
+    later: 'Later',
+    busy: 'Working…',
+  },
+};
+
+export function getCloudDocConflictI18n(locale: UiLanguage): CloudDocConflictText {
+  return CLOUD_DOC_CONFLICT_TEXTS[normalizeUiLanguage(locale)];
+}
+
+/** 「在编辑器中打开云文档」相关提示文案。 */
+export interface CloudDocEditOpenText {
+  opened: (fileName: string) => string;
+  openedHint: string;
+  alreadyOpen: (fileName: string) => string;
+  openFailed: (message: string) => string;
+  conflictSavedCopy: (path: string) => string;
+  conflictKeepMineDone: string;
+  conflictUseRemoteDone: string;
+  conflictRetryExhausted: string;
+  conflictFailed: (message: string) => string;
+}
+
+const CLOUD_DOC_EDIT_OPEN_TEXTS: Record<UiLanguage, CloudDocEditOpenText> = {
+  'zh-CN': {
+    opened: (fileName) => `已在编辑器中打开 ${fileName}`,
+    openedHint: '保存即同步：编辑后 2.5 秒自动上传，Ctrl/Cmd + S 立即同步。',
+    alreadyOpen: (fileName) => `${fileName} 已在编辑器中打开`,
+    openFailed: (message) => `无法在编辑器中打开：${message}`,
+    conflictSavedCopy: (path) => `冲突内容已另存为副本：${path}`,
+    conflictKeepMineDone: '已用你的内容覆盖云端（基线已推进到最新版本）',
+    conflictUseRemoteDone: '已用云端版本替换编辑器内容',
+    conflictRetryExhausted: '云端在你重试期间又更新了，请重新选择处理方式',
+    conflictFailed: (message) => `冲突处理失败：${message}`,
+  },
+  'en-US': {
+    opened: (fileName) => `Opened ${fileName} in the editor`,
+    openedHint: 'Saving syncs: edits upload after 2.5s idle, Ctrl/Cmd + S syncs immediately.',
+    alreadyOpen: (fileName) => `${fileName} is already open in the editor`,
+    openFailed: (message) => `Could not open in the editor: ${message}`,
+    conflictSavedCopy: (path) => `Conflicting content saved as a copy: ${path}`,
+    conflictKeepMineDone: 'Your content overwrote the cloud version (baseline advanced)',
+    conflictUseRemoteDone: 'Editor content replaced with the cloud version',
+    conflictRetryExhausted: 'The cloud changed again during the retry, please choose again',
+    conflictFailed: (message) => `Failed to resolve the conflict: ${message}`,
+  },
+};
+
+export function getCloudDocEditOpenI18n(locale: UiLanguage): CloudDocEditOpenText {
+  return CLOUD_DOC_EDIT_OPEN_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 云存储扩容方案（提案展示）：档位 / 定价 / 签到奖励
+// 数值来源：docs/plan/20261027150000000_云存储扩容与会员体系方案.md
+// ---------------------------------------------------------------------------
+
+export interface CloudUpgradeTierText {
+  id: string;
+  name: string;
+  bytes: string;
+  price: string;
+  priceNote: string;
+  perks: string[];
+  current?: boolean;
+  featured?: boolean;
+}
+
+export interface CloudUpgradeRewardText {
+  title: string;
+  desc: string;
+}
+
+/** 容量构成：永久配额 / 档位容量 / 签到临时容量 */
+export interface CloudUpgradeBreakdownText {
+  permanent: string;
+  plan: string;
+  reward: string;
+  /** 接口未就绪或未登录时的占位值 */
+  unknown: string;
+}
+
+/** 签到卡片文案（今日状态、连签、临时容量、终身累计封顶） */
+export interface CloudUpgradeCheckinText {
+  title: string;
+  todayChecked: string;
+  todayPending: string;
+  streak: string;
+  active: string;
+  lifetime: string;
+  cap: string;
+  button: string;
+  busy: string;
+  /** 成功：已签到 +70 MB */
+  success: (amount: string) => string;
+  /** 重复签到：静默转已签到态，不报错 */
+  already: string;
+  failed: (message: string) => string;
+  /** 终身累计已封顶：仍记天数与积分，但不再加容量 */
+  capReached: string;
+  loginHint: string;
+}
+
+/** 微信 Native 扫码支付弹层文案 */
+export interface CloudUpgradePayText {
+  title: string;
+  hint: string;
+  waiting: string;
+  paid: string;
+  timeout: string;
+  closed: string;
+  retry: string;
+  close: string;
+  done: string;
+  channelUnavailable: string;
+  channelUnavailableHint: string;
+  contactAdmin: string;
+  qrAlt: string;
+  qrFailed: string;
+  failed: (message: string) => string;
+  orderFailed: (message: string) => string;
+}
+
+export interface CloudUpgradePlanText {
+  title: string;
+  subtitle: string;
+  usedLabel: string;
+  remainingLabel: string;
+  quotaNote: string;
+  tiersTitle: string;
+  tiers: CloudUpgradeTierText[];
+  currentPlan: string;
+  recommended: string;
+  packTitle: string;
+  packDesc: string;
+  packPrice: string;
+  rewardsTitle: string;
+  rewards: CloudUpgradeRewardText[];
+  notice: string;
+  close: string;
+  contact: string;
+  /** 容量构成（永久 / 档位 / 签到临时） */
+  breakdown: CloudUpgradeBreakdownText;
+  /** 价格后缀：¥6 / 月 */
+  perMonth: string;
+  perYear: string;
+  /** 计费周期切换按钮：按月 / 按年 */
+  cycleMonth: string;
+  cycleYear: string;
+  buyNow: string;
+  buyPack: string;
+  buying: string;
+  /** 配额接口不可用（后端未部署/网络失败）时的自助开通降级提示 */
+  quotaUnavailable: string;
+  loginRequired: string;
+  checkin: CloudUpgradeCheckinText;
+  pointsLabel: string;
+  pointsUnit: string;
+  pay: CloudUpgradePayText;
+}
+
+const CLOUD_UPGRADE_PLAN_TEXTS: Record<UiLanguage, CloudUpgradePlanText> = {
+  'zh-CN': {
+    title: '云存储扩容方案',
+    subtitle: '按需选择档位，或通过每日签到领取临时容量；容量叠加到当前配额，已存文档不受影响。',
+    usedLabel: '当前用量',
+    remainingLabel: '剩余',
+    quotaNote: '版本历史不计入配额；回收站内的文档不会立即释放空间',
+    tiersTitle: '会员档位',
+    tiers: [
+      {
+        id: 'free',
+        name: '免费版',
+        bytes: '1 GB',
+        price: '¥0',
+        priceNote: '永久免费',
+        perks: ['基础双向同步', '单文件 ≤ 12 MB', '每篇保留 30 个版本'],
+        current: true,
+      },
+      {
+        id: 'plus',
+        name: 'Plus 个人版',
+        bytes: '10 GB',
+        price: '¥6 / 月',
+        priceNote: '¥58 / 年（约 8 折）',
+        perks: ['单文件 ≤ 50 MB', '多设备同步', '签到奖励可叠加'],
+      },
+      {
+        id: 'pro',
+        name: 'Pro 专业版',
+        bytes: '50 GB',
+        price: '¥18 / 月',
+        priceNote: '¥168 / 年（约 8 折）',
+        perks: ['全部 Plus 权益', '全设备历史版本浏览', '附件去重与批量清理'],
+        featured: true,
+      },
+    ],
+    currentPlan: '当前档位',
+    recommended: '推荐',
+    packTitle: '永久扩容包：+10 GB',
+    packDesc: '一次性买断，永久叠加到账号容量，不随订阅到期失效。适合「只缺容量、不想订阅」的场景。',
+    packPrice: '¥39 一次性',
+    rewardsTitle: '签到与奖励',
+    rewards: [
+      { title: '每日签到：随机 +20 ~ 120 MB', desc: '当天容量条立刻可见增长；随机量由服务端生成，客户端不参与计算' },
+      { title: '滑动窗口过期（30 天）', desc: '每份奖励从获得起保留 30 天，逐日滚动过期；稳态有效奖励约 2 GB，不用就自然回落' },
+      { title: '连续签到加成：每 7 天当日翻倍', desc: '连签不设上限，但只影响「当天这一笔」，已过期的不补回' },
+      { title: '累计封顶 10 GB（终身）', desc: '奖励容量累计到 10 GB 后，签到仍记录天数与积分，但不再增加容量' },
+      { title: '奖励容量优先级最低', desc: '永久配额 → 付费档位 → 签到临时容量；临时容量过期不影响已存文档' },
+      { title: '断签不清零已有容量', desc: '已有奖励按自己的 30 天窗口自然过期；断签只让当天的随机基数回落' },
+    ],
+    notice:
+      '档位容量与签到奖励均可叠加到当前配额；签到容量 30 天滚动过期、终身累计封顶 10 GB，已存文档不受影响。开通成功后容量即时到账，未用完的容量不会被清零。',
+    close: '关闭',
+    contact: '联系管理员开通',
+    breakdown: {
+      permanent: '永久配额',
+      plan: '档位容量',
+      reward: '签到临时',
+      unknown: '—',
+    },
+    perMonth: '/ 月',
+    perYear: '/ 年',
+    cycleMonth: '按月',
+    cycleYear: '按年',
+    buyNow: '立即开通',
+    buyPack: '购买',
+    buying: '处理中…',
+    quotaUnavailable: '自助开通暂不可用，请联系管理员开通',
+    loginRequired: '登录账号后才能开通，请先完成登录',
+    checkin: {
+      title: '每日签到领取临时容量',
+      todayChecked: '今天已签到',
+      todayPending: '今天还没签到',
+      streak: '连签天数',
+      active: '当前临时容量',
+      lifetime: '终身累计',
+      cap: '封顶',
+      button: '立即签到',
+      busy: '签到中…',
+      success: (amount) => `已签到 +${amount}`,
+      already: '今天已经签到过了',
+      failed: (message) => `签到失败：${message}`,
+      capReached: '签到成功；终身累计已达封顶，本次不再增加容量',
+      loginHint: '登录后即可签到',
+    },
+    pointsLabel: '积分',
+    pointsUnit: '分',
+    pay: {
+      title: '微信扫码支付',
+      hint: '请用微信「扫一扫」完成支付，订单 30 分钟内有效',
+      waiting: '等待支付结果…',
+      paid: '支付成功，容量已到账',
+      timeout: '等待超时，可重新获取二维码',
+      closed: '订单已关闭，请重新下单',
+      retry: '重新获取二维码',
+      close: '关闭',
+      done: '完成',
+      channelUnavailable: '支付通道暂未开通',
+      channelUnavailableHint: '可扫码添加管理员微信，由管理员协助开通',
+      contactAdmin: '联系管理员开通',
+      qrAlt: '微信支付二维码',
+      qrFailed: '二维码生成失败，请关闭后重试',
+      failed: (message) => `支付失败：${message}`,
+      orderFailed: (message) => `下单失败：${message}`,
+    },
+  },
+  'en-US': {
+    title: 'Cloud storage plans',
+    subtitle: 'Pick a plan, or earn temporary capacity with daily check-ins; both stack onto your current quota.',
+    usedLabel: 'Used',
+    remainingLabel: 'Free',
+    quotaNote: 'Version history does not count toward quota; trashed documents do not free space until purged',
+    tiersTitle: 'Membership tiers',
+    tiers: [
+      {
+        id: 'free',
+        name: 'Free',
+        bytes: '1 GB',
+        price: '$0',
+        priceNote: 'Free forever',
+        perks: ['Basic two-way sync', 'Single file ≤ 12 MB', '30 versions per document'],
+        current: true,
+      },
+      {
+        id: 'plus',
+        name: 'Plus',
+        bytes: '10 GB',
+        price: '$1 / mo',
+        priceNote: '$9 / yr (about 20% off)',
+        perks: ['Single file ≤ 50 MB', 'Multi-device sync', 'Check-in rewards stack'],
+      },
+      {
+        id: 'pro',
+        name: 'Pro',
+        bytes: '50 GB',
+        price: '$3 / mo',
+        priceNote: '$28 / yr (about 20% off)',
+        perks: ['Everything in Plus', 'Version history on every device', 'Attachment dedupe and cleanup'],
+        featured: true,
+      },
+    ],
+    currentPlan: 'Current plan',
+    recommended: 'Recommended',
+    packTitle: 'Lifetime add-on: +10 GB',
+    packDesc: 'One-time purchase that stacks onto your account permanently, independent of any subscription.',
+    packPrice: '$6 one-time',
+    rewardsTitle: 'Check-ins and rewards',
+    rewards: [
+      { title: 'Daily check-in: a random +20–120 MB', desc: 'The capacity bar grows the same day; the amount is generated server-side' },
+      { title: 'Sliding 30-day expiry', desc: 'Each grant lives 30 days and rolls off day by day; steady state is about 2 GB unless you keep checking in' },
+      { title: 'Streak bonus: double on every 7th day', desc: 'Streaks are unlimited, but only affect that day\u2019s grant; expired grants are not restored' },
+      { title: 'Lifetime accrual cap: 10 GB', desc: 'After 10 GB of rewarded capacity has accumulated, check-ins still count days and points but add no more capacity' },
+      { title: 'Reward capacity ranks lowest', desc: 'Permanent quota → paid plan → check-in capacity; expiry never touches stored documents' },
+      { title: 'Missing a day never deletes capacity', desc: 'Existing grants expire on their own 30-day window; a missed day only resets the random base' },
+    ],
+    notice:
+      'Plan capacity and check-in rewards both stack onto your current quota. Check-in capacity expires on a rolling 30-day window and accrues up to a 10 GB lifetime cap; stored documents are never affected. Capacity applies as soon as an order is paid, and unused capacity is never wiped.',
+    close: 'Close',
+    contact: 'Contact admin to enable',
+    breakdown: {
+      permanent: 'Permanent',
+      plan: 'Plan capacity',
+      reward: 'Check-in capacity',
+      unknown: '—',
+    },
+    perMonth: '/ mo',
+    perYear: '/ yr',
+    cycleMonth: 'Monthly',
+    cycleYear: 'Yearly',
+    buyNow: 'Subscribe',
+    buyPack: 'Buy',
+    buying: 'Working…',
+    quotaUnavailable: 'Self-service upgrades are unavailable right now. Contact the admin to enable it.',
+    loginRequired: 'Sign in first to subscribe',
+    checkin: {
+      title: 'Daily check-in for temporary capacity',
+      todayChecked: 'Checked in today',
+      todayPending: 'Not checked in yet',
+      streak: 'Streak',
+      active: 'Active check-in capacity',
+      lifetime: 'Lifetime accrued',
+      cap: 'cap',
+      button: 'Check in',
+      busy: 'Checking in…',
+      success: (amount) => `Checked in +${amount}`,
+      already: 'You have already checked in today',
+      failed: (message) => `Check-in failed: ${message}`,
+      capReached: 'Checked in; the lifetime cap is reached, so no capacity was added',
+      loginHint: 'Sign in to check in',
+    },
+    pointsLabel: 'Points',
+    pointsUnit: 'pts',
+    pay: {
+      title: 'Scan to pay with WeChat',
+      hint: 'Scan the code with WeChat to pay; the order is valid for 30 minutes',
+      waiting: 'Waiting for payment…',
+      paid: 'Payment received, capacity added',
+      timeout: 'Timed out — you can fetch a new QR code',
+      closed: 'The order was closed, please create a new one',
+      retry: 'Fetch a new QR code',
+      close: 'Close',
+      done: 'Done',
+      channelUnavailable: 'Payment channel is not available yet',
+      channelUnavailableHint: 'Scan the admin WeChat QR code and the admin will help you enable it',
+      contactAdmin: 'Contact admin to enable',
+      qrAlt: 'WeChat Pay QR code',
+      qrFailed: 'Could not render the QR code, please retry',
+      failed: (message) => `Payment failed: ${message}`,
+      orderFailed: (message) => `Could not create the order: ${message}`,
+    },
+  },
+};
+
+export function getCloudUpgradePlanI18n(locale: UiLanguage): CloudUpgradePlanText {
+  return CLOUD_UPGRADE_PLAN_TEXTS[normalizeUiLanguage(locale)];
+}
+
+// ---------------------------------------------------------------------------
+// 扫码添加管理员微信（「联系管理员开通」的人工兜底通道）
+// ---------------------------------------------------------------------------
+
+export interface WechatContactText {
+  title: string;
+  hint: string;
+  note: string;
+  close: string;
+  qrAlt: string;
+  qrFailed: string;
+}
+
+const WECHAT_CONTACT_TEXTS: Record<UiLanguage, WechatContactText> = {
+  'zh-CN': {
+    title: '扫码添加微信开通',
+    hint: '打开微信 → 扫一扫 → 添加好友，备注『扩容』，管理员会协助开通。',
+    note: '二维码仅用于联系管理员，不会扣费或授权任何账号权限。',
+    close: '关闭',
+    qrAlt: '管理员微信二维码',
+    qrFailed: '二维码图片未能加载，请重新打开本弹窗',
+  },
+  'en-US': {
+    title: 'Add us on WeChat to enable it',
+    hint: 'Open WeChat → Scan → Add friend, mention “storage upgrade”, and the admin will help you enable it.',
+    note: 'This QR code only opens a contact; it never charges you or grants account permissions.',
+    close: 'Close',
+    qrAlt: 'Admin WeChat QR code',
+    qrFailed: 'The QR image failed to load, please reopen this dialog',
+  },
+};
+
+export function getWechatContactI18n(locale: UiLanguage): WechatContactText {
+  return WECHAT_CONTACT_TEXTS[normalizeUiLanguage(locale)];
 }

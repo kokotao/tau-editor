@@ -1,4 +1,5 @@
 mod clipboard;
+pub mod cloud;
 /// Tauri 命令模块
 ///
 /// 包含所有暴露给前端的 Tauri 命令
@@ -20,6 +21,7 @@ pub mod window;
 mod workspace;
 
 pub use clipboard::*;
+pub use cloud::*;
 pub use file::*;
 pub use file_association::*;
 pub use file_optimized::*;

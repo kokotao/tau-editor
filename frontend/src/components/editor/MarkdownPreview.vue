@@ -9,6 +9,7 @@
     @dblclick="handlePreviewDoubleClick"
     @mouseup="updateSelectionToolbar"
     @keyup="updateSelectionToolbar"
+    @scroll="handlePreviewScroll"
   >
     <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
     <div
@@ -92,6 +93,7 @@ import { appCommands, isTauriApp } from '@/lib/tauri';
 import { useNotificationStore } from '@/stores/notification';
 import { getMarkdownCodeFences } from '@/services/markdownService';
 import { findMarkdownTableBlocks, updateMarkdownTableAtIndex, updateMarkdownTableCellAtIndex } from '@/utils/markdownTable';
+import { pickActiveSourceLine, type PreviewHeadingAnchor } from '@/services/scrollSpyService';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -193,6 +195,8 @@ const emit = defineEmits<{
   'markdown-change': [content: string];
   'request-undo': [];
   'request-redo': [];
+  'scroll-sync': [state: { top: number; height: number; scrollHeight: number }];
+  'active-line': [line: number];
 }>();
 
 const previewRef = ref<HTMLElement | null>(null);
@@ -220,6 +224,17 @@ let activeRenderTasks = 0;
 let completedRenderVersion: number | null = null;
 const latestEditorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 const pendingPreviewScrollTop = ref(0);
+/** 程序化设置的预览滚动位置，用于识别并忽略双向同步产生的回环事件。 */
+let lastSyncedPreviewTop: number | null = null;
+/** 预览内标题锚点（按文档顺序的 { line, top }），供目录联动高亮定位当前标题。 */
+let previewHeadingAnchors: PreviewHeadingAnchor[] = [];
+let measureHeadingsFrame: number | null = null;
+let emitActiveLineFrame: number | null = null;
+let lastEmittedActiveLine = 0;
+let previewResizeObserver: ResizeObserver | null = null;
+/** 标题吸顶偏移：标题滚到容器顶部下方这么多像素内即视为当前章节。 */
+const ACTIVE_LINE_OFFSET_PX = 24;
+const PREVIEW_HEADING_SELECTOR = 'h1[data-source-line],h2[data-source-line],h3[data-source-line],h4[data-source-line],h5[data-source-line],h6[data-source-line]';
 const selectionToolbar = ref({ visible: false, x: 0, y: 0 });
 type PreviewSelection = {
   selection: Selection | null;
@@ -1904,7 +1919,7 @@ const syncPreviewScroll = (state: { top: number; height: number; scrollHeight: n
   }
   if (localTableScrollLock) {
     if (Date.now() < localTableScrollLock.until || localTableScrollLock.editorTop === null || state.top === localTableScrollLock.editorTop) {
-      previewContainer.scrollTop = localTableScrollLock.top;
+      applyPreviewScrollTop(localTableScrollLock.top);
       return;
     }
     localTableScrollLock = null;
@@ -1914,12 +1929,124 @@ const syncPreviewScroll = (state: { top: number; height: number; scrollHeight: n
   const previewScrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
 
   if (previewScrollable <= 0 || editorScrollable <= 0) {
-    previewContainer.scrollTop = 0;
+    applyPreviewScrollTop(0);
     return;
   }
 
   const ratio = Math.min(1, Math.max(0, state.top / editorScrollable));
-  previewContainer.scrollTop = previewScrollable * ratio;
+  applyPreviewScrollTop(previewScrollable * ratio);
+};
+
+const applyPreviewScrollTop = (top: number) => {
+  const previewContainer = previewScrollRef.value;
+  if (!previewContainer) {
+    return;
+  }
+  const scrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+  const clamped = scrollable > 0 ? Math.min(scrollable, Math.max(0, top)) : top;
+  lastSyncedPreviewTop = clamped;
+  previewContainer.scrollTop = clamped;
+};
+
+/**
+ * @description 以预览滚动容器为原点测量 h1..h6 的 `{ line, top }`（`data-source-line` 来自
+ * markdownRenderService）。面板不可见（display:none / 宽度为 0）时放弃测量，避免收集到
+ * 全 0 的脏锚点让目录高亮乱跳。
+ * @author Albert_Luo
+ * @date 2026-10-28
+ */
+const measurePreviewHeadings = () => {
+  const container = previewScrollRef.value;
+  const content = previewRef.value;
+  if (!container || !content || container.clientWidth <= 0) {
+    previewHeadingAnchors = [];
+    return;
+  }
+
+  const containerTop = container.getBoundingClientRect().top;
+  const scrollTop = Number.isFinite(container.scrollTop) ? container.scrollTop : 0;
+  const anchors: PreviewHeadingAnchor[] = [];
+  content.querySelectorAll<HTMLElement>(PREVIEW_HEADING_SELECTOR).forEach((heading) => {
+    const line = Number.parseInt(heading.dataset.sourceLine ?? '', 10);
+    if (!Number.isFinite(line)) {
+      return;
+    }
+    anchors.push({
+      line,
+      top: heading.getBoundingClientRect().top - containerTop + scrollTop,
+    });
+  });
+  previewHeadingAnchors = anchors;
+};
+
+const emitActiveLineFromScroll = () => {
+  const container = previewScrollRef.value;
+  if (!container || previewHeadingAnchors.length === 0) {
+    return;
+  }
+  const line = pickActiveSourceLine(previewHeadingAnchors, container.scrollTop, ACTIVE_LINE_OFFSET_PX);
+  if (!Number.isFinite(line) || line <= 0 || line === lastEmittedActiveLine) {
+    return;
+  }
+  lastEmittedActiveLine = line;
+  emit('active-line', line);
+};
+
+/** rAF 节流：滚动期间每个动画帧最多回写一次当前标题行。 */
+const scheduleActiveLineEmit = () => {
+  if (emitActiveLineFrame !== null) {
+    return;
+  }
+  if (typeof requestAnimationFrame !== 'function') {
+    emitActiveLineFromScroll();
+    return;
+  }
+  emitActiveLineFrame = requestAnimationFrame(() => {
+    emitActiveLineFrame = null;
+    emitActiveLineFromScroll();
+  });
+};
+
+const scheduleMeasurePreviewHeadings = () => {
+  if (measureHeadingsFrame !== null) {
+    return;
+  }
+  if (typeof requestAnimationFrame !== 'function') {
+    measurePreviewHeadings();
+    return;
+  }
+  measureHeadingsFrame = requestAnimationFrame(() => {
+    measureHeadingsFrame = null;
+    measurePreviewHeadings();
+    scheduleActiveLineEmit();
+  });
+};
+
+const handlePreviewScroll = () => {
+  const previewContainer = previewScrollRef.value;
+  if (!previewContainer) {
+    return;
+  }
+  if (lastSyncedPreviewTop !== null && Math.abs(previewContainer.scrollTop - lastSyncedPreviewTop) < 2) {
+    return;
+  }
+
+  // 用户滚动预览：目录高亮跟随预览当前标题（与下方比例同步互不影响）。
+  scheduleActiveLineEmit();
+
+  const editorState = latestEditorScrollState.value ?? props.editorScrollState;
+  const previewScrollable = Math.max(0, previewContainer.scrollHeight - previewContainer.clientHeight);
+  if (!editorState || previewScrollable <= 0) {
+    return;
+  }
+
+  const editorScrollable = Math.max(0, editorState.scrollHeight - editorState.height);
+  const ratio = Math.min(1, Math.max(0, previewContainer.scrollTop / previewScrollable));
+  emit('scroll-sync', {
+    top: editorScrollable * ratio,
+    height: editorState.height,
+    scrollHeight: editorState.scrollHeight,
+  });
 };
 
 /**
@@ -1964,7 +2091,7 @@ const refreshLocalTable = async (edit: {
   const scrollTop = edit.previewScrollTop;
   const scrollLeft = edit.tableScrollLeft;
   const restorePreviewScroll = () => {
-    if (previewScroll) previewScroll.scrollTop = scrollTop;
+    applyPreviewScrollTop(scrollTop);
     localTableScrollLock = {
       top: scrollTop,
       editorTop: latestEditorScrollState.value?.top ?? null,
@@ -2016,7 +2143,7 @@ const refreshLocalTable = async (edit: {
   if (!nextTable || !currentTable) return false;
 
   const restoreScroll = () => {
-    if (previewScroll) previewScroll.scrollTop = scrollTop;
+    applyPreviewScrollTop(scrollTop);
     wrapper.scrollLeft = scrollLeft;
   };
   currentTable.replaceWith(nextTable);
@@ -2167,8 +2294,12 @@ const scheduleRender = () => {
         syncPreviewScroll(latestEditorScrollState.value);
       }
       if (currentRenderVersion === renderVersion && previewScrollRef.value) {
-        previewScrollRef.value.scrollTop = pendingPreviewScrollTop.value;
+        applyPreviewScrollTop(pendingPreviewScrollTop.value);
       }
+      // 重排/图表渲染完成后重测标题锚点；此处只更新锚点，不主动回写高亮，
+      // 避免编辑内容变化时预览覆盖编辑器视口首行（两者都由 App 的单一状态接收）。
+      measurePreviewHeadings();
+      lastEmittedActiveLine = 0;
     } finally {
       if (currentRenderVersion !== renderVersion) {
         activeRenderTasks -= 1;
@@ -2236,6 +2367,18 @@ onMounted(() => {
   document.addEventListener('selectionchange', updateSelectionToolbar);
   document.addEventListener('fullscreenchange', handleFullscreenChange);
   window.addEventListener('keydown', handleGlobalKeydown);
+  // 容器或内容尺寸变化（窗口缩放、图片加载、主题切换）后重测标题位置。
+  if (typeof ResizeObserver !== 'undefined') {
+    previewResizeObserver = new ResizeObserver(() => {
+      scheduleMeasurePreviewHeadings();
+    });
+    if (previewScrollRef.value) {
+      previewResizeObserver.observe(previewScrollRef.value);
+    }
+    if (previewRef.value) {
+      previewResizeObserver.observe(previewRef.value);
+    }
+  }
 });
 
 onBeforeUnmount(() => {
@@ -2248,6 +2391,17 @@ onBeforeUnmount(() => {
     clearTimeout(renderTimer);
     renderTimer = null;
   }
+  if (measureHeadingsFrame !== null) {
+    cancelAnimationFrame(measureHeadingsFrame);
+    measureHeadingsFrame = null;
+  }
+  if (emitActiveLineFrame !== null) {
+    cancelAnimationFrame(emitActiveLineFrame);
+    emitActiveLineFrame = null;
+  }
+  previewResizeObserver?.disconnect();
+  previewResizeObserver = null;
+  previewHeadingAnchors = [];
   document.removeEventListener('mousedown', handleGlobalPointerDown);
   document.removeEventListener('selectionchange', updateSelectionToolbar);
   document.removeEventListener('fullscreenchange', handleFullscreenChange);

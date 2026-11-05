@@ -353,6 +353,10 @@ export class TabService {
       let lastKnownModified: number | null = null;
       let fileRevision: string | null = null;
 
+      // 思维导图标签另存为后仍是思维导图文档，保持 documentKind 与 json 语言分支；
+      // 另存为外部扩展名（如 .map）时仅改文件名，不改变文档类型语义。
+      const staysMindMap = tab.documentKind === 'mindmap' || tab.documentKind === 'mindmap-external';
+
       if (tab.isLargeFile) {
         const commit = isTauriApp()
           ? await this.commitLargeFileSaveAs(targetPath, tab)
@@ -385,7 +389,8 @@ export class TabService {
       this.tabsStore.updateTab(tab.id, {
         filePath: targetPath,
         fileName: getBaseName(targetPath),
-        language: detectLanguage(targetPath),
+        language: staysMindMap ? 'json' : detectLanguage(targetPath),
+        documentKind: staysMindMap ? tab.documentKind : undefined,
         isDirty: false,
         isUntitled: false,
         isLargeFile: tab.isLargeFile,
@@ -396,7 +401,7 @@ export class TabService {
         fileRevision,
         externalModifiedAt: null,
       });
-      this.editorStore.setLanguage(detectLanguage(targetPath));
+      this.editorStore.setLanguage(staysMindMap ? 'json' : detectLanguage(targetPath));
       this.editorStore.markAsSaved();
       this.workspaceStore.openSingleFile(targetPath);
 

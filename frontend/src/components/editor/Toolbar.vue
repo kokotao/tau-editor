@@ -1,5 +1,5 @@
 <template>
-  <div class="toolbar" data-testid="toolbar">
+  <div class="toolbar" :class="{ 'toolbar--mindmap': isMindmap }" data-testid="toolbar">
     <div class="toolbar-zone toolbar-zone-start">
       <div class="toolbar-identity">
         <svg
@@ -32,9 +32,7 @@
           <path class="toolbar-app-icon-tau" d="M302 598c4-18 12-20 29-18l48 4c7 1 10-3 12-11l-5 24c-1 5-5 7-11 6l-24-3-9 63c-3 19 5 33 20 36 11 2 17-4 21-15-3 21-13 31-28 27-22-5-33-26-30-51l8-61-19-2c-7 0-11 4-14 12l2-11Z" />
         </svg>
       </div>
-    </div>
 
-    <div class="toolbar-zone toolbar-zone-center">
       <div class="toolbar-group toolbar-group-main">
         <button
           class="toolbar-btn"
@@ -106,6 +104,41 @@
         </button>
       </div>
 
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group toolbar-group-history">
+        <button
+          class="toolbar-btn"
+          data-testid="btn-undo"
+          @click="emit('undo')"
+          :disabled="!canUndo"
+          :class="{ disabled: !canUndo }"
+          :aria-label="copy.undo"
+          :title="copy.undo"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1,4 1,10 7,10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+        </button>
+        <button
+          class="toolbar-btn"
+          data-testid="btn-redo"
+          @click="emit('redo')"
+          :disabled="!canRedo"
+          :class="{ disabled: !canRedo }"
+          :aria-label="copy.redo"
+          :title="copy.redo"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23,4 23,10 17,10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar-zone toolbar-zone-center">
       <template v-if="isMarkdown">
         <div class="toolbar-divider markdown-toolbar-divider"></div>
         <div class="toolbar-group toolbar-group-markdown" data-testid="markdown-toolbar">
@@ -152,6 +185,103 @@
               <MarkdownActionIcon :name="action.value" />
             </button>
           </template>
+        </div>
+      </template>
+
+      <button
+        v-if="isMarkdown || (isDocumentPreview && !isFullDocumentPreview)"
+        class="toolbar-btn"
+        data-testid="btn-markdown-preview-mode"
+        @click="emit('cycle-markdown-preview')"
+        :aria-label="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
+        :title="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <line x1="8" y1="4" x2="8" y2="20" />
+          <line x1="16" y1="4" x2="16" y2="20" />
+        </svg>
+      </button>
+
+      <template v-if="isMindmap && mindmapTools">
+        <div class="toolbar-divider markdown-toolbar-divider"></div>
+        <div class="toolbar-group toolbar-group-mindmap" data-testid="mindmap-toolbar">
+          <span class="mm-layout-group" role="group" aria-label="布局模式">
+            <button
+              v-for="option in mindmapLayoutOptions"
+              :key="option.id"
+              type="button"
+              class="mm-btn"
+              :class="{ 'is-active': mindmapTools.layoutMode === option.id }"
+              :data-testid="`mm-layout-${option.id}`"
+              :aria-pressed="mindmapTools.layoutMode === option.id"
+              :title="option.title"
+              @click="emit('mm-layout', option.id)"
+            >{{ option.label }}</button>
+          </span>
+          <label class="mm-theme-field" title="主题模板">
+            <span class="mm-theme-label">主题</span>
+            <select class="mm-theme-select" data-testid="mm-theme-select" :value="mindmapTools.themeId"
+              :aria-label="`主题模板：${mindmapTools.themeId}`" @change="onMindmapThemeChange">
+              <option v-for="option in mindmapTools.themeOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
+            </select>
+          </label>
+          <button type="button" class="mm-btn" data-testid="mm-import" @click="emit('mm-import')">导入</button>
+          <button type="button" class="mm-btn" data-testid="mm-toggle-outline" :aria-pressed="Boolean(mindmapTools.outlineActive)"
+            title="切换大纲面板（Ctrl+Alt+O）" @click="emit('mm-toggle-outline')">大纲{{ mindmapTools.outlineActive ? '开' : '关' }}</button>
+          <button type="button" class="mm-btn" data-testid="mm-properties-toggle" :aria-pressed="Boolean(mindmapTools.propertiesActive)"
+            title="切换属性面板（Ctrl+Alt+P）" @click="emit('mm-toggle-properties')">属性{{ mindmapTools.propertiesActive ? '开' : '关' }}</button>
+          <button type="button" class="mm-btn" data-testid="mm-canvas-style-toggle" :aria-pressed="Boolean(mindmapTools.styleActive)"
+            title="切换画布样式" @click="emit('mm-toggle-style')">样式{{ mindmapTools.styleActive ? '开' : '关' }}</button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <!-- 主操作：层级编辑 -->
+          <button type="button" class="mm-btn" data-testid="mm-add-child" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-child')">
+            子主题
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-add-sibling" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-sibling')">
+            同级
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-rename" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-rename')">
+            改名
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-duplicate" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-duplicate')">
+            复制
+          </button>
+          <button type="button" class="mm-btn danger" data-testid="mm-delete" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-delete')">
+            删除
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-move-up" :disabled="!mindmapTools.selectedTopicId" title="上移（Alt+↑）" @click="emit('mm-move-up')">
+            ↑
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-move-down" :disabled="!mindmapTools.selectedTopicId" title="下移（Alt+↓）" @click="emit('mm-move-down')">
+            ↓
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-undo" :disabled="!mindmapTools.canUndo" title="撤销（Ctrl+Z）" @click="emit('mm-undo')">
+            撤销
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-redo" :disabled="!mindmapTools.canRedo" title="重做（Ctrl+Shift+Z）" @click="emit('mm-redo')">
+            重做
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-fit" title="适配内容" @click="emit('mm-fit')">
+            适配
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-zoom-in" title="放大" @click="emit('mm-zoom-in')">+</button>
+          <button type="button" class="mm-btn" data-testid="mm-zoom-out" title="缩小" @click="emit('mm-zoom-out')">−</button>
+          <button type="button" class="mm-btn" data-testid="mm-reset-view" title="重置视口" @click="emit('mm-reset-view')">
+            重置视口
+          </button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-reset" @click="emit('mm-reset')">重置</button>
+          <span class="mm-divider" aria-hidden="true"></span>
+          <button type="button" class="mm-btn" data-testid="mm-export" @click="emit('mm-export')">
+            导出
+          </button>
+          <button type="button" class="mm-btn" data-testid="mm-print" @click="emit('mm-print')">
+            打印
+          </button>
         </div>
       </template>
 
@@ -220,97 +350,6 @@
           </label>
         </div>
       </Teleport>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group toolbar-group-history">
-        <button
-          class="toolbar-btn"
-          data-testid="btn-undo"
-          @click="emit('undo')"
-          :disabled="!canUndo"
-          :class="{ disabled: !canUndo }"
-          :aria-label="copy.undo"
-          :title="copy.undo"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="1,4 1,10 7,10" />
-            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-          </svg>
-        </button>
-        <button
-          class="toolbar-btn"
-          data-testid="btn-redo"
-          @click="emit('redo')"
-          :disabled="!canRedo"
-          :class="{ disabled: !canRedo }"
-          :aria-label="copy.redo"
-          :title="copy.redo"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="23,4 23,10 17,10" />
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group toolbar-group-views">
-        <button
-          class="toolbar-btn"
-          data-testid="btn-toggle-file-tree"
-          @click="emit('toggle-file-tree')"
-          :aria-label="sidebarVisible ? copy.collapseExplorer : copy.expandExplorer"
-          :title="sidebarVisible ? copy.collapseExplorer : copy.expandExplorer"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="9" y1="4" x2="9" y2="20" />
-          </svg>
-        </button>
-        <button
-          class="toolbar-btn"
-          data-testid="btn-locate-current-file"
-          :disabled="!canRevealCurrentFile || locatingCurrentFile"
-          :class="{ disabled: !canRevealCurrentFile || locatingCurrentFile }"
-          :aria-label="copy.locateCurrentFile"
-          :title="copy.locateCurrentFile"
-          @click="emit('locate-current-file')"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="7" />
-            <circle cx="12" cy="12" r="2" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-          </svg>
-        </button>
-        <button
-          v-if="isMarkdown || (isDocumentPreview && !isFullDocumentPreview)"
-          class="toolbar-btn"
-          data-testid="btn-markdown-preview-mode"
-          @click="emit('cycle-markdown-preview')"
-          :aria-label="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
-          :title="`${copy.markdownViewPrefix}: ${previewModeLabel}`"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="8" y1="4" x2="8" y2="20" />
-            <line x1="16" y1="4" x2="16" y2="20" />
-          </svg>
-        </button>
-        <button
-          class="toolbar-btn"
-          data-testid="btn-toggle-context-rail"
-          @click="emit('toggle-context-rail')"
-          :aria-label="contextRailVisible ? copy.collapseContext : copy.expandContext"
-          :title="contextRailVisible ? copy.collapseContext : copy.expandContext"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="15" y1="4" x2="15" y2="20" />
-          </svg>
-        </button>
-      </div>
     </div>
 
     <div class="toolbar-zone toolbar-zone-end">
@@ -347,19 +386,42 @@ import { useSettingsStore } from '@/stores/settings';
 import { getToolbarI18n } from '@/i18n/ui';
 import TauIcon from '@/components/icons/TauIcon.vue';
 
+/**
+ * 思维导图工具组状态（UX-3C：工具栏从 MindmapStage 外移到全局 Toolbar）。
+ *
+ * Toolbar 保持「哑」展示：只按传入状态渲染禁用/高亮，点击一律 emit 给 App，
+ * 由 App 通过 MindmapStage 的 ref 调用真实命令——改文档的只有 Stage。
+ */
+interface MindmapToolbarState {
+  /** 思维导图历史栈是否可撤销 / 可重做（与编辑器撤销是两套）。 */
+  canUndo: boolean;
+  canRedo: boolean;
+  /** 当前选中节点；null 时编辑类按钮禁用。 */
+  selectedTopicId: string | null;
+  /** 当前结构布局模式。 */
+  layoutMode: 'mindmap' | 'logic' | 'tree' | 'org';
+  /** 当前主题模板 id 与候选列表（原生 select 渲染）。 */
+  themeId: string;
+  themeOptions: Array<{ id: string; name: string }>;
+  /** 右侧面板两个 tab 的激活态（用于 aria-pressed）。 */
+  outlineActive?: boolean;
+  propertiesActive?: boolean;
+  styleActive?: boolean;
+}
+
 interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   isDirty: boolean;
   hasActiveTab?: boolean;
   isMarkdown?: boolean;
+  /** 当前标签是思维导图：在 center 区渲染导图专属按钮组。 */
+  isMindmap?: boolean;
+  /** 导图工具组状态；isMindmap 为真时必须提供。 */
+  mindmapTools?: MindmapToolbarState | null;
   isDocumentPreview?: boolean;
   isFullDocumentPreview?: boolean;
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
-  sidebarVisible?: boolean;
-  contextRailVisible?: boolean;
-  canRevealCurrentFile?: boolean;
-  locatingCurrentFile?: boolean;
   appLabel?: string;
 }
 
@@ -489,12 +551,11 @@ const MarkdownActionIcon = defineComponent({
 
 const props = withDefaults(defineProps<ToolbarProps>(), {
   isMarkdown: false,
+  isMindmap: false,
   isDocumentPreview: false,
   isFullDocumentPreview: false,
   hasActiveTab: false,
   markdownPreviewMode: 'split',
-  sidebarVisible: true,
-  contextRailVisible: true,
 });
 
 const settingsStore = useSettingsStore();
@@ -538,16 +599,54 @@ const emit = defineEmits<{
   'save-as': [];
   'undo': [];
   'redo': [];
-  'toggle-file-tree': [];
-  'locate-current-file': [];
-  'toggle-context-rail': [];
   'toggle-settings': [];
   'cycle-markdown-preview': [];
   'markdown-action': [action: MarkdownAction];
   'markdown-heading': [level: number];
   'markdown-code': [language: string];
   'markdown-image': [];
+  // 思维导图工具组（UX-3C）：统一由 App 转发到 MindmapStage 暴露的方法
+  'mm-add-child': [];
+  'mm-add-sibling': [];
+  'mm-rename': [];
+  'mm-duplicate': [];
+  'mm-delete': [];
+  'mm-move-up': [];
+  'mm-move-down': [];
+  'mm-undo': [];
+  'mm-redo': [];
+  'mm-fit': [];
+  'mm-zoom-in': [];
+  'mm-zoom-out': [];
+  'mm-reset-view': [];
+  'mm-layout': [mode: MindmapToolbarState['layoutMode']];
+  'mm-theme': [themeId: string];
+  'mm-reset': [];
+  'mm-import': [];
+  'mm-export': [];
+  'mm-print': [];
+  'mm-toggle-outline': [];
+  'mm-toggle-properties': [];
+  'mm-toggle-style': [];
 }>();
+
+/** 导图结构布局候选（与 MindmapStage 内的布局定义保持一致）。 */
+const mindmapLayoutOptions: Array<{
+  id: MindmapToolbarState['layoutMode'];
+  label: string;
+  title: string;
+}> = [
+  { id: 'mindmap', label: '导图', title: '中心双侧导图（mindmap）' },
+  { id: 'logic', label: '逻辑图', title: '单侧向右的逻辑图（logic）' },
+  { id: 'tree', label: '树形', title: '右侧树形，正交连线（tree）' },
+  { id: 'org', label: '组织图', title: '自上而下的组织图（org）' },
+];
+
+/** 主题下拉：保持原生 select（E2E-MM-013 依赖 selectOption）。 */
+const onMindmapThemeChange = (event: Event) => {
+  const nextThemeId = (event.target as HTMLSelectElement | null)?.value ?? '';
+  if (nextThemeId) emit('mm-theme', nextThemeId);
+};
 
 const handleDocumentPointerDown = (event: MouseEvent) => {
   const target = event.target as Node | null;
@@ -635,6 +734,19 @@ onUnmounted(() => {
   transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
 
+.toolbar--mindmap {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.toolbar--mindmap .toolbar-zone-center {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.toolbar--mindmap .toolbar-zone-center::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
 .toolbar-group {
   display: flex;
   align-items: center;
@@ -659,18 +771,110 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.toolbar-zone-end {
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .toolbar-group-main .toolbar-btn {
   border-radius: var(--radius-sm);
 }
 
 .toolbar-group-history,
-.toolbar-group-views,
 .toolbar-group-markdown {
   gap: 4px;
 }
 
 .toolbar-group-markdown { max-width: min(42vw, 470px); overflow-x: auto; scrollbar-width: none; }
 .toolbar-group-markdown::-webkit-scrollbar { display: none; }
+
+/* ------------------------- 思维导图工具组（UX-3C） -------------------------
+ * 位于 toolbar-zone-center（居中），用户要求导图工具居中、不被右侧遮挡。
+ * 视觉与 MindmapStage 内的 mm-btn 完全一致（同一套主题变量），
+ * 因此 E2E-MM-020 的对比度断言在外移后仍然成立。
+ */
+.toolbar-group-mindmap {
+  gap: 6px;
+  /* 可收缩 + 横向滚动兜底：内容过宽时不截断按钮，靠滚动条/触控板横向查看 */
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: max-content;
+  overflow-x: auto;
+  /* 隐藏式滚动条：仍可滚动，但不显示滚动条轨道，避免顶部导航出现细线 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 2px;
+}
+.toolbar-group-mindmap::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.toolbar--mindmap .toolbar-group-mindmap {
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-brand) 24%, var(--border-soft));
+  border-radius: var(--radius-control, 6px);
+  background: color-mix(in srgb, var(--panel-base) 52%, transparent);
+}
+.toolbar--mindmap .toolbar-group-mindmap .mm-layout-group {
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent-brand) 34%, var(--border-soft));
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--panel-base) 72%, transparent);
+}
+.toolbar--mindmap .toolbar-group-mindmap .mm-layout-group .mm-btn {
+  border-color: transparent;
+  border-radius: var(--radius-xs, 3px);
+}
+.toolbar--mindmap .toolbar-group-mindmap .mm-layout-group .mm-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent-brand) 72%, transparent);
+  background: color-mix(in srgb, var(--accent-brand) 20%, var(--panel-elevated));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-brand) 10%, transparent);
+}
+.toolbar--mindmap .toolbar-group-mindmap > .mm-btn {
+  border-color: transparent;
+  background: transparent;
+}
+.toolbar--mindmap .toolbar-group-mindmap > .mm-btn:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(148, 163, 184, 0.16));
+}
+
+.mm-btn {
+  padding: 5px 10px;
+  border-radius: var(--radius-control, 6px);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.3));
+  background: var(--panel-elevated, #151d2d);
+  color: var(--text-primary, #e2e8f0);
+  font-size: 12px;
+  font-family: var(--font-ui, inherit);
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.mm-btn:hover:not(:disabled) { background: var(--surface-hover, rgba(148, 163, 184, 0.16)); }
+.mm-btn:disabled { opacity: 0.45; cursor: default; }
+.mm-btn.danger {
+  border-color: var(--state-danger, #e06c75);
+  color: var(--state-danger, #e06c75);
+}
+.mm-btn.danger:hover:not(:disabled) { background: var(--surface-hover, rgba(148, 163, 184, 0.16)); }
+.mm-btn.is-active {
+  border-color: var(--accent-brand, #4a90e2);
+  background: var(--surface-active, rgba(74, 144, 226, 0.18));
+  color: var(--accent-brand-strong, #7fb3f0);
+  font-weight: 600;
+}
+.mm-divider { width: 1px; height: 18px; background: var(--border-soft, rgba(148, 163, 184, 0.3)); flex: 0 0 auto; }
+.mm-layout-group { display: flex; gap: 4px; flex: 0 0 auto; }
+.mm-theme-field { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.mm-theme-label { font-size: 11px; color: var(--text-secondary, #94a3b8); }
+.mm-theme-select {
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: var(--font-ui, inherit);
+  border-radius: var(--radius-control, 6px);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.3));
+  background: var(--panel-elevated, #151d2d);
+  color: var(--text-primary, #e2e8f0);
+  cursor: pointer;
+}
 .markdown-toolbar-btn { width: 30px; height: 30px; flex: 0 0 auto; }
 .markdown-heading-menu { position: relative; flex: 0 0 auto; }
 .markdown-heading-trigger { width: 42px; gap: 2px; }

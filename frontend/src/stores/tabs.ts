@@ -1,10 +1,16 @@
 import { defineStore } from 'pinia';
+import { planScratchTabMoves, type ScratchTabPlan, type ScratchTabSkip } from '@/utils/scratchTabRelocation';
+
+/** 标签的文档类型分支：默认文本，思维导图用独立 kind，不靠伪造语言模式。 */
+export type TabDocumentKind = 'text' | 'mindmap' | 'mindmap-external';
 
 export interface Tab {
   id: string;                   // 唯一标识
   filePath: string | null;      // 文件路径
   fileName: string;             // 文件名
   language: string;             // 语言模式
+  /** 文档类型分支：text | mindmap | mindmap-external（阶段 0 思维导图）。 */
+  documentKind?: TabDocumentKind;
   isDirty: boolean;             // 是否有未保存的更改
   isUntitled: boolean;          // 是否为未保存文件
   isRecoverySaved?: boolean;    // 未命名草稿已写入应用恢复库
@@ -25,6 +31,31 @@ export interface Tab {
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
   /** Markdown 仅预览字号（px），未设置时由预览组件使用默认值。 */
   markdownPreviewFontSize?: number;
+  /** 云端文档 id（最近一次同步成功后写入） */
+  cloudFileId?: number | null;
+  /** 云端文档版本号 */
+  cloudVersion?: number | null;
+  /** 最近一次与云端一致的 sha256:hex 内容哈希，用作三方合并基线 */
+  cloudContentHash?: string | null;
+  /** 最近一次云同步完成时间（毫秒时间戳） */
+  lastSyncedAt?: number | null;
+  /**
+   * 云端同步状态（用于在标签/状态栏如实展示，不靠弹窗骚扰）：
+   * - `synced`：与云端一致；
+   * - `saving`：正在上传；
+   * - `failed`：这次没落地（网络/配额/令牌过期），**本地已保存但云端没有**；
+   * - `offline`：未登录或云同步未开通。
+   */
+  cloudSyncState?: 'synced' | 'saving' | 'failed' | 'offline' | null;
+  /** 最近一次云同步失败原因（用于 hover 提示） */
+  cloudSyncError?: string | null;
+}
+
+/** 临时工作区另存后标签重定位的结果 */
+export interface TabRelocationOutcome {
+  movedTabIds: string[];
+  /** 有目标但没迁的标签：目标已被别的标签打开，或文件没被复制过去 */
+  skipped: ScratchTabSkip[];
 }
 
 export interface TabsState {
@@ -151,6 +182,39 @@ export const useTabsStore = defineStore('tabs', {
       if (!tab) return;
 
       Object.assign(tab, updates);
+    },
+
+    /**
+     * 临时工作区另存后，把 filePath 落在 fromRoot 之下的标签改指到 toRoot。
+     *
+     * 只改路径和磁盘基线：内容、脏标记、撤销栈一律不动，也绝不因路径变化去重读磁盘，
+     * 否则未保存的改动会被静默丢弃。
+     */
+    relocateTabsUnderWorkspace(
+      fromRoot: string,
+      toRoot: string,
+      copiedRelativePaths?: readonly string[],
+    ): TabRelocationOutcome {
+      const plan: ScratchTabPlan = planScratchTabMoves({
+        tabs: this.tabs,
+        fromRoot,
+        toRoot,
+        copiedRelativePaths,
+      });
+
+      const movedTabIds: string[] = [];
+      for (const move of plan.moves) {
+        const tab = this.tabs.find((item) => item.id === move.tabId);
+        if (!tab) continue;
+        tab.filePath = move.toPath;
+        // 旧 revision/修改时间绑定的是临时目录里的那份文件，清掉让下一次保存重新取基线
+        tab.fileRevision = null;
+        tab.lastKnownModified = null;
+        tab.externalModifiedAt = null;
+        movedTabIds.push(tab.id);
+      }
+
+      return { movedTabIds, skipped: plan.skipped };
     },
 
     restoreSession(tabs: Tab[], activeTabId: string | null) {

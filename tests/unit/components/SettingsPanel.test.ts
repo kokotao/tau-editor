@@ -37,6 +37,9 @@ vi.mock('naive-ui', () => ({
 }));
 
 vi.mock('@/lib/tauri', () => ({
+  // SettingsPanel 的云同步分类在 onMounted 里用 isTauriApp() 判断是否恢复会话；
+  // 这里补一个 Web 环境返回值，避免部分 mock 触发 vitest 的 "No export is defined"。
+  isTauriApp: () => false,
   settingsCommands: {
     getAutoSaveInterval: vi.fn().mockResolvedValue(30),
     setAutoSaveEnabled: vi.fn().mockResolvedValue(undefined),

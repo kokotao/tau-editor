@@ -23,40 +23,44 @@
       </svg>
     </button>
 
-    <Transition
-      enter-active-class="animate__animated animate__faster animate__fadeIn"
-      leave-active-class="animate__animated animate__faster animate__fadeOut"
-    >
-      <div
-        v-if="isOpen"
-        :id="menuId"
-        ref="menuRef"
-        class="status-select-menu"
-        :data-testid="`${testId}-menu`"
-        :style="menuStyle"
-        role="listbox"
-        :aria-label="title"
-        @keydown="handleMenuKeydown"
+    <!-- 渲染到 body：脱离状态栏（及祖先 transform）的层叠上下文，避免 fixed 定位被裁切/错位 -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="animate__animated animate__faster animate__fadeIn"
+        leave-active-class="animate__animated animate__faster animate__fadeOut"
       >
-        <button
-          v-for="option in options"
-          :key="option.value"
-          :data-testid="`${testId}-option-${option.value}`"
-          :data-value="option.value"
-          type="button"
-          class="status-select-option"
-          :class="{ selected: option.value === value }"
-          role="option"
-          :aria-selected="option.value === value"
-          @click="selectOption(option.value)"
+        <div
+          v-if="isOpen"
+          :id="menuId"
+          ref="menuRef"
+          class="status-select-menu"
+          :data-testid="`${testId}-menu`"
+          :data-placement="placement"
+          :style="menuStyle"
+          role="listbox"
+          :aria-label="title"
+          @keydown="handleMenuKeydown"
         >
-          <span class="status-select-option-label">{{ option.label }}</span>
-          <svg v-if="option.value === value" class="status-select-check" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="m3.5 8.2 3 3 6-6.4" />
-          </svg>
-        </button>
-      </div>
-    </Transition>
+          <button
+            v-for="option in options"
+            :key="option.value"
+            :data-testid="`${testId}-option-${option.value}`"
+            :data-value="option.value"
+            type="button"
+            class="status-select-option"
+            :class="{ selected: option.value === value }"
+            role="option"
+            :aria-selected="option.value === value"
+            @click="selectOption(option.value)"
+          >
+            <span class="status-select-option-label">{{ option.label }}</span>
+            <svg v-if="option.value === value" class="status-select-check" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m3.5 8.2 3 3 6-6.4" />
+            </svg>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -79,10 +83,18 @@ const emit = defineEmits<{
   change: [value: string];
 }>();
 
+const EDGE = 12;
+const MENU_GAP = 9;
+const MENU_MAX_HEIGHT = 360;
+const MENU_MIN_HEIGHT = 120;
+const MENU_FALLBACK_WIDTH = 196;
+const MENU_OPTION_HEIGHT = 32;
+
 const rootRef = ref<HTMLElement | null>(null);
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 const isOpen = ref(false);
+const placement = ref<'top' | 'bottom'>('top');
 const menuStyle = ref<CSSProperties>({
   position: 'fixed',
   left: '0px',
@@ -95,31 +107,52 @@ const selectedLabel = computed(
   () => props.options.find((option) => option.value === props.value)?.label ?? props.value,
 );
 
+/** 未渲染时按选项数估算高度，保证首次定位就能算对展开方向。 */
+const estimateMenuHeight = () => Math.min(MENU_MAX_HEIGHT, props.options.length * MENU_OPTION_HEIGHT + 10);
+
 const positionMenu = () => {
   const trigger = triggerRef.value;
-  const menu = menuRef.value;
-  if (!trigger || !menu) {
+  if (!trigger) {
     return;
   }
+  const menu = menuRef.value;
+  const rect = trigger.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || 1024;
+  const viewportHeight = window.innerHeight || 768;
 
-  const triggerRect = trigger.getBoundingClientRect();
-  const menuWidth = menu.offsetWidth || 196;
-  const menuHeight = menu.offsetHeight || Math.min(props.options.length * 32 + 10, window.innerHeight - 24);
-  const edge = 12;
-  const left = Math.min(
-    Math.max(edge, triggerRect.right - menuWidth),
-    Math.max(edge, window.innerWidth - menuWidth - edge),
+  const menuWidth = Math.min(
+    menu?.offsetWidth || MENU_FALLBACK_WIDTH,
+    Math.max(MENU_MIN_HEIGHT, viewportWidth - EDGE * 2),
   );
-  const preferredTop = triggerRect.top - menuHeight - 9;
+  const wantedHeight = menu?.offsetHeight || estimateMenuHeight();
+  const spaceAbove = Math.max(0, rect.top - EDGE * 2);
+  const spaceBelow = Math.max(0, viewportHeight - rect.bottom - EDGE * 2);
+
+  // 靠近底部（状态栏在窗口最下方）优先向上展开；上下都不够时选空间更大的一侧。
+  const preferTop = wantedHeight <= spaceAbove || spaceAbove >= spaceBelow;
+  const nextPlacement: 'top' | 'bottom' = preferTop ? 'top' : 'bottom';
+  const available = preferTop ? spaceAbove : spaceBelow;
+  const maxHeight = Math.max(
+    MENU_MIN_HEIGHT,
+    Math.min(MENU_MAX_HEIGHT, available > 0 ? Math.floor(available) : MENU_MAX_HEIGHT),
+  );
+  const height = Math.min(wantedHeight, maxHeight);
+  const rawTop = preferTop ? rect.top - height - MENU_GAP : rect.bottom + MENU_GAP;
   const top = Math.min(
-    Math.max(edge, preferredTop >= edge ? preferredTop : triggerRect.bottom + 9),
-    Math.max(edge, window.innerHeight - menuHeight - edge),
+    Math.max(EDGE, rawTop),
+    Math.max(EDGE, viewportHeight - height - EDGE),
+  );
+  const left = Math.min(
+    Math.max(EDGE, rect.right - menuWidth),
+    Math.max(EDGE, viewportWidth - menuWidth - EDGE),
   );
 
+  placement.value = nextPlacement;
   menuStyle.value = {
     position: 'fixed',
     left: `${Math.round(left)}px`,
     top: `${Math.round(top)}px`,
+    maxHeight: `${Math.floor(maxHeight)}px`,
     visibility: 'visible',
   };
 };
@@ -127,6 +160,12 @@ const positionMenu = () => {
 const focusSelectedOption = () => {
   const selected = menuRef.value?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
   (selected ?? menuRef.value?.querySelector<HTMLButtonElement>('[role="option"]'))?.focus();
+};
+
+const reposition = () => {
+  if (isOpen.value) {
+    positionMenu();
+  }
 };
 
 const openMenu = () => {
@@ -146,9 +185,13 @@ const openMenu = () => {
   });
 };
 
+const closeMenu = () => {
+  isOpen.value = false;
+};
+
 const toggleMenu = () => {
   if (isOpen.value) {
-    isOpen.value = false;
+    closeMenu();
     return;
   }
   openMenu();
@@ -156,7 +199,7 @@ const toggleMenu = () => {
 
 const selectOption = (value: string) => {
   emit('change', value);
-  isOpen.value = false;
+  closeMenu();
   triggerRef.value?.focus();
 };
 
@@ -166,7 +209,7 @@ const handleMenuKeydown = (event: KeyboardEvent) => {
 
   if (event.key === 'Escape') {
     event.preventDefault();
-    isOpen.value = false;
+    closeMenu();
     triggerRef.value?.focus();
     return;
   }
@@ -197,13 +240,31 @@ const handleMenuKeydown = (event: KeyboardEvent) => {
 
 const handleDocumentPointerDown = (event: MouseEvent) => {
   const target = event.target;
-  if (isOpen.value && target instanceof Node && !rootRef.value?.contains(target)) {
-    isOpen.value = false;
+  if (!isOpen.value || !(target instanceof Node)) {
+    return;
   }
+  // 菜单已 Teleport 到 body，需要单独判断，否则点选项会在 click 前先被关掉
+  if (rootRef.value?.contains(target) || menuRef.value?.contains(target)) {
+    return;
+  }
+  closeMenu();
 };
 
-onMounted(() => document.addEventListener('mousedown', handleDocumentPointerDown));
-onUnmounted(() => document.removeEventListener('mousedown', handleDocumentPointerDown));
+/** 菜单是 fixed 浮层：窗口尺寸变化或任意容器滚动时要跟着重新定位。 */
+const handleViewportChange = () => {
+  reposition();
+};
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleDocumentPointerDown);
+  window.addEventListener('resize', handleViewportChange);
+  window.addEventListener('scroll', handleViewportChange, true);
+});
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleDocumentPointerDown);
+  window.removeEventListener('resize', handleViewportChange);
+  window.removeEventListener('scroll', handleViewportChange, true);
+});
 </script>
 
 <style scoped>
@@ -255,12 +316,13 @@ onUnmounted(() => document.removeEventListener('mousedown', handleDocumentPointe
 
 .status-select-menu {
   --animate-duration: 0.2s;
-  z-index: 50;
+  /* 浮层统一层级：高于侧栏/状态栏/工具栏，低于全屏模态（9999） */
+  z-index: 9000;
   display: flex;
   flex-direction: column;
   width: 196px;
   max-width: min(240px, calc(100vw - 24px));
-  max-height: min(360px, calc(100vh - 88px));
+  max-height: min(360px, calc(100vh - 24px));
   overflow: auto;
   padding: 5px;
   border: 1px solid var(--border-strong, rgba(148, 163, 184, 0.26));
@@ -271,6 +333,14 @@ onUnmounted(() => document.removeEventListener('mousedown', handleDocumentPointe
   overscroll-behavior: contain;
   scrollbar-color: var(--text-muted, #64748b) transparent;
   scrollbar-width: thin;
+}
+
+.status-select-menu[data-placement='top'] {
+  transform-origin: bottom center;
+}
+
+.status-select-menu[data-placement='bottom'] {
+  transform-origin: top center;
 }
 
 .status-select-menu::-webkit-scrollbar {

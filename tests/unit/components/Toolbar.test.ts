@@ -45,19 +45,19 @@ describe('Toolbar.vue', () => {
     it('应渲染所有按钮组', () => {
       const wrapper = mountToolbar()
       const buttonGroups = wrapper.findAll('.toolbar-group')
-      expect(buttonGroups.length).toBeGreaterThanOrEqual(4)
+      expect(buttonGroups.length).toBeGreaterThanOrEqual(3)
     })
 
     it('应渲染分隔线', () => {
       const wrapper = mountToolbar()
       const dividers = wrapper.findAll('.toolbar-divider')
-      expect(dividers.length).toBeGreaterThanOrEqual(2)
+      expect(dividers.length).toBeGreaterThanOrEqual(1)
     })
 
     it('应渲染新建文件按钮', () => {
       const wrapper = mountToolbar()
       const buttons = wrapper.findAll('.toolbar-btn')
-      expect(buttons.length).toBeGreaterThanOrEqual(8)
+      expect(buttons.length).toBeGreaterThanOrEqual(7)
     })
 
     it('Excel 全屏预览时隐藏预览布局切换按钮', () => {
@@ -133,24 +133,6 @@ describe('Toolbar.vue', () => {
       const saveAsBtn = wrapper.get('[data-testid="btn-save-as"]')
       await saveAsBtn.trigger('click')
       expect(wrapper.emitted('save-as')).toBeTruthy()
-    })
-  })
-
-  describe('资源定位按钮', () => {
-    it('有可定位文件时应显示并发射定位事件', async () => {
-      const wrapper = mountToolbar({ canRevealCurrentFile: true })
-      const locateBtn = wrapper.get('[data-testid="btn-locate-current-file"]')
-
-      expect(locateBtn.attributes('title')).toBe('定位当前文件')
-      await locateBtn.trigger('click')
-      expect(wrapper.emitted('locate-current-file')).toBeTruthy()
-    })
-
-    it('没有可定位文件时应禁用定位按钮', () => {
-      const wrapper = mountToolbar()
-      const locateBtn = wrapper.get('[data-testid="btn-locate-current-file"]')
-      expect(locateBtn.attributes('disabled')).toBeDefined()
-      expect(locateBtn.classes()).toContain('disabled')
     })
   })
 
@@ -261,27 +243,6 @@ describe('Toolbar.vue', () => {
   })
 
   describe('视图切换按钮', () => {
-    it('切换文件树按钮应发射 toggle-file-tree 事件', async () => {
-      const wrapper = mountToolbar()
-      const toggleTreeBtn = wrapper.get('[data-testid="btn-toggle-file-tree"]')
-      await toggleTreeBtn.trigger('click')
-      expect(wrapper.emitted('toggle-file-tree')).toBeTruthy()
-    })
-
-    it('切换 ContextRail 按钮应发射 toggle-context-rail 事件', async () => {
-      const wrapper = mountToolbar({ contextRailVisible: false })
-
-      await wrapper.get('[data-testid="btn-toggle-context-rail"]').trigger('click')
-
-      expect(wrapper.emitted('toggle-context-rail')).toEqual([[]])
-    })
-
-    it('ContextRail 收起时仍应保留可重新打开的工具栏按钮', () => {
-      const wrapper = mountToolbar({ contextRailVisible: false })
-
-      expect(wrapper.find('[data-testid="btn-toggle-context-rail"]').exists()).toBe(true)
-    })
-
     it('切换设置按钮应发射 toggle-settings 事件', async () => {
       const wrapper = mountToolbar()
       const toggleSettingsBtn = wrapper.get('[data-testid="btn-settings"]')
@@ -431,8 +392,187 @@ describe('Toolbar.vue', () => {
     it('按钮组应正确分组', () => {
       const wrapper = mountToolbar()
       const groups = wrapper.findAll('.toolbar-group')
-      // 文件操作组、撤销重做组、视图切换组、状态显示组
-      expect(groups.length).toBeGreaterThanOrEqual(4)
+      // 文件操作组、撤销重做组、状态显示组（原视图切换组已移除）
+      expect(groups.length).toBeGreaterThanOrEqual(3)
+    })
+  })
+
+  /* ------------------- 思维导图工具组（UX-3C：从 Stage 外移） ------------------- */
+
+  describe('思维导图工具组', () => {
+    const mindmapTools = {
+      canUndo: true,
+      canRedo: false,
+      selectedTopicId: 'topic-1' as string | null,
+      layoutMode: 'mindmap' as 'mindmap' | 'logic' | 'tree' | 'org',
+      themeId: 'default',
+      themeOptions: [
+        { id: 'default', name: '默认' },
+        { id: 'ocean', name: '海洋' },
+      ],
+      outlineActive: true,
+      propertiesActive: false,
+    }
+
+    const mountMindmapToolbar = (overrides: Record<string, unknown> = {}) =>
+      mountToolbar({
+        isMindmap: true,
+        mindmapTools: { ...mindmapTools, ...overrides },
+      })
+
+    const mmTestIds = [
+      'mm-add-child',
+      'mm-add-sibling',
+      'mm-rename',
+      'mm-duplicate',
+      'mm-delete',
+      'mm-move-up',
+      'mm-move-down',
+      'mm-undo',
+      'mm-redo',
+      'mm-fit',
+      'mm-zoom-in',
+      'mm-zoom-out',
+      'mm-reset-view',
+      'mm-layout-mindmap',
+      'mm-layout-logic',
+      'mm-layout-tree',
+      'mm-layout-org',
+      'mm-theme-select',
+      'mm-reset',
+      'mm-import',
+      'mm-export',
+      'mm-print',
+      'mm-toggle-outline',
+      'mm-properties-toggle',
+    ]
+
+    it('非导图标签不渲染导图工具组', () => {
+      const wrapper = mountToolbar()
+      expect(wrapper.find('[data-testid="mindmap-toolbar"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="mm-add-child"]').exists()).toBe(false)
+    })
+
+    it('isMindmap 为真但缺 mindmapTools 时不渲染（避免空状态按钮）', () => {
+      const wrapper = mountToolbar({ isMindmap: true })
+      expect(wrapper.find('[data-testid="mindmap-toolbar"]').exists()).toBe(false)
+    })
+
+    it('导图标签渲染全部 mm-* 按钮且保留旧 testid', () => {
+      const wrapper = mountMindmapToolbar()
+      expect(wrapper.find('[data-testid="mindmap-toolbar"]').exists()).toBe(true)
+      for (const testId of mmTestIds) {
+        expect(wrapper.find(`[data-testid="${testId}"]`).exists(), testId).toBe(true)
+      }
+      // 统计仍留在 Stage（E2E-MM-005/007 依赖），工具栏不重复渲染
+      expect(wrapper.find('.mm-stats').exists()).toBe(false)
+    })
+
+    it('无选中节点时编辑类按钮禁用，撤销/重做按历史状态', () => {
+      const wrapper = mountMindmapToolbar({ selectedTopicId: null, canUndo: false, canRedo: true })
+      for (const testId of ['mm-add-child', 'mm-add-sibling', 'mm-rename', 'mm-duplicate', 'mm-delete', 'mm-move-up', 'mm-move-down']) {
+        expect(wrapper.get(`[data-testid="${testId}"]`).attributes('disabled'), testId).toBeDefined()
+      }
+      expect(wrapper.get('[data-testid="mm-undo"]').attributes('disabled')).toBeDefined()
+      expect(wrapper.get('[data-testid="mm-redo"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('有选中节点后编辑类按钮可用', () => {
+      const wrapper = mountMindmapToolbar()
+      expect(wrapper.get('[data-testid="mm-add-child"]').attributes('disabled')).toBeUndefined()
+      expect(wrapper.get('[data-testid="mm-delete"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('布局按钮高亮当前模式并可 emit mm-layout', async () => {
+      const wrapper = mountMindmapToolbar({ layoutMode: 'org' })
+      expect(wrapper.get('[data-testid="mm-layout-org"]').classes()).toContain('is-active')
+      expect(wrapper.get('[data-testid="mm-layout-org"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.get('[data-testid="mm-layout-mindmap"]').classes()).not.toContain('is-active')
+      expect(wrapper.get('[data-testid="mm-layout-mindmap"]').attributes('aria-pressed')).toBe('false')
+
+      await wrapper.get('[data-testid="mm-layout-tree"]').trigger('click')
+      expect(wrapper.emitted('mm-layout')).toEqual([['tree']])
+    })
+
+    it('主题下拉保持原生 select：选项来自 themeOptions，切换 emit mm-theme', async () => {
+      const wrapper = mountMindmapToolbar()
+      const select = wrapper.get('[data-testid="mm-theme-select"]')
+      expect(select.element.tagName).toBe('SELECT')
+      expect(select.findAll('option').map(option => option.attributes('value')))
+        .toEqual(['default', 'ocean'])
+      expect((select.element as HTMLSelectElement).value).toBe('default')
+
+      await select.setValue('ocean')
+      expect(wrapper.emitted('mm-theme')).toEqual([['ocean']])
+    })
+
+    it('面板开关反映 store.rightPanel 并 emit 事件', async () => {
+      const wrapper = mountMindmapToolbar({ outlineActive: true, propertiesActive: false })
+      expect(wrapper.get('[data-testid="mm-toggle-outline"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.get('[data-testid="mm-toggle-outline"]').text()).toContain('开')
+      expect(wrapper.get('[data-testid="mm-properties-toggle"]').attributes('aria-pressed')).toBe('false')
+      expect(wrapper.get('[data-testid="mm-properties-toggle"]').text()).toContain('关')
+
+      await wrapper.get('[data-testid="mm-toggle-outline"]').trigger('click')
+      await wrapper.get('[data-testid="mm-properties-toggle"]').trigger('click')
+      expect(wrapper.emitted('mm-toggle-outline')).toHaveLength(1)
+      expect(wrapper.emitted('mm-toggle-properties')).toHaveLength(1)
+    })
+
+    it('编辑/历史/视口/导入导出打印类按钮各自 emit 对应事件', async () => {
+      const wrapper = mountMindmapToolbar({ canRedo: true })
+      const cases: Array<[string, string]> = [
+        ['mm-add-child', 'mm-add-child'],
+        ['mm-add-sibling', 'mm-add-sibling'],
+        ['mm-rename', 'mm-rename'],
+        ['mm-duplicate', 'mm-duplicate'],
+        ['mm-delete', 'mm-delete'],
+        ['mm-move-up', 'mm-move-up'],
+        ['mm-move-down', 'mm-move-down'],
+        ['mm-undo', 'mm-undo'],
+        ['mm-redo', 'mm-redo'],
+        ['mm-fit', 'mm-fit'],
+        ['mm-zoom-in', 'mm-zoom-in'],
+        ['mm-zoom-out', 'mm-zoom-out'],
+        ['mm-reset-view', 'mm-reset-view'],
+        ['mm-reset', 'mm-reset'],
+        ['mm-import', 'mm-import'],
+        ['mm-export', 'mm-export'],
+        ['mm-print', 'mm-print'],
+      ]
+      for (const [testId, event] of cases) {
+        await wrapper.get(`[data-testid="${testId}"]`).trigger('click')
+        expect(wrapper.emitted(event), testId).toHaveLength(1)
+      }
+    })
+
+    it('导图工具组渲染在居中 toolbar-zone-center，Tau 原始工具仍留在最左 start', () => {
+      const wrapper = mountMindmapToolbar()
+      const group = wrapper.get('[data-testid="mindmap-toolbar"]').element
+
+      // 位置：center zone 内，且不在 end zone
+      expect(group.closest('.toolbar-zone-center')).not.toBeNull()
+      expect(group.closest('.toolbar-zone-end')).toBeNull()
+
+      // Tau 原始工具（新建 / 撤销）在最左 start zone，center 里没有它们
+      const start = wrapper.get('.toolbar-zone-start')
+      expect(start.find('[data-testid="btn-new-file"]').exists()).toBe(true)
+      expect(start.find('[data-testid="btn-undo"]').exists()).toBe(true)
+      const center = wrapper.get('.toolbar-zone-center')
+      expect(center.find('[data-testid="btn-new-file"]').exists()).toBe(false)
+      expect(center.find('[data-testid="btn-undo"]').exists()).toBe(false)
+
+      // 25 个控件（24 个 mm-btn + 1 个原生 select）全部在组内
+      const groupWrapper = wrapper.get('[data-testid="mindmap-toolbar"]')
+      expect(groupWrapper.findAll('button')).toHaveLength(24)
+      expect(groupWrapper.findAll('select[data-testid="mm-theme-select"]')).toHaveLength(1)
+    })
+
+    it('导图按钮沿用 mm-btn 视觉类（对比度/E2E-MM-020 依赖）', () => {
+      const wrapper = mountMindmapToolbar()
+      const addChild = wrapper.get('[data-testid="mm-add-child"]')
+      expect(addChild.classes()).toContain('mm-btn')
+      expect(addChild.classes()).not.toContain('toolbar-btn')
     })
   })
 })

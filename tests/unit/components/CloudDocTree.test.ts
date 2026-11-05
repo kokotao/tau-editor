@@ -1,0 +1,1255 @@
+/**
+ * @description 云端文档树交互（0.6.22 重写）：菜单 Teleport 到 body、跟随坐标并在边界翻转、
+ * 点击各项触发对应动作；拖拽移动分类；分类新建/重命名/删除；历史版本入口。
+ * @author Albert_Luo
+ * @email 480199976@qq.com
+ * @date 2026-10-25 20:40
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+
+const mocks = vi.hoisted(() => ({
+  isTauri: { value: true },
+  moveDocCategory: vi.fn(),
+  categoryCreate: vi.fn(),
+  categoryUpdate: vi.fn(),
+  categoryDelete: vi.fn(),
+  categoriesList: vi.fn(),
+  deleteCloudDoc: vi.fn(),
+  listVersions: vi.fn(),
+  restoreVersion: vi.fn(),
+  openTarget: vi.fn(),
+  getDoc: vi.fn(),
+  saveDoc: vi.fn(),
+  shareStatus: vi.fn(),
+  createCloudDoc: vi.fn(),
+  collectPlan: vi.fn(),
+  runBatch: vi.fn(),
+  folderShareStatus: vi.fn(),
+  folderShareCreate: vi.fn(),
+  folderShareRevoke: vi.fn(),
+  folderShareBase: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
+
+vi.mock('@/lib/tauri', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tauri')>();
+  return {
+    ...actual,
+    isTauriApp: () => mocks.isTauri.value,
+    cloudCommands: {
+      ...actual.cloudCommands,
+      moveDocCategory: mocks.moveDocCategory,
+      categoryCreate: mocks.categoryCreate,
+      categoryUpdate: mocks.categoryUpdate,
+      categoryDelete: mocks.categoryDelete,
+      categoriesList: mocks.categoriesList,
+      openTarget: mocks.openTarget,
+    },
+  };
+});
+
+vi.mock('@/services/cloudDocService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudDocService')>();
+  return {
+    ...actual,
+    deleteCloudDoc: mocks.deleteCloudDoc,
+    listCloudDocVersions: mocks.listVersions,
+    restoreCloudDocVersion: mocks.restoreVersion,
+    getCloudDoc: mocks.getDoc,
+    saveCloudDoc: mocks.saveDoc,
+  };
+});
+
+vi.mock('@/services/cloudShareService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudShareService')>();
+  return { ...actual, getShareStatus: mocks.shareStatus };
+});
+
+vi.mock('@/services/cloudDocCreateService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudDocCreateService')>();
+  return { ...actual, createCloudDocFile: mocks.createCloudDoc };
+});
+
+vi.mock('@/services/cloudDocBatchUploadService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudDocBatchUploadService')>();
+  return { ...actual, collectBatchUploadPlan: mocks.collectPlan, runBatchUpload: mocks.runBatch };
+});
+
+vi.mock('@/services/cloudCategoryShareService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudCategoryShareService')>();
+  return {
+    ...actual,
+    // 弹窗自己会查状态，这里挡掉 IPC，只验证菜单接线
+    getCategoryShareStatus: mocks.folderShareStatus,
+    createCategoryShare: mocks.folderShareCreate,
+    revokeCategoryShare: mocks.folderShareRevoke,
+    resolveFolderShareBaseUrl: mocks.folderShareBase,
+  };
+});
+
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import type { Mock } from 'vitest';
+import CloudDocTree from '@/components/editor/CloudDocTree.vue';
+import type { CloudDocTreeNode } from '@/services/cloudBrowserService';
+import { useWorkspaceStore } from '@/stores/workspace';
+
+function fileNode(name: string, fileId: number): CloudDocTreeNode {
+  return {
+    key: `tau/ws/${name}`,
+    name,
+    path: `tau/ws/${name}`,
+    kind: 'file',
+    children: [],
+    file: {
+      fileId,
+      path: `tau/ws/${name}`,
+      title: name,
+      contentHash: 'sha256:x',
+      size: 1024,
+      version: 2,
+      category: '笔记',
+      categoryId: 1001,
+      tags: null,
+      visibility: 'PRIVATE',
+      publishedArticleId: null,
+      updatedAt: '2026-10-25T09:00:00Z',
+    },
+  };
+}
+
+function categoryNode(id: string, name: string, children: CloudDocTreeNode[] = []): CloudDocTreeNode {
+  return { key: `cat:${id}`, name, path: `cat:${id}`, kind: 'dir', children, file: null };
+}
+
+const FILE = fileNode('a.md', 42);
+const CATEGORY = categoryNode('1001', '笔记', [FILE]);
+const UNCATEGORIZED: CloudDocTreeNode = {
+  key: 'group:uncategorized',
+  name: '未分类',
+  path: 'group:uncategorized',
+  kind: 'dir',
+  children: [fileNode('b.md', 55)],
+  file: null,
+};
+const DEEP_CATEGORY = categoryNode('1', '一级', [
+  categoryNode('2', '二级', [categoryNode('3', '三级')]),
+]);
+
+/** 聚合分组：来自文档的分类自由文本，没有真实分类主键（不能新建文件） */
+const CUSTOM_GROUP: CloudDocTreeNode = {
+  key: 'custom:agetTest',
+  name: 'agetTest',
+  path: 'custom:agetTest',
+  kind: 'dir',
+  children: [fileNode('c.md', 77)],
+  file: null,
+};
+
+/** 菜单/弹层都 Teleport 到 body，统一从 document.body 查。 */
+const q = <T extends HTMLElement = HTMLElement>(id: string) =>
+  document.body.querySelector(`[data-testid="${id}"]`) as T | null;
+
+function clickEl(id: string): void {
+  q(id)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
+function fillInput(id: string, value: string): void {
+  const input = q<HTMLInputElement>(id);
+  if (!input) {
+    throw new Error(`input ${id} not found`);
+  }
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+async function openMenu(
+  wrapper: ReturnType<typeof mount>,
+  testId: string,
+  point: { clientX: number; clientY: number } = { clientX: 20, clientY: 20 },
+  index = 0,
+) {
+  const rows = wrapper.findAll(`[data-testid="${testId}"]`);
+  await rows[index]!.trigger('contextmenu', point);
+  await flushPromises();
+}
+
+/** UX-3A：「新建文件」先展开二级类型菜单，选中类型后才打开内联卡片（默认 Markdown）。 */
+async function chooseNewFileType(typeId = 'markdown'): Promise<void> {
+  clickEl('cloud-category-menu-new-file');
+  await flushPromises();
+  clickEl(`cloud-new-file-type-${typeId}`);
+  await flushPromises();
+}
+
+/** 多段 await 的链路（选文件 → 生成计划 → 串行上传 → 汇总）需要多轮微任务 */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 5; round += 1) {
+    await flushPromises();
+  }
+}
+
+const mountTree = (nodes: CloudDocTreeNode[]) => mount(CloudDocTree, { props: { nodes } });
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 768 });
+  useWorkspaceStore().currentWorkspacePath = '/ws';
+  useWorkspaceStore().currentWorkspaceName = 'ws';
+  mocks.categoriesList.mockResolvedValue([]);
+  mocks.listVersions.mockResolvedValue({ ok: true, data: [] });
+  mocks.moveDocCategory.mockResolvedValue(undefined);
+  mocks.categoryCreate.mockResolvedValue({ id: '9', name: '新分类', parentId: '1001', children: [] });
+  mocks.categoryUpdate.mockResolvedValue({ id: '1001', name: '改名', parentId: null, children: [] });
+  mocks.categoryDelete.mockResolvedValue(undefined);
+  mocks.deleteCloudDoc.mockResolvedValue({ ok: true, data: undefined });
+  mocks.openTarget.mockResolvedValue({
+    cloudPath: 'tau/ws/a.md',
+    relativePath: 'a.md',
+    absolutePath: '/ws/a.md',
+    exists: true,
+    sameContent: true,
+    openable: true,
+    action: 'openExisting',
+    reasonCode: null,
+    reason: null,
+  });
+  mocks.getDoc.mockResolvedValue({
+    ok: true,
+    data: { ...FILE.file, content: 'x', createdAt: '2026-10-20T09:00:00Z' },
+  });
+  mocks.shareStatus.mockResolvedValue({ ok: true, data: { shared: false } });
+  mocks.createCloudDoc.mockResolvedValue({
+    ok: true,
+    data: {
+      fileId: 9001,
+      version: 1,
+      contentHash: 'sha256:new',
+      cloudPath: 'tau/ws/接口设计.md',
+      size: 0,
+      updatedAt: '2026-10-28T08:00:00Z',
+    },
+  });
+  mocks.collectPlan.mockResolvedValue([]);
+  mocks.runBatch.mockResolvedValue({ total: 0, ok: 0, skipped: 0, failed: 0, aborted: false });
+  mocks.folderShareStatus.mockResolvedValue({
+    ok: true,
+    data: {
+      shared: false,
+      token: null,
+      url: null,
+      hasPassword: false,
+      expiresAt: null,
+      includeSubCategories: true,
+      docCount: 0,
+      created: false,
+    },
+  });
+  mocks.folderShareCreate.mockResolvedValue({
+    ok: true,
+    data: {
+      shared: true,
+      token: 'tok1',
+      url: '/s/f/tok1',
+      hasPassword: false,
+      expiresAt: null,
+      includeSubCategories: true,
+      docCount: 2,
+      created: true,
+    },
+  });
+  mocks.folderShareRevoke.mockResolvedValue({ ok: true, data: undefined });
+  mocks.folderShareBase.mockResolvedValue('https://note.lizipro.cn');
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+  document.body.innerHTML = '';
+});
+
+describe('CloudDocTree 右键菜单', () => {
+  it('文档菜单 7 项齐全，并在鼠标坐标处渲染', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file', { clientX: 120, clientY: 90 });
+
+    for (const id of [
+      'cloud-doc-menu-open',
+      'cloud-doc-menu-sync',
+      'cloud-doc-menu-share',
+      'cloud-doc-menu-properties',
+      'cloud-doc-menu-history',
+      'cloud-doc-menu-move',
+      'cloud-doc-menu-delete',
+    ]) {
+      expect(q(id)).not.toBeNull();
+    }
+
+    const menu = q('cloud-doc-tree-menu')!;
+    // fixed 定位来自样式类，坐标走内联 style
+    expect(menu.classList.contains('cloud-doc-tree__menu')).toBe(true);
+    expect(Number.parseFloat(menu.style.left)).toBe(120);
+    expect(Number.parseFloat(menu.style.top)).toBe(90);
+  });
+
+  it('靠近右侧/底部时翻转，浮层不出视口', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file', { clientX: 1000, clientY: 750 });
+
+    const menu = q('cloud-doc-tree-menu')!;
+    expect(Number.parseFloat(menu.style.left)).toBeLessThan(1000);
+    expect(Number.parseFloat(menu.style.top)).toBeLessThan(750);
+  });
+
+  it('点击「打开」触发打开流程', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-open');
+    await flushPromises();
+
+    expect(mocks.openTarget).toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+  });
+
+  it('点击「同步至云端」「一键分享」把动作上抛给宿主', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-sync');
+    await flushPromises();
+    expect(wrapper.emitted('doc-action')?.[0]?.[0]).toBe('sync');
+
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-share');
+    await flushPromises();
+    expect(wrapper.emitted('doc-action')?.[1]?.[0]).toBe('share');
+  });
+
+  it('点击「属性」打开属性弹窗', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-properties');
+    await flushPromises();
+
+    expect(document.body.querySelector('[data-testid="doc-properties-dialog"]')).not.toBeNull();
+    expect(mocks.getDoc).toHaveBeenCalledWith(42);
+  });
+
+  it('点击「历史版本」打开版本弹窗并请求列表', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-history');
+    await flushPromises();
+
+    expect(document.body.querySelector('[data-testid="version-history-dialog"]')).not.toBeNull();
+    expect(mocks.listVersions).toHaveBeenCalledWith(42);
+  });
+
+  it('点击「移动到…」展开分类列表', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-move');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cloud-doc-move-menu"]').exists()).toBe(true);
+    expect(mocks.categoriesList).toHaveBeenCalled();
+  });
+
+  it('展开「移动到…」时收起右键菜单（同坐标叠层会挡住分类列表）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file', { clientX: 120, clientY: 90 });
+    expect(q('cloud-doc-tree-menu')).not.toBeNull();
+
+    clickEl('cloud-doc-menu-move');
+    await flushPromises();
+
+    expect(q('cloud-doc-tree-menu')).toBeNull();
+    const moveMenu = wrapper.get('[data-testid="cloud-doc-move-menu"]');
+    // 固定在同一个鼠标坐标，但不能被右键菜单盖住
+    expect(Number.parseFloat(moveMenu.element.style.left)).toBe(120);
+    expect(Number.parseFloat(moveMenu.element.style.top)).toBe(90);
+  });
+
+  it('点击「删除云端文档」二次确认后调用删除', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-delete');
+    await flushPromises();
+    expect(q('cloud-doc-delete-confirm')).not.toBeNull();
+
+    clickEl('cloud-doc-delete-confirm-btn');
+    await flushPromises();
+    expect(mocks.deleteCloudDoc).toHaveBeenCalledWith(42);
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('分类菜单 3 项；聚合分组不可删除', async () => {
+    const wrapper = mountTree([CATEGORY, UNCATEGORIZED]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    expect(q('cloud-category-menu-new')).not.toBeNull();
+    expect(q('cloud-category-menu-rename')).not.toBeNull();
+    expect(q<HTMLButtonElement>('cloud-category-menu-delete')!.disabled).toBe(false);
+
+    const dirs = wrapper.findAll('[data-testid="cloud-browser-dir"]');
+    await dirs[dirs.length - 1]!.trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await flushPromises();
+    expect(q<HTMLButtonElement>('cloud-category-menu-delete')!.disabled).toBe(true);
+  });
+
+  it('三级分类下「新建子分类」禁用并提示', async () => {
+    mocks.categoriesList.mockResolvedValue([
+      {
+        id: '1',
+        name: '一级',
+        parentId: null,
+        children: [
+          { id: '2', name: '二级', parentId: '1', children: [{ id: '3', name: '三级', parentId: '2', children: [] }] },
+        ],
+      },
+    ]);
+    const wrapper = mountTree([DEEP_CATEGORY]);
+    const rows = wrapper.findAll('[data-testid="cloud-browser-dir"]');
+    await rows[rows.length - 1]!.trigger('contextmenu', { clientX: 10, clientY: 10 });
+    await flushPromises();
+
+    const newBtn = q<HTMLButtonElement>('cloud-category-menu-new')!;
+    expect(newBtn.disabled).toBe(true);
+    expect(newBtn.getAttribute('title')).toContain('三级');
+  });
+});
+
+describe('CloudDocTree 拖拽移动分类', () => {
+  const dataTransfer = () => ({ setData: vi.fn(), effectAllowed: '', dropEffect: '' });
+
+  it('拖到分类节点触发移动并高亮目标', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('dragstart', { dataTransfer: dataTransfer() });
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('dragover', { dataTransfer: dataTransfer() });
+    expect(wrapper.get('[data-testid="cloud-browser-dir"]').classes()).toContain('is-drop-target');
+
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('drop', { dataTransfer: dataTransfer() });
+    await flushPromises();
+
+    expect(mocks.moveDocCategory).toHaveBeenCalledWith(42, '1001');
+    expect(wrapper.get('[data-testid="cloud-browser-notice"]').text()).toContain('已移动分类');
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('拖到「未分类」清空分类', async () => {
+    const wrapper = mountTree([CATEGORY, UNCATEGORIZED]);
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('dragstart', { dataTransfer: dataTransfer() });
+    const dirs = wrapper.findAll('[data-testid="cloud-browser-dir"]');
+    await dirs[dirs.length - 1]!.trigger('drop', { dataTransfer: dataTransfer() });
+    await flushPromises();
+
+    expect(mocks.moveDocCategory).toHaveBeenCalledWith(42, null);
+  });
+
+  it('移动失败展示后端原因且不发 changed', async () => {
+    mocks.moveDocCategory.mockRejectedValue(
+      Object.assign(new Error('没有权限移动该文档'), { code: 'FORBIDDEN' }),
+    );
+    const wrapper = mountTree([CATEGORY]);
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('dragstart', { dataTransfer: dataTransfer() });
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('drop', { dataTransfer: dataTransfer() });
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="cloud-browser-notice"]').text()).toContain('没有权限移动该文档');
+    expect(wrapper.emitted('changed')).toBeUndefined();
+  });
+});
+
+describe('CloudDocTree 分类管理', () => {
+  beforeEach(() => {
+    mocks.categoriesList.mockResolvedValue([{ id: '1001', name: '笔记', parentId: null, children: [] }]);
+  });
+
+  it('新建子分类：卡片显示父分类名，确定调用 create 并刷新', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new');
+    await flushPromises();
+
+    const prompt = q('cloud-category-prompt')!;
+    expect(prompt.textContent).toContain('笔记');
+
+    fillInput('cloud-category-name-input', '新分类');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate).toHaveBeenCalledWith('新分类', '1001');
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('重命名走 PUT（update）而不是新建', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '改名');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryUpdate).toHaveBeenCalledWith('1001', '改名');
+    expect(mocks.categoryCreate).not.toHaveBeenCalled();
+  });
+
+  it('聚合分组重命名：新建同名正式分类并把组内文档迁过去', async () => {
+    const custom: CloudDocTreeNode = {
+      key: 'custom:agetTest',
+      name: 'agetTest',
+      path: 'custom:agetTest',
+      kind: 'dir',
+      children: [fileNode('c.md', 77)],
+      file: null,
+    };
+    const wrapper = mountTree([custom]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '正式分类');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    // 建的是正式分类（parent 为空），不是把新名字当新分类乱建
+    expect(mocks.categoryCreate).toHaveBeenCalledWith('正式分类', null);
+    expect(mocks.categoryUpdate).not.toHaveBeenCalled();
+    // 组内文档迁移到新分类 id（mock 返回 9）
+    expect(mocks.moveDocCategory).toHaveBeenCalledWith(77, '9');
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('聚合分组重命名失败时提示原因，不再静默降级成新建', async () => {
+    const custom: CloudDocTreeNode = {
+      key: 'custom:agetTest',
+      name: 'agetTest',
+      path: 'custom:agetTest',
+      kind: 'dir',
+      children: [fileNode('c.md', 77)],
+      file: null,
+    };
+    mocks.categoryCreate.mockRejectedValue(
+      Object.assign(new Error('同级分类名称已存在'), { code: 'CONFLICT' }),
+    );
+    const wrapper = mountTree([custom]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '正式分类');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.moveDocCategory).not.toHaveBeenCalled();
+    // 面板仍在，且带错误文案（不再弹「已重命名分类」）
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-category-prompt')!.textContent).toContain('同级分类名称已存在');
+    expect(wrapper.emitted('changed')).toBeUndefined();
+  });
+
+  it('非自定义聚合分组（未分类）重命名：只提示不支持，不新建分类', async () => {
+    const wrapper = mountTree([UNCATEGORIZED]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-rename');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '随便');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate).not.toHaveBeenCalled();
+    expect(mocks.categoryUpdate).not.toHaveBeenCalled();
+    expect(q('cloud-category-prompt')).not.toBeNull();
+  });
+
+  it('删除分类：二次确认后调用 delete 并刷新', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-delete');
+    await flushPromises();
+    expect(q('cloud-category-delete-confirm')).not.toBeNull();
+
+    clickEl('cloud-category-delete-confirm-btn');
+    await flushPromises();
+    expect(mocks.categoryDelete).toHaveBeenCalledWith('1001');
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('删除被拒（409）展示原因且不刷新', async () => {
+    mocks.categoryDelete.mockRejectedValue(
+      Object.assign(new Error('该分类下还有 3 篇文档，无法删除'), { code: 'CONFLICT' }),
+    );
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-delete');
+    await flushPromises();
+    clickEl('cloud-category-delete-confirm-btn');
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="cloud-browser-notice"]').text()).toContain('还有 3 篇文档');
+    expect(wrapper.emitted('changed')).toBeUndefined();
+  });
+});
+
+describe('CloudDocTree 布局契约（tree / table 双模式）', () => {
+  it('table 模式渲染 5 列表头与 .cd-row 行，行内含大小/版本/更新时间', async () => {
+    const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
+
+    const thead = wrapper.get('[data-testid="cloud-browser-thead"]');
+    expect(thead.findAll('[role="columnheader"]')).toHaveLength(5);
+    for (const label of ['文件名称', '大小', '版本', '云端更新时间', '操作']) {
+      expect(thead.text()).toContain(label);
+    }
+
+    const row = wrapper.get('[data-testid="cloud-browser-file"]');
+    expect(row.classes()).toContain('cd-row');
+    expect(row.classes()).toContain('cloud-doc-tree__row');
+    expect(row.text()).toContain('a.md');
+    expect(row.text()).toContain('1.0 KB');
+    expect(row.text()).toContain('v2');
+    // 设计稿一：中间数据表只列文件，目录归左侧导航，因此 table 模式不渲染目录行
+    expect(wrapper.findAll('[data-testid="cloud-browser-dir"]')).toHaveLength(0);
+  });
+
+  it('点行 emit select（key），受控 selectedKey 命中行带选中类', async () => {
+    const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('click');
+
+    expect(wrapper.emitted('select')?.[0]).toEqual(['tau/ws/a.md']);
+    expect(wrapper.get('[data-testid="cloud-browser-file"]').classes()).toContain('cd-row--selected');
+
+    // 受控覆盖：宿主改 selectedKey 后选中态随之移动（指向别的 key 时本行取消选中）
+    await wrapper.setProps({ selectedKey: 'cat:1001' });
+    expect(wrapper.get('[data-testid="cloud-browser-file"]').classes()).not.toContain('cd-row--selected');
+    await wrapper.setProps({ selectedKey: 'tau/ws/a.md' });
+    expect(wrapper.get('[data-testid="cloud-browser-file"]').classes()).toContain('cd-row--selected');
+  });
+
+  it('table 模式点行尾「在编辑器中载入」走同一条打开链路', async () => {
+    const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
+    const loadButton = wrapper.get('[data-testid="cloud-browser-open"]');
+    expect(loadButton.attributes('title')).toBe('在编辑器中载入');
+    await loadButton.trigger('click');
+    await flushPromises();
+
+    expect(mocks.openTarget).toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+  });
+
+  it('tree 模式：点目录行切换展开、Enter 打开文件、Esc 收起右键菜单', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    expect(wrapper.findAll('[data-testid="cloud-browser-file"]')).toHaveLength(1);
+
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="cloud-browser-file"]')).toHaveLength(0);
+    expect(wrapper.emitted('select')?.[0]).toEqual(['cat:1001']);
+
+    // 展开回来再按 Enter 打开文件
+    await wrapper.get('[data-testid="cloud-browser-dir"]').trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-testid="cloud-browser-file"]').trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+
+    await openMenu(wrapper, 'cloud-browser-file');
+    expect(q('cloud-doc-tree-menu')).not.toBeNull();
+    // 打开菜单后焦点在第一项，Esc 从菜单里冒泡上来即收起
+    q('cloud-doc-tree-menu')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(q('cloud-doc-tree-menu')).toBeNull();
+  });
+
+  it('暴露 openNode：宿主（浏览弹窗检查器）可直接触发打开', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    const vm = wrapper.vm as unknown as { openNode: (node: CloudDocTreeNode) => Promise<void> };
+    await vm.openNode(FILE);
+    await flushPromises();
+
+    expect(mocks.openTarget).toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')?.[0]).toEqual(['/ws/a.md']);
+  });
+});
+
+describe('CloudDocTree 跨工作区选择题：在编辑器中打开', () => {
+  /** Rust 判定「不属于当前工作区」时的返回值：树据此弹出三选一 */
+  const REJECTED = {
+    cloudPath: 'tau/ws/a.md',
+    relativePath: null,
+    absolutePath: null,
+    exists: false,
+    sameContent: false,
+    openable: true,
+    action: 'rejected',
+    reasonCode: 'CLOUD_PATH_NOT_IN_WORKSPACE',
+    reason: '该云文档不属于当前工作区，无法落到本地',
+  } as const;
+
+  async function openChoiceDialog(wrapper: ReturnType<typeof mountTree>): Promise<void> {
+    mocks.openTarget.mockResolvedValue(REJECTED);
+    await openMenu(wrapper, 'cloud-browser-file');
+    clickEl('cloud-doc-menu-open');
+    await flushPromises();
+  }
+
+  it('只有取消/另存为/在编辑器中打开三个动作，主按钮不再走只读预览', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openChoiceDialog(wrapper);
+
+    expect(q('cloud-doc-choice-dialog')).not.toBeNull();
+    const actions = q('cloud-doc-choice-dialog')?.querySelectorAll('.cloud-doc-overlay__actions button') ?? [];
+    expect(Array.from(actions).map((button) => button.getAttribute('data-testid'))).toEqual([
+      'cloud-doc-choice-cancel',
+      'cloud-doc-choice-save-as',
+      'cloud-doc-choice-edit',
+    ]);
+    expect(actions[2]?.classList.contains('cloud-doc-tree__button--primary')).toBe(true);
+    expect(q('cloud-doc-choice-preview')).toBeNull();
+    // 预览浮层与预览分支一起删除：任何时刻都不应再被挂载
+    expect(q('cloud-doc-preview-dialog')).toBeNull();
+  });
+
+  it('点「在编辑器中打开」把节点交给宿主（落位与云绑定在 App.vue 完成）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openChoiceDialog(wrapper);
+
+    clickEl('cloud-doc-choice-edit');
+    await flushPromises();
+
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+    expect(wrapper.emitted('edit-cloud-doc')?.[0]).toEqual([FILE]);
+    expect(q('cloud-doc-choice-dialog')).toBeNull();
+    expect(q('cloud-doc-preview-dialog')).toBeNull();
+    // 树内不发 IPC：不拉正文、不写盘、不直接打开
+    expect(mocks.getDoc).not.toHaveBeenCalled();
+    expect(wrapper.emitted('open-file')).toBeUndefined();
+  });
+});
+
+
+describe('CloudDocTree 多级分类创建（0.6.26）', () => {
+  beforeEach(() => {
+    mocks.categoriesList.mockResolvedValue([]);
+    mocks.categoryCreate.mockImplementation(async (name: string, parentId?: string | null) => ({
+      id: `${name}-id`,
+      name,
+      parentId: parentId ?? null,
+      children: [],
+    }));
+  });
+
+  it('输入「后端/Java/Spring」一次创建三级，父 id 逐级串起来', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', '后端/Java/Spring');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate.mock.calls).toEqual([
+      ['后端', null],
+      ['Java', '后端-id'],
+      ['Spring', 'Java-id'],
+    ]);
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+    // 卡片已关闭
+    expect(document.body.querySelector('[data-testid="cloud-category-prompt"]')).toBeNull();
+  });
+
+  it('超过三级时在卡片里报错且不创建', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new');
+    await flushPromises();
+
+    fillInput('cloud-category-name-input', 'A/B/C/D');
+    clickEl('cloud-category-prompt-confirm');
+    await flushPromises();
+
+    expect(mocks.categoryCreate).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="cloud-category-prompt-error"]')?.textContent).toContain('最多 3 级');
+  });
+});
+
+describe('CloudDocTree R1 分类右键「新建文件」', () => {
+  it('目录菜单 6 项，「新建文件」「上传文件…」「一键分享文件夹」排在「新建子分类」之前', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    const menu = q('cloud-doc-tree-menu')!;
+    const ids = Array.from(menu.querySelectorAll('.cd-menu__item'))
+      .map((item) => item.getAttribute('data-testid'));
+    expect(ids).toEqual([
+      'cloud-category-menu-new-file',
+      'cloud-category-menu-upload',
+      'cloud-category-menu-share-folder',
+      'cloud-category-menu-new',
+      'cloud-category-menu-rename',
+      'cloud-category-menu-delete',
+    ]);
+  });
+
+  it('custom:* 聚合分组：新建文件禁用且有 title 提示，点击不打开卡片', async () => {
+    const wrapper = mountTree([CUSTOM_GROUP]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    const button = q<HTMLButtonElement>('cloud-category-menu-new-file')!;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toContain('没有独立分类记录');
+
+    await chooseNewFileType();
+    expect(q('cloud-category-prompt')).toBeNull();
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+  });
+
+  it('输入文件名 → 云端保存空正文 → emit changed + edit-cloud-doc（合成节点带云端身份）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType();
+
+    // 卡片复用 prompt：标题是「新建文件 · 笔记」，占位是新文件文案
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-new-file-hint')).not.toBeNull();
+    expect(q('cloud-category-prompt')!.textContent).toContain('新建文件');
+    expect(q<HTMLInputElement>('cloud-category-name-input')!.placeholder).toContain('接口设计.md');
+
+    fillInput('cloud-category-name-input', '接口设计');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith({
+      fileName: '接口设计.md',
+      typeId: 'markdown',
+      workspaceName: 'ws',
+      categoryId: '1001',
+      categoryName: '笔记',
+    });
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+
+    const [node] = wrapper.emitted('edit-cloud-doc')?.[0] as [CloudDocTreeNode];
+    expect(node).toMatchObject({
+      key: 'tau/ws/接口设计.md',
+      name: '接口设计.md',
+      path: 'tau/ws/接口设计.md',
+      kind: 'file',
+    });
+    expect(node.file).toMatchObject({
+      fileId: 9001,
+      version: 1,
+      contentHash: 'sha256:new',
+      categoryId: '1001',
+      category: '笔记',
+      path: 'tau/ws/接口设计.md',
+      title: '接口设计.md',
+      size: 0,
+      updatedAt: '2026-10-28T08:00:00Z',
+    });
+    // 卡片已关闭；树内不写本地文件、不走打开链路
+    expect(q('cloud-category-prompt')).toBeNull();
+    expect(wrapper.emitted('open-file')).toBeUndefined();
+    expect(wrapper.emitted('written')).toBeUndefined();
+  });
+
+  it('非法文件名（含 / 或空名）在前端拦截，不发请求', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType();
+
+    fillInput('cloud-category-name-input', 'a/b.md');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+    expect(q('cloud-category-prompt-error')?.textContent).toContain('文件名不能为空');
+
+    // 空名同样拦
+    fillInput('cloud-category-name-input', '   ');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+  });
+
+  it('同名已存在：卡片内给出可读提示，不产生第二篇也不发 changed', async () => {
+    mocks.createCloudDoc.mockResolvedValue({
+      ok: false,
+      kind: 'conflict',
+      message: '云端已存在同名文档',
+    });
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType();
+
+    fillInput('cloud-category-name-input', '接口设计.md');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-category-prompt-error')?.textContent).toContain('云端已存在同名文档');
+    expect(wrapper.emitted('changed')).toBeUndefined();
+    expect(wrapper.emitted('edit-cloud-doc')).toBeUndefined();
+  });
+
+  it('保存失败（配额）展示失败文案', async () => {
+    mocks.createCloudDoc.mockResolvedValue({ ok: false, kind: 'quota', message: '云端空间不足' });
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType();
+
+    fillInput('cloud-category-name-input', 'a');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(q('cloud-category-prompt-error')?.textContent).toContain('云端空间不足');
+    expect(wrapper.emitted('edit-cloud-doc')).toBeUndefined();
+  });
+
+  it('「未分类」分组：categoryId/category 都为空（不造假分类）', async () => {
+    const wrapper = mountTree([UNCATEGORIZED]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType();
+
+    fillInput('cloud-category-name-input', 'b.md');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith({
+      fileName: 'b.md',
+      typeId: 'markdown',
+      workspaceName: 'ws',
+      categoryId: null,
+      categoryName: '',
+    });
+    const [node] = wrapper.emitted('edit-cloud-doc')?.[0] as [CloudDocTreeNode];
+    expect(node.file?.categoryId).toBeNull();
+    expect(node.file?.category).toBeNull();
+  });
+});
+
+describe('CloudDocTree R2 分类右键「上传文件…」', () => {
+  const openDialogMock = () => vi.mocked(openFileDialog) as unknown as Mock;
+
+  it('多选文件 → 生成计划 → 打开进度弹窗并逐条推进，结束汇总 + emit changed', async () => {
+    openDialogMock().mockResolvedValue(['/ws/x.md', '/ws/docs/y.pdf']);
+    mocks.collectPlan.mockResolvedValue([
+      { localPath: '/ws/x.md', fileName: 'x.md', kind: 'text', size: 10 },
+      { localPath: '/ws/docs/y.pdf', fileName: 'y.pdf', kind: 'binary', size: 20 },
+    ]);
+    mocks.runBatch.mockImplementation(async (
+      items: Array<{ localPath: string }>,
+      _target: unknown,
+      callbacks?: {
+        onItemStart?: (index: number) => void;
+        onItem?: (index: number, result: { status: 'done' }) => void;
+      },
+    ) => {
+      items.forEach((_item, index) => {
+        callbacks?.onItemStart?.(index);
+        callbacks?.onItem?.(index, { status: 'done' });
+      });
+      return { total: items.length, ok: items.length, skipped: 0, failed: 0, aborted: false };
+    });
+
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-upload');
+    await settle();
+
+    // 系统多选对话框：multiple=true、不要目录
+    expect(openDialogMock()).toHaveBeenCalledTimes(1);
+    expect(openDialogMock().mock.calls[0]?.[0]).toMatchObject({ multiple: true, directory: false });
+    // 计划按多选顺序生成
+    expect(mocks.collectPlan).toHaveBeenCalledWith(['/ws/x.md', '/ws/docs/y.pdf']);
+    // 目标分类取自右键节点
+    expect(mocks.runBatch.mock.calls[0]?.[1]).toMatchObject({
+      categoryId: '1001',
+      categoryName: '笔记',
+      workspaceName: 'ws',
+    });
+
+    expect(q('cloud-doc-upload-dialog')).not.toBeNull();
+    expect(q('cloud-doc-upload-target')?.textContent).toContain('笔记');
+    const rows = document.body.querySelectorAll('[data-testid="cloud-doc-upload-row"]');
+    expect(rows).toHaveLength(2);
+    expect(Array.from(rows).map((row) => row.getAttribute('data-status'))).toEqual(['done', 'done']);
+    expect(q('cloud-doc-upload-summary')?.textContent).toContain('成功 2');
+    expect(wrapper.emitted('changed')).toHaveLength(1);
+  });
+
+  it('取消选择：不发请求、不弹窗', async () => {
+    openDialogMock().mockResolvedValue(null);
+
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-upload');
+    await settle();
+
+    expect(mocks.collectPlan).not.toHaveBeenCalled();
+    expect(mocks.runBatch).not.toHaveBeenCalled();
+    expect(q('cloud-doc-upload-dialog')).toBeNull();
+  });
+
+  it('上传中点「中止上传」置取消位，结束后展示中止提示并可关闭', async () => {
+    openDialogMock().mockResolvedValue(['/ws/x.md', '/ws/y.md']);
+    mocks.collectPlan.mockResolvedValue([
+      { localPath: '/ws/x.md', fileName: 'x.md', kind: 'text', size: 10 },
+      { localPath: '/ws/y.md', fileName: 'y.md', kind: 'text', size: 10 },
+    ]);
+    // 队列挂起，模拟「第 2 项开始前」的窗口期
+    let release: (() => void) | null = null;
+    mocks.runBatch.mockImplementation((
+      _items: unknown[],
+      _target: unknown,
+      callbacks?: { isCancelled?: () => boolean },
+    ) => new Promise((resolve) => {
+      release = () => resolve({
+        total: 2,
+        ok: 1,
+        skipped: 0,
+        failed: 0,
+        aborted: callbacks?.isCancelled?.() ?? false,
+      });
+    }));
+
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-upload');
+    await settle();
+
+    // 上传中：只有「中止上传」，关闭按钮禁用
+    expect(q<HTMLButtonElement>('cloud-doc-upload-cancel')).not.toBeNull();
+    expect(q<HTMLButtonElement>('cloud-doc-upload-close')!.disabled).toBe(true);
+
+    clickEl('cloud-doc-upload-cancel');
+    await settle();
+    release?.();
+    await settle();
+
+    expect(q('cloud-doc-upload-aborted')?.textContent).toContain('中止');
+    expect(q<HTMLButtonElement>('cloud-doc-upload-close')!.disabled).toBe(false);
+
+    clickEl('cloud-doc-upload-close');
+    await settle();
+    expect(q('cloud-doc-upload-dialog')).toBeNull();
+    expect(wrapper.emitted('edit-cloud-doc')).toBeUndefined();
+  });
+});
+
+describe('CloudDocTree 分类右键「一键分享文件夹」', () => {
+  it('cat:<id> 节点：菜单项可用，点击打开分享弹窗并带目标分类', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    const button = q<HTMLButtonElement>('cloud-category-menu-share-folder')!;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('title')).toContain('生成一个链接');
+
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+
+    expect(q('folder-share-dialog')).not.toBeNull();
+    expect(q('folder-share-dialog')!.textContent).toContain('笔记');
+    // 弹窗自己查状态；分类 id 来自 cat:<id>
+    expect(mocks.folderShareStatus).toHaveBeenCalledWith('1001');
+    expect(mocks.folderShareBase).toHaveBeenCalled();
+    // 右键菜单已收起
+    expect(q('cloud-doc-tree-menu')).toBeNull();
+  });
+
+  it('custom:* 聚合分组：菜单项禁用并提示无法分享，点击不打开弹窗', async () => {
+    const wrapper = mountTree([CUSTOM_GROUP]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    const button = q<HTMLButtonElement>('cloud-category-menu-share-folder')!;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toContain('没有独立分类记录');
+
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+
+    expect(q('folder-share-dialog')).toBeNull();
+    expect(mocks.folderShareStatus).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="cloud-browser-notice"]').text()).toContain('没有独立分类记录');
+  });
+
+  it('group:uncategorized（未分类）：同样禁用', async () => {
+    const wrapper = mountTree([UNCATEGORIZED]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    expect(q<HTMLButtonElement>('cloud-category-menu-share-folder')!.disabled).toBe(true);
+  });
+
+  it('关闭弹窗后收起，再打开会重新查状态', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+    expect(q('folder-share-dialog')).not.toBeNull();
+
+    clickEl('folder-share-close-button');
+    await settle();
+    expect(q('folder-share-dialog')).toBeNull();
+
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-share-folder');
+    await settle();
+    expect(q('folder-share-dialog')).not.toBeNull();
+    expect(mocks.folderShareStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ------------------- UX-3A：新建文件二级类型菜单 ------------------- */
+
+describe('CloudDocTree UX-3A：分类右键「新建文件」二级类型菜单', () => {
+  it('展开二级菜单只列云白名单类型（含 mm / opml）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+
+    const typeMenu = q('cloud-new-file-type-menu');
+    expect(typeMenu).not.toBeNull();
+    const ids = Array.from(typeMenu!.querySelectorAll('.cd-menu__item'))
+      .map((item) => item.getAttribute('data-testid'));
+    expect(ids).toEqual([
+      'cloud-new-file-type-markdown',
+      'cloud-new-file-type-taumap',
+      'cloud-new-file-type-freemind',
+      'cloud-new-file-type-opml',
+      'cloud-new-file-type-plaintext',
+      'cloud-new-file-type-json',
+      // UX-3A custom：固定类型之后是「自定义格式…」
+      'cloud-new-file-type-custom',
+    ]);
+    // 展开二级菜单不打开卡片
+    expect(q('cloud-category-prompt')).toBeNull();
+  });
+
+  it('选择 OPML：卡片预填默认名与类型提示，提交时透传 typeId', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+    clickEl('cloud-new-file-type-opml');
+    await flushPromises();
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    const input = q<HTMLInputElement>('cloud-category-name-input')!;
+    expect(input.value).toBe('未命名大纲.opml');
+    expect(q('cloud-new-file-type-hint')?.textContent).toContain('.opml');
+
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '未命名大纲.opml',
+      typeId: 'opml',
+    }));
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+  });
+
+  it('回填用户输入：选 FreeMind 后只写主名，提交按类型补 .mm', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    await chooseNewFileType('freemind');
+    fillInput('cloud-category-name-input', '重构思路');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '重构思路.mm',
+      typeId: 'freemind',
+    }));
+  });
+
+  it('custom:* 聚合分组：主项禁用，不展开类型菜单', async () => {
+    const wrapper = mountTree([CUSTOM_GROUP]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+
+    expect(q('cloud-new-file-type-menu')).toBeNull();
+    expect(q('cloud-category-prompt')).toBeNull();
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------------- UX-3A custom：自定义格式（云端） ---------------------- */
+
+describe('CloudDocTree UX-3A custom：自定义格式', () => {
+  /** 打开分类右键 → 新建文件二级菜单 → 选择「自定义格式…」。 */
+  async function openCustomCard(wrapper: ReturnType<typeof mount>): Promise<void> {
+    await openMenu(wrapper, 'cloud-browser-dir');
+    clickEl('cloud-category-menu-new-file');
+    await flushPromises();
+    clickEl('cloud-new-file-type-custom');
+    await flushPromises();
+  }
+
+  it('二级菜单提供「自定义格式…」，选择后卡片出现扩展名输入并预填 txt', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openCustomCard(wrapper);
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-new-file-custom-field')).not.toBeNull();
+    expect(q<HTMLInputElement>('cloud-new-file-custom-extension')!.value).toBe('txt');
+    // 文件名默认只有主干，扩展名由输入决定
+    expect(q<HTMLInputElement>('cloud-category-name-input')!.value).toBe('未命名');
+    expect(q('cloud-new-file-type-hint')?.textContent).toContain('.txt');
+  });
+
+  it('提交时透传 typeId=custom + customExtension，并按扩展名补文件名', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openCustomCard(wrapper);
+
+    fillInput('cloud-new-file-custom-extension', 'yaml');
+    await flushPromises();
+    expect(q('cloud-new-file-type-hint')?.textContent).toContain('.yaml');
+
+    fillInput('cloud-category-name-input', '部署');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(mocks.createCloudDoc).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '部署.yaml',
+      typeId: 'custom',
+      customExtension: 'yaml',
+      categoryId: '1001',
+      categoryName: '笔记',
+    }));
+    expect(wrapper.emitted('edit-cloud-doc')).toHaveLength(1);
+    expect(q('cloud-category-prompt')).toBeNull();
+  });
+
+  it('扩展名非法：卡片内报错且不发请求', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openCustomCard(wrapper);
+
+    fillInput('cloud-new-file-custom-extension', 'a/b');
+    fillInput('cloud-category-name-input', '笔记');
+    clickEl('cloud-category-prompt-confirm');
+    await settle();
+
+    expect(q('cloud-category-prompt-error')?.textContent).toContain('扩展名不可用');
+    expect(mocks.createCloudDoc).not.toHaveBeenCalled();
+    // 卡片保持打开，允许用户改完再提交
+    expect(q('cloud-category-prompt')).not.toBeNull();
+  });
+
+  it('固定类型不显示扩展名输入（不回归）', async () => {
+    const wrapper = mountTree([CATEGORY]);
+    await openMenu(wrapper, 'cloud-browser-dir');
+    await chooseNewFileType('markdown');
+
+    expect(q('cloud-category-prompt')).not.toBeNull();
+    expect(q('cloud-new-file-custom-field')).toBeNull();
+  });
+});

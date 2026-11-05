@@ -13,6 +13,11 @@ import { useCommandStore } from '@/stores/commands';
 import { useFileConflictsStore } from '@/stores/fileConflicts';
 import { useDiffStore } from '@/stores/diff';
 import { useDiagnosticsStore, type DiagnosticRecord } from '@/stores/diagnostics';
+import { useCloudSyncStore } from '@/stores/cloudSync';
+import { useCloudQuotaStore } from '@/stores/cloudQuota';
+import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
+import WechatContactDialog from '@/components/editor/WechatContactDialog.vue';
+import { useMindmapStore } from '@/stores/mindmap';
 import {
   loadGitDiffSession,
   loadWorkspaceFileDiffSession,
@@ -75,6 +80,7 @@ import {
 } from '@/services/keybindingService';
 import {
   appCommands,
+  cloudCommands,
   fileCommands,
   gitCommands,
   isTauriApp,
@@ -90,9 +96,32 @@ import {
 import type { MarkdownLinkStatus, WorkspaceTaskResponse } from '@/lib/tauri';
 import { normalizeModifiedTimestamp, resolveExternalFileSyncAction } from '@/services/externalFileSync';
 import {
+  buildMarkdownImageSnippet,
+  decideCloudImageUpload,
+  joinAssetAbsolutePath,
+  performCloudImageUpload,
+  type CloudImageUploadSkipReason,
+} from '@/services/markdownImagePasteService';
+import {
+  CUSTOM_NEW_FILE_TYPE,
+  buildCustomNewFileName,
+  buildDefaultNewFileName,
+  isCustomNewFileTypeId,
+  newFileTypeLabel,
+  normalizeCustomExtension,
+  resolveNewFileType,
+  seedContentForFileName,
+} from '@/services/newFileTypeOptions';
+import { guardPersistedScratchWorkspace } from '@/services/scratchWorkspaceGuard';
+import {
   getAppI18n,
+  getCloudDocConflictI18n,
+  getCloudDocEditOpenI18n,
+  getCloudDocPanelI18n,
   getCommandText,
+  getFileTreeI18n,
   getMarkdownPreviewI18n,
+  getSettingsPanelI18n,
   getToolbarI18n,
   type CommandId,
 } from '@/i18n/ui';
@@ -101,6 +130,8 @@ import WorkspaceSearchPanel from './components/editor/WorkspaceSearchPanel.vue';
 import ReplacePreviewDialog from './components/editor/ReplacePreviewDialog.vue';
 import Toolbar from './components/editor/Toolbar.vue';
 import FileTree from './components/editor/FileTree.vue';
+import ScratchWorkspaceBanner from './components/editor/ScratchWorkspaceBanner.vue';
+import CloudDocSidebar from './components/editor/CloudDocSidebar.vue';
 import EditorTabs from './components/editor/EditorTabs.vue';
 import EditorBreadcrumbs, { type EditorBreadcrumbSegment } from './components/editor/EditorBreadcrumbs.vue';
 import { LazyEditorCore } from './components/editor/LazyEditorCore';
@@ -111,12 +142,43 @@ import ExternalChangeDialog from './components/editor/ExternalChangeDialog.vue';
 import ProblemsPanel from './components/editor/ProblemsPanel.vue';
 import ReferenceResultsPanel, { type ReferenceResultGroup, type ReferenceResultItem } from './components/editor/ReferenceResultsPanel.vue';
 import HierarchyPanel, { type HierarchyMode, type HierarchyRow } from './components/editor/HierarchyPanel.vue';
+import CloudDocBrowser from './components/editor/CloudDocBrowser.vue';
+import CloudDocConflictDialog from './components/editor/CloudDocConflictDialog.vue';
+import CloudDocSyncDialog from './components/editor/CloudDocSyncDialog.vue';
+import CloudFolderUploadDialog from './components/editor/CloudFolderUploadDialog.vue';
+import ShareDialog from './components/editor/ShareDialog.vue';
+import CenterToast from './components/ui/CenterToast.vue';
+import ShareStatsDialog from './components/editor/ShareStatsDialog.vue';
+import { useCenterToastStore } from './stores/centerToast';
+import { resolveCloudDocPathForFile, resolveEditorSyncIdentity } from '@/services/cloudSyncService';
+import type { CloudDocIdentityMeta, CloudSyncResult } from '@/services/cloudSyncService';
+import { folderAssetsOk, shouldShowFolderAssets } from '@/services/cloudFolderUploadService';
+import type { FolderUploadSummary } from '@/services/cloudFolderUploadService';
+import { getShareStatus } from '@/services/cloudShareService';
+import { isBinaryDocPath, uploadBinaryDocument, validateBinaryDocLocal } from '@/services/cloudBinaryService';
 import StatusBar from './components/editor/StatusBar.vue';
 import SettingsPanel from './components/editor/SettingsPanel.vue';
 import Notification from './components/ui/Notification.vue';
 import ImagePreview from './components/editor/ImagePreview.vue';
+import MindmapStage from './components/editor/mindmap/MindmapStage.vue';
+import MindmapRightPanel from './components/editor/mindmap/MindmapRightPanel.vue';
+import MindmapCanvasStylePanel from './components/editor/mindmap/MindmapCanvasStylePanel.vue';
+import {
+  DEFAULT_MINDMAP_THEME_ID,
+  listMindmapThemes,
+} from '@/services/mindmapThemeService';
+import type { MindMapLayoutMode } from '@/types/mindmap';
 import ImageViewer from './components/editor/ImageViewer.vue';
 import { isImageFilePath } from '@/utils/fileTypes';
+import { createAutoSaveScheduler } from '@/utils/autoSaveScheduler';
+import { createContentHasher, normalizeContentHash } from '@/utils/contentHash';
+import { getCloudDoc, saveCloudDoc } from '@/services/cloudDocService';
+import { materializeCloudDocForEdit } from '@/services/cloudDocEditOpen';
+import type { CloudDocTreeNode } from '@/services/cloudBrowserService';
+import {
+  createCloudDocSaveController,
+  type SaveControllerEvent,
+} from '@/services/cloudDocSaveController';
 import DocumentPreview from './components/editor/DocumentPreview.vue';
 import {
   isDocumentPreviewFilePath,
@@ -136,6 +198,31 @@ const commandStore = useCommandStore();
 const fileConflictsStore = useFileConflictsStore();
 const diffStore = useDiffStore();
 const diagnosticsStore = useDiagnosticsStore();
+const cloudSyncStore = useCloudSyncStore();
+const centerToast = useCenterToastStore();
+const mindmapStore = useMindmapStore();
+const cloudQuotaStore = useCloudQuotaStore();
+const mindmapUpgradeVisible = ref(false);
+const mindmapUpgradeContactVisible = ref(false);
+const mindmapMembershipPrompt = ref<{ feature: string; reason: string } | null>(null);
+function handleMindmapMembershipRequired(payload: { feature: string; reason: string }) {
+  mindmapMembershipPrompt.value = payload;
+}
+function confirmMindmapMembershipUpgrade() {
+  mindmapMembershipPrompt.value = null;
+  mindmapUpgradeVisible.value = true;
+}
+watch(() => mindmapStore.nodeLimitNotice, () => {
+  notificationStore.warning('思维导图节点已达上限', '普通用户每个导图文件最多 30 个节点，升级会员可解除限制。');
+  mindmapMembershipPrompt.value = {
+    feature: '大规模导图',
+    reason: '免费版每个导图最多 30 个节点，升级会员即可创建更大规模的导图。',
+  };
+});
+watch(() => cloudSyncStore.userId, (userId, previousUserId) => {
+  if (userId !== previousUserId) cloudQuotaStore.reset();
+  if (userId) void cloudQuotaStore.refreshSummary();
+}, { immediate: true });
 const pendingLocalWrites = new Map<string, number>();
 const markLocalWritePending = (filePath?: string | null) => {
   if (filePath) pendingLocalWrites.set(normalizeFsPath(filePath), Date.now() + 4000);
@@ -180,6 +267,8 @@ const applicationLspService = createApplicationLspService(undefined, {
 });
 const lspDiagnosticCounts = new Map<string, number>();
 const problemsPanelVisible = ref(false);
+/** 云端文档浏览器（命令面板 / 设置页「浏览云端文档」打开） */
+const cloudBrowserVisible = ref(false);
 const referencePanelVisible = ref(false);
 const referencePanelLoading = ref(false);
 const referencePanelError = ref<string | null>(null);
@@ -299,7 +388,7 @@ const syncViewportWidth = () => {
   viewportWidth.value = window.innerWidth;
 };
 type SettingsContainer = 'workspace' | 'drawer';
-type SettingsCategory = 'general' | 'editor' | 'themes' | 'fileAssociations' | 'updates' | 'about';
+type SettingsCategory = 'general' | 'editor' | 'themes' | 'cloudSync' | 'fileAssociations' | 'updates' | 'about';
 const settingsContainer = ref<SettingsContainer | null>(null);
 const activeSettingsCategory = ref<SettingsCategory>('general');
 const fileTreeContextEntry = ref<FileTreeNode | null>(null);
@@ -315,6 +404,23 @@ const fileDetailsDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>(
   entry: null,
 });
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
+/**
+ * 目录联动高亮的唯一状态源（D6）：编辑器视口首行 / 预览当前标题行 / 点击大纲项，
+ * 三条路径都写入这里，由 ContextRail 映射到具体大纲项。0 表示暂无当前项。
+ */
+const activeOutlineLine = ref(0);
+/** 预览滚动驱动编辑器比例同步的时间窗，避免编辑器回写的高亮抢走预览当前标题。 */
+let previewDrivingActiveLineUntil = 0;
+/** 点击大纲项后短暂锁定高亮，避免 revealLine / scrollIntoView 引发的事件立刻改写它。 */
+let navigationLockedActiveLineUntil = 0;
+const PREVIEW_DRIVING_WINDOW_MS = 200;
+const NAVIGATION_LOCK_WINDOW_MS = 400;
+const writeActiveOutlineLine = (line: number) => {
+  if (!Number.isFinite(line) || line <= 0) {
+    return;
+  }
+  activeOutlineLine.value = Math.floor(line);
+};
 type EditorCoreExpose = {
   getContent: () => string;
   replaceContent: (content: string) => boolean;
@@ -334,6 +440,7 @@ type EditorCoreExpose = {
   renameSymbol: () => void;
   requestReferences: () => Promise<monaco.languages.Location[] | null>;
   cancelReferences: () => void;
+  setScrollTop: (top: number) => void;
   triggerNativeReferences: () => void;
   requestCallHierarchy: () => Promise<{
     root: MonacoHierarchyItem | null;
@@ -381,6 +488,41 @@ type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean
 const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
 const markdownPreviewRef = ref<MarkdownPreviewExpose | null>(null);
+/**
+ * 思维导图 Stage 暴露的实例方法。
+ *
+ * - UX-3B：右侧面板渲染在外壳层，大纲行右键需要复用 Stage 里那一套统一右键菜单；
+ * - UX-3C：工具栏外移到全局 Toolbar 后，按钮点击经这些方法转发进 Stage，
+ *   保证「改文档的只有 Stage」这一受控约定。
+ */
+type MindmapStageExpose = {
+  openMindmapContextMenu: (payload: {
+    nodeId: string | null;
+    clientX: number;
+    clientY: number;
+  }) => void;
+  addChild: () => void;
+  addSibling: () => void;
+  startRename: (topicId: string) => void;
+  duplicateSelected: () => void;
+  requestDelete: () => void;
+  moveSelected: (offset: -1 | 1) => void;
+  doUndo: () => void;
+  doRedo: () => void;
+  fitView: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetView: () => void;
+  runLayoutCommand: (mode: MindMapLayoutMode) => boolean;
+  applyTheme: (themeId: string) => boolean;
+  requestReset: () => void;
+  handleImportPick: () => Promise<void>;
+  openExportDialog: () => void;
+  handlePrint: () => Promise<void>;
+  toggleOutlinePanel: () => boolean;
+  togglePropertiesPanel: () => boolean;
+};
+const mindmapStageRef = ref<MindmapStageExpose | null>(null);
 type ImageViewerPayload = {
   src: string;
   alt?: string;
@@ -591,6 +733,20 @@ const autoSaveEnabled = computed(() => settingsStore.autoSaveEnabled);
 const lastSaveTime = computed(() => editorStore.lastAutoSaveTime ?? undefined);
 const isDirty = computed(() => activeTab.value?.isDirty ?? false);
 const isMarkdownTab = computed(() => activeTab.value?.language === 'markdown');
+const isMindmapTab = computed(() => activeTab.value?.documentKind === 'mindmap' || activeTab.value?.documentKind === 'mindmap-external');
+/**
+ * 思维导图右侧面板（UX-3B 返工：大纲列 / 属性列各自独立）：
+ * 仅当当前是「可编辑的导图标签」且至少一列展开时渲染。
+ * 外部格式只读预览（mindmap-external）不提供大纲/属性编辑，因此不显示。
+ */
+const showMindmapRightPanel = computed(() => (
+  activeTab.value?.documentKind === 'mindmap'
+  && (mindmapStore.outlineVisible || mindmapStore.propertiesVisible)
+));
+const showMindmapCanvasStylePanel = computed(() => (
+  activeTab.value?.documentKind === 'mindmap'
+  && mindmapStore.styleVisible
+));
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
 const isPdfTab = computed(() => isPdfFilePath(activeTab.value?.filePath));
 const isSpreadsheetTab = computed(() => isSpreadsheetFilePath(activeTab.value?.filePath));
@@ -650,6 +806,9 @@ const closeImageViewer = () => {
 const appText = computed(() => getAppI18n(settingsStore.uiLanguage));
 const toolbarText = computed(() => getToolbarI18n(settingsStore.uiLanguage));
 const markdownPreviewText = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
+const cloudSyncCopy = computed(() => getSettingsPanelI18n(settingsStore.uiLanguage));
+/** 文件树文案（含 R3「上传该文件夹到云端」的提示与结果文案） */
+const fileTreeCopy = computed(() => getFileTreeI18n(settingsStore.uiLanguage));
 const workspaceLabel = computed(() => {
   if (mode.value !== 'workspace') {
     return undefined;
@@ -861,6 +1020,176 @@ const handleNewFile = () => {
   });
 };
 
+const handleNewMindmap = () => {
+  workspaceService.createUntitledMindMap();
+};
+
+/**
+ * 思维导图编辑结果回写标签内容：走 tabService.updateTabContent，
+ * 复用现有的 dirty 标记、编辑器 store 同步与后续保存/冲突检测管线。
+ */
+const handleMindmapChange = (json: string) => {
+  const tab = tabsStore.activeTab;
+  if (!tab || tab.documentKind !== 'mindmap') return;
+  tabService.updateTabContent(tab.id, json);
+};
+
+/**
+ * UX-3B：右侧面板大纲行的右键菜单转发给 Stage。
+ *
+ * 菜单本身（条目、动作、定位）只有一份实现，在 MindmapStage 里；
+ * Stage 已通过 defineExpose 暴露 openMindmapContextMenu。
+ */
+const handleMindmapRightPanelContextMenu = (payload: {
+  nodeId: string | null;
+  clientX: number;
+  clientY: number;
+}) => {
+  mindmapStageRef.value?.openMindmapContextMenu(payload);
+};
+
+/* --------------------------- 思维导图全局工具栏（UX-3C） --------------------------- */
+
+/**
+ * 是否渲染全局 Toolbar 里的导图工具组。
+ *
+ * 与旧行为保持一致：外部格式（mindmap-external）与解析失败时 Stage 不渲染工具栏，
+ * 这里同样隐藏，避免出现按不动的按钮。
+ */
+const showMindmapToolbar = computed(() => (
+  activeTab.value?.documentKind === 'mindmap'
+  && Boolean(mindmapStore.document)
+  && !mindmapStore.loadError
+));
+
+/** 传给 Toolbar 的导图工具状态（Toolbar 只做哑展示）。 */
+const mindmapToolbarState = computed(() => {
+  if (!showMindmapToolbar.value) return null;
+  const doc = mindmapStore.document;
+  return {
+    canUndo: mindmapStore.canUndo,
+    canRedo: mindmapStore.canRedo,
+    selectedTopicId: mindmapStore.selectedTopicId,
+    layoutMode: doc?.layoutMode ?? 'mindmap',
+    themeId: doc?.themeId ?? DEFAULT_MINDMAP_THEME_ID,
+    themeOptions: listMindmapThemes().map((theme) => ({ id: theme.id, name: theme.name })),
+    outlineActive: mindmapStore.outlineVisible,
+    propertiesActive: mindmapStore.propertiesVisible,
+    styleActive: mindmapStore.styleVisible,
+  };
+});
+
+/** 导图工具组的无参动作：统一转发到 Stage 暴露的方法。 */
+type MindmapToolbarAction =
+  | 'add-child'
+  | 'add-sibling'
+  | 'rename'
+  | 'duplicate'
+  | 'delete'
+  | 'move-up'
+  | 'move-down'
+  | 'undo'
+  | 'redo'
+  | 'fit'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'reset-view'
+  | 'reset'
+  | 'import'
+  | 'export'
+  | 'print'
+  | 'toggle-outline'
+  | 'toggle-properties'
+  | 'toggle-style';
+
+/**
+ * 转发 Toolbar 的导图工具点击。
+ *
+ * Stage 未挂载（例如标签正在切换）时静默忽略，避免空引用；
+ * 所有需要选中节点的动作在 Stage 内部还有二次守卫。
+ */
+const handleMindmapToolbarAction = (action: MindmapToolbarAction) => {
+  if (action === 'toggle-style') {
+    mindmapStore.toggleStyleVisible();
+    return;
+  }
+  const stage = mindmapStageRef.value;
+  if (!stage) return;
+  switch (action) {
+    case 'add-child':
+      stage.addChild();
+      break;
+    case 'add-sibling':
+      stage.addSibling();
+      break;
+    case 'rename': {
+      const topicId = mindmapStore.selectedTopicId;
+      if (topicId) stage.startRename(topicId);
+      break;
+    }
+    case 'duplicate':
+      stage.duplicateSelected();
+      break;
+    case 'delete':
+      stage.requestDelete();
+      break;
+    case 'move-up':
+      stage.moveSelected(-1);
+      break;
+    case 'move-down':
+      stage.moveSelected(1);
+      break;
+    case 'undo':
+      stage.doUndo();
+      break;
+    case 'redo':
+      stage.doRedo();
+      break;
+    case 'fit':
+      stage.fitView();
+      break;
+    case 'zoom-in':
+      stage.zoomIn();
+      break;
+    case 'zoom-out':
+      stage.zoomOut();
+      break;
+    case 'reset-view':
+      stage.resetView();
+      break;
+    case 'reset':
+      stage.requestReset();
+      break;
+    case 'import':
+      void stage.handleImportPick();
+      break;
+    case 'export':
+      stage.openExportDialog();
+      break;
+    case 'print':
+      void stage.handlePrint();
+      break;
+    case 'toggle-outline':
+      stage.toggleOutlinePanel();
+      break;
+    case 'toggle-properties':
+      stage.togglePropertiesPanel();
+      break;
+    default:
+      break;
+  }
+};
+
+/** 结构布局切换（可撤销命令，由 Stage 写回文档并 emit change）。 */
+const handleMindmapToolbarLayout = (mode: MindMapLayoutMode) => {
+  mindmapStageRef.value?.runLayoutCommand(mode);
+};
+
+/** 主题模板切换（原生 select 的值）。 */
+const handleMindmapToolbarTheme = (themeId: string) => {
+  mindmapStageRef.value?.applyTheme(themeId);
+};
+
 const openFileInEditor = async (filePath: string) => {
   await workspaceService.openFile(filePath);
 };
@@ -948,11 +1277,476 @@ const handleOpenRecentFolder = async (path: string) => {
   }
 };
 
+/* ===== 云文档在线编辑：自动保存接线（方案 §3.2 T1 的客户端部分） ===== */
+
+/** fileId → 云端落点。cloud_docs_save 按 path 定位文档，baseVersion 才是乐观锁，两者都必需。 */
+const cloudSaveTargets = new Map<number, { path: string; title: string }>();
+
+/** 同一文件同内容的并发哈希计算会被合并，debounce 抖动不会重复算。 */
+const cloudContentHasher = createContentHasher();
+
+/**
+ * 409 冲突对话框状态。云端保存被乐观锁拒绝时打开，用户在
+ * 「保留我的 / 用云端版本 / 另存副本」里选一个，选择结果交给 cloudSaveController.resolveConflict 执行。
+ */
+const cloudConflict = ref<{
+  visible: boolean;
+  fileId: number | null;
+  tabId: string | null;
+  fileName: string;
+  message: string;
+  remoteVersion: number | null;
+  busy: boolean;
+}>({ visible: false, fileId: null, tabId: null, fileName: '', message: '', remoteVersion: null, busy: false });
+
+const conflictCopy = computed(() => getCloudDocConflictI18n(settingsStore.uiLanguage));
+const editOpenCopy = computed(() => getCloudDocEditOpenI18n(settingsStore.uiLanguage));
+
+/** 冲突时顺手把云端最新版本号读出来，供对话框展示（失败不影响三选一，值留空）。 */
+const refreshConflictRemoteVersion = async (fileId: number): Promise<void> => {
+  const outcome = await getCloudDoc(fileId);
+  if (!outcome.ok) {
+    return;
+  }
+  if (cloudConflict.value.fileId !== fileId) {
+    return;
+  }
+  cloudConflict.value.remoteVersion = outcome.data.version;
+};
+
+/** 409：登记冲突 + 弹出三选一对话框（绝不自动覆盖云端）。 */
+const handleCloudSaveEvent = (event: SaveControllerEvent): void => {
+  if (event.type === 'saved') {
+    // 回写标签元数据：下次重新打开这份文档时，基线来自这里而不是内存里的控制器
+    const savedTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
+    if (savedTab) {
+      tabsStore.updateTab(savedTab.id, {
+        cloudFileId: event.fileId,
+        cloudVersion: event.version,
+        cloudContentHash: event.contentHash,
+        lastSyncedAt: event.at,
+        cloudSyncState: 'synced',
+        cloudSyncError: null,
+      });
+    }
+    return;
+  }
+
+  if (event.type !== 'conflict') {
+    // failed 只是这一次没落地（网络/配额/令牌过期），本地文件已保存。
+    // 不弹 toast（每 2.5s 一次会变骚扰），但**必须**在标签与状态栏留下可见状态，
+    // 否则用户以为已入库，关掉文档就真的丢了。
+    const failedTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
+    if (failedTab) {
+      tabsStore.updateTab(failedTab.id, {
+        cloudSyncState: 'failed',
+        // skipped 事件没有 message 字段，这里只取 failed 的原因
+        cloudSyncError: event.type === 'failed' ? (event.message ?? null) : null,
+      });
+    }
+    return;
+  }
+
+  const conflictTab = tabsStore.tabs.find((item) => item.cloudFileId === event.fileId);
+  fileConflictsStore.flag({
+    path: conflictTab?.filePath ?? `cloud-doc:${event.fileId}`,
+    kind: 'modified',
+    source: 'cloud',
+    detectedAt: Date.now(),
+  });
+
+  cloudConflict.value = {
+    visible: true,
+    fileId: event.fileId,
+    tabId: conflictTab?.id ?? null,
+    fileName: conflictTab?.fileName ?? '',
+    message: event.message ?? '',
+    remoteVersion: null,
+    busy: false,
+  };
+  void refreshConflictRemoteVersion(event.fileId);
+};
+
+const cloudSaveController = createCloudDocSaveController({
+  // 真正的 IPC：path 定位文档，baseVersion 由控制器按会话基线透传（绝不传 null 走"新建"）
+  save: async (snapshot) => {
+    const target = cloudSaveTargets.get(snapshot.fileId);
+    // 派发这一刻再确认标签还开着：标签关掉/工作区切走后，即便队列里还排着一次，
+    // 这里也直接返回失败 —— 文档已经没了，不允许再发 IPC 把旧内容写回云端。
+    const stillOpen = tabsStore.tabs.some((tab) => tab.cloudFileId === snapshot.fileId);
+    if (!target || !stillOpen) {
+      return { ok: false, kind: 'unsupported', message: '文档已关闭，已丢弃这次云端保存。' };
+    }
+    return saveCloudDoc({
+      path: target.path,
+      title: target.title,
+      content: snapshot.content,
+      contentHash: snapshot.contentHash,
+      baseVersion: snapshot.baseVersion,
+    });
+  },
+  notify: handleCloudSaveEvent,
+});
+
+/** 一次自动保存：算哈希（async）→ 交给控制器（空写抑制、单飞合并、409 停止都在里面）。 */
+const runCloudAutoSave = async (): Promise<void> => {
+  const tab = activeTab.value;
+  const fileId = tab?.cloudFileId ?? null;
+  if (!tab || fileId === null) {
+    return;
+  }
+
+  // 409 未处理前不再自动保存：控制器本来就会拦，这里省掉一次哈希计算
+  const session = cloudSaveController.session();
+  if (session && session.fileId === fileId && session.status === 'conflict') {
+    return;
+  }
+
+  // 编辑器可能还有一次去抖没回写到标签，保存前先对齐
+  syncActiveEditorContent();
+  const current = activeTab.value;
+  if (!current || current.cloudFileId !== fileId) {
+    return; // 期间换了文档：这次触发作废（控制器里还有一层 Lane 防护）
+  }
+
+  const content = current.content ?? '';
+  const hash = await cloudContentHasher.hashFor(fileId, content);
+  if (activeTab.value?.cloudFileId !== fileId) {
+    return; // 哈希算完时文档已经切走
+  }
+  await cloudSaveController.schedule(content, hash);
+};
+
+const createCloudAutoSave = () => createAutoSaveScheduler({ onTrigger: () => runCloudAutoSave() });
+
+/** 当前文档的自动保存窗口；换文档时整个替换（destroy 是终态，不能复用）。 */
+let cloudAutoSave = createCloudAutoSave();
+
+/**
+ * 打开/切换云文档时建立编辑基线。
+ * 第一步永远是销毁旧的自动保存窗口 —— 这是"文档关掉/切走后不得再补发一次保存"的第一道闸：
+ * 窗口没了，触发源就没了；即便真的在飞，控制器也会因 Lane 引用失效而丢弃结果。
+ */
+const syncCloudSaveSession = (): void => {
+  cloudAutoSave.destroy();
+  cloudAutoSave = createCloudAutoSave();
+
+  const tab = activeTab.value;
+  const fileId = tab?.cloudFileId ?? null;
+  if (!tab || fileId === null) {
+    return;
+  }
+
+  // 云端落点优先取 docMap（cloudPath → fileId 的权威映射）：落位到 scratch 后 path 仍与原文一致，
+  // 用本地 scratch 路径反推会"搬家"。
+  let path: string | null = null;
+  let version: number | null = tab.cloudVersion ?? null;
+  let contentHash: string | null = tab.cloudContentHash ?? null;
+  for (const [docPath, meta] of Object.entries(cloudSyncStore.docMap)) {
+    if (meta.fileId !== fileId) {
+      continue;
+    }
+    path = docPath;
+    version = version ?? meta.version;
+    contentHash = contentHash ?? meta.contentHash;
+    break;
+  }
+  if (!path && tab.filePath) {
+    path = resolveCloudDocPathForFile(
+      tab.filePath,
+      workspaceStore.currentWorkspaceName,
+      workspaceStore.currentWorkspacePath,
+    );
+  }
+  if (!path) {
+    return;
+  }
+
+  cloudSaveTargets.set(fileId, { path, title: tab.fileName });
+  cloudSaveController.open(fileId, {
+    version: version ?? 0,
+    contentHash: normalizeContentHash(contentHash),
+  });
+};
+
+// 打开或切换云文档标签：建立基线（换文档时旧 Lane 立即失权）。
+watch(
+  () => [activeTab.value?.id ?? '', activeTab.value?.cloudFileId ?? null] as const,
+  () => {
+    syncCloudSaveSession();
+  },
+  { immediate: true },
+);
+
+// 标签关闭后丢掉已无主的落点映射：既避免 map 随会话增长，也避免重复用旧 path 保存。
+watch(
+  () => tabsStore.tabs.map((tab) => tab.cloudFileId ?? 0).join('|'),
+  () => {
+    const alive = new Set(
+      tabsStore.tabs
+        .map((tab) => tab.cloudFileId)
+        .filter((fileId): fileId is number => typeof fileId === 'number'),
+    );
+    for (const fileId of [...cloudSaveTargets.keys()]) {
+      if (!alive.has(fileId)) {
+        cloudSaveTargets.delete(fileId);
+      }
+    }
+  },
+);
+
+/* ===== 409 冲突三选一：把编辑流水线的 resolveConflict 接到 UI ===== */
+
+const closeCloudConflict = (): void => {
+  if (cloudConflict.value.busy) {
+    return;
+  }
+  cloudConflict.value = {
+    visible: false,
+    fileId: null,
+    tabId: null,
+    fileName: '',
+    message: '',
+    remoteVersion: null,
+    busy: false,
+  };
+};
+
+/** 拉一次云端详情作为冲突决策依据（版本/哈希/正文）；失败直接提示并放弃本次选择。 */
+const fetchRemoteSnapshot = async (
+  fileId: number,
+): Promise<{ version: number; contentHash: string; content: string } | null> => {
+  const outcome = await getCloudDoc(fileId);
+  if (!outcome.ok) {
+    notificationStore.error(conflictCopy.value.title, outcome.message);
+    return null;
+  }
+  return {
+    version: outcome.data.version,
+    contentHash: outcome.data.contentHash ?? '',
+    content: outcome.data.content ?? '',
+  };
+};
+
+/** 用云端正文替换标签内容（编辑器同步刷新 + 落盘 + 元数据推进）。 */
+const applyRemoteContentToTab = async (
+  tabId: string | null,
+  content: string,
+  remote: { version: number; contentHash: string },
+): Promise<void> => {
+  if (!tabId) {
+    return;
+  }
+  if (!tabsStore.tabs.some((item) => item.id === tabId)) {
+    return;
+  }
+  // 编辑器正显示这份文档时同步刷新，避免「标签内容变了但编辑器还是旧文本」
+  if (activeTab.value?.id === tabId) {
+    editorCoreRef.value?.replaceContent(content);
+  }
+  tabService.updateTabContent(tabId, content, { markDirty: false });
+  tabsStore.updateTab(tabId, {
+    isDirty: false,
+    cloudVersion: remote.version,
+    cloudContentHash: remote.contentHash,
+    lastSyncedAt: Date.now(),
+  });
+  await tabService.saveTab(tabId, { silent: true });
+};
+
+/** 另存副本时把冲突标记插在扩展名之前：`a.md` → `a（冲突副本）.md`。 */
+const buildConflictCopyPath = (cloudPath: string, tag: string): string => {
+  const slash = cloudPath.lastIndexOf('/');
+  const dir = slash >= 0 ? cloudPath.slice(0, slash + 1) : '';
+  const name = slash >= 0 ? cloudPath.slice(slash + 1) : cloudPath;
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? `${dir}${name.slice(0, dot)}${tag}${name.slice(dot)}` : `${dir}${name}${tag}`;
+};
+
+/** 保留我的：以云端最新版本为基线重试一次，用本地内容覆盖云端。 */
+const resolveConflictKeepMine = async (): Promise<void> => {
+  const state = cloudConflict.value;
+  if (state.fileId === null || state.busy) {
+    return;
+  }
+  const remote = await fetchRemoteSnapshot(state.fileId);
+  if (!remote) {
+    return;
+  }
+  state.busy = true;
+  try {
+    const outcome = await cloudSaveController.resolveConflict('keepMine', remote);
+    if (outcome.action === 'retried') {
+      if (outcome.result === 'saved' || outcome.result === 'skipped') {
+        notificationStore.success(conflictCopy.value.title, editOpenCopy.value.conflictKeepMineDone);
+        closeCloudConflict();
+        return;
+      }
+      notificationStore.error(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.result));
+      return;
+    }
+    if (outcome.action === 'retryExhausted') {
+      notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictRetryExhausted);
+      return;
+    }
+    notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.action));
+  } finally {
+    state.busy = false;
+  }
+};
+
+/** 用云端版本：放弃本地修改，编辑器内容替换为云端最新正文。 */
+const resolveConflictUseRemote = async (): Promise<void> => {
+  const state = cloudConflict.value;
+  if (state.fileId === null || state.busy) {
+    return;
+  }
+  const remote = await fetchRemoteSnapshot(state.fileId);
+  if (!remote) {
+    return;
+  }
+  state.busy = true;
+  try {
+    const outcome = await cloudSaveController.resolveConflict('useRemote', remote);
+    if (outcome.action !== 'replaceLocalWithRemote') {
+      notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.action));
+      return;
+    }
+    const content = outcome.content ?? remote.content;
+    await applyRemoteContentToTab(state.tabId, content, remote);
+    notificationStore.success(conflictCopy.value.title, editOpenCopy.value.conflictUseRemoteDone);
+    closeCloudConflict();
+  } finally {
+    state.busy = false;
+  }
+};
+
+/** 另存副本：本地内容作为新文档上传，原文档回到云端内容，两端都不丢。 */
+const resolveConflictSaveCopy = async (): Promise<void> => {
+  const state = cloudConflict.value;
+  if (state.fileId === null || state.busy) {
+    return;
+  }
+  const remote = await fetchRemoteSnapshot(state.fileId);
+  if (!remote) {
+    return;
+  }
+  const target = cloudSaveTargets.get(state.fileId);
+  if (!target) {
+    notificationStore.error(conflictCopy.value.title, editOpenCopy.value.conflictFailed('找不到该文档的云端落点'));
+    return;
+  }
+  const outcome = await cloudSaveController.resolveConflict('saveCopy', remote);
+  if (outcome.action !== 'saveAsCopy') {
+    notificationStore.warning(conflictCopy.value.title, editOpenCopy.value.conflictFailed(outcome.action));
+    return;
+  }
+  state.busy = true;
+  try {
+    const copyPath = buildConflictCopyPath(target.path, outcome.copy.copyTag);
+    const saved = await saveCloudDoc({
+      path: copyPath,
+      title: copyPath.split('/').pop() ?? copyPath,
+      content: outcome.copy.content,
+      contentHash: outcome.copy.contentHash,
+      // 副本是新建：baseVersion 必须是 null，否则会覆盖原文档
+      baseVersion: null,
+    });
+    if (!saved.ok) {
+      notificationStore.error(conflictCopy.value.title, editOpenCopy.value.conflictFailed(saved.message));
+      return;
+    }
+    cloudSyncStore.rememberDoc(copyPath, {
+      fileId: saved.data.fileId,
+      version: saved.data.version,
+      contentHash: saved.data.contentHash,
+      updatedAt: saved.data.updatedAt ?? null,
+    });
+    // 原文档回到云端内容（副本已保住本地修改），否则下一次自动保存会把云端又覆盖回去
+    await applyRemoteContentToTab(state.tabId, remote.content, remote);
+    notificationStore.success(conflictCopy.value.title, editOpenCopy.value.conflictSavedCopy(copyPath));
+    closeCloudConflict();
+  } finally {
+    state.busy = false;
+  }
+};
+
+/* ===== 跨工作区云文档：在编辑器中打开（替代原先的只读预览） ===== */
+
+/**
+ * 「在编辑器中打开」：把云端文档落位到该云工作区对应的本地临时工作区，打开标签并打上云端绑定，
+ * 之后的保存由既有自动保存流水线（2.5s 空闲 / Ctrl+S / 失焦）同步回云端。
+ */
+const handleCloudDocEditOpen = async (node: CloudDocTreeNode): Promise<void> => {
+  const file = node.file;
+  if (!file) {
+    return;
+  }
+  const fileId = file.fileId;
+
+  // 已经打开过：直接切到那个标签，不再重复落位
+  const existing = tabsStore.tabs.find((tab) => tab.cloudFileId === fileId);
+  if (existing?.filePath) {
+    await openFileInEditor(existing.filePath);
+    cloudBrowserVisible.value = false;
+    notificationStore.info(editOpenCopy.value.alreadyOpen(existing.fileName), editOpenCopy.value.openedHint);
+    return;
+  }
+
+  const result = await materializeCloudDocForEdit({ fileId, cloudPath: node.path, title: node.name });
+  if (!result.ok) {
+    notificationStore.error(node.name, editOpenCopy.value.openFailed(result.message));
+    return;
+  }
+
+  const target = result.target;
+  // 先登记云端落点与基线：标签一旦激活，syncCloudSaveSession 会立刻按 docMap 建编辑会话
+  cloudSyncStore.rememberDoc(target.cloudPath, {
+    fileId: target.fileId,
+    version: target.version,
+    contentHash: target.contentHash,
+    updatedAt: file.updatedAt ?? null,
+  });
+  cloudSaveTargets.set(target.fileId, { path: target.cloudPath, title: target.title });
+
+  await openFileInEditor(target.absolutePath);
+
+  const opened = tabsStore.tabs.find((tab) => tab.filePath === target.absolutePath) ?? tabsStore.activeTab;
+  if (opened) {
+    tabsStore.updateTab(opened.id, {
+      cloudFileId: target.fileId,
+      cloudVersion: target.version,
+      cloudContentHash: target.contentHash,
+    });
+  }
+
+  cloudBrowserVisible.value = false;
+  notificationStore.success(editOpenCopy.value.opened(target.title), editOpenCopy.value.openedHint);
+};
+
+/** 状态栏展示用的「当前标签」云端同步状态（失败必须可见）。 */
+const activeCloudSyncState = computed(() => activeTab.value?.cloudSyncState ?? null);
+const activeCloudSyncError = computed(() => activeTab.value?.cloudSyncError ?? null);
+
+/** 点状态栏「云端未同步」：立刻重试一次云端保存（不弹窗、失败仍走同一套状态回写）。 */
+const handleRetryCloudSync = () => {
+  const tab = activeTab.value;
+  if (!tab?.cloudFileId) {
+    return;
+  }
+  markLocalWritePending(tab.filePath);
+  void cloudAutoSave.triggerNow('manual');
+};
+
 const handleSave = async () => {
   syncActiveEditorContent();
   markLocalWritePending(activeTab.value?.filePath);
   await tabService.saveActiveTab();
   editorCoreRef.value?.saveLspDocument();
+  // Ctrl+S：本地保存保持原样，云端保存是追加动作（不阻塞、不改变本地保存时延）
+  if (activeTab.value?.cloudFileId != null) {
+    void cloudAutoSave.triggerNow('manual');
+  }
   // 保存后任务勾选状态可能变化，静默重扫一次工作区任务。
   if (workspaceRuntimeId.value && activeTab.value?.language === 'markdown') {
     void refreshWorkspaceTasks();
@@ -970,6 +1764,97 @@ const handleUndo = () => {
 
 const handleRedo = () => {
   editorCoreRef.value?.redo();
+};
+
+/**
+ * 云文档图片上传互斥：同一云文档的同一张图只发一次请求。
+ *
+ * 后端 assets 上传本身按 relPath + hash 幂等，这里只拦「重复点击 / 连点」造成的多余请求。
+ */
+const cloudImageUploadInFlight = new Set<string>();
+
+/** 云端预检跳过原因 → 可读文案。 */
+const describeCloudImageSkipReason = (reason: CloudImageUploadSkipReason): string => {
+  switch (reason) {
+    case 'unsupported-extension':
+      return appText.value.markdownImageCloudSkipUnsupported;
+    case 'too-large':
+      return appText.value.markdownImageCloudSkipTooLarge;
+    case 'invalid-relative-path':
+      return appText.value.markdownImageCloudSkipInvalidPath;
+    case 'missing-local-path':
+      return appText.value.markdownImageCloudSkipMissingLocal;
+    default:
+      return '';
+  }
+};
+
+/** 取 Markdown 图片的替代文本（用文件名，避免把整条路径塞进 alt）。 */
+const markdownImageAltOf = (relativePath: string): string => {
+  const segments = String(relativePath ?? '').split('/');
+  return segments[segments.length - 1] || 'image';
+};
+
+/**
+ * 云文档粘贴/导入图片后立即上传云端，并优先把**签名直链**写进 Markdown。
+ *
+ * 返回 `handled=false` 表示当前不是云文档（调用方保持原有纯本地行为）；
+ * `handled=true` 且 `url` 非空表示已拿到匿名直链，Markdown 应写直链；
+ * `url` 为空（旧后端未返回 / 上传失败 / 预检跳过）时回退相对路径，图片仍已插入且本地可预览。
+ *
+ * 上传失败/预检跳过都只提示、不阻断插入，后续仍可用「同步至云端」兜底重试。
+ */
+const syncInsertedImageToCloud = async (
+  cloudFileId: number | null | undefined,
+  image: {
+    relativePath: string;
+    bytes?: number | null;
+    rootPath?: string | null;
+    fileName?: string | null;
+  },
+): Promise<{ handled: boolean; url: string | null }> => {
+  if (cloudFileId == null) {
+    return { handled: false, url: null };
+  }
+
+  const decision = decideCloudImageUpload({
+    cloudFileId,
+    relativePath: image.relativePath,
+    absolutePath: joinAssetAbsolutePath(image.rootPath, image.relativePath),
+    byteSize: image.bytes ?? null,
+    fileName: image.fileName ?? null,
+  });
+
+  if (decision.action === 'skip') {
+    if (decision.reason === 'no-cloud-doc') {
+      return { handled: false, url: null };
+    }
+    notificationStore.warning(
+      appText.value.markdownImageCloudUploadSkippedTitle,
+      appText.value.markdownImageCloudUploadSkippedHint(describeCloudImageSkipReason(decision.reason)),
+    );
+    return { handled: true, url: null };
+  }
+
+  const uploadKey = `${decision.cloudFileId}:${decision.relativePath}`;
+  if (cloudImageUploadInFlight.has(uploadKey)) {
+    return { handled: true, url: null };
+  }
+  cloudImageUploadInFlight.add(uploadKey);
+  try {
+    const result = await performCloudImageUpload(decision);
+    if (result.ok) {
+      notificationStore.success(appText.value.markdownImageCloudUploaded, decision.relativePath);
+      return { handled: true, url: result.url };
+    }
+    notificationStore.warning(
+      appText.value.markdownImageCloudUploadFailedTitle,
+      appText.value.markdownImageCloudUploadFailedHint(result.message),
+    );
+  } finally {
+    cloudImageUploadInFlight.delete(uploadKey);
+  }
+  return { handled: true, url: null };
 };
 
 const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint8Array }) => {
@@ -992,8 +1877,22 @@ const handleMarkdownImagePaste = async (payload: { fileName: string; bytes: Uint
       payload.fileName,
       payload.bytes,
     );
-    editorCoreRef.value?.insertText(result.markdownSnippet);
-    notificationStore.success('图片已插入', result.relativePath);
+    // 云文档：先上传拿到签名直链，再把直链写进 Markdown（而不是本地相对路径），
+    // 这样编辑预览、个人中心、网页、小程序都能直接加载。
+    // 注意 assets 目录在「文档同级」，绝对路径要按文档所在目录拼（不是工作区根）。
+    const documentDir = getParentFsPath(documentPath) || location.rootPath;
+    const cloud = await syncInsertedImageToCloud(tab.cloudFileId, {
+      relativePath: result.relativePath,
+      bytes: result.bytes,
+      rootPath: documentDir,
+    });
+    const snippet = cloud.url
+      ? buildMarkdownImageSnippet(cloud.url, markdownImageAltOf(result.relativePath))
+      : result.markdownSnippet;
+    editorCoreRef.value?.insertText(snippet);
+    if (!cloud.handled) {
+      notificationStore.success('图片已插入', result.relativePath);
+    }
   } catch (error: any) {
     notificationStore.error('插入剪贴板图片失败', error?.message || '无法保存图片资源');
   }
@@ -1136,11 +2035,11 @@ const handleRevealCurrentFileInManager = async () => {
   }
 };
 
-const handleToggleContextRail = () => {
-  showContextRail.value = !showContextRail.value;
-};
-
 const handleContextNavigate = (line: number) => {
+  // 点击立即高亮：锁定窗口内忽略 revealLine / scrollIntoView 触发的事件回写，
+  // 否则「跳转后视口首行」可能落到上一个标题，看起来像没点中。
+  writeActiveOutlineLine(line);
+  navigationLockedActiveLineUntil = Date.now() + NAVIGATION_LOCK_WINDOW_MS;
   editorCoreRef.value?.revealLine(line);
   markdownPreviewRef.value?.scrollToSourceLine(line);
 };
@@ -1647,11 +2546,24 @@ const handleInsertMarkdownImage = async () => {
     syncActiveEditorContent();
     markdownAssetImporting.value = true;
     const result = await importMarkdownAsset(workspaceId, documentRelativePath, sourcePath);
-    editorCoreRef.value?.insertText(result.markdownSnippet);
-    notificationStore.success(
-      result.reusedExisting ? '已复用资产目录中的图片' : '图片已导入',
-      result.relativePath,
-    );
+    // 云文档：先上传拿到签名直链，再把直链写进 Markdown（避免本地路径导致各端裂图）。
+    // assets 目录在「文档同级」，因此用文档所在目录 + 相对路径拼绝对路径。
+    const documentDir = getParentFsPath(tab.filePath ?? '') || workspaceStore.currentWorkspacePath;
+    const cloud = await syncInsertedImageToCloud(tab.cloudFileId, {
+      relativePath: result.relativePath,
+      bytes: result.bytes,
+      rootPath: documentDir,
+    });
+    const snippet = cloud.url
+      ? buildMarkdownImageSnippet(cloud.url, markdownImageAltOf(result.relativePath))
+      : result.markdownSnippet;
+    editorCoreRef.value?.insertText(snippet);
+    if (!cloud.handled) {
+      notificationStore.success(
+        result.reusedExisting ? '已复用资产目录中的图片' : '图片已导入',
+        result.relativePath,
+      );
+    }
   } catch (error: any) {
     notificationStore.error('插入图片失败', error?.message || '无法导入图片资产');
   } finally {
@@ -1783,6 +2695,81 @@ const handleToolbarToggleSettings = () => {
   toggleSettingsContainer('workspace');
 };
 
+/** 云同步入口统一落在设置页的 cloudSync 分类，登录表单由设置页承载。 */
+const openCloudSyncSettings = () => {
+  activeSettingsCategory.value = 'cloudSync';
+  settingsContainer.value = 'workspace';
+};
+
+const handleCloudLoginCommand = () => {
+  openCloudSyncSettings();
+};
+
+const handleCloudLogoutCommand = async () => {
+  await cloudSyncStore.logout();
+  notificationStore.info(cloudSyncCopy.value.settingsCloudSync, cloudSyncCopy.value.cloudSyncSignedOut);
+};
+
+/** 从设置面板打开浏览面板时记下宿主，返回时再恢复（设置面板是整页层，叠着会互相遮挡）。 */
+const pendingSettingsReturn = ref<{ container: SettingsContainer; category: SettingsCategory } | null>(null);
+
+/** 云端文档浏览面板：未登录时先把用户带到设置页登录。 */
+const openCloudDocBrowser = () => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(cloudSyncCopy.value.settingsCloudSync, cloudSyncCopy.value.cloudSyncLoginRequired);
+    openCloudSyncSettings();
+    return;
+  }
+  // 先关设置面板：两者都是整屏层，同时开着按 z-index 谁压谁都不稳
+  if (settingsContainer.value !== null) {
+    pendingSettingsReturn.value = {
+      container: settingsContainer.value,
+      category: activeSettingsCategory.value,
+    };
+    settingsContainer.value = null;
+  }
+  cloudBrowserVisible.value = true;
+};
+
+const closeCloudDocBrowser = () => {
+  cloudBrowserVisible.value = false;
+  const restore = pendingSettingsReturn.value;
+  pendingSettingsReturn.value = null;
+  if (restore) {
+    activeSettingsCategory.value = restore.category;
+    settingsContainer.value = restore.container;
+  }
+};
+
+const handleCloudDocBrowserOpenFile = async (path: string) => {
+  await openFileInEditor(path);
+  cloudBrowserVisible.value = false;
+};
+
+const handleCloudSyncNowCommand = async () => {
+  const copy = cloudSyncCopy.value;
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(copy.settingsCloudSync, copy.cloudSyncLoginRequired);
+    openCloudSyncSettings();
+    return;
+  }
+
+  const result = await cloudSyncStore.syncCurrentDocument();
+  if (result.status === 'synced') {
+    notificationStore.success(copy.settingsCloudSync, copy.cloudSyncResultSynced(result.version));
+    return;
+  }
+  if (result.status === 'conflict') {
+    notificationStore.warning(copy.settingsCloudSync, copy.cloudSyncResultConflict);
+    return;
+  }
+  if (result.status === 'skipped') {
+    notificationStore.info(copy.settingsCloudSync, copy.cloudSyncResultSkipped(result.message || ''));
+    return;
+  }
+  notificationStore.error(copy.settingsCloudSync, copy.cloudSyncResultFailed(result.message || ''));
+};
+
 const closeTransientPanels = () => {
   const wasWorkspaceSettingsOpen = settingsContainer.value === 'workspace';
   settingsContainer.value = null;
@@ -1795,6 +2782,399 @@ const closeTransientPanels = () => {
 
 const handleRefresh = async () => {
   await workspaceService.refreshWorkspace();
+};
+
+/** 左侧边栏面板：工作区文件树 / 云端文档，互斥显示并记住上次选择。 */
+const sidebarPanel = computed(() => settingsStore.sidebarPanel);
+const selectSidebarPanel = (panel: 'workspace' | 'cloud') => {
+  settingsStore.setSidebarPanel(panel);
+};
+
+/**
+ * 云端文档被写到本地磁盘后刷新工作区文件树，
+ * 让用户不用手动点刷新才看到新落盘的文件。
+ */
+const handleCloudFileSaved = async () => {
+  await workspaceService.refreshWorkspace();
+};
+
+/** 云端文档树需要重新拉取的信号（同步成功后自增）。 */
+const cloudTreeRefreshToken = ref(0);
+
+/** 右键「同步至云端」：未登录先引导登录，登录了才弹分类弹窗。 */
+const cloudSyncDialog = ref<{
+  visible: boolean;
+  filePath: string;
+  fileName: string;
+  /** 云端身份：临时区落位的文档靠它回显分类并走「更新」而不是「新建」 */
+  cloudFileId: number | null;
+  cloudPath: string | null;
+  category: string | null;
+  categoryId: string | number | null;
+}>({
+  visible: false,
+  filePath: '',
+  fileName: '',
+  cloudFileId: null,
+  cloudPath: null,
+  category: null,
+  categoryId: null,
+});
+
+const handleFileTreeSyncToCloud = (
+  entry: FileTreeNode,
+  identity?: {
+    cloudFileId?: number | null;
+    cloudPath?: string | null;
+    category?: string | null;
+    categoryId?: string | number | null;
+  },
+) => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      cloudSyncCopy.value.cloudSyncLoginRequired,
+    );
+    openCloudSyncSettings();
+    return;
+  }
+  // pdf/doc/docx/xls/xlsx/ppt/pptx 走二进制上传（无分类弹窗，V1 不支持覆盖更新）
+  if (isBinaryDocPath(entry.path)) {
+    void syncBinaryDocument(entry);
+    return;
+  }
+  cloudSyncDialog.value = {
+    visible: true,
+    filePath: entry.path,
+    fileName: entry.name,
+    cloudFileId: identity?.cloudFileId ?? null,
+    cloudPath: identity?.cloudPath ?? null,
+    category: identity?.category ?? null,
+    categoryId: identity?.categoryId ?? null,
+  };
+};
+
+const handleCloudDocSynced = (result: CloudSyncResult) => {
+  cloudSyncDialog.value = {
+    visible: false,
+    filePath: '',
+    fileName: '',
+    cloudFileId: null,
+    cloudPath: null,
+    category: null,
+    categoryId: null,
+  };
+  cloudTreeRefreshToken.value += 1;
+  // 居中 toast：3 秒自动消失（同步成功不再占用弹窗内状态行）
+  centerToast.show(cloudSyncCopy.value.cloudSyncResultSynced(result.version), 'success', 3000);
+};
+
+/** 分享统计弹窗目标（从分享弹窗的「查看统计」进入）。 */
+const shareStatsTarget = ref<{ visible: boolean; fileId: number | null; fileName: string }>({
+  visible: false,
+  fileId: null,
+  fileName: '',
+});
+
+const handleOpenShareStats = (payload: { fileId: number; fileName: string }) => {
+  shareStatsTarget.value = { visible: true, fileId: payload.fileId, fileName: payload.fileName };
+};
+
+/** 一键分享弹窗（先自动同步，再生成/复用分享链接）。 */
+const shareDialog = ref<{ visible: boolean; filePath: string; fileName: string }>({
+  visible: false,
+  filePath: '',
+  fileName: '',
+});
+
+/** 已分享过的本地路径（右键菜单据此显示「分享（已分享）」）。 */
+const sharedFilePaths = ref<string[]>([]);
+
+/** 已完成二进制上传的本地路径（右键菜单据此显示「已同步」）。 */
+const syncedBinaryPaths = ref<string[]>([]);
+
+const markBinarySynced = (filePath: string, synced: boolean) => {
+  const next = new Set(syncedBinaryPaths.value);
+  if (synced) {
+    next.add(filePath);
+  } else {
+    next.delete(filePath);
+  }
+  syncedBinaryPaths.value = [...next];
+};
+
+/** 二进制文档（pdf/doc/xls/ppt）走 multipart 上传；文本走原有同步弹窗。 */
+const syncBinaryDocument = async (entry: FileTreeNode) => {
+  const eligibility = validateBinaryDocLocal(entry.path, entry.size ?? null);
+  if (!eligibility.eligible) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      eligibility.reason ?? '该文件不支持上传到云端',
+    );
+    return;
+  }
+  const cloudPath = resolveCloudDocPathForFile(
+    entry.path,
+    workspaceStore.currentWorkspaceName,
+    workspaceStore.currentWorkspacePath,
+  );
+  const outcome = await uploadBinaryDocument(
+    { cloudPath, localPath: entry.path, title: entry.name },
+    { fileSize: entry.size ?? null },
+  );
+  if (!outcome.ok) {
+    notificationStore.error(cloudSyncCopy.value.settingsCloudSync, outcome.message);
+    return;
+  }
+  markBinarySynced(entry.path, true);
+  cloudTreeRefreshToken.value += 1;
+  notificationStore.success(
+    cloudSyncCopy.value.settingsCloudSync,
+    cloudSyncCopy.value.cloudSyncResultSynced(outcome.data.version),
+  );
+};
+
+/** 文件夹整目录上传弹窗（R3）：确认 → 进度 → 汇总都在弹窗里完成。 */
+const folderUploadDialog = ref<{ visible: boolean; folderName: string; folderPath: string }>({
+  visible: false,
+  folderName: '',
+  folderPath: '',
+});
+
+/**
+ * 整目录上传的「后台进行」状态：
+ * 队列活在常驻挂载的 CloudFolderUploadDialog 里，弹窗隐藏不影响上传，
+ * 这里只保留一份进度镜像，供状态栏徽标回显与完成后提示。
+ */
+const folderUploadRunning = ref(false);
+const folderUploadProgress = ref<{ done: number; total: number; name: string }>({
+  done: 0,
+  total: 0,
+  name: '',
+});
+
+/** 弹窗开始跑队列：立刻点亮状态栏徽标（0/N） */
+const handleFolderUploadStarted = (payload: { total: number }) => {
+  folderUploadRunning.value = true;
+  folderUploadProgress.value = { done: 0, total: payload.total, name: '' };
+};
+
+/** 每完成一个文件：更新状态栏徽标进度 */
+const handleFolderUploadProgress = (payload: { done: number; total: number; name: string }) => {
+  folderUploadRunning.value = true;
+  folderUploadProgress.value = { ...payload };
+};
+
+/** 点状态栏徽标 / 上传中再次右键文件夹：重新打开弹窗（队列与进度都还在，不会重开一次上传） */
+const reopenFolderUploadDialog = () => {
+  folderUploadDialog.value = { ...folderUploadDialog.value, visible: true };
+};
+
+/** 文件树文件夹右键「上传该文件夹到云端」：未登录先引导登录，没有工作区直接提示。 */
+const handleFileTreeUploadFolder = (entry: FileTreeNode) => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(
+      fileTreeCopy.value.uploadFolderTitle,
+      fileTreeCopy.value.uploadFolderLoginRequired,
+    );
+    openCloudSyncSettings();
+    return;
+  }
+  if (!workspaceStore.currentWorkspacePath) {
+    notificationStore.warning(fileTreeCopy.value.uploadFolderTitle, '请先打开一个工作区文件夹');
+    return;
+  }
+  if (folderUploadRunning.value) {
+    // 已有队列在跑：只把弹窗叫回来，绝不新建队列（否则会并发跑两份上传）
+    notificationStore.info(
+      fileTreeCopy.value.uploadFolderTitle,
+      fileTreeCopy.value.uploadFolderBusy(folderUploadProgress.value.done, folderUploadProgress.value.total),
+    );
+    reopenFolderUploadDialog();
+    return;
+  }
+  folderUploadDialog.value = { visible: true, folderName: entry.name, folderPath: entry.path };
+};
+
+/**
+ * 整目录上传跑完（含提前中止）：
+ * ① 清掉后台状态；② 自增刷新令牌让云端文档树重拉；③ 无论弹窗是否可见都给一次汇总提示。
+ */
+const handleFolderUploaded = (summary?: FolderUploadSummary) => {
+  const wasBackground = !folderUploadDialog.value.visible;
+  folderUploadRunning.value = false;
+  cloudTreeRefreshToken.value += 1;
+
+  const copy = fileTreeCopy.value;
+  const ok = summary ? summary.uploaded + summary.unchanged : 0;
+  const skipped = summary ? summary.skipped + summary.conflict : 0;
+  const failed = summary?.failed ?? 0;
+  const aborted = summary?.aborted ?? false;
+  // 中止的队列不能读成「全部成功」：失败/跳过/中止都走 info，其余走 success
+  const hasIssues = failed > 0 || skipped > 0 || aborted;
+  const parts = [hasIssues ? copy.uploadFolderPartial(ok, failed, skipped) : copy.uploadFolderDone(ok)];
+  if (aborted) {
+    parts.push(getCloudDocPanelI18n(settingsStore.uiLanguage).uploadAborted);
+  }
+
+  // 图片附件（md 相对图片）不在逐条文件结果里：有计数/有问题时补一句
+  if (summary && shouldShowFolderAssets(summary.assets)) {
+    const assets = summary.assets;
+    parts.push(copy.uploadAssetsSummary(folderAssetsOk(assets), assets.failed, assets.skipped));
+  }
+  if (summary && summary.assets.unsupported > 0) {
+    parts.push(copy.uploadAssetsUnsupported(summary.assets.unsupported));
+  }
+  if (summary?.assets.disabled) {
+    parts.push(copy.uploadAssetsDisabled);
+  }
+  if (wasBackground) {
+    // 完成时弹窗是隐藏的：明确告诉用户这份汇总来自后台上传
+    parts.push(copy.uploadFinishedInBackground);
+  }
+
+  const message = parts.join(' · ');
+  if (hasIssues) {
+    notificationStore.info(copy.uploadFolderTitle, message);
+  } else {
+    notificationStore.success(copy.uploadFolderTitle, message);
+  }
+};
+
+const refreshShareHintFor = async (filePath: string) => {
+  if (!cloudSyncStore.signedIn) {
+    return;
+  }
+  const cloudPath = resolveCloudDocPathForFile(
+    filePath,
+    workspaceStore.currentWorkspaceName,
+    workspaceStore.currentWorkspacePath,
+  );
+  const fileId = cloudSyncStore.docMap[cloudPath]?.fileId;
+  if (fileId === null || fileId === undefined) {
+    return;
+  }
+  const outcome = await getShareStatus(fileId);
+  if (!outcome.ok) {
+    return;
+  }
+  const next = new Set(sharedFilePaths.value);
+  if (outcome.data.shared) {
+    next.add(filePath);
+  } else {
+    next.delete(filePath);
+  }
+  sharedFilePaths.value = [...next];
+};
+
+/** 编辑器右键：把当前标签包装成文件树节点，复用同一套同步/分享逻辑。 */
+const activeTabAsFileEntry = (): FileTreeNode | null => {
+  const tab = tabsStore.activeTab;
+  if (!tab?.filePath) {
+    return null;
+  }
+  return { name: tab.fileName, path: tab.filePath, type: 'file' } as FileTreeNode;
+};
+
+const handleActiveTabSyncToCloud = () => {
+  const entry = activeTabAsFileEntry();
+  if (!entry) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      '当前文档还没有磁盘文件，请先保存后再同步。',
+    );
+    return;
+  }
+  // 编辑器的本地路径可能是临时落位文件，按路径反推云端分类不可靠；
+  // 优先用标签上的 cloudFileId 在 docMap 中找回云端身份与分类（修「编辑器入口分类不回显」）。
+  const identity = resolveEditorSyncIdentity({
+    cloudFileId: tabsStore.activeTab?.cloudFileId ?? null,
+    filePath: entry.path,
+    docMap: cloudSyncStore.docMap as unknown as Record<string, CloudDocIdentityMeta>,
+    workspaceName: workspaceStore.currentWorkspaceName,
+    workspacePath: workspaceStore.currentWorkspacePath,
+  });
+  handleFileTreeSyncToCloud(entry, identity);
+};
+
+const handleActiveTabShare = () => {
+  const entry = activeTabAsFileEntry();
+  if (!entry) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      '当前文档还没有磁盘文件，请先保存后再分享。',
+    );
+    return;
+  }
+  handleFileTreeShare(entry);
+};
+
+const handleFileTreeShare = (entry: FileTreeNode) => {
+  if (!cloudSyncStore.signedIn) {
+    notificationStore.warning(
+      cloudSyncCopy.value.settingsCloudSync,
+      cloudSyncCopy.value.cloudSyncLoginRequired,
+    );
+    openCloudSyncSettings();
+    return;
+  }
+  shareDialog.value = { visible: true, filePath: entry.path, fileName: entry.name };
+};
+
+const handleShareStateChanged = () => {
+  cloudTreeRefreshToken.value += 1;
+};
+
+/**
+ * 云文档树右键的「同步/分享」。
+ *
+ * 本地路径优先取「已打开的标签」：跨工作区文档会被落到系统临时区，它不在当前工作区里，
+ * 按工作区反推会指向一个不存在（或另一份）的文件 —— 这也是「同步至云端」曾把更新做成新建的根因。
+ * 同时把云端身份（fileId / 云端路径 / 分类）一并带给同步弹窗，回显与更新都靠它。
+ */
+const handleCloudDocAction = (
+  action: 'sync' | 'share',
+  node: CloudDocTreeNode,
+) => {
+  const file = node.file ?? null;
+  const cloudFileId = file?.fileId ?? null;
+  const openedTab = cloudFileId === null
+    ? undefined
+    : tabsStore.tabs.find((tab) => tab.cloudFileId === cloudFileId);
+
+  let localPath = openedTab?.filePath ?? '';
+  if (!localPath) {
+    const workspaceName = workspaceStore.currentWorkspaceName ?? '';
+    const prefix = workspaceName ? `tau/${workspaceName}/` : 'tau/';
+    const root = workspaceStore.currentWorkspacePath ?? '';
+    const relative = node.path.startsWith(prefix) ? node.path.slice(prefix.length) : '';
+    if (!root || !relative || relative.includes('..')) {
+      notificationStore.warning(
+        cloudSyncCopy.value.settingsCloudSync,
+        '本地没有对应文件，请先在云端文档树里打开它',
+      );
+      return;
+    }
+    localPath = `${root}/${relative}`;
+  }
+
+  if (action === 'sync') {
+    if (isBinaryDocPath(localPath)) {
+      void syncBinaryDocument({ path: localPath, name: node.name } as FileTreeNode);
+      return;
+    }
+    cloudSyncDialog.value = {
+      visible: true,
+      filePath: localPath,
+      fileName: node.name,
+      cloudFileId,
+      cloudPath: node.path ?? null,
+      category: file?.category ?? null,
+      categoryId: file?.categoryId ?? null,
+    };
+    return;
+  }
+  shareDialog.value = { visible: true, filePath: localPath, fileName: node.name };
 };
 
 const handleFolderToggle = (folderPath: string) => {
@@ -1810,6 +3190,10 @@ const handleFileOpen = async (filePath: string) => {
 
 const handleFileTreeContextMenu = (entry: FileTreeNode | null) => {
   fileTreeContextEntry.value = entry;
+  // 右键文件时顺手刷新「是否已分享」标记，菜单里据此显示「分享（已分享）」
+  if (entry?.type === 'file') {
+    void refreshShareHintFor(entry.path);
+  }
 };
 
 const formatFileDetailsDate = (value: string | number | null | undefined) => {
@@ -1920,14 +3304,46 @@ const closeTabsByPath = (targetPath: string, targetType: 'file' | 'folder') => {
   }
 };
 
-const handleFileTreeCreateFile = async () => {
+/**
+ * 本地文件树「新建文件」（UX-3A）。
+ *
+ * FileTree 的二级菜单会传入类型 id；旧调用（顶部工具栏 / 之前的单入口）不带类型，
+ * 统一按 Markdown 处理，保持既有行为。类型目录见 `services/newFileTypeOptions`：
+ * 初始正文按最终文件名生成（.taumap / .mm / .opml 都是可直接打开的合法内容）。
+ */
+const handleFileTreeCreateFile = async (typeId?: string) => {
   const baseDir = getContextBaseDirectory();
   if (!baseDir) {
     notificationStore.warning('无法新建文件', '请先打开一个工作区文件夹');
     return;
   }
 
-  const fileName = await requestName('请输入新文件名', 'NewFile.txt');
+  let option = resolveNewFileType(typeId);
+  let defaultFileName = buildDefaultNewFileName(option);
+  let promptTitle = `请输入新文件名（${newFileTypeLabel(option, settingsStore.uiLanguage)}）`;
+
+  // UX-3A custom：先询问扩展名（本地不做白名单限制，云端才拦截），再走统一的命名 + 建文件流程
+  if (isCustomNewFileTypeId(typeId)) {
+    const rawExtension = await requestName('请输入文件扩展名（不含点，例如 doc）', 'txt');
+    if (rawExtension === null) {
+      return;
+    }
+    const normalized = normalizeCustomExtension(rawExtension);
+    if (!normalized.ok) {
+      notificationStore.error(
+        '文件扩展名不可用',
+        normalized.reason === 'empty'
+          ? '扩展名不能为空'
+          : '扩展名只能包含字母、数字、-、_、.，长度 1–20',
+      );
+      return;
+    }
+    option = CUSTOM_NEW_FILE_TYPE;
+    defaultFileName = buildCustomNewFileName(normalized.extension);
+    promptTitle = `请输入新文件名（自定义格式 .${normalized.extension}）`;
+  }
+
+  const fileName = await requestName(promptTitle, defaultFileName);
   if (!fileName) {
     return;
   }
@@ -1935,6 +3351,11 @@ const handleFileTreeCreateFile = async () => {
   const targetPath = joinFsPath(baseDir, fileName);
   try {
     await fileSystemStore.createNewFile(targetPath);
+    // 空文件先落盘，再写入类型模板：导图/大纲类是合法空结构，避免打开即报格式错误
+    const seed = seedContentForFileName(fileName);
+    if (seed) {
+      await fileCommands.writeFile(targetPath, seed);
+    }
     await fileSystemStore.refreshFileTree();
     await openFileInEditor(targetPath);
     notificationStore.success('新建文件成功', fileName);
@@ -2045,6 +3466,10 @@ const handleContentChange = (content: string, modelId: string) => {
   // 编辑器可能在上一次输入去抖后才提交，这里按模型对应的标签回写，避免串写。
   tabService.updateTabContent(modelId, content);
   scheduleSessionSave();
+  // 云文档：内容变化进入 2.5s 空闲窗口；后台模型的回写不参与计时
+  if (modelId === activeTab.value?.id && activeTab.value?.cloudFileId != null) {
+    cloudAutoSave.notifyEditing();
+  }
 };
 
 const handleEditorBlur = (modelId: string) => {
@@ -2052,6 +3477,10 @@ const handleEditorBlur = (modelId: string) => {
   syncActiveEditorContent();
   markLocalWritePending(activeTab.value?.filePath);
   void tabService.saveActiveTab({ silent: true });
+  // 失焦立即补一次云端保存，并取消未到期的去抖窗口（同一次编辑不会存两遍）
+  if (activeTab.value?.cloudFileId != null) {
+    void cloudAutoSave.triggerNow('blur');
+  }
 };
 
 const handleMarkdownCodeLanguageChange = (payload: {
@@ -2101,11 +3530,41 @@ const handleCursorChange = (position: { line: number; column: number }) => {
   editorStore.updateCursorPosition(position.line, position.column);
 };
 
-const handleEditorScrollChange = (state: { top: number; height: number; scrollHeight: number }) => {
+const handleEditorScrollChange = (state: {
+  top: number;
+  height: number;
+  scrollHeight: number;
+  topLine: number;
+}) => {
+  // 目录高亮与预览是否开启无关（代码文件的大纲同样要跟随），因此先写入再按预览条件早退。
+  const shouldKeepExternallyDrivenLine = Date.now() < previewDrivingActiveLineUntil
+    || Date.now() < navigationLockedActiveLineUntil;
+  if (!shouldKeepExternallyDrivenLine) {
+    writeActiveOutlineLine(state.topLine);
+  }
   if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
     return;
   }
-  editorScrollState.value = state;
+  editorScrollState.value = {
+    top: state.top,
+    height: state.height,
+    scrollHeight: state.scrollHeight,
+  };
+};
+
+const handlePreviewActiveLine = (line: number) => {
+  if (Date.now() < navigationLockedActiveLineUntil) {
+    return;
+  }
+  writeActiveOutlineLine(line);
+};
+
+const handlePreviewScrollSync = (state: { top: number; height: number; scrollHeight: number }) => {
+  if (!isMarkdownTab.value || !settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
+    return;
+  }
+  previewDrivingActiveLineUntil = Date.now() + PREVIEW_DRIVING_WINDOW_MS;
+  editorCoreRef.value?.setScrollTop(state.top);
 };
 
 const handleLanguageChange = (languageId: string) => {
@@ -2725,6 +4184,7 @@ const getLocalizedCommandTitle = (id: CommandId) =>
 const createLocalizedCommands = () => {
   const builtInCommands = createCommandRegistry({
   newFile: handleNewFile,
+  newMindmap: handleNewMindmap,
   openFile: handleOpenFile,
   openFolder: handleOpenFolder,
   save: handleSave,
@@ -2741,6 +4201,10 @@ const createLocalizedCommands = () => {
   renameSymbol: handleRenameSymbol,
   showCallHierarchy: handleCallHierarchy,
   showTypeHierarchy: handleTypeHierarchy,
+  cloudLogin: handleCloudLoginCommand,
+  cloudLogout: handleCloudLogoutCommand,
+  cloudSyncNow: handleCloudSyncNowCommand,
+  cloudBrowse: openCloudDocBrowser,
   toggleProblems: handleToggleProblems,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
@@ -3422,7 +4886,36 @@ const handleShellKeydown = (event: KeyboardEvent) => {
   toggleSettingsContainer('workspace');
 };
 
-async function restoreSession() {
+/**
+ * 冷启动校验：上次的临时工作区（scratch）目录可能已被系统清理。
+ *
+ * 不清掉的话会同时出现三件事：资源管理器是空树、徽标仍写着"临时工作区"、
+ * 外部文件轮询每 1.5s 刷一条 warn。只处理 scratch——用户自己的目录可能只是
+ * 暂时不可用（网络盘掉线），静默清掉反而会让人丢掉想恢复的上下文。
+ *
+ * @returns 是否真的清掉了（用于阻止 restoreSession 再把这条失效路径复活）
+ */
+async function clearPersistedScratchWorkspaceIfMissing(): Promise<boolean> {
+  const result = await guardPersistedScratchWorkspace(workspaceStore, {
+    probeDirectoryExists: async (path) => {
+      if (!isTauriApp()) {
+        return null;
+      }
+      const [exists] = await cloudCommands.dirExists([path]);
+      return typeof exists === 'boolean' ? exists : null;
+    },
+    notifyCleared: (path) => {
+      notificationStore.warning(
+        appText.value.scratchWorkspaceClearedTitle,
+        appText.value.scratchWorkspaceClearedMessage(path),
+      );
+    },
+  });
+
+  return result === 'cleared';
+}
+
+async function restoreSession(options: { skipWorkspaceRestore?: boolean } = {}) {
   const shouldRestoreLastSession = settingsStore.restoreLastSession;
   const snapshot = shouldRestoreLastSession ? sessionService.load() : null;
   const allRecoveryDrafts = sessionService.loadRecoveryDrafts() ?? [];
@@ -3456,8 +4949,17 @@ async function restoreSession() {
 
   tabsStore.restoreSession(restoredTabs, activeTabId);
 
-  if (shouldRestoreLastSession && snapshot?.workspacePath && snapshot.mode === 'workspace') {
-    workspaceStore.openWorkspace(snapshot.workspacePath);
+  // 失效的临时工作区已在冷启动时清掉，别在这里把它复活
+  const canRestoreWorkspace = !options.skipWorkspaceRestore
+    && shouldRestoreLastSession
+    && snapshot?.workspacePath
+    && snapshot.mode === 'workspace';
+  if (canRestoreWorkspace && snapshot?.workspacePath) {
+    // 保留持久化的来源：scratch 被当成 user 会污染"最近项目"，徽标也会与实际不符
+    const restoredOrigin = workspaceStore.currentWorkspacePath === snapshot.workspacePath
+      ? workspaceStore.workspaceOrigin
+      : 'user';
+    workspaceStore.openWorkspace(snapshot.workspacePath, restoredOrigin);
     void fileSystemStore.syncFromWorkspace();
   } else if (restoredTabs.length > 0) {
     workspaceStore.setMode('single-file', true);
@@ -3549,6 +5051,8 @@ async function runAutoSave() {
       if (saved) {
         await sessionService.discardRecoveryDraft(tab.id);
         hasSaved = true;
+        // 自动同步：仅由 store 内部判断是否登录/开启，未开启时是空操作。
+        cloudSyncStore.scheduleAutoSync(tab.id);
       } else {
         hasFailure = true;
       }
@@ -3692,6 +5196,35 @@ watch(
   },
 );
 
+// 目录高亮的重置点：切换文档、关闭预览、退出预览模式，避免残留上一份文档的行号。
+watch(
+  () => activeTabId.value,
+  () => {
+    activeOutlineLine.value = 0;
+  },
+);
+
+watch(
+  () => [settingsStore.markdownPreviewEnabled, markdownPreviewMode.value],
+  () => {
+    if (!settingsStore.markdownPreviewEnabled || markdownPreviewMode.value === 'edit') {
+      activeOutlineLine.value = 0;
+    }
+  },
+);
+
+// 文档内容变化后大纲可能收缩：当前行越界时回到首项，否则保留（避免打字时高亮闪烁）。
+watch(documentOutline, (outline) => {
+  if (!outline.length) {
+    activeOutlineLine.value = 0;
+    return;
+  }
+  const lastLine = outline.reduce((max, item) => Math.max(max, item.line), 0);
+  if (activeOutlineLine.value > lastLine) {
+    activeOutlineLine.value = 1;
+  }
+});
+
 watch(
   () => activeTab.value?.id,
   () => {
@@ -3763,18 +5296,25 @@ onMounted(async () => {
   }
   window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
+  const scratchContextCleared = await clearPersistedScratchWorkspaceIfMissing();
   await settingsStore.init();
   configureAutoSaveTimer();
   await bootstrapProviders();
   sidebarWidth.value = clampSidebarWidth(settingsStore.fileTreeWidth);
   contextRailWidth.value = clampContextRailWidth(settingsStore.contextRailWidth);
   await sessionService.initialize();
+  // 桌面端在启动后异步恢复云同步会话（keyring 中的会话与配额），失败不阻塞启动。
+  if (isTauriApp()) {
+    void cloudSyncStore.initialize();
+    // 恢复上次未完成的同步队列（断网/退出遗留项），并按退避自动重试。
+    cloudSyncStore.initializeQueue();
+  }
   // 新窗口优先消费一次性迁移 payload，避免再走一遍会话恢复覆盖标签。
   const pendingWindowTransfer = await consumePendingWindowTransfer();
   if (pendingWindowTransfer) {
     applyWindowTransferPayload(pendingWindowTransfer);
   } else {
-    await restoreSession();
+    await restoreSession({ skipWorkspaceRestore: scratchContextCleared });
   }
   await refreshWorkspaceContext(workspaceStore.currentWorkspacePath);
   const monacoEditorOpener = registerMonacoEditorOpener({
@@ -3818,6 +5358,8 @@ onUnmounted(() => {
     clearInterval(autoSaveTimer);
     autoSaveTimer = null;
   }
+  // 组件卸载后不再有任何云文档自动保存动作（未到期的 2.5s 窗口一并取消）
+  cloudAutoSave.destroy();
   void stopExternalFileWatch();
   void applicationLspService.dispose();
   lspDiagnosticCounts.clear();
@@ -3831,6 +5373,28 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <Notification />
+    <CloudUpgradePlanDialog :visible="mindmapUpgradeVisible" @close="mindmapUpgradeVisible = false"
+      @contact="mindmapUpgradeContactVisible = true" />
+    <WechatContactDialog :visible="mindmapUpgradeContactVisible" @close="mindmapUpgradeContactVisible = false" />
+    <div
+      v-if="mindmapMembershipPrompt"
+      class="mindmap-membership-backdrop"
+      data-testid="mindmap-membership-prompt"
+      @click.self="mindmapMembershipPrompt = null"
+    >
+      <section class="mindmap-membership-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mindmap-membership-title">
+        <div class="mindmap-membership-icon" aria-hidden="true">✦</div>
+        <div class="mindmap-membership-content">
+          <h2 id="mindmap-membership-title">解锁思维导图会员功能</h2>
+          <p class="mindmap-membership-feature">{{ mindmapMembershipPrompt.feature }}</p>
+          <p class="mindmap-membership-reason">{{ mindmapMembershipPrompt.reason }}</p>
+          <div class="mindmap-membership-actions">
+            <button type="button" class="mindmap-membership-button" data-testid="mindmap-membership-cancel" @click="mindmapMembershipPrompt = null">暂不升级</button>
+            <button type="button" class="mindmap-membership-button primary" data-testid="mindmap-membership-confirm" @click="confirmMindmapMembershipUpgrade">查看会员权益</button>
+          </div>
+        </div>
+      </section>
+    </div>
     <ImageViewer
       :visible="Boolean(imageViewerState)"
       :src="imageViewerState?.src ?? ''"
@@ -4114,12 +5678,10 @@ onUnmounted(() => {
       :can-redo="canRedo"
       :is-dirty="isDirty"
       :has-active-tab="Boolean(activeTab)"
-      :can-reveal-current-file="canRevealCurrentFile"
-      :locating-current-file="locatingCurrentFile"
       :app-label="appText.appLabel"
-      :sidebar-visible="showFileTree"
-      :context-rail-visible="showContextRail"
       :is-markdown="isMarkdownTab"
+      :is-mindmap="showMindmapToolbar"
+      :mindmap-tools="mindmapToolbarState"
       :is-document-preview="isDocumentPreviewTab"
       :is-full-document-preview="isFullDocumentPreviewTab"
       :markdown-preview-mode="markdownPreviewMode"
@@ -4130,15 +5692,34 @@ onUnmounted(() => {
       @save-as="() => executeCommand('file.saveAs')"
       @undo="handleUndo"
       @redo="handleRedo"
-      @toggle-file-tree="() => executeCommand('view.toggleSidebar')"
-      @locate-current-file="handleRevealCurrentFile"
-      @toggle-context-rail="handleToggleContextRail"
       @toggle-settings="handleToolbarToggleSettings"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
       @markdown-action="handleMarkdownAction"
       @markdown-heading="handleMarkdownHeading"
       @markdown-code="handleMarkdownCode"
       @markdown-image="handleInsertMarkdownImage"
+      @mm-add-child="handleMindmapToolbarAction('add-child')"
+      @mm-add-sibling="handleMindmapToolbarAction('add-sibling')"
+      @mm-rename="handleMindmapToolbarAction('rename')"
+      @mm-duplicate="handleMindmapToolbarAction('duplicate')"
+      @mm-delete="handleMindmapToolbarAction('delete')"
+      @mm-move-up="handleMindmapToolbarAction('move-up')"
+      @mm-move-down="handleMindmapToolbarAction('move-down')"
+      @mm-undo="handleMindmapToolbarAction('undo')"
+      @mm-redo="handleMindmapToolbarAction('redo')"
+      @mm-fit="handleMindmapToolbarAction('fit')"
+      @mm-zoom-in="handleMindmapToolbarAction('zoom-in')"
+      @mm-zoom-out="handleMindmapToolbarAction('zoom-out')"
+      @mm-reset-view="handleMindmapToolbarAction('reset-view')"
+      @mm-layout="handleMindmapToolbarLayout"
+      @mm-theme="handleMindmapToolbarTheme"
+      @mm-reset="handleMindmapToolbarAction('reset')"
+      @mm-import="handleMindmapToolbarAction('import')"
+      @mm-export="handleMindmapToolbarAction('export')"
+      @mm-print="handleMindmapToolbarAction('print')"
+      @mm-toggle-outline="handleMindmapToolbarAction('toggle-outline')"
+      @mm-toggle-properties="handleMindmapToolbarAction('toggle-properties')"
+      @mm-toggle-style="handleMindmapToolbarAction('toggle-style')"
     />
 
     <div class="main-layout">
@@ -4163,54 +5744,107 @@ onUnmounted(() => {
             :style="{ width: `${sidebarWidth}px` }"
           >
             <div class="sidebar-content animate__animated animate__fadeInLeft animate__faster">
-              <FileTree
-                ref="fileTreeRef"
-                v-if="workspaceStore.currentWorkspacePath"
-                :file-tree="fileTree"
-                :loading="loading"
-                :selected-path="selectedPath"
-                :workspace-label="workspaceLabel"
-                :can-reveal-current-file="canRevealCurrentFile"
-                :locating-current-file="locatingCurrentFile"
-                :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
-                @file-open="handleFileOpen"
-                @folder-toggle="handleFolderToggle"
-                @context-menu="handleFileTreeContextMenu"
-                @refresh="handleRefresh"
-                @new-file="handleFileTreeCreateFile"
-                @new-folder="handleFileTreeCreateFolder"
-                @rename="handleFileTreeRename"
-                @details="handleFileTreeDetails"
-                @delete="handleFileTreeDelete"
-                @compare-with-current="handleCompareWithCurrentFile"
-                @run-provider-action="handleProviderFileAction"
-                @reveal-current-file="handleRevealCurrentFile"
-                @copy-current-file-path="handleCopyCurrentFilePath"
-                @reveal-current-file-manager="handleRevealCurrentFileInManager"
-              />
-              <section v-else class="recent-workspaces" data-testid="recent-workspaces">
-                <h2 class="recent-workspaces-title">{{ appText.recentFolders }}</h2>
-                <p v-if="(workspaceStore.recentProjects ?? []).length === 0" class="recent-workspaces-empty">
-                  {{ appText.noRecentFolders }}
-                </p>
+              <div class="sidebar-tabs" role="tablist" data-testid="sidebar-tabs">
                 <button
-                  v-for="project in workspaceStore.recentProjects ?? []"
-                  :key="project.path"
                   type="button"
-                  class="recent-workspace-card"
-                  :title="`${appText.openRecentFolder}: ${project.path}`"
-                  @click="handleOpenRecentFolder(project.path)"
+                  role="tab"
+                  class="sidebar-tab"
+                  :class="{ 'sidebar-tab--active': sidebarPanel === 'workspace' }"
+                  :aria-selected="sidebarPanel === 'workspace'"
+                  data-testid="sidebar-tab-workspace"
+                  @click="selectSidebarPanel('workspace')"
                 >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
-                    <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  </svg>
-                  <span class="recent-workspace-card-copy">
-                    <strong>{{ project.name }}</strong>
-                    <small>{{ project.path }}</small>
-                  </span>
+                  {{ appText.sidebarTabWorkspace }}
                 </button>
-              </section>
+                <button
+                  type="button"
+                  role="tab"
+                  class="sidebar-tab"
+                  :class="{ 'sidebar-tab--active': sidebarPanel === 'cloud' }"
+                  :aria-selected="sidebarPanel === 'cloud'"
+                  data-testid="sidebar-tab-cloud"
+                  @click="selectSidebarPanel('cloud')"
+                >
+                  {{ appText.sidebarTabCloud }}
+                </button>
+              </div>
+
+              <div
+                v-show="sidebarPanel === 'workspace'"
+                class="sidebar-panel"
+                data-testid="sidebar-panel-workspace"
+              >
+                <ScratchWorkspaceBanner @written="handleCloudFileSaved" />
+                <FileTree
+                  ref="fileTreeRef"
+                  v-if="workspaceStore.currentWorkspacePath"
+                  :file-tree="fileTree"
+                  :loading="loading"
+                  :selected-path="selectedPath"
+                  :workspace-label="workspaceLabel"
+                  :can-reveal-current-file="canRevealCurrentFile"
+                  :locating-current-file="locatingCurrentFile"
+                  :provider-actions="providersStore.fileActions.map((action) => ({ id: action.id, title: action.title }))"
+                  @file-open="handleFileOpen"
+                  @folder-toggle="handleFolderToggle"
+                  @context-menu="handleFileTreeContextMenu"
+                  @refresh="handleRefresh"
+                  @new-file="handleFileTreeCreateFile"
+                  @new-folder="handleFileTreeCreateFolder"
+                  @rename="handleFileTreeRename"
+                  @details="handleFileTreeDetails"
+                  @delete="handleFileTreeDelete"
+                  @compare-with-current="handleCompareWithCurrentFile"
+                  @run-provider-action="handleProviderFileAction"
+                  @reveal-current-file="handleRevealCurrentFile"
+                  @copy-current-file-path="handleCopyCurrentFilePath"
+                  @reveal-current-file-manager="handleRevealCurrentFileInManager"
+                  @sync-to-cloud="handleFileTreeSyncToCloud"
+                  @upload-folder="handleFileTreeUploadFolder"
+                  @share="handleFileTreeShare"
+                  :shared-paths="sharedFilePaths"
+                  :synced-paths="syncedBinaryPaths"
+                />
+                <section v-else class="recent-workspaces" data-testid="recent-workspaces">
+                  <h2 class="recent-workspaces-title">{{ appText.recentFolders }}</h2>
+                  <p v-if="(workspaceStore.recentProjects ?? []).length === 0" class="recent-workspaces-empty">
+                    {{ appText.noRecentFolders }}
+                  </p>
+                  <button
+                    v-for="project in workspaceStore.recentProjects ?? []"
+                    :key="project.path"
+                    type="button"
+                    class="recent-workspace-card"
+                    :title="`${appText.openRecentFolder}: ${project.path}`"
+                    @click="handleOpenRecentFolder(project.path)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" />
+                      <path d="M3 10h18l-2 8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    </svg>
+                    <span class="recent-workspace-card-copy">
+                      <strong>{{ project.name }}</strong>
+                      <small>{{ project.path }}</small>
+                    </span>
+                  </button>
+                </section>
+              </div>
+
+              <div
+                v-show="sidebarPanel === 'cloud'"
+                class="sidebar-panel"
+                data-testid="sidebar-panel-cloud"
+              >
+                <CloudDocSidebar
+                  :active="sidebarPanel === 'cloud'"
+                  :refresh-token="cloudTreeRefreshToken"
+                  @open-file="handleFileOpen"
+                  @edit-cloud-doc="handleCloudDocEditOpen"
+                  @login-request="openCloudSyncSettings"
+                  @cloud-file-saved="handleCloudFileSaved"
+                  @doc-action="handleCloudDocAction"
+                />
+              </div>
             </div>
           </aside>
           <div
@@ -4249,7 +5883,7 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="settingsContainer !== 'workspace'"
+        v-if="settingsContainer !== 'workspace' && !isMindmapTab"
         class="floating-context-controls"
         :class="{ 'is-open': showContextRail }"
         :style="{ '--context-rail-toggle-right': showContextRail ? `${Math.max(21, Math.min(contextRailWidth - 13, Math.max(0, viewportWidth - 30)))}px` : '8px' }"
@@ -4286,12 +5920,14 @@ onUnmounted(() => {
           :active-category="activeSettingsCategory"
           @update:active-category="activeSettingsCategory = $event"
           @update-availability="handleTitlebarUpdateAvailability"
+          @open-cloud-browser="openCloudDocBrowser"
           @close="closeTransientPanels"
         />
       </section>
 
       <section v-show="settingsContainer !== 'workspace'" class="editor-panel">
         <EditorTabs
+          v-if="!isMindmapTab || tabs.length > 1"
           :tabs="tabs"
           :active-tab-id="activeTabId"
           @tab-click="handleTabClick"
@@ -4308,7 +5944,7 @@ onUnmounted(() => {
         />
 
         <EditorBreadcrumbs
-          v-if="activeTab && !diffStore.isOpen"
+          v-if="activeTab && !diffStore.isOpen && !isMindmapTab"
           :segments="editorBreadcrumbSegments"
           :label="settingsStore.uiLanguage === 'en-US' ? 'File path' : '文件路径'"
           :style="{ '--breadcrumb-editor-background': editorBreadcrumbBackground }"
@@ -4332,6 +5968,7 @@ onUnmounted(() => {
         >
           <div v-if="!isImageTab" class="editor-pane">
             <LazyEditorCore
+              v-if="!isMindmapTab"
               ref="editorCoreRef"
               :model-id="activeTab.id"
               :file-path="activeTab.filePath"
@@ -4347,8 +5984,21 @@ onUnmounted(() => {
               @scroll-change="handleEditorScrollChange"
               @model-save="handleSave"
               @find-references="runFindReferences"
+              @sync-to-cloud="handleActiveTabSyncToCloud"
+              @share="handleActiveTabShare"
               @markdown-image-request="handleInsertMarkdownImage"
               @markdown-image-paste="handleMarkdownImagePaste"
+            />
+            <MindmapStage
+              v-else
+              ref="mindmapStageRef"
+              :tab-id="activeTab.id"
+              :document-json="activeTab.content"
+              :file-name="activeTab.fileName"
+              :document-kind="activeTab.documentKind"
+              :is-dirty="isDirty"
+              @change="handleMindmapChange"
+              @membership-required="handleMindmapMembershipRequired"
             />
           </div>
           <ImagePreview
@@ -4356,6 +6006,16 @@ onUnmounted(() => {
             :file-path="activeTab.filePath!"
             :file-name="activeTab.fileName"
             @open="openImageViewer"
+          />
+          <!-- UX-3B：大纲 / 属性双 tab 右面板（仅导图标签、且面板展开时） -->
+          <MindmapRightPanel
+            v-if="showMindmapRightPanel"
+            @change="handleMindmapChange"
+            @contextmenu="handleMindmapRightPanelContextMenu"
+          />
+          <MindmapCanvasStylePanel
+            v-if="showMindmapCanvasStylePanel"
+            @change="handleMindmapChange"
           />
           <div
             v-if="isPreviewableTab"
@@ -4375,6 +6035,8 @@ onUnmounted(() => {
               @preview-font-size-change="setMarkdownPreviewFontSize"
               @code-language-change="handleMarkdownCodeLanguageChange"
               @markdown-change="handleMarkdownPreviewChange"
+              @scroll-sync="handlePreviewScrollSync"
+              @active-line="handlePreviewActiveLine"
               @request-undo="handleUndo"
               @request-redo="handleRedo"
               @open-image="openImageViewer"
@@ -4404,6 +6066,68 @@ onUnmounted(() => {
           @close="problemsPanelVisible = false"
         />
 
+        <CloudDocBrowser
+          v-if="cloudBrowserVisible"
+          @close="closeCloudDocBrowser"
+          @open-file="handleCloudDocBrowserOpenFile"
+          @edit-cloud-doc="handleCloudDocEditOpen"
+          @cloud-file-saved="handleCloudFileSaved"
+          @doc-action="handleCloudDocAction"
+        />
+
+        <CenterToast />
+
+        <CloudDocConflictDialog
+          :visible="cloudConflict.visible"
+          :file-name="cloudConflict.fileName"
+          :message="cloudConflict.message"
+          :remote-version="cloudConflict.remoteVersion"
+          :busy="cloudConflict.busy"
+          @close="closeCloudConflict"
+          @keep-mine="resolveConflictKeepMine"
+          @use-remote="resolveConflictUseRemote"
+          @save-copy="resolveConflictSaveCopy"
+        />
+
+        <CloudDocSyncDialog
+          :visible="cloudSyncDialog.visible"
+          :file-path="cloudSyncDialog.filePath"
+          :file-name="cloudSyncDialog.fileName"
+          :cloud-file-id="cloudSyncDialog.cloudFileId"
+          :cloud-path="cloudSyncDialog.cloudPath"
+          :category="cloudSyncDialog.category"
+          :category-id="cloudSyncDialog.categoryId"
+          @close="cloudSyncDialog.visible = false"
+          @synced="handleCloudDocSynced"
+        />
+
+        <CloudFolderUploadDialog
+          :visible="folderUploadDialog.visible"
+          :folder-name="folderUploadDialog.folderName"
+          :folder-path="folderUploadDialog.folderPath"
+          @close="folderUploadDialog.visible = false"
+          @background="folderUploadDialog.visible = false"
+          @started="handleFolderUploadStarted"
+          @progress="handleFolderUploadProgress"
+          @uploaded="handleFolderUploaded"
+        />
+
+        <ShareStatsDialog
+          :visible="shareStatsTarget.visible"
+          :file-id="shareStatsTarget.fileId"
+          :file-name="shareStatsTarget.fileName"
+          @close="shareStatsTarget.visible = false"
+        />
+
+        <ShareDialog
+          :visible="shareDialog.visible"
+          :file-path="shareDialog.filePath"
+          :file-name="shareDialog.fileName"
+          @close="shareDialog.visible = false"
+          @shared="handleShareStateChanged"
+          @open-stats="handleOpenShareStats"
+        />
+
         <ReferenceResultsPanel
           v-if="referencePanelVisible"
           :locale="settingsStore.uiLanguage"
@@ -4431,7 +6155,7 @@ onUnmounted(() => {
 
       <transition name="context-rail-shell">
         <div
-          v-if="showContextRail && settingsContainer !== 'workspace'"
+          v-if="showContextRail && settingsContainer !== 'workspace' && !isMindmapTab"
           class="context-rail-shell"
           :class="{ resizing: isResizingContextRail }"
           :style="{ '--context-rail-width': `${contextRailWidth}px` }"
@@ -4447,6 +6171,7 @@ onUnmounted(() => {
           <div class="context-rail-content animate__animated animate__fadeInRight animate__faster">
             <ContextRail
               :outline="documentOutline"
+              :active-line="activeOutlineLine"
               :tasks="markdownContext.tasks"
               :links="markdownContext.links"
               :link-statuses="markdownLinkStatuses"
@@ -4488,6 +6213,7 @@ onUnmounted(() => {
               :active-category="activeSettingsCategory"
               @update:active-category="activeSettingsCategory = $event"
               @open-workspace="toggleSettingsContainer('workspace')"
+              @open-cloud-browser="openCloudDocBrowser"
               @close="closeTransientPanels"
             />
           </div>
@@ -4495,18 +6221,35 @@ onUnmounted(() => {
       </transition>
     </div>
 
-    <StatusBar
-      :cursor-position="cursorPosition"
-      :encoding="encoding"
-      :language="language"
-      :monaco-theme="settingsStore.monacoTheme"
-      :word-count="wordCount"
-      :auto-save-enabled="autoSaveEnabled"
-      :last-save-time="lastSaveTime"
-      @encoding-change="handleEncodingChange"
-      @language-change="handleLanguageChange"
-      @theme-change="handleThemeChange"
-    />
+    <!-- 状态栏容器：上传在后台跑时，在状态栏左上方浮出一个可点回弹窗的进度徽标 -->
+    <div class="app-status-bar">
+      <button
+        v-if="folderUploadRunning"
+        type="button"
+        class="app-status-bar__upload"
+        data-testid="cloud-folder-upload-indicator"
+        :title="fileTreeCopy.uploadBackgroundHint"
+        @click="reopenFolderUploadDialog"
+      >
+        <span class="app-status-bar__upload-dot" aria-hidden="true"></span>
+        {{ fileTreeCopy.uploadRunningBadge(folderUploadProgress.done, folderUploadProgress.total) }}
+      </button>
+      <StatusBar
+        :cursor-position="cursorPosition"
+        :encoding="encoding"
+        :language="language"
+        :monaco-theme="settingsStore.monacoTheme"
+        :word-count="wordCount"
+        :auto-save-enabled="autoSaveEnabled"
+        :last-save-time="lastSaveTime"
+        :cloud-sync-state="activeCloudSyncState"
+        :cloud-sync-error="activeCloudSyncError"
+        @encoding-change="handleEncodingChange"
+        @language-change="handleLanguageChange"
+        @theme-change="handleThemeChange"
+        @retry-cloud-sync="handleRetryCloudSync"
+      />
+    </div>
 
   </div>
 </template>
@@ -4575,6 +6318,72 @@ textarea {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+/* 状态栏容器：包一层只为在状态栏上浮出「云上传 24/460」徽标，不改 StatusBar 组件签名 */
+.app-status-bar {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.app-status-bar__upload {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 12px;
+  z-index: 21;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--font-size-ui-xs, 11px);
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  background: var(--panel-elevated, #111827);
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.28));
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.32);
+}
+
+.app-status-bar__upload:hover {
+  color: var(--text-primary, #f8fafc);
+  border-color: var(--accent-blue, #7cc7ff);
+}
+
+.app-status-bar__upload:focus-visible {
+  outline: 2px solid var(--accent-blue, #7cc7ff);
+  outline-offset: 2px;
+}
+
+/* 呼吸点：暗示队列仍在跑 */
+.app-status-bar__upload-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-blue, #7cc7ff);
+  border-radius: 50%;
+  animation: app-upload-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes app-upload-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-status-bar__upload-dot {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .app-native-titlebar {
@@ -4877,6 +6686,45 @@ textarea {
   color: #fff;
 }
 
+.mindmap-membership-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-backdrop);
+}
+.mindmap-membership-dialog {
+  display: flex;
+  gap: 14px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 22px;
+  color: var(--text-primary);
+  background: var(--panel-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-dialog);
+  box-shadow: var(--shadow-overlay);
+}
+.mindmap-membership-icon {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #fff;
+  background: var(--accent-blue);
+  border-radius: 50%;
+}
+.mindmap-membership-content { min-width: 0; }
+.mindmap-membership-content h2 { margin: 0; font-size: 18px; }
+.mindmap-membership-feature { margin: 10px 0 4px; color: var(--accent-blue); font-weight: 600; }
+.mindmap-membership-reason { margin: 0; color: var(--text-muted); line-height: 1.6; }
+.mindmap-membership-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.mindmap-membership-button { padding: 7px 12px; color: var(--text-primary); background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm, 6px); cursor: pointer; }
+.mindmap-membership-button.primary { color: #fff; background: var(--accent-blue); border-color: var(--accent-blue); }
+
 .file-details-dialog {
   width: min(620px, calc(100vw - 32px));
 }
@@ -5143,6 +6991,8 @@ textarea {
 }
 
 .sidebar-content {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -5154,6 +7004,49 @@ textarea {
     opacity 0.2s ease,
     transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
+}
+
+/* 侧栏顶部面板切换：工作区 / 云端文档（互斥占满整块高度） */
+.sidebar-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 6px 8px 4px;
+}
+
+.sidebar-tab {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-secondary, #a8b3c5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--surface-muted, rgba(255, 255, 255, 0.04));
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, 5px);
+}
+
+.sidebar-tab:hover {
+  color: var(--text-primary, #e5e9f0);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.sidebar-tab--active {
+  font-weight: 600;
+  color: var(--text-primary, #e5e9f0);
+  background: var(--surface-active, rgba(124, 199, 255, 0.14));
+  border-color: var(--border-soft, rgba(148, 163, 184, 0.24));
+}
+
+.sidebar-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .recent-workspaces {

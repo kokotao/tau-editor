@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { selectLanguageMode } from './helpers/status-bar-select';
+import { waitForStableBox } from './helpers/layout';
+import { mockTauriDesktopRuntime } from './helpers/ux3-env';
 
 test.describe('Sidebar & Markdown Preview', () => {
   test.beforeEach(async ({ page }) => {
@@ -9,17 +12,22 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-001: 侧栏可折叠与展开', async ({ page }) => {
-    await expect(page.locator('[data-testid="btn-toggle-file-tree"]')).toBeVisible();
-    await page.click('[data-testid="btn-toggle-file-tree"]');
-    await expect(page.locator('[data-testid="sidebar-panel"]')).toBeHidden();
+    // UX-3：Toolbar 上的 btn-toggle-file-tree 已删除（桌面端等价入口是标题栏
+    // btn-titlebar-toggle-explorer，网页模式走左下角的收起/展开按钮），
+    // 这里用网页模式可见的等价按钮验证同一行为。
+    const sidebar = page.locator('[data-testid="sidebar-panel"]');
+    await expect(sidebar).toBeVisible();
+
+    await page.click('[data-testid="btn-sidebar-collapse"]');
+    await expect(sidebar).toBeHidden();
 
     await expect(page.locator('[data-testid="btn-sidebar-expand"]')).toBeVisible();
     await page.click('[data-testid="btn-sidebar-expand"]');
-    await expect(page.locator('[data-testid="sidebar-panel"]')).toBeVisible();
+    await expect(sidebar).toBeVisible();
   });
 
   test('E2E-UX-002: Markdown 模式可切换并显示预览', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
     await expect(page.locator('[data-testid="btn-markdown-preview-mode"]')).toBeVisible();
 
     const editor = page.locator('[data-testid="editor-container"]');
@@ -48,7 +56,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-003: 预览区右键链接菜单可用', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
 
     const editor = page.locator('[data-testid="editor-container"]');
     await editor.click();
@@ -97,7 +105,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-006: Markdown 预览主题支持设置面板与右键菜单双入口切换', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
 
     const editor = page.locator('[data-testid="editor-container"]');
     const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
@@ -127,7 +135,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   });
 
   test('E2E-UX-007: Markdown 预览右键菜单应贴近触发位置', async ({ page }) => {
-    await page.selectOption('[data-testid="language-mode-display"]', 'markdown');
+    await selectLanguageMode(page, 'markdown');
 
     const editor = page.locator('[data-testid="editor-container"]');
     const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
@@ -143,7 +151,9 @@ test.describe('Sidebar & Markdown Preview', () => {
       .poll(async () => (await preview.boundingBox())?.width ?? 0)
       .toBeGreaterThan(320);
 
-    const previewBox = await preview.boundingBox();
+    // 分栏切换带有 0.32s 过渡动画：等几何稳定再取坐标，
+    // 否则期望值来自动画中间态，而 Playwright 实际点击的是稳定后的位置。
+    const previewBox = await waitForStableBox(preview);
     expect(previewBox).not.toBeNull();
 
     const clickPosition = { x: 180, y: 160 };
@@ -152,13 +162,47 @@ test.describe('Sidebar & Markdown Preview', () => {
     const menu = page.locator('[data-testid="markdown-preview-context-menu"]');
     await expect(menu).toBeVisible();
 
-    const menuBox = await menu.boundingBox();
+    const menuBox = await waitForStableBox(menu);
     expect(menuBox).not.toBeNull();
 
-    const expectedX = previewBox!.x + clickPosition.x;
-    const expectedY = previewBox!.y + clickPosition.y;
+    // 菜单以 fixed 定位在点击点；当菜单尺寸超出视口时应用会向内收束（MENU_MARGIN = 8px），
+    // 因此期望坐标 = 点击点按视口边界收敛后的位置。
+    const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    const MENU_MARGIN = 8;
+    const clamp = (value: number, size: number, viewportSize: number) =>
+      Math.max(MENU_MARGIN, Math.min(value, Math.max(MENU_MARGIN, viewportSize - size - MENU_MARGIN)));
+    const expectedX = clamp(previewBox!.x + clickPosition.x, menuBox!.width, viewport.width);
+    const expectedY = clamp(previewBox!.y + clickPosition.y, menuBox!.height, viewport.height);
 
-    expect(Math.abs(menuBox!.x - expectedX)).toBeLessThanOrEqual(20);
-    expect(Math.abs(menuBox!.y - expectedY)).toBeLessThanOrEqual(20);
+    expect(Math.abs(menuBox!.x - expectedX)).toBeLessThanOrEqual(1);
+    expect(Math.abs(menuBox!.y - expectedY)).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * 桌面标题栏入口（Tauri-only UI）。
+ *
+ * 纯 Chromium 下 `hasDesktopWindowTitlebar = isTauriApp()` 为 false，标题栏不渲染；
+ * 这里桩掉最小 Tauri 运行时，验证 Toolbar 精简后侧栏开关的桌面端等价入口确实可用。
+ */
+test.describe('Desktop titlebar entries', () => {
+  test('E2E-UX-001b: 标题栏「收起/展开侧栏」按钮可折叠与展开侧栏', async ({ page }) => {
+    await mockTauriDesktopRuntime(page);
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="toolbar"]');
+
+    const titlebarToggle = page.locator('[data-testid="btn-titlebar-toggle-explorer"]');
+    const sidebar = page.locator('[data-testid="sidebar-panel"]');
+    await expect(titlebarToggle).toBeVisible();
+    await expect(titlebarToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(sidebar).toBeVisible();
+
+    await titlebarToggle.click();
+    await expect(sidebar).toBeHidden();
+    await expect(titlebarToggle).toHaveAttribute('aria-pressed', 'false');
+
+    await titlebarToggle.click();
+    await expect(sidebar).toBeVisible();
+    await expect(titlebarToggle).toHaveAttribute('aria-pressed', 'true');
   });
 });
