@@ -6,7 +6,7 @@
  * 说明：大纲与属性面板的渲染/编辑细节见 MindmapRightPanel.test.ts；
  * 这里验证 Stage 不再内嵌面板、开关只驱动 store 两列显隐、命令仍走 change。
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import MindmapStage from '@/components/editor/mindmap/MindmapStage.vue';
@@ -86,6 +86,7 @@ describe('MindmapStage 阶段 1', () => {
     const store = useMindmapStore();
     await wrapper.get('.mm-node[data-node-id="a"]').trigger('click');
     expect(store.styleVisible).toBe(true);
+    expect(store.propertiesVisible).toBe(true);
     expect(store.styleTarget).toEqual({ kind: 'topic', topicId: 'a' });
     await wrapper.get('.mm-edge-hit').trigger('click');
     expect(store.styleTarget.kind).toBe('edge');
@@ -146,6 +147,104 @@ describe('MindmapStage 阶段 1', () => {
     const selected = wrapper.find('.mm-node.is-selected');
     expect(selected.exists()).toBe(true);
     expect(selected.attributes('data-node-id')).toBe(doc.rootTopicId);
+  });
+
+  it('拖放同级主题到前方时调整 childIds 顺序并写入变更', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const canvas = wrapper.getComponent({ name: 'MindmapCanvas' });
+    canvas.vm.$emit('move', 'b', 'a', 'before');
+    await wrapper.vm.$nextTick();
+
+    const changed = JSON.parse(wrapper.emitted('change')?.[0]?.[0] as string) as MindMapDocument;
+    expect(changed.topics[changed.rootTopicId]?.childIds).toEqual(['b', 'a']);
+  });
+
+  it('HUD 全屏按钮调用包含右侧面板的编辑器舞台全屏 API', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const shell = document.createElement('div');
+    shell.className = 'editor-stage';
+    document.body.appendChild(shell);
+    shell.appendChild(wrapper.element);
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(shell, 'requestFullscreen', { configurable: true, value: requestFullscreen });
+
+    await wrapper.get('[data-testid="mm-hud-fullscreen"]').trigger('click');
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    shell.remove();
+    wrapper.unmount();
+  });
+
+  it('顶部 mini 工具可新增主题，并通过两次点选创建可撤销关系线', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    expect(wrapper.get('[data-testid="mm-canvas-tools"]').exists()).toBe(true);
+
+    await wrapper.get('[data-testid="mm-tool-topic"]').trigger('click');
+    expect(wrapper.findAll('.mm-node')).toHaveLength(5);
+
+    const canvas = wrapper.getComponent({ name: 'MindmapCanvas' });
+    const store = useMindmapStore();
+    store.selectTopic('a');
+    await wrapper.get('[data-testid="mm-tool-relation"]').trigger('click');
+    canvas.vm.$emit('select', 'a');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.mm-node.is-relation-start[data-node-id="a"]').exists()).toBe(true);
+    canvas.vm.$emit('select', 'b');
+
+    expect(store.document?.relations).toHaveLength(1);
+    expect(wrapper.emitted('change')).toHaveLength(2);
+    expect(store.canUndo).toBe(true);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="mm-tool-select"]').attributes('aria-pressed')).toBe('true');
+  });
+
+  it('关系线工具拒绝自连，Esc 取消待选起点', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const canvas = wrapper.getComponent({ name: 'MindmapCanvas' });
+
+    await wrapper.get('[data-testid="mm-tool-relation"]').trigger('click');
+    canvas.vm.$emit('select', 'a');
+    canvas.vm.$emit('select', 'a');
+    expect(useMindmapStore().document?.relations).toBeUndefined();
+
+    canvas.vm.$emit('select', 'a');
+    await stageRoot(wrapper).trigger('keydown', { key: 'Escape' });
+    expect(wrapper.find('.mm-node.is-relation-start').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="mm-tool-select"]').attributes('aria-pressed')).toBe('true');
+  });
+
+  it('边界工具立即创建边界，概要工具要求所选主题包含子节点', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const store = useMindmapStore();
+    store.selectTopic('a');
+
+    await wrapper.get('[data-testid="mm-tool-boundary"]').trigger('click');
+    expect(store.document?.topics.a?.boundary?.color).toBe('#64748b');
+    expect(store.propertiesVisible).toBe(true);
+
+    store.selectTopic('b');
+    await wrapper.get('[data-testid="mm-tool-summary"]').trigger('click');
+    expect(wrapper.text()).toContain('概要需要有子节点');
+    expect(store.document?.topics.b?.summary).toBeUndefined();
+  });
+
+  it('右键菜单提供同步至云端和一键分享，并向上层派发动作', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const canvas = wrapper.getComponent({ name: 'MindmapCanvas' });
+    canvas.vm.$emit('contextmenu', { nodeId: null, clientX: 120, clientY: 80 });
+    await wrapper.vm.$nextTick();
+
+    const sync = document.querySelector<HTMLButtonElement>('[data-testid="mm-context-item-sync-to-cloud"]');
+    const share = document.querySelector<HTMLButtonElement>('[data-testid="mm-context-item-share"]');
+    expect(sync?.textContent).toContain('同步至云端');
+    expect(share?.textContent).toContain('一键分享');
+
+    sync!.click();
+    expect(wrapper.emitted('sync-to-cloud')).toHaveLength(1);
+
+    canvas.vm.$emit('contextmenu', { nodeId: null, clientX: 120, clientY: 80 });
+    await wrapper.vm.$nextTick();
+    document.querySelector<HTMLButtonElement>('[data-testid="mm-context-item-share"]')!.click();
+    expect(wrapper.emitted('share')).toHaveLength(1);
   });
 
   it('Tab 添加子主题并 emit change', async () => {
@@ -630,6 +729,17 @@ describe('MindmapStage 阶段 4E', () => {
     const json = JSON.parse(emitted![emitted!.length - 1]![0] as string);
     expect(json.format).toBe('tau-mindmap');
     expect(Object.keys(json.topics)).toHaveLength(1);
+  });
+
+  it('阶段 4：损坏 .taumap 可请求重新读取源文件，不自动覆盖', async () => {
+    const wrapper = mountStage('{ broken json');
+    const retry = wrapper.get('[data-testid="mm-error-retry-load"]');
+    expect(retry.text()).toContain('重新读取');
+
+    await retry.trigger('click');
+    expect(wrapper.emitted('retry-load')).toHaveLength(1);
+    expect(wrapper.emitted('change')).toBeFalsy();
+    expect(wrapper.find('[data-testid="mindmap-error"]').exists()).toBe(true);
   });
 });
 

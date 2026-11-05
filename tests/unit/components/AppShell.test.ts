@@ -59,6 +59,15 @@ const componentStubs = vi.hoisted(() => ({
     emits: ['close', 'reload', 'keep', 'save-as'],
     template: '<div data-testid="external-change-dialog-stub"></div>',
   },
+  mindmapStage: {
+    props: ['tabId', 'documentJson', 'fileName', 'documentKind', 'isDirty'],
+    emits: ['change', 'membership-required', 'retry-load', 'sync-to-cloud', 'share'],
+    template: '<div data-testid="mindmap-stage-stub"></div>',
+  },
+}))
+
+const serviceMocks = vi.hoisted(() => ({
+  reloadFileFromDisk: vi.fn().mockResolvedValue(false),
 }))
 
 const storeMocks = vi.hoisted(() => ({
@@ -145,6 +154,7 @@ const storeMocks = vi.hoisted(() => ({
     info: vi.fn(),
     error: vi.fn(),
     warning: vi.fn(),
+    success: vi.fn(),
   },
   keyboard: {
     register: vi.fn(),
@@ -232,7 +242,7 @@ vi.mock('@/services/workspaceService', () => ({
     openFileWithPicker: vi.fn(),
     openFolderWithPicker: vi.fn().mockResolvedValue(false),
     openRecentProject: storeMocks.workspace.openRecentProject,
-    reloadFileFromDisk: vi.fn().mockResolvedValue(false),
+    reloadFileFromDisk: serviceMocks.reloadFileFromDisk,
     refreshWorkspace: vi.fn(),
   }),
 }))
@@ -283,6 +293,7 @@ const MarkdownPreviewStub = componentStubs.markdownPreview
 const ImagePreviewStub = componentStubs.imagePreview
 const ImageViewerStub = componentStubs.imageViewer
 const ContextRailStub = componentStubs.contextRail
+const MindmapStageStub = componentStubs.mindmapStage
 vi.mock('../../../frontend/src/components/editor/Toolbar.vue', () => ({ default: componentStubs.toolbar }))
 vi.mock('../../../frontend/src/components/editor/SettingsPanel.vue', () => ({ default: componentStubs.settingsPanel }))
 vi.mock('../../../frontend/src/components/editor/MarkdownPreview.vue', () => ({ default: componentStubs.markdownPreview }))
@@ -292,6 +303,7 @@ vi.mock('../../../frontend/src/components/editor/EditorCore.vue', () => ({ defau
 vi.mock('../../../frontend/src/components/editor/LazyEditorCore', () => ({ LazyEditorCore: componentStubs.editorCore }))
 vi.mock('../../../frontend/src/components/editor/ContextRail.vue', () => ({ default: componentStubs.contextRail }))
 vi.mock('../../../frontend/src/components/editor/ExternalChangeDialog.vue', () => ({ default: componentStubs.externalChangeDialog }))
+vi.mock('../../../frontend/src/components/editor/mindmap/MindmapStage.vue', () => ({ default: componentStubs.mindmapStage }))
 
 const appShellStubs = {
   Toolbar: false,
@@ -303,6 +315,7 @@ const appShellStubs = {
   LazyEditorCore: false,
   ExternalChangeDialog: false,
   ContextRail: false,
+  MindmapStage: false,
   Transition: false,
 }
 
@@ -512,6 +525,42 @@ describe('AppShell', () => {
     expect(wrapper.findComponent(ImageViewerStub).props('visible')).toBe(false)
     expect(storeMocks.tabs.tabs).toHaveLength(1)
     expect(storeMocks.tabs.activeTabId).toBe(imageTab.id)
+  })
+
+  it('思维导图重新读取事件应重读磁盘并刷新当前标签', async () => {
+    const mindmapTab = {
+      id: 'tab-mm',
+      fileName: 'broken.taumap',
+      filePath: '/workspace/broken.taumap',
+      content: '{ broken json',
+      language: 'json',
+      documentKind: 'mindmap' as const,
+      isDirty: false,
+      lastKnownModified: 123,
+    }
+    storeMocks.tabs.activeTab = mindmapTab
+    storeMocks.tabs.tabs = [mindmapTab]
+    storeMocks.tabs.activeTabId = mindmapTab.id
+
+    const wrapper = shallowMount(App, {
+      global: { stubs: appShellStubs },
+    })
+    await flushPromises()
+
+    const stage = wrapper.findComponent(MindmapStageStub)
+    expect(stage.exists()).toBe(true)
+    stage.vm.$emit('retry-load')
+    await flushPromises()
+
+    expect(serviceMocks.reloadFileFromDisk).toHaveBeenCalledWith(
+      'tab-mm',
+      '/workspace/broken.taumap',
+      123,
+    )
+    expect(storeMocks.notification.success).toHaveBeenCalledWith(
+      '重新读取成功',
+      'broken.taumap 已从磁盘刷新',
+    )
   })
 
   it('MarkdownPreview open-image 应优先使用 resolvedSrc 打开图片查看器', async () => {

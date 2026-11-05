@@ -1343,6 +1343,10 @@ export interface CloudDocVersion {
   createdAt: string | null;
 }
 
+export interface CloudDocVersionPreview extends CloudDocVersion {
+  content: string | null;
+}
+
 export interface CloudDocPage {
   records: CloudDocItem[];
   total: number;
@@ -1607,6 +1611,10 @@ export const cloudCommands = {
 
   async versions(fileId: number): Promise<CloudDocVersion[]> {
     return invokeCommand<CloudDocVersion[]>('cloud_docs_versions', { fileId });
+  },
+
+  async versionPreview(fileId: number, versionId: number): Promise<CloudDocVersionPreview> {
+    return invokeCommand<CloudDocVersionPreview>('cloud_docs_version_preview', { fileId, versionId });
   },
 
   async restore(fileId: number, versionId: number): Promise<CloudDocSaveResult> {

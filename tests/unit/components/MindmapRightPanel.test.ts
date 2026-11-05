@@ -121,6 +121,42 @@ describe('MindmapRightPanel：双列显隐 / 独立 resizer 与宽度', () => {
     expect(wrapper.find('[data-testid="mm-right-outline"]').exists()).toBe(true);
   });
 
+  it('属性和样式共用单一详情侧栏，可在页签间切换', async () => {
+    const { wrapper, store } = mountPanelWithProperties();
+    expect(wrapper.findAll('[data-testid="mm-right-properties"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="mm-detail-tab-properties"]').attributes('aria-selected')).toBe('true');
+    expect(wrapper.find('[data-testid="mm-detail-tab-style"]').exists()).toBe(true);
+
+    await wrapper.get('[data-testid="mm-detail-tab-style"]').trigger('click');
+    expect(store.styleVisible).toBe(true);
+    expect(wrapper.get('[data-testid="mm-detail-style-content"]').isVisible()).toBe(true);
+    await wrapper.get('[data-testid="mm-detail-tab-canvas-style"]').trigger('click');
+    expect(store.styleTarget.kind).toBe('canvas');
+    await wrapper.get('[data-testid="mm-detail-tab-properties"]').trigger('click');
+    expect(wrapper.get('[data-testid="mm-detail-properties-content"]').isVisible()).toBe(true);
+    // 切换页签不创建第二个右侧详情栏
+    expect(wrapper.findAll('[data-testid="mm-right-properties"]')).toHaveLength(1);
+  });
+
+  it('画布样式、节点样式与节点属性是同级页签', async () => {
+    const { wrapper } = mountPanelWithProperties();
+    expect(wrapper.findAll('[role="tab"]')).toHaveLength(3);
+    expect(wrapper.find('[data-testid="mm-detail-tab-canvas-style"]').text()).toBe('画布样式');
+    expect(wrapper.find('[data-testid="mm-detail-tab-style"]').text()).toBe('节点样式');
+    expect(wrapper.find('[aria-label="样式面板"]').exists()).toBe(false);
+  });
+
+  it('画布点击目标自动切到画布样式，节点目标自动切到节点样式', async () => {
+    const { wrapper, store } = mountPanelWithProperties();
+    store.showStyleTarget({ kind: 'canvas' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="mm-detail-tab-canvas-style"]').attributes('aria-selected')).toBe('true');
+
+    store.showStyleTarget({ kind: 'topic', topicId: 'a' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="mm-detail-tab-style"]').attributes('aria-selected')).toBe('true');
+  });
+
   it('大纲列 resizer 调宽：只改 outlineWidth（clamp 180–420）', async () => {
     const { wrapper, store } = mountPanel();
     const panel = () => wrapper.find('[data-testid="mm-right-outline"]');
@@ -175,13 +211,14 @@ describe('MindmapRightPanel：双列显隐 / 独立 resizer 与宽度', () => {
     expect(wrapper.emitted('change')).toBeFalsy();
   });
 
-  it('属性列在没有选中节点时不显示（与面板外移前的 Stage 行为一致）', async () => {
+  it('没有选中节点时保留详情侧栏并显示属性空状态', async () => {
     const { wrapper, store } = mountPanelWithProperties();
     expect(wrapper.find('[data-testid="mm-right-properties"]').exists()).toBe(true);
 
     store.selectTopic(null);
     await wrapper.vm.$nextTick();
-    expect(wrapper.find('[data-testid="mm-right-properties"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="mm-right-properties"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="mm-detail-empty"]').text()).toContain('选择一个节点');
     // 大纲列不受影响
     expect(wrapper.find('[data-testid="mm-right-outline"]').exists()).toBe(true);
   });

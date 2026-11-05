@@ -35,7 +35,6 @@ const themePicker = ref<HTMLElement | null>(null);
 const stylePanel = ref<HTMLElement | null>(null);
 const themeMenuOpen = ref(false);
 const backgroundDraft = ref('');
-const activePanelTab = ref<'canvas' | 'topic'>('canvas');
 const customStyleOpen = ref(false);
 const advancedStyleOpen = ref(false);
 const bulkStyleLevel = ref<'root' | 'branch' | 'child'>('branch');
@@ -83,11 +82,6 @@ watch(() => document.value?.id, () => {
 
 watch(() => store.canvasBackground, (value) => {
   backgroundDraft.value = value;
-}, { immediate: true });
-
-watch(styleTarget, (target) => {
-  if (target.kind === 'topic' || target.kind === 'edge' || target.kind === 'relation') activePanelTab.value = 'topic';
-  else if (target.kind === 'canvas') activePanelTab.value = 'canvas';
 }, { immediate: true });
 
 watch(() => document.value?.opaqueExtensions?.tauLayoutSpacing, (value) => {
@@ -139,14 +133,6 @@ function setLayout(mode: MindMapLayoutMode) {
 function setTheme(themeId: string) {
   const before = store.serialized;
   if (store.setTheme(themeId)) emitIfChanged(before);
-}
-
-function setPanelTab(tab: 'canvas' | 'topic') {
-  activePanelTab.value = tab;
-  if (tab === 'canvas') store.showStyleTarget({ kind: 'canvas' });
-  else if (store.selectedTopicId && document.value?.topics[store.selectedTopicId]) {
-    store.showStyleTarget({ kind: 'topic', topicId: store.selectedTopicId });
-  }
 }
 
 function updateSpacingDraft(key: 'hGap' | 'vGap', value: number) {
@@ -363,13 +349,9 @@ const targetTitle = computed(() => {
       <button type="button" class="mm-style-close" aria-label="关闭画布样式" title="关闭画布样式" @click="store.setStyleVisible(false)">×</button>
     </header>
 
-    <nav class="mm-style-tabs" aria-label="样式面板">
-      <button type="button" :class="{ 'is-active': activePanelTab === 'canvas' }" :aria-pressed="activePanelTab === 'canvas'" @click="setPanelTab('canvas')">画布样式</button>
-      <button type="button" :class="{ 'is-active': activePanelTab === 'topic' }" :aria-pressed="activePanelTab === 'topic'" :disabled="!store.selectedTopicId" @click="setPanelTab('topic')">主题样式</button>
-    </nav>
     </div>
 
-    <template v-if="activePanelTab === 'canvas' && styleTarget.kind === 'canvas'">
+    <template v-if="styleTarget.kind === 'canvas'">
     <section class="mm-style-section">
       <h3>骨架</h3>
       <div class="mm-layout-grid" role="radiogroup" aria-label="导图方向">
@@ -469,7 +451,7 @@ const targetTitle = computed(() => {
     </section>
     </template>
 
-    <template v-if="activePanelTab === 'topic' && styleTarget.kind === 'topic' && activeTopic">
+    <template v-if="styleTarget.kind === 'topic' && activeTopic">
       <section class="mm-style-section">
         <h3>主题间距</h3>
         <label class="mm-spacing-field">横向间距 <output>{{ spacingDraft.hGap }}px</output>
@@ -517,7 +499,7 @@ const targetTitle = computed(() => {
       </section>
     </template>
 
-    <template v-if="activePanelTab === 'topic' && styleTarget.kind === 'topic' && activeTopic && customStyleOpen">
+    <template v-if="styleTarget.kind === 'topic' && activeTopic && customStyleOpen">
       <section class="mm-style-section">
         <h3>自定义节点样式</h3>
         <label class="mm-style-field">填充颜色
@@ -564,7 +546,7 @@ const targetTitle = computed(() => {
       </section>
     </template>
 
-    <template v-if="activePanelTab === 'topic' && styleTarget.kind === 'topic' && activeTopic && advancedStyleOpen">
+    <template v-if="styleTarget.kind === 'topic' && activeTopic && advancedStyleOpen">
       <section class="mm-style-section">
         <h3>概要与外框</h3>
         <label class="mm-style-field">概要文字
@@ -633,10 +615,6 @@ const targetTitle = computed(() => {
 .mm-style-header p { margin: 5px 0 0; color: var(--text-muted); font-size: 12px; }
 .mm-style-close { width: 30px; height: 30px; border: 0; background: transparent; color: var(--text-secondary); font-size: 28px; line-height: 1; cursor: pointer; }
 .mm-style-close:hover { color: var(--text-primary); background: var(--surface-hover); }
-.mm-style-tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--border-soft); padding: 0 18px; background: var(--panel-elevated); }
-.mm-style-tabs button { flex: 1; padding: 10px 4px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: 13px var(--font-ui); cursor: pointer; }
-.mm-style-tabs button.is-active { color: var(--text-primary); border-bottom-color: var(--accent-brand); }
-.mm-style-tabs button:disabled { opacity: .5; cursor: default; }
 .mm-spacing-field { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 14px 0; font-size: 13px; }
 .mm-spacing-field input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent-brand); }
 .mm-node-style-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

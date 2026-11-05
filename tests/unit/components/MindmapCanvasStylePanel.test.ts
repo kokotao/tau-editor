@@ -12,6 +12,7 @@ describe('MindmapCanvasStylePanel', () => {
     const store = useMindmapStore();
     store.loadFromContent('tab', serializeMindMapDocument(createEmptyMindMapDocument('测试')));
     store.setStyleVisible(true);
+    store.showStyleTarget({ kind: 'canvas' });
     const wrapper = mount(MindmapCanvasStylePanel);
     await wrapper.get('[title="主题统一向右展开"]').trigger('click');
     expect(store.document?.layoutMode).toBe('logic');
@@ -60,8 +61,8 @@ describe('MindmapCanvasStylePanel', () => {
     doc.topics[rootId]!.childIds = ['branch'];
     store.loadFromContent('tab', serializeMindMapDocument(doc));
     store.setStyleVisible(true);
+    store.showStyleTarget({ kind: 'topic', topicId: rootId });
     const wrapper = mount(MindmapCanvasStylePanel);
-    await wrapper.get('nav[aria-label="样式面板"] button:nth-child(2)').trigger('click');
     expect(wrapper.text()).toContain('主题间距');
     const hGap = wrapper.get('[aria-label="主题横向间距"]');
     await hGap.setValue('88');

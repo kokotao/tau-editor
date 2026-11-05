@@ -85,6 +85,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'change', json: string): void;
   (event: 'membership-required', payload: { feature: string; reason: string }): void;
+  (event: 'retry-load'): void;
+  (event: 'sync-to-cloud'): void;
+  (event: 'share'): void;
 }>();
 
 const store = useMindmapStore();
@@ -126,6 +129,10 @@ const isExternal = computed(() => props.documentKind === 'mindmap-external');
 
 const stageRef = ref<HTMLElement | null>(null);
 const canvasRef = ref<InstanceType<typeof MindmapCanvas> | null>(null);
+const isFullscreen = ref(false);
+type CanvasTool = 'select' | 'relation';
+const activeCanvasTool = ref<CanvasTool>('select');
+const relationStartId = ref<string | null>(null);
 
 const notice = ref<string | null>(null);
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -168,6 +175,7 @@ function showNotice(message: string) {
 onBeforeUnmount(() => {
   if (noticeTimer) clearTimeout(noticeTimer);
   window.removeEventListener('mindmap-outline-focus', onOutlineFocus);
+  window.document.removeEventListener('fullscreenchange', onFullscreenChange);
 });
 
 function onOutlineFocus(event: Event) {
@@ -178,7 +186,10 @@ function onOutlineFocus(event: Event) {
   });
 }
 
-onMounted(() => window.addEventListener('mindmap-outline-focus', onOutlineFocus));
+onMounted(() => {
+  window.addEventListener('mindmap-outline-focus', onOutlineFocus);
+  window.document.addEventListener('fullscreenchange', onFullscreenChange);
+});
 
 /* ------------------------------- 加载与同步 ------------------------------- */
 
@@ -339,7 +350,70 @@ function runLayoutCommand(mode: MindMapLayoutMode): boolean {
 }
 
 function selectTopic(topicId: string) {
+  if (activeCanvasTool.value === 'relation') {
+    if (!relationStartId.value) {
+      relationStartId.value = topicId;
+      store.selectTopic(topicId);
+      showNotice('已选择关系线起点，请再点击一个节点');
+      return;
+    }
+    const sourceId = relationStartId.value;
+    relationStartId.value = null;
+    if (sourceId === topicId) {
+      store.selectTopic(topicId);
+      showNotice('关系线不能连接到自身');
+      return;
+    }
+    const before = store.serialized;
+    const added = store.addRelation(sourceId, topicId);
+    store.selectTopic(topicId);
+    if (added) {
+      emitIfChanged(before);
+      setCanvasTool('select');
+      showNotice('已创建关系线');
+    } else {
+      showNotice('这两个节点之间已存在关系线');
+    }
+    return;
+  }
   store.selectTopic(topicId);
+  store.setPropertiesVisible(true);
+}
+
+function setCanvasTool(tool: CanvasTool) {
+  activeCanvasTool.value = tool;
+  relationStartId.value = null;
+  if (tool === 'relation') showNotice('依次点击两个节点创建关系线，按 Esc 取消');
+}
+
+function addCanvasTopic() {
+  if (!selectedTopicId.value) return;
+  addChild();
+}
+
+function addCanvasBoundary() {
+  const id = selectedTopicId.value;
+  if (!id || !document.value) return;
+  const current = document.value.topics[id];
+  const before = store.serialized;
+  const changed = store.setTopicBoundary(id, current?.boundary ?? { color: '#64748b' });
+  if (changed) emitIfChanged(before);
+  store.setPropertiesVisible(true);
+  showNotice('已为选中节点添加边界，可在右侧属性中调整');
+  void focusStage();
+}
+
+function addCanvasSummary() {
+  const id = selectedTopicId.value;
+  const topic = id ? document.value?.topics[id] : undefined;
+  if (!id || !topic) return;
+  if (topic.childIds.length === 0) {
+    showNotice('概要需要有子节点的主题，请先选择包含子节点的主题');
+    return;
+  }
+  store.setPropertiesVisible(true);
+  showNotice('请在右侧属性面板中输入概要文本');
+  void focusStage();
 }
 
 /* ------------------------------- 工作表（阶段 4E） ------------------------------- */
@@ -619,11 +693,38 @@ function resetView() {
   void focusStage();
 }
 
+async function toggleFullscreen() {
+  const workspace = stageRef.value?.querySelector<HTMLElement>('.mindmap-workspace');
+  const fullscreenTarget = stageRef.value?.closest<HTMLElement>('.editor-stage') ?? workspace;
+  if (!workspace || !fullscreenTarget) return;
+  try {
+    if (window.document.fullscreenElement === fullscreenTarget) {
+      await window.document.exitFullscreen();
+    } else if (typeof fullscreenTarget.requestFullscreen === 'function') {
+      await fullscreenTarget.requestFullscreen();
+    } else {
+      showNotice('当前环境不支持全屏查看');
+    }
+  } catch {
+    showNotice('无法切换全屏查看');
+  }
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = Boolean(
+    window.document.fullscreenElement
+    && (window.document.fullscreenElement.contains(stageRef.value) || stageRef.value?.contains(window.document.fullscreenElement)),
+  );
+  if (isFullscreen.value) {
+    void nextTick(() => canvasRef.value?.fitView());
+  }
+}
+
 function onEditingText(text: string) {
   editingText.value = text;
 }
 
-function onMove(draggedId: string, targetId: string) {
+function onMove(draggedId: string, targetId: string, position?: 'before' | 'after') {
   const doc = document.value;
   if (!doc || draggedId === targetId) return;
   if (draggedId === doc.rootTopicId) {
@@ -634,7 +735,13 @@ function onMove(draggedId: string, targetId: string) {
     showNotice('不能把节点移动到自身的后代之下');
     return;
   }
-  runCommand('拖放移动', (current) => moveTopic(current, draggedId, targetId));
+  const source = doc.topics[draggedId];
+  const target = doc.topics[targetId];
+  const reorder = position && source?.parentId && source.parentId === target?.parentId;
+  const siblingIds = reorder && source?.parentId ? doc.topics[source.parentId]?.childIds ?? [] : [];
+  const targetIndex = reorder ? siblingIds.indexOf(targetId) + (position === 'after' ? 1 : 0) : undefined;
+  runCommand(reorder ? '调整主题顺序' : '拖放移动', (current) =>
+    moveTopic(current, draggedId, reorder && source?.parentId ? source.parentId : targetId, targetIndex));
 }
 
 /* ----------------------- 右侧面板（UX-3B：大纲 / 属性） ----------------------- */
@@ -866,6 +973,8 @@ const contextMenuItems = computed<StageMenuItem[]>(() => {
       { id: 'zoom-out', label: '缩小' },
       { id: 'group-empty-3', label: '', separator: true },
       { id: 'export', label: '导出…' },
+      { id: 'sync-to-cloud', label: '同步至云端' },
+      { id: 'share', label: '一键分享' },
       { id: 'toggle-properties', label: '属性面板' },
       { id: 'group-empty-4', label: '', separator: true },
       { id: 'undo', label: '撤销', shortcut: 'Ctrl+Z', disabled: !canUndo.value },
@@ -953,6 +1062,12 @@ function runContextMenuAction(id: string) {
         break;
       case 'export':
         openExportDialog();
+        break;
+      case 'sync-to-cloud':
+        emit('sync-to-cloud');
+        break;
+      case 'share':
+        emit('share');
         break;
       case 'toggle-properties':
         openPropertiesPanel();
@@ -1218,6 +1333,10 @@ function recoverFromError() {
   void focusStage();
 }
 
+function retryLoad() {
+  emit('retry-load');
+}
+
 /* ------------------------------- 键盘 ------------------------------- */
 
 function isTextInputTarget(target: EventTarget | null): boolean {
@@ -1230,6 +1349,13 @@ function isTextInputTarget(target: EventTarget | null): boolean {
 function onKeydown(event: KeyboardEvent) {
   if (isTextInputTarget(event.target)) return;
   if (isExternal.value || !document.value) return;
+
+  if (event.key === 'Escape' && (activeCanvasTool.value !== 'select' || relationStartId.value)) {
+    event.preventDefault();
+    setCanvasTool('select');
+    showNotice('已取消绘图操作');
+    return;
+  }
 
   // 右键菜单打开时，方向键 / Enter / Esc 由菜单自己处理，舞台不再响应
   if (contextMenu.value.visible) {
@@ -1410,6 +1536,14 @@ defineExpose({
       <div class="mindmap-error-actions">
         <button
           type="button"
+          class="mm-btn"
+          data-testid="mm-error-retry-load"
+          @click="retryLoad"
+        >
+          重新读取
+        </button>
+        <button
+          type="button"
           class="mm-btn primary"
           data-testid="mm-error-create-empty"
           @click="recoverFromError"
@@ -1491,6 +1625,8 @@ defineExpose({
           :canvas-background="store.canvasBackground"
           :canvas-grid-visible="store.canvasGridVisible"
           :canvas-root-visible="store.canvasRootVisible"
+          :canvas-tool="activeCanvasTool"
+          :relation-start-id="relationStartId"
           @select="selectTopic"
           @style-target="!isExternal && store.showStyleTarget($event)"
           @toggle-collapse="toggleCollapse"
@@ -1523,10 +1659,58 @@ defineExpose({
           <span class="mm-stats">
             {{ rows.length }} 个节点 · {{ Math.round(viewport.zoom * 100) }}%<span v-if="descendantsOfSelected"> · 选中含 {{ descendantsOfSelected }} 个子节点</span>
           </span>
-          <button type="button" data-testid="mm-hud-fit" title="适配内容" aria-label="适配内容" @click="fitView">适配</button>
+          <button type="button" data-testid="mm-hud-fit" title="适配内容" aria-label="适配内容" @click="fitView">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M4 4l6 6m10-6-6 6m6 10-6-6m-10 6 6-6" /></svg>
+          </button>
           <button type="button" data-testid="mm-hud-zoom-out" title="缩小" aria-label="缩小" @click="zoomOut">−</button>
           <button type="button" data-testid="mm-hud-zoom-in" title="放大" aria-label="放大" @click="zoomIn">＋</button>
-          <button type="button" data-testid="mm-hud-reset" title="重置视口" aria-label="重置视口" @click="resetView">重置</button>
+          <button type="button" data-testid="mm-hud-reset" title="重置视口" aria-label="重置视口" @click="resetView">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8m0-5v5h5M12 7v5l3 2" /></svg>
+          </button>
+          <button
+            type="button"
+            data-testid="mm-hud-fullscreen"
+            :title="isFullscreen ? '退出全屏' : '全屏查看'"
+            :aria-label="isFullscreen ? '退出全屏' : '全屏查看'"
+            @click="toggleFullscreen"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path v-if="!isFullscreen" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />
+              <path v-else d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" />
+            </svg>
+          </button>
+        </div>
+        <div class="mm-canvas-tools" data-testid="mm-canvas-tools" role="toolbar" aria-label="快速绘图工具">
+          <button
+            type="button"
+            data-testid="mm-tool-select"
+            :class="{ 'is-active': activeCanvasTool === 'select' }"
+            :aria-pressed="activeCanvasTool === 'select'"
+            title="选择工具"
+            @click="setCanvasTool('select')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 7 17 2-7 7-2L4 4Z" /><path d="m13 14 5 5" /></svg>
+          </button>
+          <button type="button" data-testid="mm-tool-topic" aria-label="添加子主题" title="在选中节点下添加子主题" @click="addCanvasTopic">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="6" rx="1" /><rect x="14" y="14" width="7" height="6" rx="1" /><path d="M10 7h3a2 2 0 0 1 2 2v5m-4 3h3m-1.5-1.5v3" /></svg>
+          </button>
+          <button
+            type="button"
+            data-testid="mm-tool-relation"
+            :class="{ 'is-active': activeCanvasTool === 'relation' }"
+            :aria-pressed="activeCanvasTool === 'relation'"
+            title="依次点击两个节点创建关系线"
+            @click="setCanvasTool(activeCanvasTool === 'relation' ? 'select' : 'relation')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="3" /><circle cx="18" cy="17" r="3" /><path d="m8.5 9 7 6" /></svg>
+          </button>
+          <button type="button" data-testid="mm-tool-boundary" aria-label="添加边界" title="为选中节点添加边界" @click="addCanvasBoundary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4" stroke-dasharray="3 2" /><path d="M7 8h10v8H7z" /></svg>
+          </button>
+          <button type="button" data-testid="mm-tool-summary" aria-label="编辑概要" title="编辑选中主题的概要" @click="addCanvasSummary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16m14-16v16M5 5h4m-4 14h4m10-14h-4m4 14h-4M9 12h6" /></svg>
+          </button>
+          <span v-if="relationStartId" class="mm-tool-hint" role="status" title="选择关系线终点">2</span>
         </div>
         <!-- 大纲 / 属性面板由外壳渲染；画布 HUD 直接复用本舞台视口命令。 -->
       </div>
@@ -1649,8 +1833,26 @@ defineExpose({
   min-height: 0;
   overflow: hidden;
 }
+.mindmap-workspace:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-app);
+}
+:global(.editor-stage:fullscreen) {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-app);
+}
+:global(.editor-stage:fullscreen > .editor-pane) {
+  min-width: 0;
+  min-height: 0;
+}
+.mindmap-workspace:fullscreen .mm-canvas-hud,
+.mindmap-workspace:fullscreen .mm-document-pill,
+.mindmap-workspace:fullscreen .mm-canvas-tools { z-index: 10; }
 .mm-document-pill,
-.mm-canvas-hud {
+.mm-canvas-hud,
+.mm-canvas-tools {
   position: absolute;
   z-index: 4;
   display: flex;
@@ -1707,10 +1909,51 @@ defineExpose({
 }
 .mm-document-state.is-dirty { color: var(--state-warning); }
 .mm-canvas-hud {
-  right: 20px;
+  left: 18px;
   bottom: 18px;
   min-height: 42px;
   padding: 4px 7px 4px 13px;
+}
+.mm-canvas-tools {
+  top: 16px;
+  right: 18px;
+  min-height: 38px;
+  padding: 4px;
+}
+.mm-canvas-tools button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.mm-canvas-tools button svg,
+.mm-canvas-hud button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mm-canvas-tools button:hover,
+.mm-canvas-tools button.is-active {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+.mm-tool-hint {
+  padding: 0 8px;
+  color: var(--accent-brand);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .mm-stats {
   padding-right: 5px;
@@ -1719,9 +1962,12 @@ defineExpose({
   white-space: nowrap;
 }
 .mm-canvas-hud button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   min-width: 30px;
-  height: 30px;
-  padding: 0 8px;
+  padding: 0;
   border: 0;
   border-radius: var(--radius-xs, 4px);
   background: transparent;
@@ -1783,8 +2029,10 @@ defineExpose({
 }
 .mindmap-confirm-text { flex: 1; }
 @media (max-width: 760px) {
-  .mm-document-pill { top: 10px; left: 10px; max-width: calc(100% - 20px); }
-  .mm-canvas-hud { right: 10px; bottom: 10px; gap: 2px; }
+  .mm-document-pill { top: 58px; left: 10px; max-width: calc(100% - 20px); }
+  .mm-canvas-tools { top: 10px; right: 10px; gap: 2px; }
+  .mm-canvas-tools button { width: 30px; height: 30px; }
+  .mm-canvas-hud { left: 10px; bottom: 10px; gap: 2px; }
   .mm-stats { display: none; }
 }
 .mindmap-error {
@@ -1795,7 +2043,7 @@ defineExpose({
 .mindmap-error-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
 .mindmap-error-message { font-size: 13px; color: var(--state-danger); margin-bottom: 8px; }
 .mindmap-error-hint { font-size: 12px; color: var(--text-muted); line-height: 1.7; }
-.mindmap-error-actions { margin-top: 14px; display: flex; justify-content: center; }
+.mindmap-error-actions { margin-top: 14px; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .mindmap-external-notice { padding: 24px; text-align: center; color: var(--text-primary); }
 .mindmap-external-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
 .mindmap-external-desc {

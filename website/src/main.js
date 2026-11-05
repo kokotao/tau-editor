@@ -17,7 +17,18 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.36', date: '2026-11-04', label: '思维导图画布与主题样式', category: '思维导图', latest: true,
+    version: 'v0.6.37', date: '2026-11-05', label: '历史预览与思维导图协作', category: '云端协作', latest: true,
+    summary: '云文档历史版本支持多格式只读预览，思维导图补齐快捷绘图、拖拽排序、全屏面板与云端同步分享入口。',
+    highlights: [
+      '历史版本按文件格式渲染：Markdown 富文本、思维导图、JSON/XML/YAML/SQL 与常见代码配置文本',
+      '思维导图历史版本支持适应面板、原始尺寸与源码切换；Markdown 链接统一在系统浏览器打开',
+      '画布新增 mini 快捷绘图工具，节点支持同级拖拽排序，全屏下属性与样式面板可正常弹出',
+      '节点属性、画布样式、节点样式合并为同一侧栏的三个同级页签，右键菜单增加同步至云端与一键分享',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.37',
+  },
+  {
+    version: 'v0.6.36', date: '2026-11-04', label: '思维导图画布与主题样式', category: '思维导图', latest: false,
     summary: '画布样式、主题模板、批量应用、节点图片与多格式导出集中升级；会员限制、品牌水印和云端分享冲突提示也完成收口。',
     highlights: [
       '画布样式面板支持背景色、内置配色和主题样式切换，节点选中后自动打开对应样式入口',

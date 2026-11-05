@@ -106,7 +106,7 @@ test.describe('File Operations', () => {
     
     // 验证状态栏元素
     await expect(page.locator('[data-testid="cursor-position"]')).toBeVisible()
-    await expect(page.locator('[data-testid="encoding-select"]')).toBeVisible()
+    await expect(page.locator('[data-testid="encoding-readonly"]')).toHaveText('UTF-8')
     await expect(page.locator('[data-testid="language-mode-display"]')).toBeVisible()
   })
 

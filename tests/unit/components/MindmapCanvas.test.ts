@@ -531,6 +531,26 @@ describe('MindmapCanvas UX-1', () => {
     expect(wrapper.emitted('select')).toBeFalsy();
   });
 
+  it('同级节点拖到目标节点边缘时显示插入线并发出前后位置', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    const from = nodeCenter(wrapper, 'b');
+    const target = wrapper.find('.mm-node[data-node-id="a"]');
+    const transform = target.attributes('transform')!.match(/translate\(([-\d.]+) ([-\d.]+)\)/)!;
+    const rect = target.find('.mm-node-box').element as SVGRectElement;
+    const beforeX = Number(transform[1]);
+    const beforeY = Number(transform[2]) - Number(rect.getAttribute('height')) * 0.35;
+    const dragged = wrapper.find('.mm-node[data-node-id="b"]');
+
+    await dragged.trigger('pointerdown', { button: 0, clientX: from.x, clientY: from.y });
+    dispatchPointer('pointermove', beforeX, beforeY);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="mm-drop-insertion"]').exists()).toBe(true);
+
+    dispatchPointer('pointerup', beforeX, beforeY);
+    expect(wrapper.emitted('move')?.[0]).toEqual(['b', 'a', 'before']);
+  });
+
   it('拖拽释放在空白处不 emit move', async () => {
     const wrapper = mountCanvas();
     await wrapper.vm.$nextTick();

@@ -68,7 +68,8 @@ test.describe('Mindmap E2E', () => {
     await expect(page.locator('[data-testid="mindmap-outline"]')).toBeVisible()
     await expect(page.locator('.mm-node')).toHaveCount(1)
     await expect(page.locator('.mindmap-row')).toHaveCount(1)
-    await expect(page.locator('[data-testid="tab"]')).toHaveCount(1)
+    // 单导图标签时编辑器标签栏收起，给画布让出空间。
+    await expect(page.locator('[data-testid="editor-tabs"]')).toHaveCount(0)
   })
 
   test('E2E-MM-002: 键盘 Tab 新增子主题、Ctrl+Z 撤销', async ({ page }) => {
@@ -173,17 +174,17 @@ test.describe('Mindmap E2E', () => {
     await openNewMindmap(page)
 
     const stats = page.locator('.mm-stats')
-    // 适配后为 100%，放大一次应为 120%
+    // 小图适配有 115% 上限，避免把后续新增节点推到当前视口外。
     await page.locator('[data-testid="mm-fit"]').click()
-    await expect(stats).toContainText('100%')
+    await expect(stats).toContainText('115%')
     await page.locator('[data-testid="mm-zoom-in"]').click()
-    await expect(stats).toContainText('120%')
+    await expect(stats).toContainText('138%')
 
     await page.locator('[data-testid="mm-fit"]').click()
     await expect(page.locator('[data-testid="mindmap-canvas"]')).toBeVisible()
   })
 
-  test('E2E-MM-008: 导出对话框列出格式并展示 PNG 选项', async ({ page }) => {
+  test('E2E-MM-008: 导出对话框列出全部格式并锁定付费视觉导出', async ({ page }) => {
     await page.goto('/')
     await page.waitForSelector('[data-testid="toolbar"]')
     await openNewMindmap(page)
@@ -191,11 +192,12 @@ test.describe('Mindmap E2E', () => {
     await page.locator('[data-testid="mm-export"]').click()
     const dialog = page.locator('[data-testid="mm-export-dialog"]')
     await expect(dialog).toBeVisible()
-    await expect(page.locator('input[name="mm-export-format"]')).toHaveCount(7)
-
-    await page.locator('[data-testid="mm-export-format-png"]').check()
-    await expect(page.locator('[data-testid="mm-export-png-options"]')).toBeVisible()
-    await expect(page.locator('[data-testid="mm-export-bg-transparent"]')).toBeChecked()
+    await expect(page.locator('input[name="mm-export-format"]')).toHaveCount(8)
+    await expect(page.locator('[data-testid="mm-export-format-png"]')).toBeDisabled()
+    await expect(page.locator('[data-testid="mm-export-format-pdf"]')).toBeEnabled()
+    await page.locator('[data-testid="mm-export-format-png"]').locator('..').click({ force: true })
+    await expect(page.locator('[data-testid="mindmap-membership-prompt"]')).toContainText('PNG 导出')
+    await page.locator('[data-testid="mindmap-membership-cancel"]').click()
 
     await page.locator('[data-testid="mm-export-cancel"]').click()
     await expect(dialog).toBeHidden()
@@ -276,6 +278,7 @@ test.describe('Mindmap E2E', () => {
 
     await expect(page.locator('[data-testid="mm-props"]')).toBeHidden()
     await page.locator('[data-testid="mm-properties-toggle"]').click()
+    await page.locator('[data-testid="mm-detail-tab-properties"]').click()
     await expect(page.locator('[data-testid="mm-props"]')).toBeVisible()
 
     await page.locator('[data-testid="mm-props-notes"]').fill('E2E 备注')
@@ -345,6 +348,7 @@ test.describe('Mindmap E2E', () => {
     await expect(page.locator('.mm-node')).toHaveCount(2)
     await page.locator('.mm-node.is-root').click()
     await page.locator('[data-testid="mm-properties-toggle"]').click()
+    await page.locator('[data-testid="mm-detail-tab-properties"]').click()
 
     await page.locator('[data-testid="mm-props-relation-target"]').selectOption({ index: 1 })
     await page.locator('[data-testid="mm-props-relation-add"]').click()
@@ -361,12 +365,12 @@ test.describe('Mindmap E2E', () => {
     await page.keyboard.press('Tab')
     await expect(page.locator('.mm-node')).toHaveCount(2)
 
+    // Web 构建无法注入 Tauri 会员态；先锁住免费用户的付费门槛。
     await page.locator('[data-testid="mm-sheet-add"]').click()
-    await expect(page.locator('[data-testid="mm-sheet-tab-1"]')).toBeVisible()
-    await expect(page.locator('.mm-node')).toHaveCount(1)
-
-    await page.locator('[data-testid="mm-sheet-tab-0"]').click()
-    await expect(page.locator('.mm-node')).toHaveCount(2)
+    await expect(page.locator('[data-testid="mindmap-membership-prompt"]')).toBeVisible()
+    await expect(page.locator('[data-testid="mindmap-membership-prompt"]')).toContainText('多工作表')
+    await page.locator('[data-testid="mindmap-membership-cancel"]').click()
+    await expect(page.locator('[data-testid="mm-sheet-tab-0"]')).toBeVisible()
   })
 
   test('E2E-MM-017: 打印入口存在', async ({ page }) => {
@@ -389,8 +393,9 @@ test.describe('Mindmap E2E', () => {
     const canvas = page.locator('[data-testid="mindmap-canvas"]')
     const box = await canvas.boundingBox()
     expect(box).toBeTruthy()
-    const startX = box!.x + 40
-    const startY = box!.y + box!.height - 40
+    // HUD 固定在右下角：从画布内左上空白区拖动，避免点击统计文字。
+    const startX = box!.x + 120
+    const startY = box!.y + 120
 
     await page.mouse.move(startX, startY)
     await page.mouse.down()
@@ -508,7 +513,9 @@ test.describe('Mindmap E2E', () => {
       const header = element.querySelector('.mm-style-sticky-header')!.getBoundingClientRect()
       return { panelTop: panelRect.top, headerTop: header.top, position: getComputedStyle(element).position }
     })
-    expect(layout.position).toBe('sticky')
+    // 样式已嵌入固定右侧列，外壳把外层改为 relative；标题本身仍需 sticky。
+    expect(layout.position).toBe('relative')
+    expect(await panel.locator('.mm-style-sticky-header').evaluate((element) => getComputedStyle(element).position)).toBe('sticky')
     expect(Math.abs(layout.panelTop - layout.headerTop)).toBeLessThanOrEqual(1)
   })
 })

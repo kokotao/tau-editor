@@ -28,7 +28,7 @@
  * @author Albert_Luo
  * @date 2026-10-31
  */
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import {
   buildMindmapOutlineRows,
   collectMindmapTopicsInOrder,
@@ -58,6 +58,23 @@ const store = useMindmapStore();
 /** 两列显隐（由全局 Toolbar 的开关驱动）。 */
 const outlineVisible = computed(() => store.outlineVisible);
 const propertiesVisible = computed(() => store.propertiesVisible);
+const styleVisible = computed(() => store.styleVisible);
+const detailVisible = computed(() => propertiesVisible.value || styleVisible.value);
+type DetailTab = 'properties' | 'canvas-style' | 'topic-style';
+const activeDetailTab = ref<DetailTab>(
+  styleVisible.value
+    ? store.styleTarget.kind === 'canvas' ? 'canvas-style' : 'topic-style'
+    : 'properties',
+);
+watch([propertiesVisible, styleVisible], ([properties, style]) => {
+  if (style && !properties) {
+    activeDetailTab.value = store.styleTarget.kind === 'canvas' ? 'canvas-style' : 'topic-style';
+  } else if (properties && !style) activeDetailTab.value = 'properties';
+});
+watch(() => store.styleTarget, (target) => {
+  activeDetailTab.value = target.kind === 'canvas' ? 'canvas-style' : 'topic-style';
+  store.setStyleVisible(true);
+});
 
 const mindmapDocument = computed(() => store.document);
 const selectedTopicId = computed(() => store.selectedTopicId);
@@ -229,6 +246,15 @@ const panelRelations = computed(() => {
 
 function closeProperties() {
   store.setPropertiesVisible(false);
+}
+
+function selectDetailTab(tab: DetailTab) {
+  activeDetailTab.value = tab;
+  if (tab === 'properties') store.setPropertiesVisible(true);
+  else if (tab === 'canvas-style') store.showStyleTarget({ kind: 'canvas' });
+  else if (store.selectedTopicId && mindmapDocument.value?.topics[store.selectedTopicId]) {
+    store.showStyleTarget({ kind: 'topic', topicId: store.selectedTopicId });
+  }
 }
 
 /* ------------------------------- 命令执行 ------------------------------- */
@@ -433,13 +459,15 @@ function onOutlineContextMenu(payload: {
     </div>
   </section>
 
-  <!-- 属性区（默认收起；没有选中节点时不显示，与面板外移前的 Stage 行为一致） -->
+  <!-- 详情区：节点属性与节点/画布样式共用同一侧栏宽度 -->
   <section
-    v-if="propertiesVisible && panelTopic"
+    v-if="detailVisible"
     class="mm-right-column mm-right-properties"
+    :class="{ 'is-style-tab': activeDetailTab === 'canvas-style' || activeDetailTab === 'topic-style' }"
     data-testid="mm-right-properties"
+    data-panel-kind="details"
     role="complementary"
-    aria-label="节点属性"
+    aria-label="节点详情"
     :style="propertiesColumnStyle"
   >
     <div
@@ -451,23 +479,57 @@ function onOutlineContextMenu(payload: {
       title="拖动调整宽度"
       @pointerdown="startResize('properties', $event)"
     ></div>
-    <div v-if="notice" class="mm-right-notice" role="status" data-testid="mm-right-notice">{{ notice }}</div>
+    <nav class="mm-detail-tabs" role="tablist" aria-label="节点面板">
+      <button
+        type="button"
+        role="tab"
+        data-testid="mm-detail-tab-properties"
+        :aria-selected="activeDetailTab === 'properties'"
+        :class="{ 'is-active': activeDetailTab === 'properties' }"
+        @click="selectDetailTab('properties')"
+      >节点属性</button>
+      <button
+        type="button"
+        role="tab"
+        data-testid="mm-detail-tab-canvas-style"
+        :aria-selected="activeDetailTab === 'canvas-style'"
+        :class="{ 'is-active': activeDetailTab === 'canvas-style' }"
+        @click="selectDetailTab('canvas-style')"
+      >画布样式</button>
+      <button
+        type="button"
+        role="tab"
+        data-testid="mm-detail-tab-style"
+        :aria-selected="activeDetailTab === 'topic-style'"
+        :class="{ 'is-active': activeDetailTab === 'topic-style' }"
+        :disabled="!panelTopic"
+        @click="selectDetailTab('topic-style')"
+      >节点样式</button>
+    </nav>
+    <div v-if="notice && activeDetailTab === 'properties'" class="mm-right-notice" role="status" data-testid="mm-right-notice">{{ notice }}</div>
     <div class="mm-right-column-body">
-      <MindmapPropertiesPanel
-        :topic="panelTopic"
-        :relations="panelRelations"
-        :relation-targets="relationTargets"
-        :width="store.propertiesWidth"
-        :resizable="false"
-        @update="applyTopicProperties"
-        @close="closeProperties"
-        @update-style="applyTopicStyle"
-        @update-markers="applyTopicMarkers"
-        @add-relation="addRelationFromPanel"
-        @remove-relation="removeRelationFromPanel"
-        @update-boundary="applyTopicBoundary"
-        @update-summary="applyTopicSummary"
-      />
+      <div v-show="activeDetailTab === 'properties'" class="mm-detail-content" data-testid="mm-detail-properties-content">
+        <MindmapPropertiesPanel
+          v-if="panelTopic"
+          :topic="panelTopic"
+          :relations="panelRelations"
+          :relation-targets="relationTargets"
+          :width="store.propertiesWidth"
+          :resizable="false"
+          @update="applyTopicProperties"
+          @close="closeProperties"
+          @update-style="applyTopicStyle"
+          @update-markers="applyTopicMarkers"
+          @add-relation="addRelationFromPanel"
+          @remove-relation="removeRelationFromPanel"
+          @update-boundary="applyTopicBoundary"
+          @update-summary="applyTopicSummary"
+        />
+        <p v-else class="mm-detail-empty" data-testid="mm-detail-empty">选择一个节点以编辑属性</p>
+      </div>
+      <div v-show="activeDetailTab === 'canvas-style' || activeDetailTab === 'topic-style'" class="mm-detail-content mm-detail-style" data-testid="mm-detail-style-content">
+        <slot name="style"></slot>
+      </div>
     </div>
   </section>
 </template>
@@ -529,6 +591,39 @@ function onOutlineContextMenu(payload: {
   min-height: 0;
   min-width: 0;
 }
+.mm-right-properties { min-width: 0; }
+.mm-detail-tabs {
+  display: flex;
+  flex: 0 0 42px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--panel-base);
+}
+.mm-detail-tabs button {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 600 12px var(--font-ui);
+  cursor: pointer;
+}
+.mm-detail-tabs button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.mm-detail-tabs button.is-active { border-bottom-color: var(--accent-brand); color: var(--accent-brand-strong); }
+.mm-detail-tabs button:disabled { opacity: .45; cursor: default; }
+.mm-detail-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.mm-detail-style :deep(.mm-style-panel) {
+  position: relative;
+  top: auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  border-left: 0;
+}
+.mm-detail-style :deep(.mm-style-header) { display: none; }
+.mm-detail-style :deep(.mm-style-panel) { overflow: auto; }
+.mm-detail-empty { margin: 20px; color: var(--text-muted); font-size: 12px; }
 /*
  * 被包裹的大纲 / 属性面板自带宽度与 resizer（历史上独立使用）。
  * 在右面板里统一由外层列的宽度与列 resizer 控制，因此这里覆盖为撑满容器，

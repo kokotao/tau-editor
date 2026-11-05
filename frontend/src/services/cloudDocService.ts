@@ -14,6 +14,7 @@ import {
   type CloudDocSaveResult,
   type CloudDocSpace,
   type CloudDocVersion,
+  type CloudDocVersionPreview,
 } from '@/lib/tauri';
 import { upgradeCloudAssetUrlsInMarkdown } from '@/services/cloudAssetService';
 
@@ -128,11 +129,32 @@ function readErrorMessage(error: unknown): string {
 }
 
 /**
+ * Tauri invoke 找不到命令时通常只返回 “Command ... not found” 或
+ * “not allowed by ACL”，没有业务 code。把它明确归到 unsupported，避免被误当成服务端路径错误。
+ */
+function isMissingTauriCommand(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { command?: unknown; message?: unknown; cause?: unknown };
+  const command = typeof candidate.command === 'string' ? candidate.command : '';
+  const message = [
+    typeof candidate.message === 'string' ? candidate.message : '',
+    candidate.cause instanceof Error ? candidate.cause.message : '',
+  ].join(' ');
+  return Boolean(command && /command.*not found|not allowed|unknown command/i.test(message));
+}
+
+/**
  * 把任意异常归一化成 {kind, message}：
  * 1. Rust 已把 body.code / HTTP status 映射成字符串代码，有 code 时只按 code 归类；
  * 2. 只有完全没有 code 的异常（如 Web fetch 的 TypeError）才按消息关键字兜底。
  */
 export function normalizeCloudError(error: unknown): { kind: CloudErrorKind; message: string } {
+  if (isMissingTauriCommand(error)) {
+    return {
+      kind: 'unsupported',
+      message: '当前应用后端不支持该操作，请重启或升级 Tau Editor。',
+    };
+  }
   const code = readErrorCode(error);
   const message = readErrorMessage(error) || CLOUD_FALLBACK_MESSAGE;
 
@@ -308,6 +330,26 @@ export async function listCloudDocVersions(
     return { ok: true, data: versions };
   } catch (error) {
     return failureFromError<CloudDocVersion[]>(error);
+  }
+}
+
+export async function previewCloudDocVersion(
+  fileId: number,
+  versionId: number,
+): Promise<CloudOutcome<CloudDocVersionPreview>> {
+  if (!isTauriApp()) {
+    return unsupportedOutcome<CloudDocVersionPreview>();
+  }
+
+  try {
+    const preview = await cloudCommands.versionPreview(fileId, versionId);
+    if (typeof preview.content === 'string' && preview.content) {
+      const normalized = upgradeCloudAssetUrlsInMarkdown(preview.content);
+      if (normalized !== preview.content) return { ok: true, data: { ...preview, content: normalized } };
+    }
+    return { ok: true, data: preview };
+  } catch (error) {
+    return failureFromError<CloudDocVersionPreview>(error);
   }
 }
 

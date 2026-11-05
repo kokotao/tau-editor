@@ -123,6 +123,7 @@ pub fn run() {
             commands::cloud_docs_get,
             commands::cloud_docs_save,
             commands::cloud_docs_versions,
+            commands::cloud_docs_version_preview,
             commands::cloud_docs_restore,
             commands::cloud_docs_delete,
             commands::cloud_docs_share_create,

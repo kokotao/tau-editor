@@ -741,11 +741,7 @@ const isMindmapTab = computed(() => activeTab.value?.documentKind === 'mindmap' 
  */
 const showMindmapRightPanel = computed(() => (
   activeTab.value?.documentKind === 'mindmap'
-  && (mindmapStore.outlineVisible || mindmapStore.propertiesVisible)
-));
-const showMindmapCanvasStylePanel = computed(() => (
-  activeTab.value?.documentKind === 'mindmap'
-  && mindmapStore.styleVisible
+  && (mindmapStore.outlineVisible || mindmapStore.propertiesVisible || mindmapStore.styleVisible)
 ));
 const isImageTab = computed(() => isImageFilePath(activeTab.value?.filePath));
 const isPdfTab = computed(() => isPdfFilePath(activeTab.value?.filePath));
@@ -3462,6 +3458,74 @@ const handleRetryLargeFileLoad = (tabId: string) => {
   void workspaceService.retryLargeFileLoad(tabId);
 };
 
+/**
+ * 思维导图解析失败后的显式重试：本地文件重新读盘，云端文档重新拉取并落位。
+ * 不自动覆盖源文件，也不复用失败时的旧缓存。
+ */
+const handleRetryMindmapLoad = async (tabId: string): Promise<void> => {
+  const tab = tabsStore.tabs.find((item) => item.id === tabId);
+  if (!tab) {
+    return;
+  }
+
+  try {
+    if (tab.cloudFileId != null) {
+      const cloudPath = [...Object.entries(cloudSyncStore.docMap)]
+        .find(([, meta]) => meta.fileId === tab.cloudFileId)?.[0]
+        ?? (tab.filePath
+          ? resolveCloudDocPathForFile(
+            tab.filePath,
+            workspaceStore.currentWorkspaceName,
+            workspaceStore.currentWorkspacePath,
+          )
+          : null);
+      if (!cloudPath) {
+        notificationStore.error('重新读取失败', '无法确定该云文档的云端路径');
+        return;
+      }
+
+      const result = await materializeCloudDocForEdit({
+        fileId: tab.cloudFileId,
+        cloudPath,
+        title: tab.fileName,
+      });
+      if (!result.ok) {
+        notificationStore.error('重新读取失败', result.message);
+        return;
+      }
+
+      const target = result.target;
+      cloudSyncStore.rememberDoc(target.cloudPath, {
+        fileId: target.fileId,
+        version: target.version,
+        contentHash: target.contentHash,
+        updatedAt: null,
+      });
+      cloudSaveTargets.set(target.fileId, { path: target.cloudPath, title: target.title });
+      await reloadTabContentFromDisk(tabId, target.absolutePath, null);
+      tabsStore.updateTab(tabId, {
+        cloudFileId: target.fileId,
+        cloudVersion: target.version,
+        cloudContentHash: target.contentHash,
+      });
+      notificationStore.success('重新读取成功', `${tab.fileName} 已从云端刷新`);
+      return;
+    }
+
+    if (!tab.filePath) {
+      notificationStore.warning('无法重新读取', '未保存的思维导图没有可重读的源文件');
+      return;
+    }
+    await reloadTabContentFromDisk(tabId, tab.filePath, tab.lastKnownModified ?? null);
+    notificationStore.success('重新读取成功', `${tab.fileName} 已从磁盘刷新`);
+  } catch (error) {
+    notificationStore.error(
+      '重新读取失败',
+      error instanceof Error ? error.message : '无法读取该思维导图文件',
+    );
+  }
+};
+
 const handleContentChange = (content: string, modelId: string) => {
   // 编辑器可能在上一次输入去抖后才提交，这里按模型对应的标签回写，避免串写。
   tabService.updateTabContent(modelId, content);
@@ -5999,6 +6063,9 @@ onUnmounted(() => {
               :is-dirty="isDirty"
               @change="handleMindmapChange"
               @membership-required="handleMindmapMembershipRequired"
+              @retry-load="handleRetryMindmapLoad(activeTab.id)"
+              @sync-to-cloud="handleActiveTabSyncToCloud"
+              @share="handleActiveTabShare"
             />
           </div>
           <ImagePreview
@@ -6012,11 +6079,11 @@ onUnmounted(() => {
             v-if="showMindmapRightPanel"
             @change="handleMindmapChange"
             @contextmenu="handleMindmapRightPanelContextMenu"
-          />
-          <MindmapCanvasStylePanel
-            v-if="showMindmapCanvasStylePanel"
-            @change="handleMindmapChange"
-          />
+          >
+            <template #style>
+              <MindmapCanvasStylePanel @change="handleMindmapChange" />
+            </template>
+          </MindmapRightPanel>
           <div
             v-if="isPreviewableTab"
             class="preview-pane"

@@ -2605,6 +2605,9 @@ interface CloudDocPanelText {
   historyLoading: string;
   versionLabel: (version: number) => string;
   currentVersion: string;
+  preview: string;
+  previewLoading: string;
+  previewUnavailable: string;
   restore: string;
   restoreDone: (version: number) => string;
   timeLabel: string;
@@ -2761,6 +2764,9 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     historyLoading: '正在读取历史版本…',
     versionLabel: (version) => `版本 v${version}`,
     currentVersion: '当前版本',
+    preview: '预览',
+    previewLoading: '正在读取历史文件…',
+    previewUnavailable: '该版本为二进制或超大文件，暂不支持文本预览。',
     restore: '恢复到此版本',
     restoreDone: (version) => `已恢复到 v${version}`,
     timeLabel: '时间',
@@ -2897,6 +2903,9 @@ const CLOUD_DOC_PANEL_TEXTS: Record<UiLanguage, CloudDocPanelText> = {
     historyLoading: 'Loading versions…',
     versionLabel: (version) => `Version v${version}`,
     currentVersion: 'Current',
+    preview: 'Preview',
+    previewLoading: 'Loading historical file…',
+    previewUnavailable: 'This version is binary or too large for text preview.',
     restore: 'Restore this version',
     restoreDone: (version) => `Restored to v${version}`,
     timeLabel: 'Time',

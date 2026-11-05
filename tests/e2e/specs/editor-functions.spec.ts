@@ -119,7 +119,9 @@ test.describe('Editor Functions', () => {
     
     // 验证状态栏元素
     await expect(page.locator('[data-testid="cursor-position"]')).toBeVisible()
-    await expect(page.locator('[data-testid="encoding-select"]')).toBeVisible()
+    // 文件读写链路固定为 UTF-8，状态栏只读展示，避免用户误以为可切换编码并损坏文件。
+    await expect(page.locator('[data-testid="encoding-readonly"]')).toHaveText('UTF-8')
+    await expect(page.locator('[data-testid="encoding-select"]')).toHaveCount(0)
   })
 
   test('E2E-EDIT-010: 编辑器输入', async ({ page }) => {

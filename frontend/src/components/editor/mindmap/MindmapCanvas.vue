@@ -66,9 +66,13 @@ const props = withDefaults(defineProps<{
   canvasBackground?: string;
   canvasGridVisible?: boolean;
   canvasRootVisible?: boolean;
+  canvasTool?: 'select' | 'relation';
+  relationStartId?: string | null;
 }>(), {
   canvasGridVisible: true,
   canvasRootVisible: true,
+  canvasTool: 'select',
+  relationStartId: null,
 });
 
 const emit = defineEmits<{
@@ -81,7 +85,7 @@ const emit = defineEmits<{
   (event: 'update:viewport', viewport: MindmapViewport): void;
   (event: 'update:editing-text', text: string): void;
   (event: 'apply-text-style', payload: { start: number; end: number; color?: string | null; background?: string | null }): void;
-  (event: 'move', draggedId: string, targetId: string): void;
+  (event: 'move', draggedId: string, targetId: string, position?: 'before' | 'after'): void;
   /** 右键：nodeId 为命中的节点，null 表示空白区域。 */
   (event: 'contextmenu', payload: {
     nodeId: string | null;
@@ -442,6 +446,19 @@ interface NodeDragState {
 let nodeDrag: NodeDragState | null = null;
 const draggingId = ref<string | null>(null);
 const dragOverId = ref<string | null>(null);
+const dragOverPosition = ref<'before' | 'after' | null>(null);
+const dragOffset = ref({ x: 0, y: 0 });
+const dragInsertion = computed(() => {
+  if (!dragOverId.value || !dragOverPosition.value) return null;
+  const target = layout.value?.nodes.find((node) => node.id === dragOverId.value);
+  if (!target) return null;
+  if (layout.value?.mode === 'org') {
+    const x = target.x + (dragOverPosition.value === 'before' ? -1 : 1) * (target.width / 2 + 8);
+    return { x1: x, y1: target.y - target.height / 2 - 5, x2: x, y2: target.y + target.height / 2 + 5 };
+  }
+  const y = target.y + (dragOverPosition.value === 'before' ? -1 : 1) * (target.height / 2 + 8);
+  return { x1: target.x - target.width / 2 - 5, y1: y, x2: target.x + target.width / 2 + 5, y2: y };
+});
 /** 在该时间点之前到达的 click 一律忽略（拖拽收尾）。 */
 let suppressClickUntil = 0;
 
@@ -476,25 +493,59 @@ function onNodePointerMove(event: PointerEvent) {
     draggingId.value = nodeDrag.id;
     setBodyDragging(true);
   }
-  dragOverId.value = hitTestNode(event.clientX, event.clientY, nodeDrag.id);
+  dragOffset.value = {
+    x: dx / props.viewport.zoom,
+    y: dy / props.viewport.zoom,
+  };
+  const targetId = hitTestNode(event.clientX, event.clientY, nodeDrag.id);
+  dragOverId.value = targetId;
+  dragOverPosition.value = targetId && isSameParent(nodeDrag.id, targetId)
+    ? getDropPosition(targetId, event.clientX, event.clientY)
+    : null;
 }
 
 function onNodePointerUp() {
   const drag = nodeDrag;
   const targetId = dragOverId.value;
+  const position = dragOverPosition.value;
   endNodeDrag();
   if (!drag || !drag.moved) return;
   // 拖拽收尾时抑制紧随其后的 click，避免「拖完就选中」的误操作
   suppressClickUntil = Date.now() + DRAG_CLICK_SUPPRESS_MS;
   if (targetId && targetId !== drag.id) {
-    emit('move', drag.id, targetId);
+    if (position) emit('move', drag.id, targetId, position);
+    else emit('move', drag.id, targetId);
   }
+}
+
+function isSameParent(sourceId: string, targetId: string): boolean {
+  return Boolean(
+    props.document?.topics[sourceId]
+    && props.document.topics[sourceId]?.parentId === props.document.topics[targetId]?.parentId,
+  );
+}
+
+function getDropPosition(targetId: string, clientX: number, clientY: number): 'before' | 'after' | null {
+  const target = layout.value?.nodes.find((node) => node.id === targetId);
+  const rect = containerRef.value?.getBoundingClientRect();
+  if (!target || !rect) return 'after';
+  const localX = (clientX - rect.left - props.viewport.x) / props.viewport.zoom;
+  const localY = (clientY - rect.top - props.viewport.y) / props.viewport.zoom;
+  const isOrg = layout.value?.mode === 'org';
+  const coordinate = isOrg ? localX - target.x : localY - target.y;
+  const extent = (isOrg ? target.width : target.height) / 2;
+  const edgeZone = extent * 0.35;
+  if (coordinate < -edgeZone) return 'before';
+  if (coordinate > edgeZone) return 'after';
+  return null;
 }
 
 function endNodeDrag() {
   nodeDrag = null;
   draggingId.value = null;
   dragOverId.value = null;
+  dragOverPosition.value = null;
+  dragOffset.value = { x: 0, y: 0 };
   setBodyDragging(false);
   window.removeEventListener('pointermove', onNodePointerMove);
   window.removeEventListener('pointerup', onNodePointerUp);
@@ -891,6 +942,13 @@ function nodeBranchStyle(nodeId: string): Record<string, string> {
   return color ? { '--mm-hue': color } : {};
 }
 
+function nodeDragStyle(nodeId: string): Record<string, string> {
+  return {
+    ...nodeBranchStyle(nodeId),
+    ...(nodeId === draggingId.value ? { transition: 'none' } : {}),
+  };
+}
+
 /** 节点边缘圆点：落在「连线接入的那条边」的中点，作为分支色锚点。 */
 function branchDotX(node: MindmapNodeBox): number {
   return node.side === 'left' ? -node.width / 2 + 3 : node.width / 2 - 3;
@@ -1279,6 +1337,8 @@ watch(
           class="mm-node"
           :class="{
             'is-selected': node.id === selectedId,
+            'is-relation-start': node.id === relationStartId,
+            'is-relation-pick-mode': canvasTool === 'relation',
             'is-root': node.side === 'root',
             'is-collapsed': node.collapsed,
             'is-drag-over': node.id === dragOverId,
@@ -1287,8 +1347,8 @@ watch(
           :data-node-id="node.id"
           :data-selected="node.id === selectedId ? 'true' : 'false'"
           :aria-selected="node.id === selectedId"
-          :transform="`translate(${node.x} ${node.y})`"
-          :style="nodeBranchStyle(node.id)"
+          :transform="`translate(${node.x + (node.id === draggingId ? dragOffset.x : 0)} ${node.y + (node.id === draggingId ? dragOffset.y : 0)})`"
+          :style="nodeDragStyle(node.id)"
           @pointerdown.stop="onNodePointerDown(node, $event)"
           @click.stop="onNodeClick(node)"
           @dblclick.stop="emit('start-rename', node.id)"
@@ -1394,6 +1454,15 @@ watch(
           </g>
         </g>
       </g>
+      <line
+        v-if="dragInsertion"
+        class="mm-drop-insertion"
+        :x1="viewport.x + dragInsertion.x1 * viewport.zoom"
+        :y1="viewport.y + dragInsertion.y1 * viewport.zoom"
+        :x2="viewport.x + dragInsertion.x2 * viewport.zoom"
+        :y2="viewport.y + dragInsertion.y2 * viewport.zoom"
+        data-testid="mm-drop-insertion"
+      />
     </svg>
 
     <!-- 迷你地图（Stitch 稿右下角缩略导航）：只读全图 + 当前视口矩形，点击跳转 -->
@@ -1608,7 +1677,10 @@ watch(
   stroke-linecap: round;
 }
 .mm-edge-hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
-.mm-node { cursor: pointer; }
+.mm-node {
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(.2, .75, .25, 1);
+}
 .mm-node-box {
   fill: var(--mindmap-node-bg, var(--panel-elevated));
   stroke: var(--mindmap-node-border, var(--border-strong));
@@ -1648,6 +1720,18 @@ watch(
   stroke: var(--state-success);
   stroke-width: 2.4;
   fill: var(--surface-active);
+}
+.mm-node.is-relation-pick-mode { cursor: crosshair; }
+.mm-node.is-relation-start .mm-node-box {
+  stroke: var(--accent-brand);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent-brand) 65%, transparent));
+}
+.mm-drop-insertion {
+  stroke: var(--accent-brand);
+  stroke-width: 3;
+  stroke-linecap: round;
+  pointer-events: none;
 }
 .mm-toggle { cursor: pointer; }
 .mm-toggle circle {

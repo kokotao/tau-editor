@@ -7,6 +7,7 @@ const cloudMocks = vi.hoisted(() => ({
   get: vi.fn(),
   save: vi.fn(),
   versions: vi.fn(),
+  versionPreview: vi.fn(),
   restore: vi.fn(),
   remove: vi.fn(),
 }));
@@ -23,6 +24,7 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
       get: cloudMocks.get,
       save: cloudMocks.save,
       versions: cloudMocks.versions,
+      versionPreview: cloudMocks.versionPreview,
       restore: cloudMocks.restore,
       remove: cloudMocks.remove,
     },
@@ -34,6 +36,7 @@ import {
   findCloudDocByPath,
   getCloudSpace,
   normalizeCloudError,
+  previewCloudDocVersion,
   saveCloudDoc,
 } from '@/services/cloudDocService';
 
@@ -108,6 +111,15 @@ describe('cloudDocService normalizeCloudError', () => {
   it('Rust 的 NETWORK_ERROR 应归为 network', () => {
     expect(normalizeCloudError({ code: 'NETWORK_ERROR', message: '登录 lizi 账号失败' }).kind)
       .toBe('network');
+  });
+
+  it('旧版 Tauri 未注册预览命令时提示升级或重启', () => {
+    const normalized = normalizeCloudError({
+      command: 'cloud_docs_version_preview',
+      message: 'Command cloud_docs_version_preview not found',
+    });
+    expect(normalized.kind).toBe('unsupported');
+    expect(normalized.message).toContain('重启或升级');
   });
 
   it('fetch 网络异常应按关键字归为 network', () => {
@@ -211,6 +223,23 @@ describe('cloudDocService 命令包装', () => {
       expect(outcome.kind).toBe('unsupported');
     }
     expect(cloudMocks.me).not.toHaveBeenCalled();
+  });
+
+  it('预览历史版本会调用独立命令并把正文升级为可访问的资源地址', async () => {
+    cloudMocks.versionPreview.mockResolvedValue({
+      versionId: 21,
+      version: 2,
+      contentHash: 'sha256:history',
+      size: 12,
+      createdAt: '2026-11-05 10:00:00',
+      content: '![img](http://api.example.com/miniProgram/cloud/docs/file/abc.png)',
+    });
+
+    const outcome = await previewCloudDocVersion(7, 21);
+
+    expect(outcome.ok).toBe(true);
+    expect(cloudMocks.versionPreview).toHaveBeenCalledWith(7, 21);
+    if (outcome.ok) expect(outcome.data.content).toContain('https://api.example.com');
   });
 });
 

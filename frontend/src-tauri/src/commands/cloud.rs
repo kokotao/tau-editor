@@ -133,6 +133,21 @@ pub struct CloudDocVersion {
     pub created_at: Option<String>,
 }
 
+/// 云文档历史版本预览，仅包含小型 UTF-8 正文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudDocVersionPreview {
+    pub version_id: i64,
+    pub version: i32,
+    #[serde(default)]
+    pub content_hash: Option<String>,
+    pub size: i64,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+}
+
 /// 保存/恢复结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -567,6 +582,26 @@ pub async fn cloud_docs_versions(
     })
     .await?;
     parse_result(response, "获取云文档历史版本").await
+}
+
+#[tauri::command]
+pub async fn cloud_docs_version_preview(
+    state: State<'_, CloudState>,
+    file_id: i64,
+    version_id: i64,
+) -> Result<CloudDocVersionPreview, CommandError> {
+    let response = send_authed(&state, "预览云文档历史版本", |client, session| {
+        authed(
+            client.get(format!(
+                "{}{CLOUD_DOCS_PATH}/{file_id}/versions/{version_id}",
+                session.base_url
+            )),
+            session,
+        )
+        .header("Accept", "application/json")
+    })
+    .await?;
+    parse_result(response, "预览云文档历史版本").await
 }
 
 #[tauri::command]
