@@ -64,6 +64,27 @@ describe('MindmapCanvas', () => {
     expect(wrapper.emitted('style-target')?.[0]).toEqual([{ kind: 'topic', topicId: 'b' }]);
   });
 
+  it('选中有后代的节点时以持续模式沿后代连线发送分层脉冲', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.find('.mm-node.is-root').trigger('click');
+
+    const pulses = wrapper.findAll('.mm-edge-pulse');
+    expect(pulses).toHaveLength(3);
+    expect(pulses.every((pulse) => pulse.attributes('data-pulse-mode') === 'continuous')).toBe(true);
+    expect(pulses.map((pulse) => pulse.attributes('data-pulse-depth'))).toEqual(['1', '2', '1']);
+    expect(pulses[0]!.attributes('style')).toContain('animation-delay: 0ms');
+    expect(pulses[1]!.attributes('style')).toContain('animation-delay: 460ms');
+  });
+
+  it('切换到其他节点后清理旧节点的持续脉冲', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.find('.mm-node[data-node-id="a"]').trigger('click');
+    expect(wrapper.find('.mm-edge-pulse').exists()).toBe(true);
+
+    await wrapper.find('.mm-node[data-node-id="b"]').trigger('click');
+    expect(wrapper.find('.mm-edge-pulse').exists()).toBe(false);
+  });
+
   it('空白画布可通过指针拖动平移视口', async () => {
     const wrapper = mountCanvas();
     const canvas = wrapper.get('[data-testid="mindmap-canvas"]');

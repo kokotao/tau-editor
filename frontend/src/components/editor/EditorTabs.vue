@@ -89,7 +89,6 @@
               </button>
             </span>
           </div>
-          <span class="tab-path">{{ tab.isUntitled ? copy.unsaved : tab.filePath }}</span>
         </div>
 
         <button
@@ -125,6 +124,14 @@
       </div>
       <div class="context-menu-item" data-testid="menu-open-in-new-window" @click="handleOpenInNewWindow">
         {{ copy.openInNewWindow }}
+      </div>
+      <div
+        v-if="isSecondaryWindow"
+        class="context-menu-item"
+        data-testid="menu-merge-to-main-window"
+        @click="handleMergeToMainWindow"
+      >
+        合并到主窗口
       </div>
       <div class="context-menu-item" data-testid="menu-copy-file-path" :class="{ disabled: !contextMenuTabHasPath }" :title="contextMenuTabHasPath ? undefined : copy.noFilePath" @click="handleCopyFilePath">
         {{ copy.copyFilePath }}
@@ -187,6 +194,8 @@ import { useNotificationStore } from '@/stores/notification';
 import { uriToPath } from '@/services/lsp/pathUri';
 import {
   buildWindowTransferPayload,
+  tabToTransferTab,
+  TAB_MERGE_REQUEST_EVENT,
   type TabDragTransfer,
 } from '@/services/windowTransferService';
 
@@ -195,6 +204,7 @@ const TAB_DRAG_END_EVENT = 'tau://tab-drag-end';
 const TAB_DROP_COMPLETE_EVENT = 'tau://tab-drop-complete';
 const TAB_TRANSFERRED_MIME = 'application/x-tau-editor-tab';
 const TAB_TRANSFER_ERROR_MIME = 'application/x-tau-editor-tab-error';
+const MAIN_WINDOW_LABEL = 'main';
 
 interface EditorTabsProps {
   tabs?: Tab[];
@@ -229,6 +239,7 @@ const contextMenu = ref({
 
 const renameInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 const contextMenuRef = ref<HTMLElement | null>(null);
+const isSecondaryWindow = computed(() => isTauriApp() && getCurrentWindow().label !== MAIN_WINDOW_LABEL);
 const tabsRootRef = ref<HTMLElement | null>(null);
 const tabsContainerRef = ref<HTMLDivElement | null>(null);
 const settingsStore = useSettingsStore();
@@ -438,6 +449,32 @@ const handleOpenInNewWindow = () => {
   if (tabId) {
     emit('tab-open-in-new-window', tabId);
   }
+  contextMenu.value.visible = false;
+};
+
+const handleMergeToMainWindow = () => {
+  const tabId = contextMenu.value.tabId;
+  const tab = tabId ? props.tabs.find((item) => item.id === tabId) : null;
+  if (!tab || !isSecondaryWindow.value) {
+    contextMenu.value.visible = false;
+    return;
+  }
+
+  const transferId = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  void emitAppEvent(TAB_MERGE_REQUEST_EVENT, {
+    transferId,
+    sourceWindowLabel: getCurrentWindow().label,
+    targetWindowLabel: MAIN_WINDOW_LABEL,
+    sourceTabId: tab.id,
+    tab: tabToTransferTab(tab),
+  }).catch((error: unknown) => {
+    notificationStore.error(
+      '合并到主窗口失败',
+      error instanceof Error ? error.message : String(error),
+    );
+  });
   contextMenu.value.visible = false;
 };
 
@@ -889,10 +926,10 @@ onUnmounted(() => {
 .tab {
   display: flex;
   align-items: center;
-  flex: 0 1 184px;
+  flex: 0 0 auto;
   gap: 6px;
-  min-width: 118px;
-  max-width: 184px;
+  min-width: 112px;
+  max-width: none;
   height: 100%;
   padding: 0 7px;
   border-radius: 0;
@@ -949,19 +986,15 @@ onUnmounted(() => {
 
 .tab-meta {
   display: flex;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
   min-width: 0;
   gap: 1px;
 }
 
 .tab-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-ui-md, 13px);
+  font-size: var(--font-size-ui-sm, 11px);
   font-weight: 650;
 }
 
@@ -1000,14 +1033,6 @@ onUnmounted(() => {
   font-size: var(--font-size-ui-xs, 10px);
   line-height: 1.5;
   cursor: pointer;
-}
-
-.tab-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted, #94a3b8);
-  font-size: var(--font-size-ui-xs, 11px);
 }
 
 .tab-rename-input {

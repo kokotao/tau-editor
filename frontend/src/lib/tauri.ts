@@ -178,6 +178,7 @@ export interface WindowTransferTab {
   isDirty: boolean;
   isUntitled: boolean;
   language: string | null;
+  documentKind?: 'text' | 'mindmap' | 'mindmap-external' | null;
   cursor?: WindowTransferCursor;
 }
 
@@ -1134,6 +1135,14 @@ function getBrowserDeviceInfo(): DeviceInfo {
 }
 
 export const appCommands = {
+  async setMembershipIcon(tier: string): Promise<void> {
+    if (!isTauriAvailable()) {
+      return;
+    }
+
+    await invokeCommand<void>('set_app_icon', { tier });
+  },
+
   async readClipboardText(): Promise<string> {
     return invokeCommand<string>('read_clipboard_text');
   },

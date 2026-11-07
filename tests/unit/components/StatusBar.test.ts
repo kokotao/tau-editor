@@ -79,6 +79,9 @@ describe('StatusBar.vue', () => {
         global: { stubs: { teleport: true } },
         props: {
           isMindmap: true,
+          mindmapCharacterCount: 28,
+          mindmapTopicCount: 7,
+          mindmapRelationCount: 2,
           cursorPosition: { line: 1, column: 1 },
           encoding: 'utf-8',
           language: 'plaintext',
@@ -89,7 +92,19 @@ describe('StatusBar.vue', () => {
       expect(wrapper.find('#mindmap-sheet-bar-host').exists()).toBe(true)
       expect(wrapper.find('[data-testid="mindmap-status-section"]').element.parentElement)
         .toBe(wrapper.find('[data-testid="status-bar"]').element)
-      expect(wrapper.findAll('.mindmap-status-shortcut')).toHaveLength(6)
+      expect(wrapper.findAll('.mindmap-status-shortcut')).toHaveLength(8)
+      const shortcutLabels = wrapper.findAll('.mindmap-status-shortcut')
+        .map((shortcut) => [shortcut.find('kbd').text(), shortcut.find('span').text()])
+      expect(shortcutLabels).toContainEqual(['Enter', '新增节点'])
+      expect(shortcutLabels).toContainEqual(['Tab', '新增子节点'])
+      expect(wrapper.find('[data-testid="mindmap-character-count"]').text()).toBe('字符 28')
+      expect(wrapper.find('[data-testid="mindmap-topic-count"]').text()).toBe('主题 7')
+      expect(wrapper.find('[data-testid="mindmap-relation-count"]').text()).toBe('关系 2')
+      expect(wrapper.find('[data-testid="cursor-position"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="line-count"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="word-count"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="theme-select"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="mindmap-language-mode"]').text()).toBe('思维导图')
       expect(wrapper.find('[data-testid="author-modal-overlay"]').exists()).toBe(false)
     })
 

@@ -584,6 +584,7 @@ import { open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plug
 import { cloudCommands, fileCommands, type CloudCategoryNode, type CloudDocOpenTarget } from '@/lib/tauri';
 import { formatCloudDocSize, type CloudDocTreeNode } from '@/services/cloudBrowserService';
 import { deleteCloudDoc, getCloudDoc, normalizeCloudError } from '@/services/cloudDocService';
+import { isMindMapPath } from '@/services/documentTypeService';
 import { useCenterToastStore } from '@/stores/centerToast';
 import {
   canAddChildCategory,
@@ -1168,6 +1169,7 @@ function onCustomExtensionInput(event: Event): void {
 
 /** 文件类型徽标（md / 代码 / 图片 / Office / 其他）。 */
 function iconForFile(name: string): string {
+  if (isMindMapPath(name)) return 'MAP';
   const ext = (name.split('.').pop() ?? '').toLowerCase();
   if (['md', 'markdown', 'mdx'].includes(ext)) return 'MD';
   if (['ts', 'tsx', 'js', 'jsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'vue', 'json', 'yaml', 'yml', 'toml', 'sh'].includes(ext)) return '</>';
@@ -1184,6 +1186,7 @@ function badgeClassFor(name: string): Record<string, boolean> {
     'cd-badge--doc': icon === 'DOC',
     'cd-badge--img': icon === 'IMG',
     'cd-badge--code': icon === '</>',
+    'cd-badge--mindmap': icon === 'MAP',
   };
 }
 

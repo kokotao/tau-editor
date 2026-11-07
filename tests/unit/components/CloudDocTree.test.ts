@@ -615,6 +615,18 @@ describe('CloudDocTree 布局契约（tree / table 双模式）', () => {
     expect(wrapper.findAll('[data-testid="cloud-browser-dir"]')).toHaveLength(0);
   });
 
+  it.each(['notes.taumap', 'plan.xmind', 'outline.mm', 'board.mmap', 'ideas.mindnode', 'backlog.opml'])(
+    '思维导图文件 %s 在右侧列表显示专用徽标',
+    (name) => {
+      const wrapper = mount(CloudDocTree, { props: { nodes: [fileNode(name, 901)], layout: 'table' } });
+      const badge = wrapper.find('.cloud-doc-tree__type');
+
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toBe('MAP');
+      expect(badge.classes()).toContain('cd-badge--mindmap');
+    },
+  );
+
   it('点行 emit select（key），受控 selectedKey 命中行带选中类', async () => {
     const wrapper = mount(CloudDocTree, { props: { nodes: [CATEGORY], layout: 'table' } });
     await wrapper.get('[data-testid="cloud-browser-file"]').trigger('click');

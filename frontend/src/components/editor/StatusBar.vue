@@ -1,15 +1,34 @@
 <template>
   <div class="status-bar" :class="{ 'status-bar--mindmap': isMindmap }" data-testid="status-bar">
     <div class="status-section status-left">
-      <div class="status-item">
-        <span class="status-label" data-testid="cursor-position">{{ cursorPositionLabel }}</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label" data-testid="line-count">{{ lineCountLabel }}</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label" data-testid="word-count">{{ normalizedWordCountLabel }}</span>
-      </div>
+      <template v-if="isMindmap">
+        <div class="status-item">
+          <span class="status-label" data-testid="mindmap-character-count">
+            {{ mindmapStatLabels.characters }} {{ mindmapCharacterCount }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label" data-testid="mindmap-topic-count">
+            {{ mindmapStatLabels.topics }} {{ mindmapTopicCount }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label" data-testid="mindmap-relation-count">
+            {{ mindmapStatLabels.relations }} {{ mindmapRelationCount }}
+          </span>
+        </div>
+      </template>
+      <template v-else>
+        <div class="status-item">
+          <span class="status-label" data-testid="cursor-position">{{ cursorPositionLabel }}</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label" data-testid="line-count">{{ lineCountLabel }}</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label" data-testid="word-count">{{ normalizedWordCountLabel }}</span>
+        </div>
+      </template>
       <div v-if="!isMindmap" class="status-item author-info">
         <button class="author-trigger" data-testid="author-info-trigger" type="button" @click="showAuthorModal = true">
           {{ authorCopy.entry }}
@@ -29,6 +48,8 @@
         <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + Z</kbd><span>撤销</span></span>
         <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + Y</kbd><span>重做</span></span>
         <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + Alt + O/P</kbd><span>大纲/属性</span></span>
+        <span class="mindmap-status-shortcut" title="中心主题下新增子节点，否则新增同级节点"><kbd>Enter</kbd><span>新增节点</span></span>
+        <span class="mindmap-status-shortcut"><kbd>Tab</kbd><span>新增子节点</span></span>
       </div>
     </div>
 
@@ -66,7 +87,7 @@
     </div>
 
     <div class="status-section status-right">
-      <div class="status-item">
+      <div v-if="!isMindmap" class="status-item">
         <div class="status-pill">
           <span class="pill-prefix">{{ copy.theme }}</span>
           <StatusBarSelect
@@ -81,7 +102,9 @@
       <div class="status-item">
         <div class="status-pill language-pill">
           <span class="pill-prefix">{{ copy.language }}</span>
+          <span v-if="isMindmap" class="status-value" data-testid="mindmap-language-mode">思维导图</span>
           <StatusBarSelect
+            v-else
             test-id="language-mode-display"
             :value="normalizedLanguage"
             :options="languageSelectOptions"
@@ -171,6 +194,9 @@ interface StatusBarProps {
   cloudSyncState?: 'synced' | 'saving' | 'failed' | 'offline' | null;
   cloudSyncError?: string | null;
   isMindmap?: boolean;
+  mindmapCharacterCount?: number;
+  mindmapTopicCount?: number;
+  mindmapRelationCount?: number;
 }
 
 const props = withDefaults(defineProps<StatusBarProps>(), {
@@ -184,6 +210,9 @@ const props = withDefaults(defineProps<StatusBarProps>(), {
   cloudSyncState: null,
   cloudSyncError: null,
   isMindmap: false,
+  mindmapCharacterCount: 0,
+  mindmapTopicCount: 0,
+  mindmapRelationCount: 0,
 });
 
 const emit = defineEmits<{
@@ -198,6 +227,9 @@ const editorStore = useEditorStore();
 const settingsStore = useSettingsStore();
 const copy = computed(() => getStatusBarI18n(settingsStore.uiLanguage));
 const authorCopy = computed(() => getAuthorInfoI18n(settingsStore.uiLanguage));
+const mindmapStatLabels = computed(() => settingsStore.uiLanguage === 'en-US'
+  ? { characters: 'Chars', topics: 'Topics', relations: 'Links' }
+  : { characters: '字符', topics: '主题', relations: '关系' });
 const projectHomepageUrl = 'https://github.com/kokotao/tau-editor';
 const themeOptions: Array<{ value: MonacoThemeValue }> = [
   { value: 'vs' },
@@ -256,6 +288,10 @@ const normalizedWordCountLabel = computed(() => {
   }
   return String(props.wordCount);
 });
+const normalizeCount = (value: number) => Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+const mindmapCharacterCount = computed(() => normalizeCount(props.mindmapCharacterCount));
+const mindmapTopicCount = computed(() => normalizeCount(props.mindmapTopicCount));
+const mindmapRelationCount = computed(() => normalizeCount(props.mindmapRelationCount));
 const normalizedEncoding = computed<EditorEncoding>(() => {
   const rawEncoding = (props.encoding ?? 'utf-8').toLowerCase();
   const matched = encodingOptions.find((item) => item.value === rawEncoding);
@@ -306,10 +342,10 @@ const formatLastSaveTime = (date: Date) => {
   gap: 24px;
   min-height: 36px;
   padding: 0 10px;
-  background: var(--panel-elevated, #111827);
-  color: var(--text-primary, #f8fafc);
+  background: var(--chrome-bg, var(--panel-elevated, #111827));
+  color: var(--chrome-text, var(--text-primary, #f8fafc));
   font-size: var(--font-size-ui-sm, 12px);
-  border-top: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
+  border-top: 1px solid var(--chrome-border, var(--border-strong, rgba(148, 163, 184, 0.3)));
   transition: background-color .22s ease, color .22s ease, border-color .22s ease;
 }
 

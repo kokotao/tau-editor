@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="face-top" x1="247" y1="355" x2="616" y2="562" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff1b0" />
+      <stop offset=".48" stop-color="#e7b83f" />
+      <stop offset="1" stop-color="#c78a1d" />
+    </linearGradient>
+    <linearGradient id="face-left" x1="247" y1="462" x2="432" y2="788" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e7b944" />
+      <stop offset="1" stop-color="#b87412" />
+    </linearGradient>
+    <linearGradient id="face-right" x1="432" y1="562" x2="616" y2="788" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d89a24" />
+      <stop offset="1" stop-color="#8f570c" />
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#fff" />
+  <g transform="translate(45 71) scale(.59) translate(-80 -190)">
+    <g fill="none" stroke="#102c43" stroke-linecap="round" stroke-linejoin="round" stroke-width="8">
+      <path d="M432 468V212m0 0-43 77m43-77 43 77M250 675 100 762m0 0 94 1m-94-1 47-82m469-5 150 87m0 0-47-82m47 82-94 1" />
+    </g>
+    <path d="m247 462 185-107 184 107-184 100-185-100Z" fill="#f8fbff" />
+    <path d="M247 462v214l185 112V562L247 462Z" fill="#0b2c49" />
+    <path d="M432 562v226l184-112V462L432 562Z" fill="#f8fbff" />
+    <g fill="none" stroke="#102c43" stroke-linecap="round" stroke-linejoin="round" stroke-width="8">
+      <path d="m247 462 185-107 184 107M247 462l185 100 184-100M432 562v226m90-166 94 54" />
+    </g>
+    <path d="M302 598c4-18 12-20 29-18l48 4c7 1 10-3 12-11l-5 24c-1 5-5 7-11 6l-24-3-9 63c-3 19 5 33 20 36 11 2 17-4 21-15-3 21-13 31-28 27-22-5-33-26-30-51l8-61-19-2c-7 0-11 4-14 12l2-11Z" fill="#fff" />
+  </g>
+</svg>

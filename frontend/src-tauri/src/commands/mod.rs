@@ -3,6 +3,7 @@ pub mod cloud;
 /// Tauri 命令模块
 ///
 /// 包含所有暴露给前端的 Tauri 命令
+pub mod app_icon;
 pub mod file;
 pub mod file_association;
 pub mod file_optimized;
@@ -22,6 +23,7 @@ mod workspace;
 
 pub use clipboard::*;
 pub use cloud::*;
+pub use app_icon::*;
 pub use file::*;
 pub use file_association::*;
 pub use file_optimized::*;

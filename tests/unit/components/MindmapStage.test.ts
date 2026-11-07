@@ -217,14 +217,33 @@ describe('MindmapStage 阶段 1', () => {
     expect(wrapper.get('[data-testid="mm-tool-select"]').attributes('aria-pressed')).toBe('true');
   });
 
-  it('边界工具立即创建边界，概要工具要求所选主题包含子节点', async () => {
+  it('边界工具切换边界，概要工具直接打开输入并要求主题包含子节点', async () => {
     const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
     const store = useMindmapStore();
     store.selectTopic('a');
 
-    await wrapper.get('[data-testid="mm-tool-boundary"]').trigger('click');
+    const boundaryButton = wrapper.get('[data-testid="mm-tool-boundary"]');
+    expect(boundaryButton.attributes('aria-label')).toBe('添加边界');
+    await boundaryButton.trigger('click');
     expect(store.document?.topics.a?.boundary?.color).toBe('#64748b');
-    expect(store.propertiesVisible).toBe(true);
+    expect(boundaryButton.attributes('aria-label')).toBe('移除边界');
+    expect(boundaryButton.classes()).toContain('is-active');
+
+    await boundaryButton.trigger('click');
+    expect(store.document?.topics.a?.boundary).toBeUndefined();
+    expect(boundaryButton.attributes('aria-label')).toBe('添加边界');
+
+    store.selectTopic('a');
+    store.setPropertiesVisible(false);
+    await wrapper.get('[data-testid="mm-tool-summary"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="mm-summary-editor-backdrop"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="mm-summary-editor-input"]').exists()).toBe(true);
+    expect(store.propertiesVisible).toBe(false);
+
+    await wrapper.get('[data-testid="mm-summary-editor-input"]').setValue('节点概要内容');
+    await wrapper.get('[data-testid="mm-summary-editor-save"]').trigger('click');
+    expect(store.document?.topics.a?.summary).toBe('节点概要内容');
 
     store.selectTopic('b');
     await wrapper.get('[data-testid="mm-tool-summary"]').trigger('click');
@@ -271,6 +290,29 @@ describe('MindmapStage 阶段 1', () => {
     const json = emitted![emitted!.length - 1]![0] as string;
     expect(JSON.parse(json).topics).toBeTypeOf('object');
     expect(wrapper.findAll('.mm-node')).toHaveLength(5);
+  });
+
+  it('Enter 在中心主题下添加子主题', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const store = useMindmapStore();
+    store.selectTopic(store.document!.rootTopicId);
+
+    await stageRoot(wrapper).trigger('keydown', { key: 'Enter' });
+
+    expect(wrapper.findAll('.mm-node')).toHaveLength(5);
+    expect(store.document!.topics[store.document!.rootTopicId]?.childIds).toHaveLength(3);
+  });
+
+  it('Enter 在普通主题下添加同级主题', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const store = useMindmapStore();
+    const rootTopicId = store.document!.rootTopicId;
+    store.selectTopic('a');
+
+    await stageRoot(wrapper).trigger('keydown', { key: 'Enter' });
+
+    expect(wrapper.findAll('.mm-node')).toHaveLength(5);
+    expect(store.document!.topics[rootTopicId]?.childIds).toHaveLength(3);
   });
 
   it('F2 进入画布内联改名并提交后 emit change', async () => {

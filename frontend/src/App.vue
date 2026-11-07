@@ -28,6 +28,10 @@ import {
   consumePendingWindowTransfer,
   openTabsInNewWindow,
   payloadToTabs,
+  TAB_MERGE_COMPLETE_EVENT,
+  TAB_MERGE_REQUEST_EVENT,
+  shouldCloseWindowAfterMerge,
+  type TabMergeRequest,
 } from '@/services/windowTransferService';
 import type { WindowTransferPayload, WindowTransferTab } from '@/lib/tauri';
 import { providerRegistry } from '@/services/providerRegistry';
@@ -226,6 +230,11 @@ watch(() => mindmapStore.nodeLimitNotice, () => {
 watch(() => cloudSyncStore.userId, (userId, previousUserId) => {
   if (userId !== previousUserId) cloudQuotaStore.reset();
   if (userId) void cloudQuotaStore.refreshSummary();
+}, { immediate: true });
+watch(() => cloudQuotaStore.tier, (tier) => {
+  void appCommands.setMembershipIcon(tier).catch((error) => {
+    console.warn('更新系统应用图标失败', error);
+  });
 }, { immediate: true });
 const pendingLocalWrites = new Map<string, number>();
 const markLocalWritePending = (filePath?: string | null) => {
@@ -550,6 +559,8 @@ const MARKDOWN_ASSET_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', '
 const externalConflictDialogOpen = ref(false);
 const externalConflictBusy = ref(false);
 let unlistenExternalOpen: (() => void) | null = null;
+let unlistenTabMergeRequest: (() => void) | null = null;
+let unlistenTabMergeComplete: (() => void) | null = null;
 let disposeMonacoEditorOpener: (() => void) | null = null;
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let autoSaveTimer: ReturnType<typeof setInterval> | null = null;
@@ -792,6 +803,15 @@ const wordCount = computed(() => {
 
   const content = tab.content;
   return content.trim() ? content.trim().split(/\s+/).length : 0;
+});
+const mindmapStatusCounts = computed(() => {
+  const document = activeTab.value?.documentKind === 'mindmap' ? mindmapStore.document : null;
+  const topics = document ? Object.values(document.topics) : [];
+  return {
+    characterCount: topics.reduce((total, topic) => total + Array.from(topic.text ?? '').length, 0),
+    topicCount: topics.length,
+    relationCount: document?.relations?.length ?? 0,
+  };
 });
 
 const openImageViewer = (payload: ImageViewerPayload) => {
@@ -2212,7 +2232,15 @@ const handleOpenTabInNewWindow = async (tabId?: string) => {
   notificationStore.info('已在新窗口打开', tab.fileName);
 };
 
-const handleImportTabFromAnotherWindow = (transferTab: WindowTransferTab, targetTabId: string | null) => {
+const handleImportTabFromAnotherWindow = (transferTab: WindowTransferTab, targetTabId: string | null): string => {
+  const existing = transferTab.filePath
+    ? tabsStore.tabs.find((tab) => tab.filePath === transferTab.filePath)
+    : null;
+  if (existing) {
+    tabsStore.activateTab(existing.id);
+    return existing.id;
+  }
+
   const tabId = tabsStore.addTab({
     filePath: transferTab.filePath,
     fileName: transferTab.fileName,
@@ -2220,6 +2248,7 @@ const handleImportTabFromAnotherWindow = (transferTab: WindowTransferTab, target
     isDirty: transferTab.isDirty,
     isUntitled: transferTab.isUntitled,
     language: transferTab.language ?? 'plaintext',
+    documentKind: transferTab.documentKind ?? undefined,
   });
   const orderedIds = tabsStore.tabs.map((tab) => tab.id);
   const targetIndex = targetTabId ? orderedIds.indexOf(targetTabId) : -1;
@@ -2230,10 +2259,24 @@ const handleImportTabFromAnotherWindow = (transferTab: WindowTransferTab, target
   }
   tabsStore.activateTab(tabId);
   notificationStore.info('标签已合并到当前窗口', transferTab.fileName);
+  return tabId;
 };
 
 const handleTransferredTabDropped = (tabId: string) => {
   tabsStore.closeTab(tabId);
+  if (
+    !isTauriApp()
+    || getCurrentWindow().label === 'main'
+    || !shouldCloseWindowAfterMerge(tabsStore.tabs.length)
+  ) {
+    return;
+  }
+  void getCurrentWindow().close().catch((error: unknown) => {
+    notificationStore.error(
+      '关闭窗口失败',
+      error instanceof Error ? error.message : String(error),
+    );
+  });
 };
 
 /** 把当前标签移动到新窗口，迁移成功后从源窗口移除。 */
@@ -4744,6 +4787,52 @@ const setupExternalFileOpenBridge = async (): Promise<boolean> => {
   return false;
 };
 
+const setupWindowTabMergeBridge = async (): Promise<void> => {
+  if (!isTauriApp()) {
+    return;
+  }
+
+  try {
+    const { emit, listen } = await import('@tauri-apps/api/event');
+    const currentWindowLabel = getCurrentWindow().label;
+    unlistenTabMergeRequest = await listen<TabMergeRequest>(
+      TAB_MERGE_REQUEST_EVENT,
+      ({ payload }) => {
+        if (
+          currentWindowLabel !== payload.targetWindowLabel
+          || payload.sourceWindowLabel === currentWindowLabel
+        ) {
+          return;
+        }
+        handleImportTabFromAnotherWindow(payload.tab, null);
+        void emit(TAB_MERGE_COMPLETE_EVENT, {
+          transferId: payload.transferId,
+          sourceWindowLabel: payload.sourceWindowLabel,
+          receiverWindowLabel: currentWindowLabel,
+          sourceTabId: payload.sourceTabId,
+        });
+      },
+    );
+    unlistenTabMergeComplete = await listen<{
+      transferId: string;
+      sourceWindowLabel: string;
+      sourceTabId: string;
+    }>(
+      TAB_MERGE_COMPLETE_EVENT,
+      ({ payload }) => {
+        if (
+          payload.sourceWindowLabel === currentWindowLabel
+          && currentWindowLabel !== 'main'
+        ) {
+          handleTransferredTabDropped(payload.sourceTabId);
+        }
+      },
+    );
+  } catch (error) {
+    console.warn('[App] 窗口标签合并桥接初始化失败:', error);
+  }
+};
+
 const reloadTabContentFromDisk = async (tabId: string, filePath: string, modifiedAt: number | null) => {
   // 大文件由服务层关闭后重新分段打开；普通文件整块重读并刷新 revision 基线。
   const replaced = await workspaceService.reloadFileFromDisk(tabId, filePath, modifiedAt);
@@ -5504,6 +5593,7 @@ onMounted(async () => {
   registerShortcuts();
   const launchTimestamp = Date.now();
   await setupExternalFileOpenBridge();
+  await setupWindowTabMergeBridge();
   workspaceWatcherService.onChange((changes) => {
     void handleWorkspaceFileChanges(changes);
   });
@@ -5530,6 +5620,10 @@ onUnmounted(() => {
     unlistenExternalOpen();
     unlistenExternalOpen = null;
   }
+  unlistenTabMergeRequest?.();
+  unlistenTabMergeRequest = null;
+  unlistenTabMergeComplete?.();
+  unlistenTabMergeComplete = null;
   if (unlistenUpdateProgress) {
     unlistenUpdateProgress();
     unlistenUpdateProgress = null;
@@ -6533,6 +6627,9 @@ onUnmounted(() => {
       </button>
       <StatusBar
         :is-mindmap="isMindmapTab"
+        :mindmap-character-count="mindmapStatusCounts.characterCount"
+        :mindmap-topic-count="mindmapStatusCounts.topicCount"
+        :mindmap-relation-count="mindmapStatusCounts.relationCount"
         :cursor-position="cursorPosition"
         :encoding="encoding"
         :language="language"
@@ -6668,7 +6765,7 @@ textarea {
   font-size: var(--font-size-ui-xs, 11px);
   color: var(--text-secondary, #cbd5e1);
   cursor: pointer;
-  background: var(--panel-elevated, #111827);
+  background: var(--chrome-bg, var(--panel-elevated, #111827));
   border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.28));
   border-radius: var(--radius-sm, 6px);
   box-shadow: 0 6px 18px rgba(2, 6, 23, 0.32);
@@ -6720,8 +6817,9 @@ textarea {
   justify-content: space-between;
   min-width: 0;
   padding: 0 12px;
-  border-bottom: 1px solid var(--border-soft, rgba(148, 163, 184, .14));
-  background: color-mix(in srgb, var(--panel-elevated, var(--panel-base)) 92%, transparent);
+  border-bottom: 1px solid var(--chrome-border, var(--border-soft, rgba(148, 163, 184, .14)));
+  background: var(--chrome-bg, var(--panel-elevated, var(--panel-base)));
+  color: var(--chrome-text, var(--text-primary));
   user-select: none;
 }
 

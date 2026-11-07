@@ -119,6 +119,23 @@ describe('FileTree.vue', () => {
       expect(fileIcons.length).toBeGreaterThanOrEqual(2)
     })
 
+    it.each(['notes.taumap', 'plan.xmind', 'outline.mm', 'board.mmap', 'ideas.mindnode', 'backlog.opml'])(
+      '思维导图文件 %s 应显示专用图标',
+      (name) => {
+        const wrapper = mount(FileTree, {
+          props: {
+            fileTree: [{
+              name,
+              path: `/project/${name}`,
+              type: 'file',
+            }],
+          },
+        })
+
+        expect(wrapper.find('[data-testid="file-icon-mindmap"]').exists()).toBe(true)
+      },
+    )
+
     it('应显示文件名', () => {
       const wrapper = mount(FileTree, {
         props: {

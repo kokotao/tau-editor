@@ -39,6 +39,7 @@
           :style="menuStyle"
           role="listbox"
           :aria-label="title"
+          :class="menuClass"
           @keydown="handleMenuKeydown"
         >
           <button
@@ -77,6 +78,7 @@ const props = defineProps<{
   value: string;
   options: SelectOption[];
   testId: string;
+  menuClass?: string;
 }>();
 
 const emit = defineEmits<{

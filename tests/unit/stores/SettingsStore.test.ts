@@ -626,6 +626,24 @@ describe('SettingsStore', () => {
       )
     })
 
+    it('浅色主题的自绘 chrome 应使用亮色面板背景和当前主题文字/边框', () => {
+      store.theme = 'light'
+      store.applyTheme()
+
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--chrome-bg', 'var(--panel-base)')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--chrome-border', 'var(--border-soft)')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--chrome-text', 'var(--text-primary)')
+    })
+
+    it('深色主题的自绘 chrome 应保留浮起面板层次', () => {
+      store.theme = 'dark'
+      store.applyTheme()
+
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--chrome-bg', 'var(--panel-elevated)')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--chrome-border', 'var(--border-strong)')
+      expect(mockStyle.setProperty).toHaveBeenCalledWith('--chrome-text', 'var(--text-primary)')
+    })
+
     it('应应用主题包 UI token，并让用户 UI 覆盖优先', () => {
       const result = store.importThemePackage(JSON.stringify({
         id: 'ui-token-check',

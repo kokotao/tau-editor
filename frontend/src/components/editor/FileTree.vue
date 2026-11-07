@@ -160,6 +160,10 @@
             >
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
+            <svg v-else-if="fileIconKind(entry.name) === 'mindmap'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-testid="file-icon-mindmap">
+              <circle cx="5" cy="12" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="19" cy="18" r="2" />
+              <path d="M7 11l10-4M7 13l10 4" />
+            </svg>
             <svg v-else-if="fileIconKind(entry.name) === 'image'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-testid="file-icon-image">
               <rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8" cy="9" r="1.5" /><path d="m4 17 5-5 3 3 2-2 6 6" />
             </svg>
@@ -357,6 +361,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { getFileTreeI18n } from '@/i18n/ui';
 import { isCloudSyncEligibleFile } from '@/services/cloudSyncService';
 import { isMacroDocPath, validateBinaryDocLocal } from '@/services/cloudBinaryService';
+import { isMindMapPath } from '@/services/documentTypeService';
 import { NEW_FILE_TYPE_OPTIONS, newFileTypeLabel } from '@/services/newFileTypeOptions';
 import LoadingSpinner from '../ui/LoadingSpinner.vue';
 
@@ -394,7 +399,8 @@ const copy = computed(() => getFileTreeI18n(settingsStore.uiLanguage));
 const searchQuery = ref('');
 const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCase());
 
-const fileIconKind = (name: string): 'image' | 'markdown' | 'code' | 'config' | 'archive' | 'default' => {
+const fileIconKind = (name: string): 'mindmap' | 'image' | 'markdown' | 'code' | 'config' | 'archive' | 'default' => {
+  if (isMindMapPath(name)) return 'mindmap';
   const extension = name.split('.').pop()?.toLowerCase() ?? '';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(extension)) return 'image';
   if (['md', 'markdown', 'mdx'].includes(extension)) return 'markdown';
@@ -1096,6 +1102,7 @@ onUnmounted(() => {
 }
 
 .file-icon-markdown { color: #a78bfa; }
+.file-icon-mindmap { color: #22d3ee; }
 .file-icon-image { color: #34d399; }
 .file-icon-code { color: #60a5fa; }
 .file-icon-config { color: #fbbf24; }

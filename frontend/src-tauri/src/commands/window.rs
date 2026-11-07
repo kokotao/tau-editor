@@ -35,6 +35,8 @@ pub struct WindowTransferTab {
     pub is_dirty: bool,
     pub is_untitled: bool,
     pub language: Option<String>,
+    #[serde(default)]
+    pub document_kind: Option<String>,
     pub cursor: Option<WindowTransferCursor>,
 }
 
@@ -226,6 +228,7 @@ mod tests {
             is_dirty: true,
             is_untitled: false,
             language: Some("typescript".to_string()),
+            document_kind: None,
             cursor: Some(WindowTransferCursor { line: 1, column: 2 }),
         }
     }

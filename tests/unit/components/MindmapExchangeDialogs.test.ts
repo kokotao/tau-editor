@@ -66,6 +66,27 @@ function importPreview(overrides: Partial<MindmapImportPreview> = {}): MindmapIm
 }
 
 describe('MindmapImportPreviewDialog', () => {
+  it('初始状态展示实际支持格式并提供选择文件入口', async () => {
+    const wrapper = mount(MindmapImportPreviewDialog, {
+      props: { visible: true, fileName: '', preview: null },
+    });
+    expect(wrapper.find('[data-testid="mm-import-supported-formats"]').text()).toContain('.taumap');
+    expect(wrapper.text()).toContain('.xmind');
+    expect(wrapper.text()).toContain('MindManager');
+
+    await wrapper.find('[data-testid="mm-import-select"]').trigger('click');
+    expect(wrapper.emitted('select')).toBeTruthy();
+  });
+
+  it('读取解析中显示缓冲状态并禁用确认', () => {
+    const wrapper = mount(MindmapImportPreviewDialog, {
+      props: { visible: true, fileName: 'large.xmind', preview: null, busy: true },
+    });
+    expect(wrapper.find('[data-testid="mm-import-loading"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('正在读取并解析思维导图');
+    expect(wrapper.find('[data-testid="mm-import-select"]').attributes('disabled')).toBeDefined();
+  });
+
   it('展示格式、版本与有损说明，确认可用', () => {
     const wrapper = mount(MindmapImportPreviewDialog, {
       props: { visible: true, fileName: 'a.md', preview: importPreview() },
@@ -173,7 +194,9 @@ describe('MindmapStage 导入/导出接线', () => {
       },
     });
 
-    await stageExpose(wrapper).handleImportPick();
+    stageExpose(wrapper).handleImportPick();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-testid="mm-import-select"]').trigger('click');
     await flushPromises();
 
     expect(wrapper.find('[data-testid="mm-import-dialog"]').exists()).toBe(true);
@@ -189,6 +212,39 @@ describe('MindmapStage 导入/导出接线', () => {
     expect(parsed.title).toBe('导入根');
     expect(Object.keys(parsed.topics)).toHaveLength(3);
     expect(wrapper.find('[data-testid="mm-import-dialog"]').exists()).toBe(false);
+  });
+
+  it('选择文件读取期间保留弹窗并显示缓冲状态', async () => {
+    vi.mocked(io.pickMindmapImportFile).mockResolvedValue('/tmp/slow.md');
+    let resolveRead!: (file: Awaited<ReturnType<typeof io.readMindmapImportFile>>) => void;
+    vi.mocked(io.readMindmapImportFile).mockReturnValue(new Promise((resolve) => {
+      resolveRead = resolve;
+    }));
+
+    const wrapper = mount(MindmapStage, {
+      props: {
+        tabId: 'tab-mm',
+        documentJson: serializeMindMapDocument(treeDoc()),
+        fileName: 'test.taumap',
+        documentKind: 'mindmap',
+      },
+    });
+
+    stageExpose(wrapper).handleImportPick();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="mm-import-supported-formats"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="mm-import-select"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="mm-import-loading"]').exists()).toBe(true);
+
+    resolveRead({
+      path: '/tmp/slow.md',
+      fileName: 'slow.md',
+      content: '# 导入根\n- 子项',
+    });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="mm-import-format"]').text()).toContain('Markdown');
   });
 
   it('导入失败：预览展示错误，文档保持不变且不 emit change', async () => {
@@ -208,7 +264,9 @@ describe('MindmapStage 导入/导出接线', () => {
       },
     });
 
-    await stageExpose(wrapper).handleImportPick();
+    stageExpose(wrapper).handleImportPick();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-testid="mm-import-select"]').trigger('click');
     await flushPromises();
 
     expect(wrapper.find('[data-testid="mm-import-error"]').exists()).toBe(true);

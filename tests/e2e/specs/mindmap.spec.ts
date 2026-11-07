@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/app'
 import { waitForStableBox } from './helpers/layout'
+import { selectStatusBarOption } from './helpers/status-bar-select'
 
 /**
  * 思维导图 E2E（阶段 0–3 关键路径，浏览器模式）
@@ -359,10 +360,10 @@ test.describe('Mindmap E2E', () => {
     await openNewMindmap(page)
 
     const canvas = page.locator('[data-testid="mindmap-canvas"]')
-    await page.locator('[data-testid="mm-theme-select"]').selectOption('ocean')
+    await selectStatusBarOption(page, 'mm-theme-select', 'ocean')
     await expect(canvas).toHaveAttribute('data-theme-id', 'ocean')
 
-    await page.locator('[data-testid="mm-theme-select"]').selectOption('default')
+    await selectStatusBarOption(page, 'mm-theme-select', 'default')
     await expect(canvas).toHaveAttribute('data-theme-id', 'default')
   })
 

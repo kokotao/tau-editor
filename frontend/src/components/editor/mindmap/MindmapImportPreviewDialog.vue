@@ -9,6 +9,7 @@
  * @date 2026-10-30
  */
 import type { MindmapImportPreview } from '@/services/mindmap/importExportService';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps<{
   visible: boolean;
@@ -20,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'close'): void;
   (event: 'confirm'): void;
+  (event: 'select'): void;
 }>();
 
 const SUPPORT_LABEL: Record<string, string> = {
@@ -36,7 +38,26 @@ const SUPPORT_LABEL: Record<string, string> = {
       <h2 class="mm-dialog-title">导入思维导图</h2>
       <p class="mm-dialog-file">{{ props.fileName }}</p>
 
-      <div v-if="props.preview" class="mm-import-body">
+      <div v-if="props.busy && !props.preview" class="mm-import-loading" data-testid="mm-import-loading">
+        <LoadingSpinner size="medium" text="正在读取并解析思维导图…" />
+      </div>
+
+      <div v-else-if="!props.preview" class="mm-import-guide">
+        <p class="mm-import-guide-hint">选择文件前可先确认支持格式与导入范围。</p>
+        <section class="mm-import-section">
+          <div class="mm-import-section-title">支持导入</div>
+          <ul class="mm-import-list" data-testid="mm-import-supported-formats">
+            <li><strong>Tau 思维导图（.taumap）</strong>：原生格式，完整保留结构与样式。</li>
+            <li><strong>XMind（.xmind）</strong>：兼容导入节点层级；主题样式、关系线、附件等可能丢失。</li>
+            <li><strong>FreeMind / Freeplane（.mm）</strong>：导入节点、链接和备注；高级样式可能丢失。</li>
+            <li><strong>OPML（.opml）</strong>：导入大纲层级与文本。</li>
+            <li><strong>Markdown（.md、.markdown）</strong>：从标题和列表生成大纲，行内样式不会保留。</li>
+          </ul>
+        </section>
+        <p class="mm-import-hint">MindManager（.mmap）和 MindNode（.mindnode）暂不支持。确认导入后会替换当前导图，可撤销；源文件不会被修改。</p>
+      </div>
+
+      <div v-else class="mm-import-body">
         <dl class="mm-import-meta">
           <div><dt>格式</dt><dd data-testid="mm-import-format">{{ props.preview.formatName }}</dd></div>
           <div><dt>版本</dt><dd>{{ props.preview.version ?? '未声明' }}</dd></div>
@@ -77,7 +98,14 @@ const SUPPORT_LABEL: Record<string, string> = {
 
       <div class="mm-dialog-actions">
         <button type="button" class="mm-btn" data-testid="mm-import-cancel" @click="emit('close')">取消</button>
-        <button
+        <button v-if="!props.preview"
+          type="button"
+          class="mm-btn primary"
+          data-testid="mm-import-select"
+          :disabled="props.busy"
+          @click="emit('select')"
+        >选择文件导入</button>
+        <button v-else
           type="button"
           class="mm-btn primary"
           data-testid="mm-import-confirm"
@@ -120,6 +148,12 @@ const SUPPORT_LABEL: Record<string, string> = {
 .mm-import-meta > div { display: flex; gap: 10px; font-size: 13px; }
 .mm-import-meta dt { width: 68px; color: var(--text-secondary); }
 .mm-import-meta dd { margin: 0; color: var(--text-primary); }
+.mm-import-guide-hint { margin: 0 0 12px; color: var(--text-secondary); font-size: 12px; }
+.mm-import-guide { display: grid; gap: 8px; }
+.mm-import-guide .mm-import-section { margin: 0; }
+.mm-import-guide .mm-import-list { display: grid; gap: 6px; }
+.mm-import-guide .mm-import-list strong { color: var(--text-primary); font-weight: 600; }
+.mm-import-loading { display: grid; min-height: 150px; place-items: center; }
 .mm-badge {
   display: inline-block;
   padding: 1px 8px;

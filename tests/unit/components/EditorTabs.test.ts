@@ -36,6 +36,19 @@ describe('EditorTabs.vue', () => {
     expect(wrapper.findAll('[data-testid="tab-title"]')[1].text()).toBe('second.txt');
   });
 
+  it('shows the complete filename without rendering a path row', () => {
+    const longName = '20261105230259617_大前端知识体系-详细节点流程图.taumap';
+    const wrapper = mount(EditorTabs, {
+      props: {
+        tabs: [makeTab('mindmap', { fileName: longName, filePath: `/workspace/${longName}` })],
+        activeTabId: 'mindmap',
+      },
+    });
+
+    expect(wrapper.get('[data-testid="tab-title"]').text()).toBe(longName);
+    expect(wrapper.find('.tab-path').exists()).toBe(false);
+  });
+
   it('renders dirty, untitled, and loading metadata from tab props', () => {
     const wrapper = mount(EditorTabs, {
       props: {

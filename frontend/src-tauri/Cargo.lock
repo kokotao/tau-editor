@@ -4588,7 +4588,7 @@ dependencies = [
 
 [[package]]
 name = "text-editor"
-version = "0.6.40"
+version = "0.6.41"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4599,6 +4599,9 @@ dependencies = [
  "keyring",
  "log",
  "notify",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "pdf-extract",
  "png",
  "quick-xml",

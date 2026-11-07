@@ -1,6 +1,6 @@
 [package]
 name = "text-editor"
-version = "0.6.40"
+version = "0.6.41"
 description = "A cross-platform text editor built with Tauri"
 authors = ["罗小纯"]
 edition = "2021"
@@ -38,6 +38,11 @@ keyring = { version = "3", features = ["windows-native", "apple-native", "linux-
 flate2 = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData"] }
 
 [dev-dependencies]
 tempfile = "3"

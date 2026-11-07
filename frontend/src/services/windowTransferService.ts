@@ -12,10 +12,24 @@ import type { Tab } from '@/stores/tabs';
 
 export const WINDOW_TRANSFER_MAX_TABS = 8;
 export const WINDOW_TRANSFER_MAX_BYTES = 8 * 1024 * 1024;
+export const TAB_MERGE_REQUEST_EVENT = 'tau://tab-merge-request';
+export const TAB_MERGE_COMPLETE_EVENT = 'tau://tab-merge-complete';
+
+export function shouldCloseWindowAfterMerge(remainingTabCount: number): boolean {
+  return remainingTabCount === 0;
+}
 
 export interface TabDragTransfer {
   transferId: string;
   sourceWindowLabel: string;
+  sourceTabId: string;
+  tab: WindowTransferTab;
+}
+
+export interface TabMergeRequest {
+  transferId: string;
+  sourceWindowLabel: string;
+  targetWindowLabel: string;
   sourceTabId: string;
   tab: WindowTransferTab;
 }
@@ -55,6 +69,7 @@ export function tabToTransferTab(tab: Tab): WindowTransferTab {
     isDirty: tab.isDirty,
     isUntitled: tab.isUntitled,
     language: tab.language ?? null,
+    documentKind: tab.documentKind ?? null,
   };
 }
 
@@ -161,12 +176,16 @@ export async function consumePendingWindowTransfer(): Promise<WindowTransferPayl
 export function payloadToTabs(
   payload: WindowTransferPayload,
 ): Array<Omit<Tab, 'id' | 'createdAt'>> {
-  return payload.tabs.map((tab) => ({
-    filePath: tab.filePath,
-    fileName: tab.fileName,
-    language: tab.language ?? 'plaintext',
-    isDirty: tab.isDirty,
-    isUntitled: tab.isUntitled,
-    content: tab.content,
-  }));
+  return payload.tabs.map((tab) => {
+    const documentKind = tab.documentKind ?? undefined;
+    return {
+      filePath: tab.filePath,
+      fileName: tab.fileName,
+      language: tab.language ?? 'plaintext',
+      isDirty: tab.isDirty,
+      isUntitled: tab.isUntitled,
+      content: tab.content,
+      ...(documentKind ? { documentKind } : {}),
+    };
+  });
 }

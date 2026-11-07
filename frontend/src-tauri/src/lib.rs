@@ -45,6 +45,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::set_app_icon,
             commands::write_clipboard_image,
             commands::read_clipboard_text,
             commands::read_file,

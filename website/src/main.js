@@ -21,7 +21,19 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.40', date: '2026-11-07', label: '自研思维导图与跨平台发布', category: '思维导图', latest: true,
+    version: 'v0.6.41', date: '2026-11-08', label: '思维导图协作与工作台体验升级', category: '思维导图', latest: true,
+    summary: '节点连线持续水流脉冲、导入引导与格式标识、跨窗口标签合并和精简标签栏，并完善浅色主题与会员系统图标。',
+    highlights: [
+      '选中思维导图节点后，脉冲沿后代连线持续流动并按层级错开；概要可直接编辑，边界操作可添加或移除',
+      '导入前说明实际支持的 TauMap、XMind、FreeMind、OPML 与 Markdown 格式，解析期间显示等待状态',
+      '本地文件树和云端文档列表为思维导图文件显示专属标识；MindManager（.mmap）与 MindNode（.mindnode）暂不支持导入',
+      '标签页显示完整文件名并支持拖动排序；次窗口标签可合并回主窗口，空窗口在合并后自动关闭',
+      '自绘工作台适配浅色主题，界面默认字体为 11px；Plus / Pro 会员可使用金色系统应用图标',
+    ],
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.41',
+  },
+  {
+    version: 'v0.6.40', date: '2026-11-07', label: '自研思维导图与跨平台发布', category: '思维导图', latest: false,
     summary: '自研思维导图引擎补齐滚轮与触控板导航、节点拖拽和多布局协作；官网同步更新真实截图与创新能力展示。',
     highlights: [
       '普通滚轮平移画布，Ctrl/Cmd + 滚轮缩放；触控板双指和触屏支持横向查看长工具栏',

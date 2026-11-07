@@ -100,6 +100,10 @@ const cloudQuotaStore = useCloudQuotaStore();
 const teleportSheetBarToStatus = ref(false);
 const document = computed(() => store.document);
 const selectedTopicId = computed(() => store.selectedTopicId);
+const selectedTopicHasBoundary = computed(() => {
+  const id = selectedTopicId.value;
+  return Boolean(id && document.value?.topics[id]?.boundary);
+});
 const viewport = computed(() => store.viewport);
 const loadError = computed(() => store.loadError);
 const canUndo = computed(() => store.canUndo);
@@ -147,6 +151,9 @@ let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const editingTopicId = ref<string | null>(null);
 const editingText = ref('');
+const summaryEditorTopicId = ref<string | null>(null);
+const summaryDraft = ref('');
+const summaryInputRef = ref<HTMLTextAreaElement | null>(null);
 const confirmAction = ref<
   | { type: 'delete'; topicId: string; count: number }
   | { type: 'reset' }
@@ -429,11 +436,11 @@ function addCanvasBoundary() {
   const id = selectedTopicId.value;
   if (!id || !document.value) return;
   const current = document.value.topics[id];
+  const removing = Boolean(current?.boundary);
   const before = store.serialized;
-  const changed = store.setTopicBoundary(id, current?.boundary ?? { color: '#64748b' });
+  const changed = store.setTopicBoundary(id, removing ? null : { color: '#64748b' });
   if (changed) emitIfChanged(before);
-  store.setPropertiesVisible(true);
-  showNotice('已为选中节点添加边界，可在右侧属性中调整');
+  showNotice(removing ? '已移除选中节点的边界' : '已为选中节点添加边界');
   void focusStage();
 }
 
@@ -445,9 +452,27 @@ function addCanvasSummary() {
     showNotice('概要需要有子节点的主题，请先选择包含子节点的主题');
     return;
   }
-  store.setPropertiesVisible(true);
-  showNotice('请在右侧属性面板中输入概要文本');
+  summaryEditorTopicId.value = id;
+  summaryDraft.value = topic.summary ?? '';
+  void nextTick(() => summaryInputRef.value?.focus());
+}
+
+function closeCanvasSummaryEditor() {
+  summaryEditorTopicId.value = null;
+  summaryDraft.value = '';
   void focusStage();
+}
+
+function saveCanvasSummary() {
+  const id = summaryEditorTopicId.value;
+  if (!id) return;
+  const before = store.serialized;
+  const text = summaryDraft.value.trim();
+  if (store.setTopicSummary(id, text || null)) {
+    emitIfChanged(before);
+    showNotice(text ? '已更新节点概要' : '已清除节点概要');
+  }
+  closeCanvasSummaryEditor();
 }
 
 /* ------------------------------- 工作表（阶段 4E） ------------------------------- */
@@ -1207,10 +1232,18 @@ function runContextMenuAction(id: string) {
 
 async function handleImportPick() {
   if (importBusy.value) return;
+  importFileName.value = '';
+  importPreview.value = null;
+  importDialogVisible.value = true;
+}
+
+async function selectImportFile() {
+  if (importBusy.value) return;
   try {
     const path = await pickMindmapImportFile();
     if (!path) return;
     importBusy.value = true;
+    await nextTick();
     const file = await readMindmapImportFile(path);
     importFileName.value = file.fileName;
     importPreview.value = await previewMindmapImport({
@@ -1218,7 +1251,6 @@ async function handleImportPick() {
       content: file.content,
       bytes: file.bytes,
     });
-    importDialogVisible.value = true;
   } catch (error) {
     showNotice(error instanceof Error ? error.message : '读取导入文件失败');
   } finally {
@@ -1767,7 +1799,14 @@ defineExpose({
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="3" /><circle cx="18" cy="17" r="3" /><path d="m8.5 9 7 6" /></svg>
           </button>
-          <button type="button" data-testid="mm-tool-boundary" aria-label="添加边界" title="为选中节点添加边界" @click="addCanvasBoundary">
+          <button
+            type="button"
+            data-testid="mm-tool-boundary"
+            :class="{ 'is-active': selectedTopicHasBoundary }"
+            :aria-label="selectedTopicHasBoundary ? '移除边界' : '添加边界'"
+            :title="selectedTopicHasBoundary ? '移除选中节点的边界' : '为选中节点添加边界'"
+            @click="addCanvasBoundary"
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4" stroke-dasharray="3 2" /><path d="M7 8h10v8H7z" /></svg>
           </button>
           <button type="button" data-testid="mm-tool-summary" aria-label="编辑概要" title="编辑选中主题的概要" @click="addCanvasSummary">
@@ -1789,6 +1828,29 @@ defineExpose({
         <button type="button" class="mm-btn" data-testid="mm-confirm-cancel" @click="cancelPending">取消</button>
       </div>
 
+      <div
+        v-if="summaryEditorTopicId"
+        class="mm-summary-editor-backdrop"
+        data-testid="mm-summary-editor-backdrop"
+        @click.self="closeCanvasSummaryEditor"
+      >
+        <section class="mm-summary-editor" role="dialog" aria-modal="true" aria-labelledby="mm-summary-editor-title">
+          <h2 id="mm-summary-editor-title">编辑概要</h2>
+          <textarea
+            ref="summaryInputRef"
+            v-model="summaryDraft"
+            data-testid="mm-summary-editor-input"
+            aria-label="概要文本"
+            placeholder="输入选中主题的概要"
+            rows="5"
+          ></textarea>
+          <div class="mm-summary-editor-actions">
+            <button type="button" class="mm-btn" data-testid="mm-summary-editor-cancel" @click="closeCanvasSummaryEditor">取消</button>
+            <button type="button" class="mm-btn primary" data-testid="mm-summary-editor-save" @click="saveCanvasSummary">保存</button>
+          </div>
+        </section>
+      </div>
+
     </template>
 
     <MindmapContextMenu
@@ -1805,6 +1867,7 @@ defineExpose({
       :file-name="importFileName"
       :preview="importPreview"
       :busy="importBusy"
+      @select="selectImportFile"
       @close="cancelImport"
       @confirm="confirmImport"
     />
@@ -1921,13 +1984,12 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  border: 1px solid var(--chrome-border, var(--border-strong));
   /* 常规圆角：胶囊（999px）在左右两侧显得过于圆润，改为控件级圆角 */
   border-radius: var(--radius-control, 6px);
-  background: color-mix(in srgb, var(--panel-base) 90%, transparent);
+  background: var(--chrome-bg, var(--panel-base));
   color: var(--text-primary);
-  box-shadow: 0 8px 26px rgba(2, 6, 23, .24);
-  backdrop-filter: blur(14px) saturate(130%);
+  box-shadow: var(--shadow-soft, 0 8px 26px rgba(2, 6, 23, .16));
 }
 .mm-document-pill {
   top: 16px;
@@ -2095,6 +2157,50 @@ defineExpose({
   font-size: 12px;
 }
 .mindmap-confirm-text { flex: 1; }
+.mm-summary-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg-backdrop);
+}
+.mm-summary-editor {
+  display: grid;
+  gap: 12px;
+  width: min(440px, 100%);
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-dialog);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-overlay);
+}
+.mm-summary-editor h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.mm-summary-editor textarea {
+  width: 100%;
+  min-height: 112px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-control);
+  background: var(--panel-elevated);
+  color: var(--text-primary);
+  font: 13px/1.55 var(--font-ui);
+}
+.mm-summary-editor textarea:focus-visible {
+  outline: 2px solid var(--accent-brand);
+  outline-offset: 1px;
+}
+.mm-summary-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 @media (max-width: 760px) {
   .mm-document-pill { top: 58px; left: 10px; max-width: calc(100% - 20px); }
   .mm-canvas-tools { top: 10px; right: 10px; gap: 2px; }

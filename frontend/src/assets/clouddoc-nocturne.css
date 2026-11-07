@@ -389,6 +389,12 @@
   border-color: rgba(192, 132, 252, 0.3);
 }
 
+.cd-badge--mindmap {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.3);
+}
+
 .cd-chip {
   display: inline-flex;
   align-items: center;

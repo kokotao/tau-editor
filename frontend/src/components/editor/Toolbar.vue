@@ -242,13 +242,18 @@
               @click="emit('mm-layout', option.id)"
             >{{ option.label }}</button>
           </span>
-          <label class="mm-theme-field" title="主题模板">
+          <div class="mm-theme-field">
             <span class="mm-theme-label">主题</span>
-            <select class="mm-theme-select" data-testid="mm-theme-select" :value="mindmapTools.themeId"
-              :aria-label="`主题模板：${mindmapTools.themeId}`" @change="onMindmapThemeChange">
-              <option v-for="option in mindmapTools.themeOptions" :key="option.id" :value="option.id">{{ option.name }}</option>
-            </select>
-          </label>
+            <StatusBarSelect
+              class="mm-theme-select"
+              title="主题模板"
+              :value="mindmapTools.themeId"
+              :options="mindmapThemeOptions"
+              test-id="mm-theme-select"
+              menu-class="mm-theme-menu"
+              @change="onMindmapThemeChange"
+            />
+          </div>
           <button type="button" class="mm-btn" data-testid="mm-import" @click="emit('mm-import')">导入</button>
           <button type="button" class="mm-btn" data-testid="mm-toggle-outline" :aria-pressed="Boolean(mindmapTools.outlineActive)"
             title="切换大纲面板（Ctrl+Alt+O）" @click="emit('mm-toggle-outline')">大纲{{ mindmapTools.outlineActive ? '开' : '关' }}</button>
@@ -397,6 +402,7 @@ import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref } f
 import { useSettingsStore } from '@/stores/settings';
 import { getToolbarI18n } from '@/i18n/ui';
 import TauIcon from '@/components/icons/TauIcon.vue';
+import StatusBarSelect from '@/components/editor/StatusBarSelect.vue';
 
 /**
  * 思维导图工具组状态（UX-3C：工具栏从 MindmapStage 外移到全局 Toolbar）。
@@ -412,7 +418,7 @@ interface MindmapToolbarState {
   selectedTopicId: string | null;
   /** 当前结构布局模式。 */
   layoutMode: 'mindmap' | 'logic' | 'tree' | 'org';
-  /** 当前主题模板 id 与候选列表（原生 select 渲染）。 */
+  /** 当前主题模板 id 与候选列表。 */
   themeId: string;
   themeOptions: Array<{ id: string; name: string }>;
   /** 右侧面板两个 tab 的激活态（用于 aria-pressed）。 */
@@ -668,10 +674,12 @@ const mindmapLayoutOptions: Array<{
   { id: 'org', label: '组织图', title: '自上而下的组织图（org）' },
 ];
 
-/** 主题下拉：保持原生 select（E2E-MM-013 依赖 selectOption）。 */
-const onMindmapThemeChange = (event: Event) => {
-  const nextThemeId = (event.target as HTMLSelectElement | null)?.value ?? '';
-  if (nextThemeId) emit('mm-theme', nextThemeId);
+const mindmapThemeOptions = computed(() => (props.mindmapTools?.themeOptions ?? []).map(
+  ({ id, name }) => ({ value: id, label: name }),
+));
+
+const onMindmapThemeChange = (themeId: string) => {
+  if (themeId) emit('mm-theme', themeId);
 };
 
 const handleDocumentPointerDown = (event: MouseEvent) => {
@@ -796,8 +804,9 @@ onUnmounted(() => {
   gap: 12px;
   height: var(--toolbar-height, 52px);
   padding: 0 10px;
-  background: var(--panel-elevated, #151d2d);
-  border-bottom: 1px solid var(--border-strong, rgba(148, 163, 184, 0.3));
+  background: var(--chrome-bg, var(--panel-elevated, #151d2d));
+  color: var(--chrome-text, var(--text-primary, #e2e8f0));
+  border-bottom: 1px solid var(--chrome-border, var(--border-strong, rgba(148, 163, 184, 0.3)));
   user-select: none;
   transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease;
 }
@@ -929,18 +938,32 @@ onUnmounted(() => {
 }
 .mm-divider { width: 1px; height: 18px; background: var(--border-soft, rgba(148, 163, 184, 0.3)); flex: 0 0 auto; }
 .mm-layout-group { display: flex; gap: 4px; flex: 0 0 auto; }
-.mm-theme-field { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-.mm-theme-label { font-size: 11px; color: var(--text-secondary, #94a3b8); }
-.mm-theme-select {
-  padding: 4px 6px;
-  font-size: 12px;
-  font-family: var(--font-ui, inherit);
-  border-radius: var(--radius-control, 6px);
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.3));
-  background: var(--panel-elevated, #151d2d);
-  color: var(--text-primary, #e2e8f0);
-  cursor: pointer;
+.mm-theme-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  font-size: 11px;
 }
+.mm-theme-label { color: var(--text-secondary, #94a3b8); }
+.mm-theme-select :deep(.status-select) {
+  min-height: 29px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 4px 7px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary, #e2e8f0);
+  font-size: inherit;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.mm-theme-select :deep(.status-select:focus-visible) {
+  outline: 2px solid var(--focus-ring, var(--accent-brand-strong, #7fb3f0));
+  outline-offset: 2px;
+}
+:global(.mm-theme-menu) { --font-size-ui-sm: 11px; }
 .markdown-toolbar-btn { width: 30px; height: 30px; flex: 0 0 auto; }
 .markdown-heading-menu { position: relative; flex: 0 0 auto; }
 .markdown-heading-trigger { width: 42px; gap: 2px; }

@@ -139,6 +139,57 @@ const visibleEdges = computed(() => {
 const fontSize = computed(() => layout.value?.options.fontSize ?? 13);
 const lineHeight = computed(() => layout.value?.options.lineHeight ?? 20);
 
+/** 每层子节点沿入边流动的时长与层级间隔。 */
+const EDGE_PULSE_DURATION_MS = 2600;
+const EDGE_PULSE_DEPTH_STAGGER_MS = 460;
+const pulsingEdgeDepths = ref<Map<string, number>>(new Map());
+const pulseRun = ref(0);
+const pulseRootId = ref<string | null>(null);
+
+/**
+ * 按树深度收集指定节点通往后代的可见父子边。
+ *
+ * childIds 是树的顺序来源；visited 额外防御损坏文档中的环，避免一次点击
+ * 把渲染线程卡在无限遍历里。
+ */
+function collectDescendantEdgeDepths(rootId: string): Map<string, number> {
+  const topics = props.document?.topics;
+  if (!topics?.[rootId]) return new Map();
+  const edgesByChildId = new Map(visibleEdges.value.map((edge) => [edge.childId, edge]));
+  const edgeDepths = new Map<string, number>();
+  const visited = new Set<string>([rootId]);
+  const pending = [{ id: rootId, depth: 0 }];
+  for (let index = 0; index < pending.length; index += 1) {
+    const current = pending[index];
+    if (!current) continue;
+    for (const childId of topics[current.id]?.childIds ?? []) {
+      if (visited.has(childId) || !topics[childId]) continue;
+      visited.add(childId);
+      const depth = current.depth + 1;
+      const edge = edgesByChildId.get(childId);
+      if (edge) edgeDepths.set(edge.id, depth);
+      pending.push({ id: childId, depth });
+    }
+  }
+  return edgeDepths;
+}
+
+function clearDescendantPulse() {
+  pulsingEdgeDepths.value = new Map();
+  pulseRootId.value = null;
+}
+
+function triggerDescendantPulse(rootId: string) {
+  pulseRun.value += 1;
+  pulseRootId.value = rootId;
+  pulsingEdgeDepths.value = collectDescendantEdgeDepths(rootId);
+}
+
+/* 通过大纲等其它入口切换选择时，立即收掉旧节点发出的脉冲。 */
+watch(() => props.selectedId, (selectedId) => {
+  if (selectedId !== pulseRootId.value) clearDescendantPulse();
+});
+
 /* --------------------------------- 容器尺寸 -------------------------------- */
 
 let resizeObserver: ResizeObserver | null = null;
@@ -164,6 +215,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearDescendantPulse();
   resizeObserver?.disconnect();
   resizeObserver = null;
   endPan();
@@ -591,6 +643,7 @@ function onNodeClick(node: MindmapNodeBox) {
     return;
   }
   emit('select', node.id);
+  triggerDescendantPulse(node.id);
   emit('style-target', { kind: 'topic', topicId: node.id });
 }
 
@@ -1312,6 +1365,22 @@ watch(
         >
           <path class="mm-edge" :class="{ 'mm-edge--vertical': edge.orientation === 'vertical', 'mm-edge--rainbow': isRainbow }"
             :data-orientation="edge.orientation" :data-edge-id="edge.id" :d="edge.path" fill="none" :style="edgeStyleOf(edge)" />
+          <path
+            v-if="pulsingEdgeDepths.has(edge.id)"
+            :key="`edge-pulse-${pulseRun}-${edge.id}`"
+            class="mm-edge-pulse"
+            :data-pulse-edge-id="edge.id"
+            :data-pulse-depth="pulsingEdgeDepths.get(edge.id)"
+            data-pulse-mode="continuous"
+            :d="edge.path"
+            pathLength="1"
+            fill="none"
+            stroke-dasharray="0.14 0.86"
+            :style="{
+              animationDuration: `${EDGE_PULSE_DURATION_MS}ms`,
+              animationDelay: `${Math.max(0, (pulsingEdgeDepths.get(edge.id) ?? 1) - 1) * EDGE_PULSE_DEPTH_STAGGER_MS}ms`,
+            }"
+          />
           <path class="mm-edge-hit" :d="edge.path" fill="none" @pointerdown.stop
             @click.stop="emit('style-target', { kind: 'edge', childId: edge.childId })" />
         </g>
@@ -1589,12 +1658,11 @@ watch(
   bottom: 14px;
   z-index: 4;
   padding: 4px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--chrome-border, var(--border-strong));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--panel-base) 92%, transparent);
+  background: var(--chrome-bg, var(--panel-base));
   box-shadow: var(--shadow-soft);
   cursor: pointer;
-  opacity: 0.92;
   transition: opacity 120ms ease;
 }
 .mm-minimap:hover { opacity: 1; }
@@ -1734,6 +1802,33 @@ watch(
   stroke-width: 2.5;
   stroke-dasharray: 5 3;
   pointer-events: none;
+}
+.mm-edge-pulse {
+  stroke: var(--mindmap-accent, var(--accent-brand));
+  stroke-width: 3;
+  stroke-linecap: round;
+  pointer-events: none;
+  opacity: .22;
+  animation: mm-edge-pulse-flow 2600ms linear infinite;
+}
+@keyframes mm-edge-pulse-flow {
+  0% {
+    opacity: .2;
+    stroke-dashoffset: 0;
+  }
+  38% {
+    opacity: .9;
+  }
+  58% {
+    opacity: .72;
+  }
+  100% {
+    opacity: .2;
+    stroke-dashoffset: -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mm-edge-pulse { animation: none !important; opacity: .35; }
 }
 /* 拖拽源：半透明；拖拽目标：成功色高亮 */
 .mm-node.is-dragging { opacity: 0.5; }

@@ -526,15 +526,19 @@ describe('Toolbar.vue', () => {
       expect(wrapper.emitted('mm-layout')).toEqual([['tree']])
     })
 
-    it('主题下拉保持原生 select：选项来自 themeOptions，切换 emit mm-theme', async () => {
+    it('主题下拉使用自绘 listbox：选项来自 themeOptions，切换 emit mm-theme', async () => {
       const wrapper = mountMindmapToolbar()
-      const select = wrapper.get('[data-testid="mm-theme-select"]')
-      expect(select.element.tagName).toBe('SELECT')
-      expect(select.findAll('option').map(option => option.attributes('value')))
-        .toEqual(['default', 'ocean'])
-      expect((select.element as HTMLSelectElement).value).toBe('default')
+      const trigger = wrapper.get('[data-testid="mm-theme-select"]')
+      expect(trigger.element.tagName).toBe('BUTTON')
+      expect(trigger.attributes('aria-haspopup')).toBe('listbox')
+      expect(trigger.attributes('data-value')).toBe('default')
 
-      await select.setValue('ocean')
+      await trigger.trigger('click')
+      await flushPromises()
+      const option = document.querySelector<HTMLButtonElement>('[data-testid="mm-theme-select-option-ocean"]')
+      expect(option?.getAttribute('role')).toBe('option')
+      option?.click()
+      await flushPromises()
       expect(wrapper.emitted('mm-theme')).toEqual([['ocean']])
     })
 
@@ -594,10 +598,10 @@ describe('Toolbar.vue', () => {
       expect(center.find('[data-testid="btn-new-file"]').exists()).toBe(false)
       expect(center.find('[data-testid="btn-undo"]').exists()).toBe(false)
 
-      // 25 个控件（24 个 mm-btn + 1 个原生 select）全部在组内
+      // 24 个导图操作按钮与自绘主题选择器全部在组内
       const groupWrapper = wrapper.get('[data-testid="mindmap-toolbar"]')
-      expect(groupWrapper.findAll('button')).toHaveLength(24)
-      expect(groupWrapper.findAll('select[data-testid="mm-theme-select"]')).toHaveLength(1)
+      expect(groupWrapper.findAll('button.mm-btn')).toHaveLength(24)
+      expect(groupWrapper.findAll('button[data-testid="mm-theme-select"]')).toHaveLength(1)
     })
 
     it('导图按钮沿用 mm-btn 视觉类（对比度/E2E-MM-020 依赖）', () => {

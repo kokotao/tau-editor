@@ -163,7 +163,7 @@ const STORAGE_KEY = 'text-editor-settings';
 export type SidebarPanel = 'workspace' | 'cloud';
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
 export const DEFAULT_UI_FONT_FAMILY = "'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif";
-export const DEFAULT_UI_FONT_SIZE = 10;
+export const DEFAULT_UI_FONT_SIZE = 11;
 export const MIN_UI_FONT_SIZE = 8;
 export const MAX_UI_FONT_SIZE = 16;
 const DEFAULT_MAX_OPEN_TABS = 30;
@@ -799,6 +799,7 @@ export const useSettingsStore = defineStore('settings', {
       // 每次应用前都清理内联变量，避免旧模式的背景/面板颜色锁死后续 CSS skin 切换。
       const allThemeVars = [
         '--bg-app', '--panel-base', '--panel-elevated', '--text-primary', '--text-secondary', '--accent-brand',
+        '--chrome-bg', '--chrome-border', '--chrome-text',
         '--accent-brand-strong', '--state-success', '--state-danger',
         ...Object.values(THEME_UI_CSS_VAR_MAP).filter((name) => name !== '--panel-base'),
         '--radius-ui', '--radius-ui-sm', '--radius-ui-lg', '--radius-base', '--radius-control', '--radius-card',
@@ -824,6 +825,15 @@ export const useSettingsStore = defineStore('settings', {
 
       // 顶栏、状态栏和浮层统一从当前面板色派生，避免主题包只覆盖 panelBase 时残留旧色。
       root.style.setProperty('--panel-elevated', 'color-mix(in srgb, var(--panel-base) 92%, var(--text-primary) 8%)');
+      root.style.setProperty(
+        '--chrome-bg',
+        themeState.resolvedTheme === 'light' ? 'var(--panel-base)' : 'var(--panel-elevated)',
+      );
+      root.style.setProperty(
+        '--chrome-border',
+        themeState.resolvedTheme === 'light' ? 'var(--border-soft)' : 'var(--border-strong)',
+      );
+      root.style.setProperty('--chrome-text', 'var(--text-primary)');
       const mergedUi = { ...flattenThemeUiOverrides(packageUi), ...flattenThemeUiOverrides(customUi) };
       Object.entries(mergedUi).forEach(([key, color]) => {
         const cssVar = THEME_UI_CSS_VAR_MAP[key];

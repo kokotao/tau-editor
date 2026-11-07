@@ -1,7 +1,7 @@
 :root {
   --font-ui: 'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  --font-size-ui-base: 10px;
+  --font-size-ui-base: 11px;
   --font-size-ui-xs: max(8px, calc(var(--font-size-ui-base) - 1px));
   --font-size-ui-sm: var(--font-size-ui-base);
   --font-size-ui-md: calc(var(--font-size-ui-base) + 1px);
@@ -11,6 +11,9 @@
 
   --panel-base: #101726;
   --panel-elevated: #151d2d;
+  --chrome-bg: var(--panel-elevated);
+  --chrome-border: var(--border-strong);
+  --chrome-text: var(--text-primary);
   --panel-raised: #151d2d;
   --panel-border: var(--border-soft);
   --section-heading: var(--text-primary);
@@ -78,7 +81,7 @@
   --radius-pill: 999px;
   --radius-round: var(--radius-pill);
   --toolbar-height: 52px;
-  --tabs-height: 44px;
+  --tabs-height: 24px;
 
   --shadow-soft: 0 18px 46px rgba(15, 23, 42, 0.24);
   --shadow-overlay: 0 28px 80px rgba(2, 6, 23, 0.42);

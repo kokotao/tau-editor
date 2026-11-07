@@ -10,6 +10,8 @@ import {
   consumePendingWindowTransfer,
   openTabsInNewWindow,
   payloadToTabs,
+  shouldCloseWindowAfterMerge,
+  tabToTransferTab,
   WINDOW_TRANSFER_MAX_TABS,
 } from '@/services/windowTransferService';
 
@@ -150,5 +152,26 @@ describe('windowTransferService', () => {
         content: 'draft',
       },
     ]);
+  });
+
+  it('preserves document kind when transferring a mindmap tab', () => {
+    const tab = makeTab('mindmap', {
+      fileName: 'roadmap.taumap',
+      documentKind: 'mindmap',
+    });
+
+    const transfer = tabToTransferTab(tab);
+
+    expect(transfer.documentKind).toBe('mindmap');
+    expect(payloadToTabs({
+      tabs: [transfer],
+      activeIndex: 0,
+      sourceWorkspacePath: null,
+    })[0]?.documentKind).toBe('mindmap');
+  });
+
+  it('only closes a merged source window when no tabs remain', () => {
+    expect(shouldCloseWindowAfterMerge(0)).toBe(true);
+    expect(shouldCloseWindowAfterMerge(1)).toBe(false);
   });
 });

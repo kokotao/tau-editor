@@ -19,11 +19,9 @@ export const MINDMAP_IMPORT_EXTENSIONS = [
   'taumap',
   'xmind',
   'mm',
-  'mmap',
   'opml',
   'md',
   'markdown',
-  'map',
 ];
 
 export const MINDMAP_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
