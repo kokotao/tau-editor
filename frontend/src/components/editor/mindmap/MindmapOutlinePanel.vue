@@ -44,6 +44,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'select', id: string): void;
   (event: 'toggle', id: string): void;
+  (event: 'collapse'): void;
   (event: 'start-rename', id: string): void;
   (event: 'commit-rename', text: string): void;
   (event: 'cancel-rename'): void;
@@ -226,6 +227,14 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
       <div class="mindmap-outline-heading">
         <span class="mindmap-outline-title"><span class="mm-heading-icon" aria-hidden="true">☷</span>大纲</span>
         <span class="mm-visible-count">{{ rows.length }} 个可见节点</span>
+        <button
+          type="button"
+          class="mm-outline-collapse"
+          data-testid="mm-outline-collapse"
+          aria-label="折叠大纲面板"
+          title="折叠大纲面板"
+          @click="emit('collapse')"
+        >‹</button>
       </div>
       <div class="mm-search-wrap">
         <span class="mm-search-icon" aria-hidden="true"></span>
@@ -338,7 +347,7 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   padding: 12px 12px 10px;
   border-bottom: 1px solid var(--border-soft);
 }
-.mindmap-outline-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.mindmap-outline-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mindmap-outline-title {
   display: flex;
   align-items: center;
@@ -348,6 +357,22 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   color: var(--text-primary);
   flex: 0 0 auto;
 }
+.mm-outline-collapse {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  flex: 0 0 24px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 20px/1 var(--font-ui);
+  cursor: pointer;
+}
+.mm-outline-collapse:hover { background: var(--surface-hover); color: var(--text-primary); }
+.mm-visible-count { margin-left: auto; }
 .mm-heading-icon { color: var(--accent-brand); font-size: 18px; line-height: 1; }
 .mm-visible-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mm-search-wrap { position: relative; }

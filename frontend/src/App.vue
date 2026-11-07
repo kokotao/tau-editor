@@ -203,6 +203,7 @@ const diagnosticsStore = useDiagnosticsStore();
 const cloudSyncStore = useCloudSyncStore();
 const centerToast = useCenterToastStore();
 const mindmapStore = useMindmapStore();
+const mindmapCanvasFullscreen = ref(false);
 const cloudQuotaStore = useCloudQuotaStore();
 const mindmapUpgradeVisible = ref(false);
 const mindmapUpgradeContactVisible = ref(false);
@@ -5475,6 +5476,9 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (mindmapCanvasFullscreen.value && isTauriApp()) {
+    void getCurrentWindow().setFullscreen(false).catch(() => undefined);
+  }
   if (disposeMonacoEditorOpener) {
     disposeMonacoEditorOpener();
     disposeMonacoEditorOpener = null;
@@ -5510,7 +5514,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--mindmap-fullscreen': mindmapCanvasFullscreen }">
     <Notification />
     <CloudUpgradePlanDialog :visible="mindmapUpgradeVisible" @close="mindmapUpgradeVisible = false"
       @contact="mindmapUpgradeContactVisible = true" />
@@ -6150,6 +6154,7 @@ onUnmounted(() => {
               @retry-load="handleRetryMindmapLoad(activeTab.id)"
               @sync-to-cloud="handleActiveTabSyncToCloud"
               @share="handleActiveTabShare"
+              @fullscreen-change="mindmapCanvasFullscreen = $event"
             />
           </div>
           <ImagePreview
@@ -6480,6 +6485,33 @@ textarea {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+.app-shell--mindmap-fullscreen :deep(.app-native-titlebar),
+.app-shell--mindmap-fullscreen :deep(.toolbar),
+.app-shell--mindmap-fullscreen :deep(.sidebar-shell),
+.app-shell--mindmap-fullscreen :deep(.sidebar-resizer),
+.app-shell--mindmap-fullscreen :deep(.floating-sidebar-controls),
+.app-shell--mindmap-fullscreen :deep(.floating-context-controls),
+.app-shell--mindmap-fullscreen :deep(.editor-tabs),
+.app-shell--mindmap-fullscreen :deep(.app-status-bar) {
+  display: none !important;
+}
+
+.app-shell--mindmap-fullscreen .main-layout {
+  padding: 0;
+  gap: 0;
+}
+
+.app-shell--mindmap-fullscreen .editor-panel,
+.app-shell--mindmap-fullscreen .editor-stage,
+.app-shell--mindmap-fullscreen .editor-pane {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
 }
 
 /* 状态栏容器：包一层只为在状态栏上浮出「云上传 24/460」徽标，不改 StatusBar 组件签名 */

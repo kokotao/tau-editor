@@ -19,6 +19,8 @@
  * @date 2026-10-30
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriApp } from '@/lib/tauri';
 import { buildMindmapOutlineRows, useMindmapStore } from '@/stores/mindmap';
 import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import {
@@ -84,6 +86,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'change', json: string): void;
+  (event: 'fullscreen-change', fullscreen: boolean): void;
   (event: 'membership-required', payload: { feature: string; reason: string }): void;
   (event: 'retry-load'): void;
   (event: 'sync-to-cloud'): void;
@@ -131,6 +134,8 @@ const isExternal = computed(() => props.documentKind === 'mindmap-external');
 const stageRef = ref<HTMLElement | null>(null);
 const canvasRef = ref<InstanceType<typeof MindmapCanvas> | null>(null);
 const isFullscreen = ref(false);
+let unlistenWindowResize: (() => void) | null = null;
+let stageDisposed = false;
 type CanvasTool = 'select' | 'relation';
 const activeCanvasTool = ref<CanvasTool>('select');
 const relationStartId = ref<string | null>(null);
@@ -174,9 +179,16 @@ function showNotice(message: string) {
 }
 
 onBeforeUnmount(() => {
+  stageDisposed = true;
   if (noticeTimer) clearTimeout(noticeTimer);
   window.removeEventListener('mindmap-outline-focus', onOutlineFocus);
   window.document.removeEventListener('fullscreenchange', onFullscreenChange);
+  unlistenWindowResize?.();
+  unlistenWindowResize = null;
+  if (isTauriApp() && isFullscreen.value) {
+    void getCurrentWindow().setFullscreen(false).catch(() => undefined);
+    emit('fullscreen-change', false);
+  }
 });
 
 function onOutlineFocus(event: Event) {
@@ -190,6 +202,19 @@ function onOutlineFocus(event: Event) {
 onMounted(() => {
   window.addEventListener('mindmap-outline-focus', onOutlineFocus);
   window.document.addEventListener('fullscreenchange', onFullscreenChange);
+  if (isTauriApp()) {
+    void getCurrentWindow().onResized(() => {
+      void getCurrentWindow().isFullscreen().then((fullscreen) => {
+        if (isFullscreen.value === fullscreen) return;
+        isFullscreen.value = fullscreen;
+        emit('fullscreen-change', fullscreen);
+        if (fullscreen) void nextTick(() => canvasRef.value?.fitView());
+      }).catch(() => undefined);
+    }).then((unlisten) => {
+      if (stageDisposed) unlisten();
+      else unlistenWindowResize = unlisten;
+    });
+  }
   // StatusBar is rendered after the editor pane. Wait for the parent mount so
   // the host exists before enabling Teleport; otherwise the sheet bar stays
   // in the canvas as a second top row.
@@ -705,6 +730,15 @@ async function toggleFullscreen() {
   const fullscreenTarget = stageRef.value?.closest<HTMLElement>('.editor-stage') ?? workspace;
   if (!workspace || !fullscreenTarget) return;
   try {
+    if (isTauriApp()) {
+      const appWindow = getCurrentWindow();
+      const fullscreen = await appWindow.isFullscreen();
+      await appWindow.setFullscreen(!fullscreen);
+      isFullscreen.value = !fullscreen;
+      emit('fullscreen-change', isFullscreen.value);
+      if (isFullscreen.value) void nextTick(() => canvasRef.value?.fitView());
+      return;
+    }
     if (window.document.fullscreenElement === fullscreenTarget) {
       await window.document.exitFullscreen();
     } else if (typeof fullscreenTarget.requestFullscreen === 'function') {
@@ -722,6 +756,7 @@ function onFullscreenChange() {
     window.document.fullscreenElement
     && (window.document.fullscreenElement.contains(stageRef.value) || stageRef.value?.contains(window.document.fullscreenElement)),
   );
+  emit('fullscreen-change', isFullscreen.value);
   if (isFullscreen.value) {
     void nextTick(() => canvasRef.value?.fitView());
   }
@@ -2006,7 +2041,10 @@ defineExpose({
   max-width: 100%;
   padding: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
+.mindmap-sheet-bar::-webkit-scrollbar { display: none; }
 .mm-sheet-tabs { display: flex; align-items: center; gap: 6px; }
 .mm-sheet-input {
   width: 140px;
@@ -2023,11 +2061,12 @@ defineExpose({
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 10px;
   font-family: var(--font-ui);
   cursor: pointer;
   white-space: nowrap;
 }
+.mindmap-sheet-bar .mm-btn { font-size: 10px; }
 .mm-sheet-tab:hover { background: var(--surface-hover); color: var(--text-primary); }
 .mm-sheet-tab.is-active {
   border-color: var(--accent-brand);

@@ -315,9 +315,15 @@ const formatLastSaveTime = (date: Date) => {
 
 .status-bar--mindmap {
   justify-content: flex-start;
-  gap: 12px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  flex-wrap: nowrap;
+  gap: 8px;
+  height: 36px;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 36px;
+  flex: 0 0 36px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .status-section {
@@ -328,6 +334,13 @@ const formatLastSaveTime = (date: Date) => {
 
 .status-left {
   flex: 0 0 auto;
+}
+
+.status-bar--mindmap .status-left {
+  gap: 7px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .status-center {
@@ -368,32 +381,84 @@ const formatLastSaveTime = (date: Date) => {
 }
 
 .mindmap-status-section {
-  flex: 1 1 420px;
+  flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
+  flex-wrap: nowrap;
   overflow: hidden;
+}
+
+.mindmap-status-section > .author-trigger {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .mindmap-status-section__sheets {
   display: flex;
   flex: 0 0 auto;
   min-width: 0;
-  max-width: min(42vw, 560px);
+  max-width: min(28vw, 420px);
+  min-height: 0;
+  flex-wrap: nowrap;
+  align-items: center;
   overflow-x: auto;
-  scrollbar-width: thin;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.mindmap-status-section__sheets::-webkit-scrollbar {
+  display: none;
+}
+
+.mindmap-status-section__sheets :deep(.mindmap-sheet-bar) {
+  max-width: max-content;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.mindmap-status-section__sheets :deep(.mindmap-sheet-bar::-webkit-scrollbar) {
+  display: none;
+}
+
+.mindmap-status-section__sheets :deep(.mm-sheet-tab),
+.mindmap-status-section__sheets :deep(.mm-btn) {
+  font-size: 10px;
+}
+
+.mindmap-status-section__sheets :deep(.mindmap-sheet-bar > *),
+.mindmap-status-section__sheets :deep(.mm-sheet-tabs > *) {
+  flex-shrink: 0;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.mindmap-status-section__sheets :deep(button),
+.mindmap-status-section__sheets :deep(a),
+.mindmap-status-section__sheets :deep([role='button']) {
+  min-width: max-content;
+  white-space: nowrap;
 }
 
 .mindmap-status-shortcuts {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  flex-shrink: 1;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
+  min-height: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
+  overflow-y: hidden;
+  scrollbar-width: none;
   color: var(--text-muted, #94a3b8);
   font-size: 10px;
   white-space: nowrap;
+}
+
+.mindmap-status-shortcuts::-webkit-scrollbar {
+  display: none;
 }
 
 .mindmap-status-shortcut {
@@ -430,8 +495,34 @@ const formatLastSaveTime = (date: Date) => {
 }
 
 @media (max-width: 1100px) {
+  .status-bar--mindmap {
+    gap: 6px;
+    padding-inline: 6px;
+  }
+
+  .status-bar--mindmap .status-left {
+    gap: 5px;
+    font-size: 9px;
+  }
+
+  .mindmap-status-section {
+    gap: 6px;
+  }
+
+  .mindmap-status-section__sheets {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(24vw, 280px);
+  }
+
   .mindmap-status-shortcuts {
-    gap: 8px;
+    gap: 6px;
+    font-size: 9px;
+  }
+
+  .status-bar--mindmap .status-right {
+    gap: 6px;
+    font-size: 10px;
   }
 }
 

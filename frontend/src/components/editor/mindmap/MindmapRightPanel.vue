@@ -413,6 +413,15 @@ function onOutlineContextMenu(payload: {
   if (payload.nodeId) store.selectTopic(payload.nodeId);
   emit('contextmenu', payload);
 }
+
+function collapseOutline() {
+  store.setOutlineVisible(false);
+}
+
+function collapseDetails() {
+  store.setPropertiesVisible(false);
+  store.setStyleVisible(false);
+}
 </script>
 
 <template>
@@ -446,6 +455,7 @@ function onOutlineContextMenu(payload: {
         :match-ids="[...outline.matchIds]"
         :width="store.outlineWidth"
         :resizable="false"
+        @collapse="collapseOutline"
         @select="selectTopic"
         @toggle="toggleCollapse"
         @start-rename="startOutlineRename"
@@ -479,33 +489,43 @@ function onOutlineContextMenu(payload: {
       title="拖动调整宽度"
       @pointerdown="startResize('properties', $event)"
     ></div>
-    <nav class="mm-detail-tabs" role="tablist" aria-label="节点面板">
+    <div class="mm-detail-tabs">
+      <nav class="mm-detail-tab-list" role="tablist" aria-label="节点面板">
+        <button
+          type="button"
+          role="tab"
+          data-testid="mm-detail-tab-properties"
+          :aria-selected="activeDetailTab === 'properties'"
+          :class="{ 'is-active': activeDetailTab === 'properties' }"
+          @click="selectDetailTab('properties')"
+        >节点属性</button>
+        <button
+          type="button"
+          role="tab"
+          data-testid="mm-detail-tab-canvas-style"
+          :aria-selected="activeDetailTab === 'canvas-style'"
+          :class="{ 'is-active': activeDetailTab === 'canvas-style' }"
+          @click="selectDetailTab('canvas-style')"
+        >画布样式</button>
+        <button
+          type="button"
+          role="tab"
+          data-testid="mm-detail-tab-style"
+          :aria-selected="activeDetailTab === 'topic-style'"
+          :class="{ 'is-active': activeDetailTab === 'topic-style' }"
+          :disabled="!panelTopic"
+          @click="selectDetailTab('topic-style')"
+        >节点样式</button>
+      </nav>
       <button
         type="button"
-        role="tab"
-        data-testid="mm-detail-tab-properties"
-        :aria-selected="activeDetailTab === 'properties'"
-        :class="{ 'is-active': activeDetailTab === 'properties' }"
-        @click="selectDetailTab('properties')"
-      >节点属性</button>
-      <button
-        type="button"
-        role="tab"
-        data-testid="mm-detail-tab-canvas-style"
-        :aria-selected="activeDetailTab === 'canvas-style'"
-        :class="{ 'is-active': activeDetailTab === 'canvas-style' }"
-        @click="selectDetailTab('canvas-style')"
-      >画布样式</button>
-      <button
-        type="button"
-        role="tab"
-        data-testid="mm-detail-tab-style"
-        :aria-selected="activeDetailTab === 'topic-style'"
-        :class="{ 'is-active': activeDetailTab === 'topic-style' }"
-        :disabled="!panelTopic"
-        @click="selectDetailTab('topic-style')"
-      >节点样式</button>
-    </nav>
+        class="mm-detail-collapse"
+        data-testid="mm-properties-collapse"
+        aria-label="折叠属性面板"
+        title="折叠属性面板"
+        @click="collapseDetails"
+      >›</button>
+    </div>
     <div v-if="notice && activeDetailTab === 'properties'" class="mm-right-notice" role="status" data-testid="mm-right-notice">{{ notice }}</div>
     <div class="mm-right-column-body">
       <div v-show="activeDetailTab === 'properties'" class="mm-detail-content" data-testid="mm-detail-properties-content">
@@ -598,7 +618,12 @@ function onOutlineContextMenu(payload: {
   border-bottom: 1px solid var(--border-soft);
   background: var(--panel-base);
 }
-.mm-detail-tabs button {
+.mm-detail-tab-list {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mm-detail-tab-list button {
   flex: 1;
   min-width: 0;
   border: 0;
@@ -608,9 +633,20 @@ function onOutlineContextMenu(payload: {
   font: 600 12px var(--font-ui);
   cursor: pointer;
 }
-.mm-detail-tabs button:hover { background: var(--surface-hover); color: var(--text-primary); }
-.mm-detail-tabs button.is-active { border-bottom-color: var(--accent-brand); color: var(--accent-brand-strong); }
-.mm-detail-tabs button:disabled { opacity: .45; cursor: default; }
+.mm-detail-tab-list button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.mm-detail-tab-list button.is-active { border-bottom-color: var(--accent-brand); color: var(--accent-brand-strong); }
+.mm-detail-tab-list button:disabled { opacity: .45; cursor: default; }
+.mm-detail-collapse {
+  width: 30px;
+  flex: 0 0 30px;
+  border: 0;
+  border-left: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 20px/1 var(--font-ui);
+  cursor: pointer;
+}
+.mm-detail-collapse:hover { background: var(--surface-hover); color: var(--text-primary); }
 .mm-detail-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .mm-detail-style :deep(.mm-style-panel) {
   position: relative;
