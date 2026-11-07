@@ -74,6 +74,40 @@ describe('StatusBar.vue', () => {
       expect(wrapper.find('.status-center').exists()).toBe(true)
     })
 
+    it('思维导图作者、工作表宿主和快捷键位于同一状态栏行', () => {
+      const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
+        props: {
+          isMindmap: true,
+          cursorPosition: { line: 1, column: 1 },
+          encoding: 'utf-8',
+          language: 'plaintext',
+        },
+      })
+
+      expect(wrapper.find('[data-testid="author-info-trigger"]').exists()).toBe(true)
+      expect(wrapper.find('#mindmap-sheet-bar-host').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="mindmap-status-section"]').element.parentElement)
+        .toBe(wrapper.find('[data-testid="status-bar"]').element)
+      expect(wrapper.findAll('.mindmap-status-shortcut')).toHaveLength(6)
+      expect(wrapper.find('[data-testid="author-modal-overlay"]').exists()).toBe(false)
+    })
+
+    it('普通文档不显示思维导图快捷键或工作表宿主', () => {
+      const wrapper = mount(StatusBar, {
+        global: { stubs: { teleport: true } },
+        props: {
+          cursorPosition: { line: 1, column: 1 },
+          encoding: 'utf-8',
+          language: 'plaintext',
+        },
+      })
+
+      expect(wrapper.find('[data-testid="author-info-trigger"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="mindmap-status-section"]').attributes('style')).toContain('display: none')
+      expect(wrapper.find('#mindmap-sheet-bar-host').exists()).toBe(true)
+    })
+
     it('应显示光标位置', () => {
       const wrapper = mount(StatusBar, {
         global: { stubs: { teleport: true } },

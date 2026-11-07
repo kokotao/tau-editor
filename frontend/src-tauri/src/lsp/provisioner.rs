@@ -968,13 +968,13 @@ fn io_error(error: io::Error) -> CommandError {
     CommandError::io(error.to_string())
 }
 
-fn make_executable(path: &Path) -> Result<(), CommandError> {
+fn make_executable(_path: &Path) -> Result<(), CommandError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(path).map_err(io_error)?.permissions();
+        let mut permissions = fs::metadata(_path).map_err(io_error)?.permissions();
         permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).map_err(io_error)?;
+        fs::set_permissions(_path, permissions).map_err(io_error)?;
     }
     Ok(())
 }

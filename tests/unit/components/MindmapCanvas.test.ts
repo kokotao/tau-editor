@@ -64,6 +64,22 @@ describe('MindmapCanvas', () => {
     expect(wrapper.emitted('style-target')?.[0]).toEqual([{ kind: 'topic', topicId: 'b' }]);
   });
 
+  it('空白画布可通过指针拖动平移视口', async () => {
+    const wrapper = mountCanvas();
+    const canvas = wrapper.get('[data-testid="mindmap-canvas"]');
+
+    await canvas.trigger('pointerdown', { button: 0, clientX: 40, clientY: 50, pointerId: 1 });
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 75, clientY: 82 }));
+
+    const events = wrapper.emitted('update:viewport');
+    expect(events).toBeTruthy();
+    const viewport = events![events!.length - 1]![0] as { x: number; y: number; zoom: number };
+    expect(viewport).toMatchObject({ x: 35, y: 32, zoom: 1 });
+
+    window.dispatchEvent(new MouseEvent('pointerup', { clientX: 75, clientY: 82 }));
+    wrapper.unmount();
+  });
+
   it('父子线和独立关系线可点击并发出对应样式目标', async () => {
     const doc = buildDoc();
     doc.relations = [{ id: 'r1', sourceTopicId: 'a', targetTopicId: 'b' }];
@@ -98,7 +114,7 @@ describe('MindmapCanvas', () => {
     expect(wrapper.emitted('toggle-collapse')?.[0]).toEqual(['a']);
   });
 
-  it('滚轮发出带缩放变化的 update:viewport', async () => {
+  it('触控板双指滚动平移画布，不改变缩放比例', async () => {
     const wrapper = mountCanvas();
     // 等待挂载后的自动适配完成，避免把适配事件误当成滚轮结果
     await wrapper.vm.$nextTick();
@@ -106,7 +122,8 @@ describe('MindmapCanvas', () => {
     const before = wrapper.emitted('update:viewport')?.length ?? 0;
 
     await wrapper.find('[data-testid="mindmap-canvas"]').trigger('wheel', {
-      deltaY: -120,
+      deltaY: 80,
+      deltaX: 12,
       clientX: 400,
       clientY: 300,
     });
@@ -115,9 +132,31 @@ describe('MindmapCanvas', () => {
     expect(events).toBeTruthy();
     expect(events!.length).toBeGreaterThan(before);
     const viewport = events![events!.length - 1]![0] as { x: number; y: number; zoom: number };
-    expect(viewport.zoom).toBeGreaterThan(1);
+    expect(viewport.zoom).toBe(1);
+    expect(viewport.x).toBe(-12);
+    expect(viewport.y).toBe(-80);
     expect(Number.isFinite(viewport.x)).toBe(true);
     expect(Number.isFinite(viewport.y)).toBe(true);
+  });
+
+  it('Ctrl/Cmd 加滚轮仍可缩放画布', async () => {
+    const wrapper = mountCanvas();
+    await wrapper.vm.$nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const before = wrapper.emitted('update:viewport')?.length ?? 0;
+
+    await wrapper.find('[data-testid="mindmap-canvas"]').trigger('wheel', {
+      deltaY: -120,
+      clientX: 400,
+      clientY: 300,
+      ctrlKey: true,
+    });
+
+    const events = wrapper.emitted('update:viewport');
+    expect(events).toBeTruthy();
+    expect(events!.length).toBeGreaterThan(before);
+    const viewport = events![events!.length - 1]![0] as { x: number; y: number; zoom: number };
+    expect(viewport.zoom).toBeGreaterThan(1);
   });
 
   it('适配内容与重置视口通过暴露方法发出视口', async () => {

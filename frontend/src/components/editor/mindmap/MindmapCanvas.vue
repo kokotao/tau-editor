@@ -213,8 +213,17 @@ function zoomAt(clientX: number, clientY: number, factor: number) {
 
 function onWheel(event: WheelEvent) {
   event.preventDefault();
-  const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-  zoomAt(event.clientX, event.clientY, factor);
+  if (event.ctrlKey || event.metaKey) {
+    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    zoomAt(event.clientX, event.clientY, factor);
+    return;
+  }
+
+  applyViewport({
+    x: props.viewport.x - event.deltaX,
+    y: props.viewport.y - event.deltaY,
+    zoom: props.viewport.zoom,
+  });
 }
 
 function zoomIn() {
@@ -388,6 +397,7 @@ function onBackgroundPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
   if (props.editingId) return;
   if (isInteractiveTarget(event.target)) return;
+  (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
   panState = {
     pointerId: event.pointerId,
     startX: event.clientX,
@@ -477,6 +487,7 @@ function onNodePointerDown(node: MindmapNodeBox, event: PointerEvent) {
     && (target as Element).closest('.mm-toggle')) {
     return;
   }
+  (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
   nodeDrag = { id: node.id, startX: event.clientX, startY: event.clientY, moved: false };
   window.addEventListener('pointermove', onNodePointerMove);
   window.addEventListener('pointerup', onNodePointerUp, { once: true });
@@ -1178,16 +1189,26 @@ const renderedSummaries = computed<RenderedSummary[]>(() => (
   }))
 ));
 
-/* 文档切换（rootTopicId 变化）时自动适配内容；编辑不改变 root，不会反复跳动。 */
-let lastRootId: string | null = null;
+/* 文档切换后等布局和容器尺寸就绪再适配，避免首帧把根节点留在画布外。 */
+let pendingFitRootId: string | null = null;
+let fittedRootId: string | null = null;
 watch(
-  () => props.document?.rootTopicId ?? null,
-  async (rootId) => {
-    if (rootId === lastRootId) return;
-    lastRootId = rootId;
-    if (!rootId) return;
+  () => [
+    props.document?.rootTopicId ?? null,
+    layout.value?.nodes.length ?? 0,
+    size.value.width,
+    size.value.height,
+  ] as const,
+  async ([rootId, nodeCount, width, height]) => {
+    if (rootId !== fittedRootId) {
+      pendingFitRootId = rootId;
+    }
+    if (!rootId || pendingFitRootId !== rootId || nodeCount === 0 || width <= 0 || height <= 0) return;
     await nextTick();
+    if (pendingFitRootId !== rootId) return;
     fitView();
+    fittedRootId = rootId;
+    pendingFitRootId = null;
   },
   { immediate: true },
 );

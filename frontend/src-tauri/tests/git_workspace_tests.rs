@@ -52,6 +52,7 @@ fn stages_a_selected_file_and_returns_its_worktree_diff() {
     assert!(run_git(&["init", "--quiet"]));
     assert!(run_git(&["config", "user.email", "tau@example.test"]));
     assert!(run_git(&["config", "user.name", "Tau Test"]));
+    assert!(run_git(&["config", "core.autocrlf", "false"]));
     fs::write(temp_dir.path().join("notes.md"), "before\n").expect("write document");
     assert!(run_git(&["add", "notes.md"]));
     assert!(run_git(&["commit", "--quiet", "-m", "initial"]));

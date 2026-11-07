@@ -36,6 +36,7 @@ fn resolves_a_canonical_workspace_and_uses_an_opaque_runtime_id() {
 #[test]
 fn rejects_empty_traversal_nul_and_symlink_escape_paths() {
     let temp_dir = TempDir::new().expect("temporary workspace");
+    #[cfg(unix)]
     let outside_dir = TempDir::new().expect("outside directory");
     let registry = WorkspaceRegistry::default();
     let workspace =

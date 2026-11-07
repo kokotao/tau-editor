@@ -1553,6 +1553,53 @@ pub struct CloudShareInfo {
     pub file_name: Option<String>,
 }
 
+/// 公开分享内容（`GET /blog/share/{token}`）。
+///
+/// 只返回服务端明确公开的展示字段；此命令不携带登录令牌，确保分享链接可在未登录或其他账号下预览。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSharePublicInfo {
+    #[serde(default)]
+    pub password_required: bool,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub author_name: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub file_ext: Option<String>,
+    #[serde(default)]
+    pub file_kind: Option<String>,
+    #[serde(default)]
+    pub file_size: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_vec_null_default")]
+    pub assets: Vec<CloudShareAsset>,
+    #[serde(default)]
+    pub preview_url: Option<String>,
+    #[serde(default)]
+    pub preview_available: bool,
+    #[serde(default)]
+    pub asset_ticket: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudShareAsset {
+    #[serde(default)]
+    pub rel_path: Option<String>,
+    #[serde(default)]
+    pub asset_id: Option<i64>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
 /// 分享状态查询结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1588,6 +1635,96 @@ pub struct CloudShareConfig {
     pub default_category: Option<String>,
     #[serde(default)]
     pub max_expire_days: Option<i32>,
+}
+
+/// 分享转存请求（POST `/miniProgram/cloud/docs/import`）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudShareImportPayload {
+    pub token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    pub path: String,
+    pub title: String,
+    pub category: String,
+}
+
+/// 分享转存结果：归属当前账号的新文档身份与附件复制统计。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudShareImportResult {
+    pub file_id: i64,
+    pub version: i32,
+    #[serde(default)]
+    pub content_hash: Option<String>,
+    #[serde(default)]
+    pub size: i64,
+    pub path: String,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub assets_total: i32,
+    #[serde(default)]
+    pub assets_copied: i32,
+    #[serde(default)]
+    pub assets_failed: i32,
+}
+
+/// 将有效分享转存到当前登录账号。
+///
+/// 与公开预览不同，这里必须走登录态：服务端会重新校验分享期限、
+/// 访问密码、二进制限制、配额和文档数，然后以当前账号身份新建文档。
+#[tauri::command]
+pub async fn cloud_docs_share_import(
+    state: State<'_, CloudState>,
+    token: String,
+    password: Option<String>,
+    path: String,
+    title: String,
+    category: Option<String>,
+) -> Result<CloudShareImportResult, CommandError> {
+    let token = token.trim();
+    if token.is_empty()
+        || token.len() > 128
+        || !token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err(CommandError::new(
+            "INVALID_ARGUMENT",
+            "分享链接令牌格式不正确",
+        ));
+    }
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(CommandError::new("INVALID_ARGUMENT", "目标云端路径不能为空"));
+    }
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(CommandError::new("INVALID_ARGUMENT", "目标文档标题不能为空"));
+    }
+    let payload = CloudShareImportPayload {
+        token: token.to_string(),
+        password: password
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        path: path.to_string(),
+        title: title.to_string(),
+        category: category
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "导入".to_string()),
+    };
+    let response = send_authed(&state, "转存分享文档", |client, session| {
+        authed(
+            client.post(format!("{}{CLOUD_DOCS_PATH}/import", session.base_url)),
+            session,
+        )
+        .header("Accept", "application/json")
+        .json(&payload)
+    })
+    .await?;
+    parse_result(response, "转存分享文档").await
 }
 
 /// 生成（或复用）云文档分享链接。
@@ -1685,6 +1822,53 @@ pub async fn cloud_share_config(
     })
     .await?;
     parse_result(response, "获取分享配置").await
+}
+
+/// 读取免登录公开分享。显式忽略本地登录态，避免过期令牌影响公开访问。
+#[tauri::command]
+pub async fn cloud_share_public_read(
+    state: State<'_, CloudState>,
+    token: String,
+) -> Result<CloudSharePublicInfo, CommandError> {
+    let token = token.trim();
+    if token.is_empty() || token.len() > 128 || !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+        return Err(CommandError::new("INVALID_ARGUMENT", "分享链接令牌格式不正确"));
+    }
+    let base_url = resolve_base_url(&state).await;
+    let client = http_client()?;
+    let response = client
+        .get(format!("{base_url}/blog/share/{token}"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| network_error("读取公开分享", error))?;
+    parse_result(response, "读取公开分享").await
+}
+
+/// 校验公开分享密码。成功后的 `assetTicket` 用于图片/PDF 预览。
+#[tauri::command]
+pub async fn cloud_share_public_verify(
+    state: State<'_, CloudState>,
+    token: String,
+    password: String,
+) -> Result<CloudSharePublicInfo, CommandError> {
+    let token = token.trim();
+    if token.is_empty() || token.len() > 128 || !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+        return Err(CommandError::new("INVALID_ARGUMENT", "分享链接令牌格式不正确"));
+    }
+    if password.is_empty() || password.len() > 256 {
+        return Err(CommandError::new("INVALID_ARGUMENT", "请输入分享访问密码"));
+    }
+    let base_url = resolve_base_url(&state).await;
+    let client = http_client()?;
+    let response = client
+        .post(format!("{base_url}/blog/share/{token}/verify"))
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({ "password": password }))
+        .send()
+        .await
+        .map_err(|error| network_error("校验分享密码", error))?;
+    parse_result(response, "校验分享密码").await
 }
 
 // ---------------------------------------------------------------------------
@@ -2587,7 +2771,7 @@ pub async fn cloud_doc_open_target(
     let normalized_cloud = validate_cloud_doc_path(&cloud_path)
         .map_err(|issue| CommandError::new(issue.code(), issue.message()))?;
 
-    let mut openable = is_openable_text_path(&absolute);
+    let openable = is_openable_text_path(&absolute);
     let mut reason_code: Option<String> = None;
     let mut reason: Option<String> = None;
     if !openable {
@@ -2992,6 +3176,14 @@ where
         Value::Null => Ok(String::new()),
         _ => Err(serde::de::Error::custom("期望字符串或数字")),
     }
+}
+
+fn deserialize_vec_null_default<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 fn deserialize_opt_stringish<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -3509,8 +3701,9 @@ mod tests {
     use super::{
         classify_refresh_response, cloud_dir_exists, cooldown_active, resolve_refreshed_tokens,
         scratch_workspace_segment, should_attempt_refresh, should_clear_session_after_retry,
-        RefreshVerdict, REFRESH_FAILURE_COOLDOWN,
+        CloudSharePublicInfo, RefreshVerdict, REFRESH_FAILURE_COOLDOWN,
     };
+    use serde_json::json;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -3528,6 +3721,19 @@ mod tests {
         assert_eq!(scratch_workspace_segment("...x..."), "x");
         // 超长名按字符截断，避免 MAX_PATH
         assert_eq!(scratch_workspace_segment(&"长".repeat(100)).chars().count(), 64);
+    }
+
+    #[test]
+    fn 密码分享的空附件字段按空数组兼容() {
+        let info: CloudSharePublicInfo = serde_json::from_value(json!({
+            "passwordRequired": true,
+            "title": "受保护文档",
+            "content": null,
+            "assets": null
+        }))
+        .expect("密码分享最小响应的 assets=null 不能阻断验密");
+        assert!(info.password_required);
+        assert!(info.assets.is_empty());
     }
 
     #[test]
@@ -3697,7 +3903,7 @@ mod tests {
     }
 
     #[test]
-    fn 分享请求体_清除密码必须带_clearPassword_true() {
+    fn 分享请求体_清除密码必须带_clear_password_true() {
         let payload = super::CloudShareCreatePayload {
             regenerate: true,
             expires_in_days: None,
@@ -3935,7 +4141,6 @@ mod tests {
     // ---------------- 跨工作区打开目标（0.6.23 预览/另存为入口） ----------------
 
     use super::{cross_workspace_open_target, CloudDocItem, CloudDocOpenTarget, CloudDocSavePayload};
-    use serde_json::json;
 
     #[test]
     fn 跨工作区路径应映射成拒绝目标而不是错误() {

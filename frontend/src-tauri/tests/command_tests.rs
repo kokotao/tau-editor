@@ -591,11 +591,13 @@ async fn test_error_messages_are_clear() {
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.err().unwrap());
 
-    // 错误信息应包含路径信息
+    // 不同平台的系统错误文案可能不同，但必须仍能明确说明文件读取失败。
+    assert!(err_msg.contains("读取文件失败"));
     assert!(
         err_msg.contains("No such file")
             || err_msg.contains("not found")
             || err_msg.contains("不存在")
+            || err_msg.contains("找不到")
     );
 }
 

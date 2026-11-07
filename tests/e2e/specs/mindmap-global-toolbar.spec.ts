@@ -73,6 +73,54 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
     await expect(nodes).toHaveCount(1);
   });
 
+  test('E2E-UX3-C3: 工具组宽屏不受固定宽度限制，窄屏可横向滚动到末尾', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 900 });
+    await page.goto('/');
+    await page.waitForSelector('[data-testid="toolbar"]');
+    await openNewMindmap(page);
+
+    const toolbar = page.locator('[data-testid="toolbar"]');
+    const center = toolbar.locator('.toolbar-zone-center');
+    const group = toolbar.locator('[data-testid="mindmap-toolbar"]');
+    const desktopLayout = await group.evaluate((element) => ({
+      maxWidth: getComputedStyle(element).maxWidth,
+      groupWidth: element.getBoundingClientRect().width,
+      centerWidth: element.parentElement?.clientWidth ?? 0,
+    }));
+
+    expect(desktopLayout.maxWidth).toBe('none');
+    expect(desktopLayout.centerWidth).toBeGreaterThanOrEqual(desktopLayout.groupWidth - 1);
+
+    await page.setViewportSize({ width: 900, height: 720 });
+    await expect
+      .poll(() =>
+        center.evaluate((element) => ({
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+        })),
+      )
+      .toMatchObject({ clientWidth: expect.any(Number) });
+
+    const hasOverflow = await center.evaluate((element) => element.scrollWidth > element.clientWidth);
+    expect(hasOverflow).toBe(true);
+
+    // 纵向鼠标滚轮也要能转换为横向移动，避免用户只能拖动滚动条。
+    await center.evaluate((element) => {
+      element.scrollLeft = 0;
+      element.dispatchEvent(new WheelEvent('wheel', { deltaY: 240, bubbles: true, cancelable: true }));
+    });
+    await expect.poll(() => center.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+
+    await center.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    const centerBox = await center.boundingBox();
+    const printBox = await toolbar.locator('[data-testid="mm-print"]').boundingBox();
+    expect(centerBox).toBeTruthy();
+    expect(printBox).toBeTruthy();
+    expect(printBox!.x + printBox!.width).toBeLessThanOrEqual(centerBox!.x + centerBox!.width + 1);
+  });
+
   test('E2E-UX3-C2: 非导图标签不渲染导图工具组，Tau 原始工具在最左 zone', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('[data-testid="toolbar"]');

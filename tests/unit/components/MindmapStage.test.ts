@@ -6,7 +6,7 @@
  * 说明：大纲与属性面板的渲染/编辑细节见 MindmapRightPanel.test.ts；
  * 这里验证 Stage 不再内嵌面板、开关只驱动 store 两列显隐、命令仍走 change。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import MindmapStage from '@/components/editor/mindmap/MindmapStage.vue';
@@ -77,6 +77,11 @@ function stageExpose(wrapper: ReturnType<typeof mountStage>): StageExpose {
 }
 
 describe('MindmapStage 阶段 1', () => {
+  afterEach(() => {
+    // 右键菜单 Teleport 到 body：上一个用例的菜单残留会截获下一个用例的按钮点击。
+    document.body.innerHTML = '';
+  });
+
   beforeEach(() => {
     setActivePinia(createPinia());
   });
@@ -245,6 +250,16 @@ describe('MindmapStage 阶段 1', () => {
     await wrapper.vm.$nextTick();
     document.querySelector<HTMLButtonElement>('[data-testid="mm-context-item-share"]')!.click();
     expect(wrapper.emitted('share')).toHaveLength(1);
+  });
+
+  it('节点右键菜单同样提供同步至云端和一键分享', async () => {
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    const canvas = wrapper.getComponent({ name: 'MindmapCanvas' });
+    canvas.vm.$emit('contextmenu', { nodeId: 'a', clientX: 120, clientY: 80 });
+    await wrapper.vm.$nextTick();
+
+    expect(document.querySelector('[data-testid="mm-context-item-sync-to-cloud"]')?.textContent).toContain('同步至云端');
+    expect(document.querySelector('[data-testid="mm-context-item-share"]')?.textContent).toContain('一键分享');
   });
 
   it('Tab 添加子主题并 emit change', async () => {
@@ -579,6 +594,22 @@ describe('MindmapStage 阶段 4E', () => {
 
     expect(wrapper.find('[data-testid="mm-sheet-add"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="mm-sheet-remove"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('存在状态栏宿主时把工作表条移入底栏并保留管理操作', async () => {
+    const host = window.document.createElement('div');
+    host.id = 'mindmap-sheet-bar-host';
+    window.document.body.append(host);
+    const wrapper = mountStage(serializeMindMapDocument(treeDocument()));
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(host.querySelector('[data-testid="mm-sheet-bar"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="mm-sheet-tab-0"]')?.textContent).toBe('工作表 1');
+    expect(host.querySelector('[data-testid="mm-sheet-add"]')).not.toBeNull();
+    expect(wrapper.find('[data-testid="mm-sheet-bar"]').exists()).toBe(false);
+    wrapper.unmount();
+    host.remove();
   });
 
   it('点击工作表标签切换：emit change、激活态切换、画布渲染新工作表的根', async () => {

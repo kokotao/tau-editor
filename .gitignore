@@ -24,3 +24,7 @@ assets/
 .playwright-cli/
 .superpowers/
 bn/
+!website/public/
+!website/public/assets/
+website/public/assets/*
+!website/public/assets/*-current.png

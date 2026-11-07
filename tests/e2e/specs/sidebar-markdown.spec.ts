@@ -98,6 +98,25 @@ test.describe('Sidebar & Markdown Preview', () => {
     await expect(authorSection.locator('img[alt="支付宝捐赠"]')).toBeVisible();
   });
 
+  test('E2E-UX-SETTINGS-FULL: 设置工作区占满主区域并隐藏编辑器', async ({ page }) => {
+    await page.click('[data-testid="btn-settings"]');
+
+    const main = page.locator('.main-layout');
+    const settings = page.locator('[data-testid="settings-page"]');
+    const editor = page.locator('.editor-panel');
+    await expect(settings).toBeVisible();
+    await expect(editor).toBeHidden();
+
+    const mainBox = await main.boundingBox();
+    const settingsBox = await settings.boundingBox();
+    expect(mainBox).toBeTruthy();
+    expect(settingsBox).toBeTruthy();
+    expect(Math.abs(settingsBox!.x - mainBox!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(settingsBox!.y - mainBox!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(settingsBox!.width - mainBox!.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(settingsBox!.height - mainBox!.height)).toBeLessThanOrEqual(1);
+  });
+
   test('E2E-UX-005: 左下角仅保留侧栏收起/展开按钮', async ({ page }) => {
     await expect(page.locator('[data-testid="left-bottom-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="btn-sidebar-collapse"]')).toBeVisible();

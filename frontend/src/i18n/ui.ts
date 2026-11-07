@@ -409,6 +409,9 @@ interface ToolbarText {
   savedTip: string;
   savedShort: string;
   settings: string;
+  cloudBrowse: string;
+  shareReceive: string;
+  shareReceiveHint: string;
   previewModeLabels: Record<'edit' | 'split' | 'preview', string>;
 }
 
@@ -1491,6 +1494,9 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     savedTip: '当前标签已保存',
     savedShort: '已保存',
     settings: '设置',
+    cloudBrowse: '浏览云端文档',
+    shareReceive: '接收分享',
+    shareReceiveHint: '识别剪贴板里的分享链接，预览后添加到我的云端',
     previewModeLabels: {
       edit: '仅编辑',
       split: '分栏',
@@ -1520,6 +1526,9 @@ const TOOLBAR_TEXTS: Record<UiLanguage, ToolbarText> = {
     savedTip: 'Current tab is saved',
     savedShort: 'Saved',
     settings: 'Settings',
+    cloudBrowse: 'Browse Cloud Documents',
+    shareReceive: 'Receive Shared Document',
+    shareReceiveHint: 'Read a shared link from the clipboard, preview it, and add it to your cloud',
     previewModeLabels: {
       edit: 'Edit Only',
       split: 'Split',

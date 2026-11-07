@@ -1,12 +1,15 @@
 import './style.css'
 
 const features = [
-  ['01', '专注写作', '清爽的工作台、可靠的标签页与自动保存，让每一次输入都保持连贯。'],
-  ['02', '为代码而生', 'Monaco Editor 驱动的语法高亮、多光标、折叠和 50+ 语言支持。'],
-  ['03', 'Markdown 原生体验', '边写边预览，文档大纲、任务清单和链接状态都在一个工作区里。'],
+  ['01', '自研思维导图', '不依赖第三方图库，自研画布、布局与数据模型；节点、连线、主题和工作表都可直接编辑。'],
+  ['02', '专注写作', '清爽的工作台、可靠的标签页与自动保存，让每一次输入都保持连贯。'],
+  ['03', 'Markdown 原生体验', '编辑、预览、大纲和任务清单并排协作，复杂文档仍然保持清晰。'],
+  ['04', '本地优先，云端协作', '本地文件与云文档按路径和内容哈希同步，支持历史版本、分享与跨设备接续。'],
 ]
 
 const capabilities = [
+  ['✣', '原生思维导图引擎', '从树结构、布局算法到 SVG 画布均由 Tau 自研，支持两侧导图、逻辑图、树形图和组织图。'],
+  ['◇', '彩虹主题与节点级样式', '分支配色、节点边界、概要、图片节点和批量样式让结构信息真正可读。'],
   ['⌘', '命令面板', '常用操作、文件跳转和工作区命令，一个快捷键即可触达。'],
   ['◐', 'Markdown 预览', '编辑与预览并排工作，文档结构一眼可读。'],
   ['⌁', '工作区上下文', '文件树、标签页、任务与链接状态保持在同一条工作流。'],
@@ -17,15 +20,15 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.37', date: '2026-11-05', label: '历史预览与思维导图协作', category: '云端协作', latest: true,
-    summary: '云文档历史版本支持多格式只读预览，思维导图补齐快捷绘图、拖拽排序、全屏面板与云端同步分享入口。',
+    version: 'v0.6.38', date: '2026-11-07', label: '自研思维导图与云端协作', category: '思维导图', latest: true,
+    summary: '自研思维导图引擎补齐滚轮与触控板导航、节点拖拽和多布局协作；官网同步更新真实截图与创新能力展示。',
     highlights: [
-      '历史版本按文件格式渲染：Markdown 富文本、思维导图、JSON/XML/YAML/SQL 与常见代码配置文本',
-      '思维导图历史版本支持适应面板、原始尺寸与源码切换；Markdown 链接统一在系统浏览器打开',
-      '画布新增 mini 快捷绘图工具，节点支持同级拖拽排序，全屏下属性与样式面板可正常弹出',
-      '节点属性、画布样式、节点样式合并为同一侧栏的三个同级页签，右键菜单增加同步至云端与一键分享',
+      '普通滚轮平移画布，Ctrl/Cmd + 滚轮缩放；触控板双指和触屏支持横向查看长工具栏',
+      '自研 SVG 画布、布局算法和 TauMap 数据模型，支持两侧导图、逻辑图、树形图和组织图',
+      '彩虹分支配色、节点级样式、属性面板、大纲联动和 381 节点大型知识结构展示',
+      '分享链接识别、密码预览、分享转存和云端浅色主题体验同步完善',
     ],
-    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.37',
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.38',
   },
   {
     version: 'v0.6.36', date: '2026-11-04', label: '思维导图画布与主题样式', category: '思维导图', latest: false,
@@ -454,15 +457,17 @@ document.querySelector('#app').innerHTML = `
 
     <section class="capabilities container reveal"><div class="capability-intro"><p class="eyebrow">BUILT FOR THE FLOW</p><h2>每一个细节，<br><em>都在帮你前进。</em></h2><p>从第一次打开文件，到完成一次提交，Tau 把高频动作变成自然的节奏。现在，主题市场和可调节外观也加入了这条工作流。</p></div><div class="capability-grid">${capabilities.map(([icon, title, body]) => `<article class="capability"><span>${icon}</span><h3>${title}</h3><p>${body}</p></article>`).join('')}</div></section>
 
-    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>你的文件，<br><em>你的节奏。</em></h2><p>路径面包屑、标签页和沉浸式编辑区，把工作区上下文留在视线之内；从纯文本到完整项目，都能保持专注。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/editor.png" alt="Tau Editor v0.6.26 路径面包屑与沉浸式编辑工作区预览"><figcaption>Tau Editor · focused workspace with breadcrumbs</figcaption></figure></section>
+    <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>写作、代码与预览，<br><em>在同一条工作流里。</em></h2><p>路径面包屑、标签页、Monaco 编辑器和 Markdown 实时预览，把文档上下文留在视线之内；从单篇笔记到完整项目，都能保持专注。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/markdown-preview-current.png" alt="Tau Editor 最新 Markdown 分栏预览、代码编辑器与文档渲染"><figcaption>Tau Editor · Markdown editor with live preview and outline</figcaption></figure></section>
 
-  <section id="cloud" class="preview container reveal"><div><p class="eyebrow">LOCAL FIRST, CLOUD READY</p><h2>本地优先，<br><em>云端随时接管。</em></h2><p>保存即同步：本地路径与云端路径一一对应，内容哈希一致就跳过上传；多台设备打开同一份文档不会互相覆盖。云端分类、容量套餐、签到扩容和积分兑换都在应用内完成，用量与配额一眼可见。</p><a class="text-link" href="https://github.com/kokotao/tau-editor/releases/tag/v0.6.26" target="_blank" rel="noreferrer">查看 v0.6.26 更新 ↗</a></div><figure><img src="./assets/cloud-browser.png" alt="Tau Editor 云端文档浏览面板：按分类树浏览并打开云端文档"><figcaption>Tau Editor · cloud workspace with category tree</figcaption></figure></section>
+    <section class="preview container reveal"><div><p class="eyebrow">BUILT FROM THE CANVAS UP</p><h2>一张真正可编辑的导图，<br><em>从结构到样式都由 Tau 掌控。</em></h2><p>思维导图不是只读图片，也不是外接图库。Tau 自研数据模型、布局算法和画布交互，支持节点拖拽、四种布局、工作表、彩虹分支配色、属性面板与大纲联动。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">查看思维导图能力 ↗</a></div><figure><img src="./assets/mindmap-rainbow-current.png" alt="Tau Editor 自研彩虹主题思维导图，展示节点、连线、大纲和画布样式"><figcaption>Tau Editor · native mindmap engine with rainbow branches</figcaption></figure></section>
+
+  <section id="cloud" class="preview container reveal"><div><p class="eyebrow">LOCAL FIRST, CLOUD READY</p><h2>本地优先，<br><em>云端随时接管。</em></h2><p>保存即同步：本地路径与云端路径一一对应，内容哈希一致就跳过上传；多台设备打开同一份文档不会互相覆盖。云端分类、版本历史、分享链接和容量用量都在应用内完成。</p><a class="text-link" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">查看最新 Release ↗</a></div><figure><img src="./assets/cloud-doc-browser-current.png" alt="Tau Editor 最新云端文档浏览器，展示分类树、文档列表和版本信息"><figcaption>Tau Editor · cloud document browser with history</figcaption></figure></section>
 
   <section class="preview container reveal"><div><p class="eyebrow">STORAGE THAT GROWS WITH YOU</p><h2>容量不够，<br><em>当场就能扩容。</em></h2><p>容量套餐、永久扩容包、每日签到与积分兑换整合在同一个面板；有效期、剩余容量与续费入口都在应用内，不用跳转网页。</p></div><figure><img src="./assets/cloud-quota.png" alt="Tau Editor 云存储容量套餐与扩容面板"><figcaption>Tau Editor · storage plans and quota</figcaption></figure></section>
 
-  <section class="preview container reveal"><div><p class="eyebrow">TOUR</p><h2>四屏看完整条链路，<br><em>从写到云。</em></h2><p>工作台、Markdown 预览、云端浏览、容量扩容 —— 一条完整链路，四张真实截图串成一段巡览。</p></div><figure><img src="./assets/tour.gif" alt="Tau Editor 功能巡览：工作台、Markdown 预览、云文档浏览、云存储扩容"><figcaption>Tau Editor · tour：workspace → markdown → cloud → storage</figcaption></figure></section>
+    <section class="preview container reveal"><div><p class="eyebrow">TOUR</p><h2>从一张节点，<br><em>走到一整套知识系统。</em></h2><p>新建导图、展开分支、切换布局、打开属性和大纲，再把成果同步到云端。Tau 把“想法 → 结构 → 文档 → 协作”串成一条可回到的工作流。</p></div><figure><img src="./assets/mindmap-tour.gif" alt="Tau Editor 思维导图演示：新增主题、切换布局、打开属性和大纲"><figcaption>Tau Editor · mindmap tour：structure → style → collaboration</figcaption></figure></section>
 
-    <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>把工作台，<br><em>带在手边。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/markdown-preview.png" alt="Tau Editor v0.6.11 Markdown 分栏预览与文档上下文"><figcaption>Markdown preview · split editing and context</figcaption></figure><figure><img src="./assets/command-palette.png" alt="Tau Editor 命令面板与快速导航"><figcaption>Command palette · every action within reach</figcaption></figure><figure><img src="./assets/settings.png" alt="Tau Editor 主题、快捷键与语言服务设置"><figcaption>Settings · themes, keybindings and language services</figcaption></figure></div></section>
+    <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>每一块画布，<br><em>都在讲清楚结构。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/mindmap-style-light-current.png" alt="Tau Editor 浅色主题思维导图，展示画布样式与彩虹配色"><figcaption>Mindmap canvas · themes, layouts and branch colors</figcaption></figure><figure><img src="./assets/markdown-outline-current.png" alt="Tau Editor Markdown 编辑、预览与文档大纲三栏视图"><figcaption>Markdown · edit, preview and outline together</figcaption></figure><figure><img src="./assets/cloud-doc-modal-current.png" alt="Tau Editor 云端文档浏览与版本历史弹窗"><figcaption>Cloud documents · browse, preview and share</figcaption></figure><figure><img src="./assets/mindmap-outline-light-current.png" alt="Tau Editor 381 节点思维导图及右侧大纲联动"><figcaption>Large maps · 381 nodes with synchronized outline</figcaption></figure><figure><img src="./assets/mindmap-cloud-current.png" alt="Tau Editor 云文档中的自研思维导图与节点属性面板"><figcaption>Mindmap collaboration · edit and sync in the cloud</figcaption></figure></div></section>
 
     <section id="releases" class="releases container reveal"><div class="release-heading"><div><p class="eyebrow">RELEASE NOTES</p><h2>每一次更新，<br><em>都值得被看见。</em></h2></div><p>更新日志自动同步 GitHub Releases，按公开 tag 排序展示；网络不可用时保留内置版本记录。</p></div><div class="release-sync-status" role="status" aria-live="polite" data-release-sync>内置版本记录 · 正在同步 GitHub Releases…</div><div class="release-filters" role="group" aria-label="筛选更新日志">${renderReleaseFilters(releases)}</div><div class="release-list">${renderReleaseCards(releases)}</div></section>
 

@@ -1,5 +1,5 @@
 <template>
-  <div class="status-bar" data-testid="status-bar">
+  <div class="status-bar" :class="{ 'status-bar--mindmap': isMindmap }" data-testid="status-bar">
     <div class="status-section status-left">
       <div class="status-item">
         <span class="status-label" data-testid="cursor-position">{{ cursorPositionLabel }}</span>
@@ -10,10 +10,25 @@
       <div class="status-item">
         <span class="status-label" data-testid="word-count">{{ normalizedWordCountLabel }}</span>
       </div>
-      <div class="status-item author-info">
+      <div v-if="!isMindmap" class="status-item author-info">
         <button class="author-trigger" data-testid="author-info-trigger" type="button" @click="showAuthorModal = true">
           {{ authorCopy.entry }}
         </button>
+      </div>
+    </div>
+
+    <div v-show="isMindmap" class="status-section mindmap-status-section" data-testid="mindmap-status-section">
+      <button class="author-trigger" data-testid="author-info-trigger" type="button" @click="showAuthorModal = true">
+        {{ authorCopy.entry }}
+      </button>
+      <div id="mindmap-sheet-bar-host" class="mindmap-status-section__sheets"></div>
+      <div class="mindmap-status-shortcuts" role="group" aria-label="思维导图常用操作" data-testid="mindmap-status-shortcuts">
+        <span class="mindmap-status-shortcut"><kbd>滚轮</kbd><span>平移画布</span></span>
+        <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + 滚轮</kbd><span>缩放</span></span>
+        <span class="mindmap-status-shortcut"><kbd>拖拽空白</kbd><span>平移画布</span></span>
+        <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + Z</kbd><span>撤销</span></span>
+        <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + Y</kbd><span>重做</span></span>
+        <span class="mindmap-status-shortcut"><kbd>Ctrl/⌘ + Alt + O/P</kbd><span>大纲/属性</span></span>
       </div>
     </div>
 
@@ -155,6 +170,7 @@ interface StatusBarProps {
    */
   cloudSyncState?: 'synced' | 'saving' | 'failed' | 'offline' | null;
   cloudSyncError?: string | null;
+  isMindmap?: boolean;
 }
 
 const props = withDefaults(defineProps<StatusBarProps>(), {
@@ -167,6 +183,7 @@ const props = withDefaults(defineProps<StatusBarProps>(), {
   lastSaveTime: undefined,
   cloudSyncState: null,
   cloudSyncError: null,
+  isMindmap: false,
 });
 
 const emit = defineEmits<{
@@ -296,6 +313,13 @@ const formatLastSaveTime = (date: Date) => {
   transition: background-color .22s ease, color .22s ease, border-color .22s ease;
 }
 
+.status-bar--mindmap {
+  justify-content: flex-start;
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
 .status-section {
   display: flex;
   align-items: center;
@@ -311,6 +335,11 @@ const formatLastSaveTime = (date: Date) => {
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.status-bar--mindmap .status-center {
+  flex: 0 0 auto;
+  justify-content: flex-start;
 }
 
 .status-right {
@@ -338,6 +367,49 @@ const formatLastSaveTime = (date: Date) => {
   white-space: nowrap;
 }
 
+.mindmap-status-section {
+  flex: 1 1 420px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mindmap-status-section__sheets {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: min(42vw, 560px);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.mindmap-status-shortcuts {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  color: var(--text-muted, #94a3b8);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.mindmap-status-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mindmap-status-shortcut kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.28));
+  border-radius: 3px;
+  color: var(--text-secondary, #cbd5e1);
+  font: inherit;
+}
+
 .author-trigger {
   height: 28px;
   padding: 0 10px;
@@ -355,6 +427,12 @@ const formatLastSaveTime = (date: Date) => {
 .author-trigger:hover {
   border-color: rgba(125, 211, 252, 0.6);
   color: var(--text-primary, #f8fafc);
+}
+
+@media (max-width: 1100px) {
+  .mindmap-status-shortcuts {
+    gap: 8px;
+  }
 }
 
 .author-link {

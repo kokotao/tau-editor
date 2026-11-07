@@ -4,13 +4,27 @@
       <div class="toolbar-identity">
         <svg
           class="toolbar-app-icon"
+          :class="{ 'toolbar-app-icon--vip': isVipMember }"
           viewBox="80 190 710 620"
           role="img"
-          :aria-label="appLabel || 'Tau Editor'"
-          :title="appLabel || 'Tau Editor'"
+          :aria-label="appIconLabel"
+          :title="appIconLabel"
           data-testid="toolbar-app-icon"
         >
           <defs>
+            <linearGradient id="toolbar-app-icon-gold-top" x1="247" y1="355" x2="616" y2="562" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#FFF1B0" />
+              <stop offset=".48" stop-color="#E7B83F" />
+              <stop offset="1" stop-color="#C78A1D" />
+            </linearGradient>
+            <linearGradient id="toolbar-app-icon-gold-left" x1="247" y1="462" x2="432" y2="788" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#E7B944" />
+              <stop offset="1" stop-color="#B87412" />
+            </linearGradient>
+            <linearGradient id="toolbar-app-icon-gold-right" x1="432" y1="562" x2="616" y2="788" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#D89A24" />
+              <stop offset="1" stop-color="#8F570C" />
+            </linearGradient>
             <filter id="toolbar-app-icon-glow" x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation="1.6" result="blur" />
               <feMerge>
@@ -138,7 +152,16 @@
       </div>
     </div>
 
-    <div class="toolbar-zone toolbar-zone-center">
+    <div
+      ref="mindmapToolbarScroller"
+      class="toolbar-zone toolbar-zone-center"
+      data-testid="mindmap-toolbar-scroll"
+      @wheel="handleMindmapToolbarWheel"
+      @touchstart="handleMindmapToolbarTouchStart"
+      @touchmove="handleMindmapToolbarTouchMove"
+      @touchend="handleMindmapToolbarTouchEnd"
+      @touchcancel="handleMindmapToolbarTouchEnd"
+    >
       <template v-if="isMarkdown">
         <div class="toolbar-divider markdown-toolbar-divider"></div>
         <div class="toolbar-group toolbar-group-markdown" data-testid="markdown-toolbar">
@@ -368,6 +391,28 @@
         </span>
         <button
           class="toolbar-btn"
+          data-testid="btn-cloud-browser"
+          :aria-label="copy.cloudBrowse"
+          :title="copy.cloudBrowse"
+          @click="emit('open-cloud-browser')"
+        >
+          <TauIcon name="icon-cloud-sync" size="16" />
+        </button>
+        <button
+          class="toolbar-btn"
+          data-testid="btn-share-receive"
+          :aria-label="copy.shareReceive"
+          :title="copy.shareReceiveHint"
+          @click="emit('open-share-receive')"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+          </svg>
+        </button>
+        <button
+          class="toolbar-btn"
           data-testid="btn-settings"
           :aria-label="copy.settings"
           @click="emit('toggle-settings')"
@@ -423,6 +468,8 @@ interface ToolbarProps {
   isFullDocumentPreview?: boolean;
   markdownPreviewMode?: 'edit' | 'split' | 'preview';
   appLabel?: string;
+  /** 当前用户云配额档位；仅 PLUS/PRO 使用金色品牌图标。 */
+  membershipTier?: string | null;
 }
 
 type MarkdownAction = 'bold' | 'italic' | 'strike' | 'quote' | 'bullet-list' | 'ordered-list' | 'task-list' | 'code' | 'link' | 'timestamp' | 'table' | 'horizontal-rule' | 'details' | 'mermaid' | 'toc' | 'image';
@@ -560,6 +607,11 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
 
 const settingsStore = useSettingsStore();
 const copy = computed(() => getToolbarI18n(settingsStore.uiLanguage));
+const isVipMember = computed(() => ['PLUS', 'PRO'].includes(String(props.membershipTier ?? '').trim().toUpperCase()));
+const appIconLabel = computed(() => {
+  const label = props.appLabel || 'Tau Editor';
+  return isVipMember.value ? `${label}，VIP 会员` : label;
+});
 const headingLevels = [1, 2, 3, 4, 5, 6];
 const markdownHeadingRef = ref<HTMLElement | null>(null);
 const markdownHeadingPanelRef = ref<HTMLElement | null>(null);
@@ -568,6 +620,8 @@ const markdownHeadingPanelStyle = ref<Record<string, string>>({});
 const markdownCodeRef = ref<HTMLElement | HTMLElement[] | null>(null);
 const markdownCodePanelRef = ref<HTMLElement | null>(null);
 const markdownCodeOpen = ref(false);
+const mindmapToolbarScroller = ref<HTMLElement | null>(null);
+const mindmapToolbarTouchX = ref<number | null>(null);
 const markdownCodePanelStyle = ref<Record<string, string>>({});
 const customCodeLanguage = ref('');
 const codeLanguages = ['plaintext', 'javascript', 'typescript', 'python', 'java', 'go', 'rust', 'c', 'cpp', 'csharp', 'json', 'html', 'css', 'sql', 'bash', 'yaml', 'xml'];
@@ -600,6 +654,8 @@ const emit = defineEmits<{
   'undo': [];
   'redo': [];
   'toggle-settings': [];
+  'open-cloud-browser': [];
+  'open-share-receive': [];
   'cycle-markdown-preview': [];
   'markdown-action': [action: MarkdownAction];
   'markdown-heading': [level: number];
@@ -711,6 +767,48 @@ const selectMarkdownHeading = (level: number) => {
   emit('markdown-heading', level);
 };
 
+/**
+ * 将鼠标滚轮/触控板纵向滚动转换为导图工具栏的横向滚动。
+ * 触控板已经产生 deltaX 时保留原生横向滚动；只有确实能横向移动时才拦截页面滚动。
+ */
+const handleMindmapToolbarWheel = (event: WheelEvent) => {
+  if (!props.isMindmap || event.ctrlKey) return;
+  const scroller = mindmapToolbarScroller.value;
+  if (!scroller || scroller.scrollWidth <= scroller.clientWidth) return;
+  const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!delta) return;
+  const next = Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, scroller.scrollLeft + delta));
+  if (next === scroller.scrollLeft) return;
+  scroller.scrollLeft = next;
+  event.preventDefault();
+};
+
+/** 触屏设备上的单指横向滑动也能查看导图工具栏末尾按钮。 */
+const handleMindmapToolbarTouchStart = (event: TouchEvent) => {
+  if (!props.isMindmap) return;
+  const touch = event.touches[0];
+  mindmapToolbarTouchX.value = touch?.clientX ?? null;
+};
+
+const handleMindmapToolbarTouchMove = (event: TouchEvent) => {
+  const startX = mindmapToolbarTouchX.value;
+  const scroller = mindmapToolbarScroller.value;
+  const touch = event.touches[0];
+  if (!props.isMindmap || startX === null || !scroller || !touch || scroller.scrollWidth <= scroller.clientWidth) return;
+  const delta = startX - touch.clientX;
+  if (!delta) return;
+  const next = Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, scroller.scrollLeft + delta));
+  if (next !== scroller.scrollLeft) {
+    scroller.scrollLeft = next;
+    event.preventDefault();
+  }
+  mindmapToolbarTouchX.value = touch.clientX;
+};
+
+const handleMindmapToolbarTouchEnd = () => {
+  mindmapToolbarTouchX.value = null;
+};
+
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentPointerDown);
 });
@@ -742,10 +840,18 @@ onUnmounted(() => {
   min-width: 0;
   justify-content: flex-start;
   overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  touch-action: pan-x;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent-brand) 65%, transparent) transparent;
 }
-.toolbar--mindmap .toolbar-zone-center::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.toolbar--mindmap .toolbar-zone-center::-webkit-scrollbar { width: 0; height: 5px; }
+.toolbar--mindmap .toolbar-zone-center::-webkit-scrollbar-track { background: transparent; }
+.toolbar--mindmap .toolbar-zone-center::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent-brand) 65%, transparent);
+  border-radius: 999px;
+}
 
 .toolbar-group {
   display: flex;
@@ -795,17 +901,13 @@ onUnmounted(() => {
  */
 .toolbar-group-mindmap {
   gap: 6px;
-  /* 可收缩 + 横向滚动兜底：内容过宽时不截断按钮，靠滚动条/触控板横向查看 */
+  /* 内容由外层 center 滚动，组本身保持完整宽度，避免嵌套滚动容器抢走滚轮事件。 */
   flex: 0 0 auto;
   width: max-content;
   min-width: max-content;
-  overflow-x: auto;
-  /* 隐藏式滚动条：仍可滚动，但不显示滚动条轨道，避免顶部导航出现细线 */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow: visible;
   padding: 0 2px;
 }
-.toolbar-group-mindmap::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .toolbar--mindmap .toolbar-group-mindmap {
   gap: 4px;
   padding: 4px 7px;
@@ -1057,6 +1159,31 @@ onUnmounted(() => {
 
 :global(:root.theme-light) .toolbar-app-icon .toolbar-app-icon-arrows,
 :global(:root.theme-light) .toolbar-app-icon .toolbar-app-icon-cube-lines {
+  filter: none;
+}
+
+.toolbar-app-icon--vip {
+  --toolbar-logo-stroke: #bd861c;
+  --toolbar-logo-face-light: #e7b83f;
+  --toolbar-logo-face-dark: #b87412;
+  --toolbar-logo-glyph: #80500d;
+  filter: drop-shadow(0 0 2px rgba(212, 175, 55, 0.28));
+}
+
+.toolbar-app-icon--vip .toolbar-app-icon-top {
+  fill: url(#toolbar-app-icon-gold-top);
+}
+
+.toolbar-app-icon--vip .toolbar-app-icon-left {
+  fill: url(#toolbar-app-icon-gold-left);
+}
+
+.toolbar-app-icon--vip .toolbar-app-icon-right {
+  fill: url(#toolbar-app-icon-gold-right);
+}
+
+.toolbar-app-icon--vip .toolbar-app-icon-arrows,
+.toolbar-app-icon--vip .toolbar-app-icon-cube-lines {
   filter: none;
 }
 

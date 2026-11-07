@@ -46,6 +46,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::write_clipboard_image,
+            commands::read_clipboard_text,
             commands::read_file,
             commands::read_file_bytes,
             commands::write_file,
@@ -129,7 +130,10 @@ pub fn run() {
             commands::cloud_docs_share_create,
             commands::cloud_docs_share_status,
             commands::cloud_docs_share_revoke,
+            commands::cloud_docs_share_import,
             commands::cloud_share_config,
+            commands::cloud_share_public_read,
+            commands::cloud_share_public_verify,
             commands::cloud_docs_assets_list,
             commands::cloud_docs_asset_upload_file,
             commands::cloud_docs_asset_download,

@@ -92,6 +92,7 @@ const emit = defineEmits<{
 
 const store = useMindmapStore();
 const cloudQuotaStore = useCloudQuotaStore();
+const teleportSheetBarToStatus = ref(false);
 const document = computed(() => store.document);
 const selectedTopicId = computed(() => store.selectedTopicId);
 const viewport = computed(() => store.viewport);
@@ -189,6 +190,12 @@ function onOutlineFocus(event: Event) {
 onMounted(() => {
   window.addEventListener('mindmap-outline-focus', onOutlineFocus);
   window.document.addEventListener('fullscreenchange', onFullscreenChange);
+  // StatusBar is rendered after the editor pane. Wait for the parent mount so
+  // the host exists before enabling Teleport; otherwise the sheet bar stays
+  // in the canvas as a second top row.
+  void nextTick(() => {
+    teleportSheetBarToStatus.value = Boolean(window.document.getElementById('mindmap-sheet-bar-host'));
+  });
 });
 
 /* ------------------------------- 加载与同步 ------------------------------- */
@@ -1021,6 +1028,9 @@ const contextMenuItems = computed<StageMenuItem[]>(() => {
       : { id: 'add-summary', label: '添加概要…' },
     { id: 'clear-text-style', label: '清除文字颜色与高亮', disabled: !hasStyledText },
     { id: 'group-4', label: '', separator: true },
+    { id: 'sync-to-cloud', label: '同步至云端' },
+    { id: 'share', label: '一键分享' },
+    { id: 'group-5', label: '', separator: true },
     { id: 'toggle-properties', label: '打开属性面板' },
     { id: 'delete', label: isRoot ? '重置为中心主题' : '删除主题', shortcut: 'Delete', danger: true },
   ];
@@ -1115,6 +1125,12 @@ function runContextMenuAction(id: string) {
       break;
     case 'clear-text-style':
       clearTopicTextStyle(nodeId);
+      break;
+    case 'sync-to-cloud':
+      emit('sync-to-cloud');
+      break;
+    case 'share':
+      emit('share');
       break;
     case 'move-up':
       moveSelected(-1);
@@ -1560,6 +1576,7 @@ defineExpose({
       </div>
 
       <!-- 工作表切换条（阶段 4E）：切换 / 新增 / 删除均以可撤销命令写回文档并 emit change -->
+      <Teleport to="#mindmap-sheet-bar-host" :disabled="!teleportSheetBarToStatus">
       <div class="mindmap-sheet-bar" data-testid="mm-sheet-bar" @keydown.stop>
         <div class="mm-sheet-tabs" role="tablist" aria-label="工作表">
           <template v-for="(sheet, index) in sheets" :key="sheet.id">
@@ -1613,6 +1630,7 @@ defineExpose({
           删除工作表
         </button>
       </div>
+      </Teleport>
 
       <div class="mindmap-workspace">
         <MindmapCanvas
@@ -1807,7 +1825,7 @@ defineExpose({
   border-radius: 8px;
   color: var(--text-primary);
   background: color-mix(in srgb, var(--panel-elevated) 94%, var(--accent-brand));
-  box-shadow: 0 12px 36px color-mix(in srgb, #000 42%, transparent), 0 0 0 9999px color-mix(in srgb, #000 16%, transparent);
+  box-shadow: 0 12px 36px color-mix(in srgb, #000 42%, transparent);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
@@ -1982,11 +2000,11 @@ defineExpose({
 /* 工作表切换条（阶段 4E） */
 .mindmap-sheet-bar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: var(--panel-base);
-  border-bottom: 1px solid var(--border-soft);
+  max-width: 100%;
+  padding: 0;
   overflow-x: auto;
 }
 .mm-sheet-tabs { display: flex; align-items: center; gap: 6px; }

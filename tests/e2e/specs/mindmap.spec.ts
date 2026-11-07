@@ -68,6 +68,14 @@ test.describe('Mindmap E2E', () => {
     await expect(page.locator('[data-testid="mindmap-outline"]')).toBeVisible()
     await expect(page.locator('.mm-node')).toHaveCount(1)
     await expect(page.locator('.mindmap-row')).toHaveCount(1)
+    const canvasBox = await page.locator('[data-testid="mindmap-canvas"]').boundingBox()
+    const rootBox = await page.locator('.mm-node.is-root').boundingBox()
+    expect(canvasBox).toBeTruthy()
+    expect(rootBox).toBeTruthy()
+    expect(rootBox!.x).toBeGreaterThanOrEqual(canvasBox!.x)
+    expect(rootBox!.y).toBeGreaterThanOrEqual(canvasBox!.y)
+    expect(rootBox!.x + rootBox!.width).toBeLessThanOrEqual(canvasBox!.x + canvasBox!.width)
+    expect(rootBox!.y + rootBox!.height).toBeLessThanOrEqual(canvasBox!.y + canvasBox!.height)
     // 单导图标签时编辑器标签栏收起，给画布让出空间。
     await expect(page.locator('[data-testid="editor-tabs"]')).toHaveCount(0)
   })
@@ -130,6 +138,42 @@ test.describe('Mindmap E2E', () => {
     const rootId = await rootRow.getAttribute('data-topic-id')
     await rootRow.click()
     await expect(page.locator('.mm-node.is-selected')).toHaveAttribute('data-node-id', rootId!)
+  })
+
+  test('E2E-MM-CLICK-PAN: 鼠标点击节点并拖拽空白区域均可操作', async ({ page }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    await page.goto('/')
+    await page.waitForSelector('[data-testid="toolbar"]')
+    await openNewMindmap(page)
+
+    const toolbar = page.locator('[data-testid="mindmap-toolbar"]')
+    await toolbar.locator('[data-testid="mm-add-child"]').click()
+    await expect(page.locator('.mm-node')).toHaveCount(2)
+    await page.locator('[data-testid="mm-fit"]').click()
+
+    const child = page.locator('.mm-node:not(.is-root)').first()
+    const childId = await child.getAttribute('data-node-id')
+    await child.click()
+    await expect(page.locator('.mm-node.is-selected')).toHaveAttribute('data-node-id', childId!)
+
+    const canvas = page.locator('[data-testid="mindmap-canvas"]')
+    const canvasBox = await canvas.boundingBox()
+    expect(canvasBox).toBeTruthy()
+    // The left floating sidebar handle overlaps the canvas edge; start far
+    // enough inside the canvas to guarantee the pointerdown reaches the SVG.
+    const start = { x: canvasBox!.x + 80, y: canvasBox!.y + canvasBox!.height / 2 }
+    const viewportGroup = canvas.locator('svg > g').first()
+    const before = await viewportGroup.getAttribute('transform')
+
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    await page.mouse.move(start.x + 70, start.y + 45, { steps: 6 })
+    await page.mouse.up()
+
+    await expect.poll(() => viewportGroup.getAttribute('transform')).not.toBe(before)
+    expect(pageErrors).toEqual([])
   })
 
   test('E2E-MM-005: 删除含子树的节点先确认再执行', async ({ page }) => {

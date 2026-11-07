@@ -356,6 +356,11 @@ jobs:
     needs: build-tauri
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:

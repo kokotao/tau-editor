@@ -79,6 +79,7 @@ describe('Toolbar.vue', () => {
       expect(icon.find('.toolbar-app-icon-arrows').exists()).toBe(true)
       expect(icon.find('.toolbar-app-icon-tau').exists()).toBe(true)
       expect(icon.attributes('aria-label')).toBe('Tau Editor')
+      expect(icon.classes()).not.toContain('toolbar-app-icon--vip')
 
       const settingsStore = useSettingsStore(pinia)
       await settingsStore.updateSettings({ theme: 'light' })
@@ -104,9 +105,40 @@ describe('Toolbar.vue', () => {
       expect(wrapper.find('.toolbar-identity').exists()).toBe(true)
       expect(wrapper.find('[data-testid="toolbar-app-icon"]').exists()).toBe(true)
     })
+
+    it.each(['PLUS', 'PRO', ' plus '])('%s 会员显示金色品牌图标', (membershipTier) => {
+      const wrapper = mountToolbar({ membershipTier })
+      const icon = wrapper.get('[data-testid="toolbar-app-icon"]')
+
+      expect(icon.classes()).toContain('toolbar-app-icon--vip')
+      expect(icon.attributes('aria-label')).toBe('Tau Editor，VIP 会员')
+      expect(icon.find('#toolbar-app-icon-gold-top').exists()).toBe(true)
+      expect(icon.find('#toolbar-app-icon-gold-left').exists()).toBe(true)
+      expect(icon.find('#toolbar-app-icon-gold-right').exists()).toBe(true)
+    })
+
+    it.each(['FREE', 'BASIC', null, undefined])('%s 用户保留默认品牌图标', (membershipTier) => {
+      const wrapper = mountToolbar({ membershipTier })
+      const icon = wrapper.get('[data-testid="toolbar-app-icon"]')
+
+      expect(icon.classes()).not.toContain('toolbar-app-icon--vip')
+      expect(icon.attributes('aria-label')).toBe('Tau Editor')
+    })
   })
 
   describe('文件操作按钮', () => {
+    it('浏览云端文档按钮应发射 open-cloud-browser 事件', async () => {
+      const wrapper = mountToolbar()
+      await wrapper.get('[data-testid="btn-cloud-browser"]').trigger('click')
+      expect(wrapper.emitted('open-cloud-browser')).toHaveLength(1)
+    })
+
+    it('接收分享按钮应发射 open-share-receive 事件', async () => {
+      const wrapper = mountToolbar()
+      await wrapper.get('[data-testid="btn-share-receive"]').trigger('click')
+      expect(wrapper.emitted('open-share-receive')).toHaveLength(1)
+    })
+
     it('新建文件按钮应发射 new-file 事件', async () => {
       const wrapper = mountToolbar()
       const newFileBtn = wrapper.get('[data-testid="btn-new-file"]')
@@ -573,6 +605,37 @@ describe('Toolbar.vue', () => {
       const addChild = wrapper.get('[data-testid="mm-add-child"]')
       expect(addChild.classes()).toContain('mm-btn')
       expect(addChild.classes()).not.toContain('toolbar-btn')
+    })
+
+    it('导图工具栏外层是横向滚动容器，纵向鼠标滚轮可查看末尾按钮', async () => {
+      const wrapper = mountMindmapToolbar()
+      const scroller = wrapper.get('[data-testid="mindmap-toolbar-scroll"]').element as HTMLElement
+      Object.defineProperties(scroller, {
+        scrollWidth: { configurable: true, value: 1200 },
+        clientWidth: { configurable: true, value: 500 },
+        scrollLeft: { configurable: true, writable: true, value: 0 },
+      })
+
+      await wrapper.get('[data-testid="mindmap-toolbar-scroll"]').trigger('wheel', { deltaY: 240 })
+
+      expect(scroller.scrollLeft).toBe(240)
+    })
+
+    it('触屏横向滑动可移动到导图工具栏后半段', async () => {
+      const wrapper = mountMindmapToolbar()
+      const scroller = wrapper.get('[data-testid="mindmap-toolbar-scroll"]').element as HTMLElement
+      Object.defineProperties(scroller, {
+        scrollWidth: { configurable: true, value: 1200 },
+        clientWidth: { configurable: true, value: 500 },
+        scrollLeft: { configurable: true, writable: true, value: 0 },
+      })
+
+      const host = wrapper.get('[data-testid="mindmap-toolbar-scroll"]')
+      await host.trigger('touchstart', { touches: [{ clientX: 700 }] })
+      await host.trigger('touchmove', { touches: [{ clientX: 500 }] })
+      await host.trigger('touchend', { touches: [] })
+
+      expect(scroller.scrollLeft).toBe(200)
     })
   })
 })

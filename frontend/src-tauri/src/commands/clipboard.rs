@@ -35,6 +35,98 @@ pub async fn write_clipboard_image(bytes: Vec<u8>) -> Result<(), CommandError> {
         })?
 }
 
+/// 读取系统剪贴板中的纯文本；空剪贴板返回空串，由前端区分“无文本”和读取失败。
+#[tauri::command]
+pub async fn read_clipboard_text() -> Result<String, CommandError> {
+    tokio::task::spawn_blocking(read_clipboard_text_blocking)
+        .await
+        .map_err(|error| {
+            CommandError::new(
+                "CLIPBOARD_READ_FAILED",
+                format!("读取文本剪贴板任务异常结束：{error}"),
+            )
+        })?
+}
+
+fn read_clipboard_text_blocking() -> Result<String, CommandError> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("osascript")
+            .args(["-e", "the clipboard as text"])
+            .output()
+            .map_err(|error| {
+                CommandError::new(
+                    "CLIPBOARD_UNAVAILABLE",
+                    format!("无法调用 macOS 剪贴板：{error}"),
+                )
+            })?;
+        return clipboard_text_output(output, "macOS");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let script = "Add-Type -AssemblyName System.Windows.Forms; $text = [System.Windows.Forms.Clipboard]::GetText(); [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::Write($text)";
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-STA", "-Command", script])
+            .output()
+            .map_err(|error| {
+                CommandError::new(
+                    "CLIPBOARD_UNAVAILABLE",
+                    format!("无法调用 Windows 剪贴板：{error}"),
+                )
+            })?;
+        return clipboard_text_output(output, "Windows");
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let wl = Command::new("wl-paste")
+            .args(["--no-newline", "--type", "text/plain"])
+            .output();
+        if let Ok(output) = wl {
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+        }
+        let xclip = Command::new("xclip")
+            .args(["-selection", "clipboard", "-o"])
+            .output();
+        if let Ok(output) = xclip {
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+        }
+        return Err(CommandError::new(
+            "CLIPBOARD_UNAVAILABLE",
+            "未找到可用的 Linux 文本剪贴板工具（wl-paste 或 xclip）",
+        ));
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Err(CommandError::new(
+            "CLIPBOARD_UNAVAILABLE",
+            "当前平台暂不支持读取文本剪贴板",
+        ))
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn clipboard_text_output(output: std::process::Output, platform: &str) -> Result<String, CommandError> {
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+    let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(CommandError::new(
+        "CLIPBOARD_READ_FAILED",
+        if message.is_empty() {
+            format!("{platform} 拒绝读取文本剪贴板")
+        } else {
+            format!("{platform} 拒绝读取文本剪贴板：{message}")
+        },
+    ))
+}
+
 fn write_clipboard_image_blocking(bytes: Vec<u8>) -> Result<(), CommandError> {
     validate_png(&bytes)?;
     #[cfg(target_os = "macos")]

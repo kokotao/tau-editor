@@ -70,6 +70,13 @@
                 <div class="cd-sync__account-text">
                   <div class="cd-sync__account-name-row">
                     <span class="cd-sync__account-name">{{ accountName }}</span>
+                    <MembershipBadge
+                      v-if="membershipTier"
+                      :tier="membershipTier"
+                      :expires-at="live ? cloudQuotaStore.summary?.renewAt ?? null : '2026-12-31T00:00:00+08:00'"
+                      compact
+                      test-id="cloud-sync-membership-badge"
+                    />
                     <span class="cd-sync__plan cd-mono" :data-tone="accountTone">{{ planLabel }}</span>
                   </div>
                   <div class="cd-sync__account-meta cd-mono">
@@ -603,6 +610,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch, type PropType } from 'vue';
 import TauIcon from '@/components/icons/TauIcon.vue';
+import MembershipBadge from '@/components/ui/MembershipBadge.vue';
 import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
 import WechatContactDialog from '@/components/editor/WechatContactDialog.vue';
 import { getCloudSyncSettingsI18n, getSettingsPanelI18n } from '@/i18n/ui';
@@ -1156,6 +1164,7 @@ const upgradeVisible = ref(false);
 /** 「联系管理员开通」的微信二维码弹窗（产品需求 ③：不再跳浏览器）。 */
 const wechatVisible = ref(false);
 const cloudQuotaStore = useCloudQuotaStore();
+const membershipTier = computed(() => (live.value ? cloudQuotaStore.tier : 'PRO'));
 // 预览态没有真实 /me 数据，用设计稿口径的示例值，避免面板显示 0 B / 0 B
 const upgradeUsedBytes = computed(() => (live.value ? cloudSyncStore.space?.usedBytes ?? 0 : 85_300));
 const upgradeQuotaBytes = computed(() =>
@@ -1519,7 +1528,10 @@ watch(
   (next) => {
     if (!next) {
       form.password = '';
+      return;
     }
+    // 会员金标在标题栏与账号卡片都要展示到期日，进入设置时补一次配额快照。
+    loadQuotaPanelData();
   },
 );
 
@@ -1894,6 +1906,10 @@ const CdGlyph = defineComponent({
   font-weight: 700;
   color: #c4e7ff;
   line-height: 1;
+}
+
+:global(:root.theme-light) .cd-sync__avatar-letter {
+  color: #eaf8ff;
 }
 
 .cd-sync__avatar-dot {

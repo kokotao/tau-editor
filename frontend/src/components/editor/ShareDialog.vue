@@ -108,6 +108,27 @@
               <button type="button" class="share-dialog__button" data-testid="share-dialog-open" :disabled="busy || !shareUrl" @click="openLink">{{ copy.open }}</button>
             </div>
 
+            <div class="share-dialog__actions" data-testid="share-dialog-link-actions">
+              <button
+                type="button"
+                class="share-dialog__button"
+                data-testid="share-dialog-copy-share-text"
+                :disabled="busy || !shareUrl"
+                @click="copyShareText"
+              >
+                复制分享文案
+              </button>
+              <button
+                type="button"
+                class="share-dialog__button"
+                data-testid="share-dialog-import-from-link"
+                :disabled="busy"
+                @click="emitOpenImportReceiver"
+              >
+                打开分享链接
+              </button>
+            </div>
+
             <div v-if="statsViews !== null" class="share-dialog__stats" data-testid="share-dialog-stats">
               <span data-testid="share-dialog-stats-line">{{ statsCopy.statsLine(statsViews, statsVisitors ?? 0) }}</span>
               <button
@@ -255,6 +276,8 @@ const emit = defineEmits<{
   shared: [];
   /** 打开分享统计弹窗（由 App 承载 ShareStatsDialog） */
   'open-stats': [payload: { fileId: number; fileName: string }];
+  /** 将剪贴板或输入框里的公开分享交给宿主预览/转存。 */
+  'open-share-link': [payload: { url: string }];
 }>();
 
 const settingsStore = useSettingsStore();
@@ -624,6 +647,22 @@ async function copyLink(): Promise<void> {
   notice.value = copied ? copy.value.copied : copy.value.copyManually;
 }
 
+/** 分享文案比裸链接更适合聊天工具：包含标题与明确的外部打开提示。 */
+async function copyShareText(): Promise<void> {
+  if (!shareUrl.value) {
+    notice.value = copy.value.baseUrlMissing;
+    return;
+  }
+  const title = props.fileName || 'TauEditor 文档';
+  const copied = await copyTextToClipboard(`${title}\n${shareUrl.value}`);
+  notice.value = copied ? '分享文案已复制到剪贴板。' : '复制失败，请手动复制链接。';
+}
+
+/** 打开「接收分享」入口；现有分享链接作为预填值，用户也可以改成别人的链接。 */
+function emitOpenImportReceiver(): void {
+  emit('open-share-link', { url: shareUrl.value.trim() });
+}
+
 async function openLink(): Promise<void> {
   if (!shareUrl.value) {
     return;
@@ -697,7 +736,7 @@ watch(
   { immediate: true },
 );
 
-defineExpose({ generate, revoke, startSync });
+defineExpose({ generate, revoke, startSync, copyShareText });
 </script>
 
 <style scoped>

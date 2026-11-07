@@ -147,6 +147,8 @@ import CloudDocConflictDialog from './components/editor/CloudDocConflictDialog.v
 import CloudDocSyncDialog from './components/editor/CloudDocSyncDialog.vue';
 import CloudFolderUploadDialog from './components/editor/CloudFolderUploadDialog.vue';
 import ShareDialog from './components/editor/ShareDialog.vue';
+import ShareReceiveDialog from './components/editor/ShareReceiveDialog.vue';
+import MembershipBadge from './components/ui/MembershipBadge.vue';
 import CenterToast from './components/ui/CenterToast.vue';
 import ShareStatsDialog from './components/editor/ShareStatsDialog.vue';
 import { useCenterToastStore } from './stores/centerToast';
@@ -479,6 +481,7 @@ type UpdateDownloadProgress = {
   progress: number | null;
 };
 const titlebarUpdate = ref<TitlebarUpdateState | null>(null);
+const notifiedUpdateVersion = ref<string | null>(null);
 const titlebarUpdateProgress = ref<number | null>(null);
 const titlebarUpdateProgressVisible = ref(false);
 const titlebarUpdateComplete = ref(false);
@@ -2883,6 +2886,57 @@ const shareDialog = ref<{ visible: boolean; filePath: string; fileName: string }
   fileName: '',
 });
 
+/** 分享链接导入：剪贴板识别、预览与转存到当前账号。 */
+const shareImportDialog = ref<{ visible: boolean; initialUrl: string }>({
+  visible: false,
+  initialUrl: '',
+});
+
+/** 未登录用户点击转存时暂存分享地址，登录成功后自动回到接收弹窗。 */
+const pendingShareImportUrl = ref<string | null>(null);
+
+const openShareImportDialog = (initialUrl = '') => {
+  shareImportDialog.value = { visible: true, initialUrl };
+};
+
+const handleShareImportLoginRequest = (payload: { url: string }) => {
+  pendingShareImportUrl.value = payload.url || shareImportDialog.value.initialUrl || '';
+  shareImportDialog.value.visible = false;
+  notificationStore.warning(
+    cloudSyncCopy.value.settingsCloudSync,
+    cloudSyncCopy.value.cloudSyncLoginRequired,
+  );
+  openCloudSyncSettings();
+};
+
+const handleShareImportDialogClose = () => {
+  pendingShareImportUrl.value = null;
+  shareImportDialog.value.visible = false;
+};
+
+watch(() => cloudSyncStore.signedIn, (signedIn) => {
+  if (!signedIn || pendingShareImportUrl.value === null) return;
+  const initialUrl = pendingShareImportUrl.value;
+  pendingShareImportUrl.value = null;
+  settingsContainer.value = null;
+  shareImportDialog.value = { visible: true, initialUrl };
+});
+
+const handleShareLinkOpen = (payload: { url: string }) => {
+  shareDialog.value.visible = false;
+  openShareImportDialog(payload.url);
+};
+
+const handleSharedDocumentImported = () => {
+  cloudTreeRefreshToken.value += 1;
+  void cloudSyncStore.refreshSpace();
+  centerToast.show('已添加到我的云端', 'success', 3000);
+};
+
+const openSharedDocumentFromClipboard = () => {
+  openShareImportDialog('');
+};
+
 /** 已分享过的本地路径（右键菜单据此显示「分享（已分享）」）。 */
 const sharedFilePaths = ref<string[]>([]);
 
@@ -3723,6 +3777,27 @@ const handleTitlebarUpdateAvailability = (state: Omit<TitlebarUpdateState, 'rele
     ...state,
     releaseUrl: state.releaseUrl ?? '',
   };
+  if (!state.available || notifiedUpdateVersion.value === state.latestVersion) {
+    return;
+  }
+  notifiedUpdateVersion.value = state.latestVersion;
+  const english = settingsStore.uiLanguage === 'en-US';
+  notificationStore.add({
+    type: 'info',
+    title: english ? 'Update available' : '发现新版本',
+    message: english
+      ? `Tau Editor ${state.latestVersion} is ready${state.canInstall ? ' to install' : ''}.`
+      : `Tau Editor ${state.latestVersion} 已发布${state.canInstall ? '，可以立即更新' : ''}。`,
+    duration: 0,
+    action: {
+      label: state.canInstall
+        ? (english ? 'Update now' : '立即更新')
+        : (english ? 'View release' : '查看更新'),
+      handler: () => {
+        void handleTitlebarUpgrade();
+      },
+    },
+  });
 };
 
 const clearTitlebarProgressTimer = () => {
@@ -5631,6 +5706,12 @@ onUnmounted(() => {
         @dblclick.left.prevent="handleToggleWindowMaximized"
       ></div>
       <div class="native-titlebar-actions native-titlebar-actions-end">
+        <MembershipBadge
+          :tier="cloudQuotaStore.tier"
+          :expires-at="cloudQuotaStore.summary?.renewAt ?? null"
+          compact
+          test-id="titlebar-membership-badge"
+        />
         <div
           v-if="titlebarUpdateProgressVisible"
           class="native-titlebar-progress"
@@ -5743,6 +5824,7 @@ onUnmounted(() => {
       :is-dirty="isDirty"
       :has-active-tab="Boolean(activeTab)"
       :app-label="appText.appLabel"
+      :membership-tier="cloudQuotaStore.tier"
       :is-markdown="isMarkdownTab"
       :is-mindmap="showMindmapToolbar"
       :mindmap-tools="mindmapToolbarState"
@@ -5757,6 +5839,8 @@ onUnmounted(() => {
       @undo="handleUndo"
       @redo="handleRedo"
       @toggle-settings="handleToolbarToggleSettings"
+      @open-cloud-browser="openCloudDocBrowser"
+      @open-share-receive="openSharedDocumentFromClipboard"
       @cycle-markdown-preview="handleCycleMarkdownPreview"
       @markdown-action="handleMarkdownAction"
       @markdown-heading="handleMarkdownHeading"
@@ -5786,7 +5870,7 @@ onUnmounted(() => {
       @mm-toggle-style="handleMindmapToolbarAction('toggle-style')"
     />
 
-    <div class="main-layout">
+    <div class="main-layout" :class="{ 'main-layout--settings-open': settingsContainer === 'workspace' }">
       <div
         v-if="settingsContainer === 'drawer'"
         class="shell-overlay"
@@ -6193,6 +6277,16 @@ onUnmounted(() => {
           @close="shareDialog.visible = false"
           @shared="handleShareStateChanged"
           @open-stats="handleOpenShareStats"
+          @open-share-link="handleShareLinkOpen"
+        />
+
+        <ShareReceiveDialog
+          :visible="shareImportDialog.visible"
+          :initial-url="shareImportDialog.initialUrl"
+          :signed-in="cloudSyncStore.signedIn"
+          @close="handleShareImportDialogClose"
+          @login-request="handleShareImportLoginRequest"
+          @imported="handleSharedDocumentImported"
         />
 
         <ReferenceResultsPanel
@@ -6302,6 +6396,7 @@ onUnmounted(() => {
         {{ fileTreeCopy.uploadRunningBadge(folderUploadProgress.done, folderUploadProgress.total) }}
       </button>
       <StatusBar
+        :is-mindmap="isMindmapTab"
         :cursor-position="cursorPosition"
         :encoding="encoding"
         :language="language"
@@ -6942,6 +7037,18 @@ textarea {
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
+}
+
+.main-layout--settings-open > .settings-page {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+}
+
+.main-layout--settings-open > .editor-panel {
+  display: none !important;
 }
 
 .editor-stage {

@@ -1134,6 +1134,10 @@ function getBrowserDeviceInfo(): DeviceInfo {
 }
 
 export const appCommands = {
+  async readClipboardText(): Promise<string> {
+    return invokeCommand<string>('read_clipboard_text');
+  },
+
   async writeImage(bytes: Uint8Array | number[]): Promise<void> {
     await invokeCommand<void>('write_clipboard_image', {
       bytes: Array.from(bytes),
@@ -1540,6 +1544,41 @@ export interface CloudShareConfig {
   maxExpireDays: number | null;
 }
 
+/** 分享转存结果（Rust `CloudShareImportResult`）。 */
+export interface CloudShareImportResult {
+  fileId: number;
+  version: number;
+  contentHash?: string | null;
+  size?: number;
+  path: string;
+  fileName?: string | null;
+  assetsTotal?: number;
+  assetsCopied?: number;
+  assetsFailed?: number;
+}
+
+/** 公开分享内容（Rust `CloudSharePublicInfo`）：不含 owner 的 fileId/path。 */
+export interface CloudSharePublicInfo {
+  passwordRequired: boolean;
+  title: string | null;
+  content: string | null;
+  category: string | null;
+  updatedAt: string | null;
+  authorName: string | null;
+  fileName: string | null;
+  fileExt: string | null;
+  fileKind: string | null;
+  fileSize: number | null;
+  assets: Array<{
+    relPath?: string | null;
+    assetId?: number | null;
+    url?: string | null;
+  }>;
+  previewUrl: string | null;
+  previewAvailable: boolean;
+  assetTicket: string | null;
+}
+
 /** 分享创建入参：`expiresInDays` 为 null 表示永久，`password` 为空表示无密码。 */
 export interface CloudShareCreatePayload {
   regenerate?: boolean;
@@ -1689,9 +1728,36 @@ export const cloudCommands = {
     await invokeCommand<void>('cloud_docs_share_revoke', { fileId });
   },
 
+  /** 将有效分享转存为当前登录账号的私有云文档。 */
+  async shareImport(input: {
+    token: string;
+    password?: string | null;
+    path: string;
+    title: string;
+    category?: string | null;
+  }): Promise<CloudShareImportResult> {
+    return invokeCommand<CloudShareImportResult>('cloud_docs_share_import', {
+      token: input.token,
+      password: input.password ?? null,
+      path: input.path,
+      title: input.title,
+      category: input.category ?? null,
+    });
+  },
+
   /** 分享站点配置：分享域名 / 默认分类 / 有效期上限。 */
   async shareConfig(): Promise<CloudShareConfig> {
     return invokeCommand<CloudShareConfig>('cloud_share_config');
+  },
+
+  /** 免登录读取公开分享（不发送本地登录令牌）。 */
+  async sharePublicRead(token: string): Promise<CloudSharePublicInfo> {
+    return invokeCommand<CloudSharePublicInfo>('cloud_share_public_read', { token });
+  },
+
+  /** 校验公开分享访问密码。 */
+  async sharePublicVerify(token: string, password: string): Promise<CloudSharePublicInfo> {
+    return invokeCommand<CloudSharePublicInfo>('cloud_share_public_verify', { token, password });
   },
 
   /** 分享统计（owner 可读）。 */
