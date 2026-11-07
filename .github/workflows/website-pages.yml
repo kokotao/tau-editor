@@ -3,8 +3,6 @@ name: Deploy Tau Editor Website
 on:
   push:
     branches: [main, master]
-    tags:
-      - 'v*'
     paths:
       - "website/**"
       - ".github/workflows/website-pages.yml"

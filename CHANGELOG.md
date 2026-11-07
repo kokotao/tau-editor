@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.40](https://github.com/kokotao/tau-editor/releases/tag/v0.6.40) | 2026-11-07 | 待 GitHub Actions 完成 | 待发布    | 修复 Linux 剪贴板命令编译条件，重新发布完整三平台安装包 |
+| [0.6.40](https://github.com/kokotao/tau-editor/releases/tag/v0.6.40) | 2026-11-07 | 公开 Release     | `e60222b` | 修复 Linux 剪贴板命令编译条件，重新发布完整三平台安装包 |
 | [0.6.39](https://github.com/kokotao/tau-editor/releases/tag/v0.6.39) | 2026-11-07 | 待 GitHub Actions 完成 | 待发布    | 自研思维导图创新文案收口、官网素材更新与完整三平台安装包发布 |
 | [0.6.38](https://github.com/kokotao/tau-editor/releases/tag/v0.6.38) | 2026-11-07 | 本次发布         | 本次发布  | 自研思维导图交互、滚轮与触控板导航、云端分享接收、官网截图与创新文案更新 |
 | [0.6.37](https://github.com/kokotao/tau-editor/releases/tag/v0.6.37) | 2026-11-05 | 公开 Release    | `374a477` | 云文档历史预览多格式渲染、思维导图快捷工具与全屏面板、云端右键同步分享 |
