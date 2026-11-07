@@ -339,7 +339,7 @@ const formatLastSaveTime = (date: Date) => {
 .status-bar--mindmap .status-left {
   gap: 7px;
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 9px);
   white-space: nowrap;
 }
 
@@ -453,7 +453,7 @@ const formatLastSaveTime = (date: Date) => {
   overflow-y: hidden;
   scrollbar-width: none;
   color: var(--text-muted, #94a3b8);
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 9px);
   white-space: nowrap;
 }
 
@@ -502,7 +502,7 @@ const formatLastSaveTime = (date: Date) => {
 
   .status-bar--mindmap .status-left {
     gap: 5px;
-    font-size: 9px;
+    font-size: var(--font-size-ui-xs, 9px);
   }
 
   .mindmap-status-section {
@@ -517,7 +517,7 @@ const formatLastSaveTime = (date: Date) => {
 
   .mindmap-status-shortcuts {
     gap: 6px;
-    font-size: 9px;
+    font-size: var(--font-size-ui-xs, 9px);
   }
 
   .status-bar--mindmap .status-right {

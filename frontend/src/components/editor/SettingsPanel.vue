@@ -114,7 +114,7 @@
               <div class="settings-item">
                 <label class="settings-label settings-label-with-meta">
                   <span>{{ copy.uiFont }}</span>
-                  <small class="settings-label-positive">可变字重</small>
+                  <small class="settings-label-positive">开放许可字体</small>
                 </label>
                 <n-select
                   class="settings-nselect"
@@ -130,9 +130,9 @@
             <div class="settings-item settings-font-size-item">
               <label class="settings-label">{{ copy.uiFontSize }}</label>
               <div class="font-size-control">
-                <button class="font-size-btn" data-testid="decrease-ui-font-btn" @click="decreaseUiFontSize"><TauIcon name="icon-minus" :size="16" /></button>
+                <button class="font-size-btn" data-testid="decrease-ui-font-btn" :disabled="settingsStore.uiFontSize <= MIN_UI_FONT_SIZE" @click="decreaseUiFontSize"><TauIcon name="icon-minus" :size="16" /></button>
                 <span class="font-size-value">{{ settingsStore.uiFontSize }}px</span>
-                <button class="font-size-btn" data-testid="increase-ui-font-btn" @click="increaseUiFontSize"><TauIcon name="icon-plus" :size="16" /></button>
+                <button class="font-size-btn" data-testid="increase-ui-font-btn" :disabled="settingsStore.uiFontSize >= MAX_UI_FONT_SIZE" @click="increaseUiFontSize"><TauIcon name="icon-plus" :size="16" /></button>
                 <button class="font-size-reset" data-testid="reset-ui-font-btn" @click="resetUiFontSize">{{ copy.reset }}</button>
               </div>
             </div>
@@ -895,9 +895,9 @@
           <div class="settings-item">
             <label class="settings-label">{{ copy.uiFontSize }}</label>
             <div class="font-size-control">
-              <button class="font-size-btn" data-testid="drawer-decrease-ui-font-btn" @click="decreaseUiFontSize"><TauIcon name="icon-minus" :size="16" /></button>
+              <button class="font-size-btn" data-testid="drawer-decrease-ui-font-btn" :disabled="settingsStore.uiFontSize <= MIN_UI_FONT_SIZE" @click="decreaseUiFontSize"><TauIcon name="icon-minus" :size="16" /></button>
               <span class="font-size-value">{{ settingsStore.uiFontSize }}px</span>
-              <button class="font-size-btn" data-testid="drawer-increase-ui-font-btn" @click="increaseUiFontSize"><TauIcon name="icon-plus" :size="16" /></button>
+              <button class="font-size-btn" data-testid="drawer-increase-ui-font-btn" :disabled="settingsStore.uiFontSize >= MAX_UI_FONT_SIZE" @click="increaseUiFontSize"><TauIcon name="icon-plus" :size="16" /></button>
               <button class="font-size-reset" data-testid="drawer-reset-ui-font-btn" @click="resetUiFontSize">{{ copy.reset }}</button>
             </div>
           </div>
@@ -940,6 +940,8 @@ import {
   CUSTOM_THEME_COLOR_FALLBACKS,
   CUSTOM_THEME_COLOR_VAR_MAP,
   DEFAULT_UI_FONT_FAMILY,
+  MIN_UI_FONT_SIZE,
+  MAX_UI_FONT_SIZE,
   MARKDOWN_MERMAID_THEMES,
   MARKDOWN_PREVIEW_THEMES,
   type MarkdownMermaidTheme,
@@ -1372,13 +1374,52 @@ const fontFamilyOptions = computed<SelectOption[]>(() => [
   { label: copy.value.systemMonospace, value: 'monospace' },
 ]);
 
-const uiFontFamilyOptions = computed<SelectOption[]>(() => [
-  { label: 'Manrope Variable', value: DEFAULT_UI_FONT_FAMILY },
-  { label: copy.value.systemUiFont, value: "system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif" },
-  { label: 'PingFang SC', value: "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" },
-  { label: 'Microsoft YaHei', value: "'Microsoft YaHei', 'PingFang SC', sans-serif" },
-  { label: 'Helvetica Neue', value: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
-]);
+/**
+ * 仅列出可免费使用的开放许可字体（主要为 SIL OFL / Apache 2.0）。
+ * 应用不捆绑字体文件：未安装时由浏览器按后备栈选择可用字体。
+ * 中文字体放在每个拉丁字体后面，确保中英文混排时中文仍能正常显示。
+ */
+const uiFontFamilyOptions = computed<SelectOption[]>(() => {
+  const cjkFallback = "'Noto Sans SC', 'Source Han Sans SC', 'Noto Sans CJK SC', sans-serif";
+  const serifCjkFallback = "'Noto Serif SC', 'Source Han Serif SC', 'Noto Serif CJK SC', serif";
+  const stack = (family: string, fallback = cjkFallback) => `'${family}', ${fallback}`;
+  return [
+    { label: 'Manrope', value: DEFAULT_UI_FONT_FAMILY },
+    { label: 'Geist', value: stack('Geist') },
+    { label: 'Inter', value: stack('Inter') },
+    { label: 'Noto Sans', value: stack('Noto Sans') },
+    { label: 'Noto Sans SC', value: stack('Noto Sans SC') },
+    { label: '思源黑体 / Source Han Sans SC', value: stack('Source Han Sans SC') },
+    { label: 'Noto Serif', value: stack('Noto Serif', serifCjkFallback) },
+    { label: 'Noto Serif SC', value: stack('Noto Serif SC', serifCjkFallback) },
+    { label: '思源宋体 / Source Han Serif SC', value: stack('Source Han Serif SC', serifCjkFallback) },
+    { label: 'Roboto', value: stack('Roboto') },
+    { label: 'Open Sans', value: stack('Open Sans') },
+    { label: 'Lato', value: stack('Lato') },
+    { label: 'Montserrat', value: stack('Montserrat') },
+    { label: 'Poppins', value: stack('Poppins') },
+    { label: 'Nunito', value: stack('Nunito') },
+    { label: 'Nunito Sans', value: stack('Nunito Sans') },
+    { label: 'Raleway', value: stack('Raleway') },
+    { label: 'Rubik', value: stack('Rubik') },
+    { label: 'Work Sans', value: stack('Work Sans') },
+    { label: 'DM Sans', value: stack('DM Sans') },
+    { label: 'Plus Jakarta Sans', value: stack('Plus Jakarta Sans') },
+    { label: 'Space Grotesk', value: stack('Space Grotesk') },
+    { label: 'Public Sans', value: stack('Public Sans') },
+    { label: 'Source Sans 3', value: stack('Source Sans 3') },
+    { label: 'Source Serif 4', value: stack('Source Serif 4', serifCjkFallback) },
+    { label: 'IBM Plex Sans', value: stack('IBM Plex Sans') },
+    { label: 'IBM Plex Serif', value: stack('IBM Plex Serif', serifCjkFallback) },
+    { label: 'Fira Sans', value: stack('Fira Sans') },
+    { label: 'Ubuntu Sans', value: stack('Ubuntu Sans') },
+    { label: 'Ubuntu', value: stack('Ubuntu') },
+    { label: 'Cantarell', value: stack('Cantarell') },
+    { label: 'Atkinson Hyperlegible', value: stack('Atkinson Hyperlegible') },
+    { label: 'Lexend', value: stack('Lexend') },
+    { label: 'Quicksand', value: stack('Quicksand') },
+  ];
+});
 
 const autoSaveIntervalOptions = computed<SelectOption[]>(() => [
   { label: copy.value.seconds10, value: 10 },

@@ -31,6 +31,8 @@ export interface SvgRenderOptions {
   watermark?: boolean;
   /** 自定义水印文本（仅在 watermark=true 时渲染）。 */
   watermarkText?: string;
+  /** 界面选定的开放许可字体栈。 */
+  fontFamily?: string;
 }
 
 export interface SvgRenderResult {
@@ -55,7 +57,7 @@ const ROOT_FILL = '#eaf2ff';
 const ROOT_STROKE = '#7aa7e8';
 const EDGE_STROKE = '#b7c4d8';
 const TEXT_COLOR = '#1f2329';
-const FONT_FAMILY = "'Manrope','Segoe UI','Microsoft YaHei',sans-serif";
+const FONT_FAMILY = "'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif";
 
 function safeColor(value: string | undefined, fallback: string): string {
   if (!value) return fallback;
@@ -76,6 +78,7 @@ export function renderMindmapSvg(
   const { fontSize, lineHeight } = layout.options;
   const imageNodes = getMindmapImageNodes(document);
   const colorMode = options.colorMode ?? 'monochrome';
+  const fontFamily = escapeXml(options.fontFamily?.trim() || FONT_FAMILY);
   const byTopic = new Map(layout.nodes.map((node) => [node.id, node]));
   const imageBoxes = imageNodes.flatMap((image, index) => {
     const anchor = byTopic.get(image.topicId);
@@ -207,7 +210,7 @@ export function renderMindmapSvg(
       `<g transform="translate(${round(node.x)} ${round(node.y)})">`,
       `<rect x="${round(-node.width / 2)}" y="${round(-node.height / 2)}" width="${node.width}" height="${node.height}" rx="${nodeRadius}" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}" />`,
       highlights,
-      `<text text-anchor="middle" font-family="${FONT_FAMILY}" font-size="${nodeFontSize}" fill="${escapeXml(text)}"${isRoot ? ' font-weight="700"' : ''}>${lines}</text>`,
+      `<text text-anchor="middle" font-family="${fontFamily}" font-size="${nodeFontSize}" fill="${escapeXml(text)}"${isRoot ? ' font-weight="700"' : ''}>${lines}</text>`,
       '</g>',
     ].join('');
   }).join('');
@@ -220,7 +223,7 @@ export function renderMindmapSvg(
 
   const watermarkText = options.watermarkText?.trim() || 'TauEditor';
   const watermarkMarkup = watermark
-    ? `<g opacity="0.16" fill="#7b8491" font-family="${FONT_FAMILY}" font-size="18" font-weight="600" pointer-events="none">${Array.from({ length: Math.max(2, Math.ceil(width / 220)) }, (_, column) => Array.from({ length: Math.max(2, Math.ceil(height / 100)) }, (_, row) => `<text x="${column * 220 + 20}" y="${row * 100 + 24}" transform="rotate(-24 ${column * 220 + 20} ${row * 100 + 24})">${escapeXml(watermarkText)}</text>`).join('')).join('')}</g>`
+    ? `<g opacity="0.16" fill="#7b8491" font-family="${fontFamily}" font-size="18" font-weight="600" pointer-events="none">${Array.from({ length: Math.max(2, Math.ceil(width / 220)) }, (_, column) => Array.from({ length: Math.max(2, Math.ceil(height / 100)) }, (_, row) => `<text x="${column * 220 + 20}" y="${row * 100 + 24}" transform="rotate(-24 ${column * 220 + 20} ${row * 100 + 24})">${escapeXml(watermarkText)}</text>`).join('')).join('')}</g>`
     : '';
   const svg = [
     `<?xml version="1.0" encoding="UTF-8"?>`,

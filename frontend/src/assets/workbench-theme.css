@@ -1,8 +1,8 @@
 :root {
-  --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-ui: 'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  --font-size-ui-base: 11px;
-  --font-size-ui-xs: max(10px, calc(var(--font-size-ui-base) - 1px));
+  --font-size-ui-base: 10px;
+  --font-size-ui-xs: max(8px, calc(var(--font-size-ui-base) - 1px));
   --font-size-ui-sm: var(--font-size-ui-base);
   --font-size-ui-md: calc(var(--font-size-ui-base) + 1px);
   --font-size-ui-lg: calc(var(--font-size-ui-base) + 3px);

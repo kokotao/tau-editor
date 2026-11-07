@@ -17,6 +17,7 @@ import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
 import WechatContactDialog from '@/components/editor/WechatContactDialog.vue';
+import TauIcon from '@/components/icons/TauIcon.vue';
 import { useMindmapStore } from '@/stores/mindmap';
 import {
   loadGitDiffSession,
@@ -759,7 +760,12 @@ const isPreviewableTab = computed(() => (
 const hasMacWindowTitlebar = computed(() => isTauriApp()
   && typeof navigator !== 'undefined'
   && /Macintosh|Mac OS X/.test(navigator.userAgent));
+const hasWindowsWindowTitlebar = computed(() => isTauriApp()
+  && typeof navigator !== 'undefined'
+  && /Windows NT/.test(navigator.userAgent));
 const hasDesktopWindowTitlebar = computed(() => isTauriApp());
+const windowIsMaximized = ref(false);
+let unlistenWindowResize: (() => void) | null = null;
 const markdownPreviewMode = computed(() => isFullDocumentPreviewTab.value
   ? 'preview'
   : activeTab.value?.markdownPreviewMode ?? settingsStore.markdownPreviewMode);
@@ -3724,14 +3730,39 @@ const handleStartWindowDragging = async (event: MouseEvent) => {
 const handleToggleWindowMaximized = async () => {
   try {
     const currentWindow = getCurrentWindow();
-    if (await currentWindow.isMaximized()) {
+    windowIsMaximized.value = await currentWindow.isMaximized();
+    if (windowIsMaximized.value) {
       await currentWindow.unmaximize();
+      windowIsMaximized.value = false;
     } else {
       await currentWindow.maximize();
+      windowIsMaximized.value = true;
     }
   } catch (error) {
     notificationStore.error(
       '无法调整窗口大小',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
+const handleMinimizeWindow = async () => {
+  try {
+    await getCurrentWindow().minimize();
+  } catch (error) {
+    notificationStore.error(
+      settingsStore.uiLanguage === 'en-US' ? 'Unable to minimize window' : '无法最小化窗口',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+};
+
+const handleCloseWindow = async () => {
+  try {
+    await getCurrentWindow().close();
+  } catch (error) {
+    notificationStore.error(
+      settingsStore.uiLanguage === 'en-US' ? 'Unable to close window' : '无法关闭窗口',
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -5434,6 +5465,13 @@ onMounted(async () => {
       },
     );
   }
+  if (hasWindowsWindowTitlebar.value) {
+    const currentWindow = getCurrentWindow();
+    windowIsMaximized.value = await currentWindow.isMaximized().catch(() => false);
+    unlistenWindowResize = await currentWindow.onResized(async () => {
+      windowIsMaximized.value = await currentWindow.isMaximized().catch(() => false);
+    });
+  }
   window.addEventListener('resize', syncViewportWidth);
   workspaceStore.loadFromStorage();
   const scratchContextCleared = await clearPersistedScratchWorkspaceIfMissing();
@@ -5496,6 +5534,8 @@ onUnmounted(() => {
     unlistenUpdateProgress();
     unlistenUpdateProgress = null;
   }
+  unlistenWindowResize?.();
+  unlistenWindowResize = null;
   clearTitlebarProgressTimer();
   if (autoSaveTimer) {
     clearInterval(autoSaveTimer);
@@ -5655,7 +5695,10 @@ onUnmounted(() => {
     <div
       v-if="hasDesktopWindowTitlebar"
       class="app-native-titlebar"
-      :class="{ 'app-native-titlebar--mac': hasMacWindowTitlebar }"
+      :class="{
+        'app-native-titlebar--mac': hasMacWindowTitlebar,
+        'app-native-titlebar--windows': hasWindowsWindowTitlebar,
+      }"
       data-testid="app-native-titlebar"
     >
       <div class="native-titlebar-actions">
@@ -5716,6 +5759,53 @@ onUnmounted(() => {
           compact
           test-id="titlebar-membership-badge"
         />
+        <span
+          v-if="activeTab || isDirty"
+          class="native-titlebar-save-state"
+          :class="{ 'is-saved': !isDirty }"
+          data-testid="dirty-indicator"
+          role="status"
+          :aria-label="isDirty ? toolbarText.dirtyTip : toolbarText.savedTip"
+          :title="isDirty ? toolbarText.dirtyTip : toolbarText.savedTip"
+        >
+          <span class="native-titlebar-dirty-dot" aria-hidden="true">●</span>
+          <span>{{ isDirty ? toolbarText.dirtyShort : toolbarText.savedShort }}</span>
+        </span>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-cloud-browser"
+          :aria-label="toolbarText.cloudBrowse"
+          :title="toolbarText.cloudBrowse"
+          @click="openCloudDocBrowser"
+        >
+          <TauIcon name="icon-cloud-sync" size="16" />
+        </button>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-share-receive"
+          :aria-label="toolbarText.shareReceive"
+          :title="toolbarText.shareReceiveHint"
+          @click="openSharedDocumentFromClipboard"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="native-titlebar-button"
+          data-testid="btn-settings"
+          :aria-label="toolbarText.settings"
+          :title="toolbarText.settings"
+          @click="handleToolbarToggleSettings"
+        >
+          <TauIcon name="icon-settings" size="16" />
+        </button>
+        <span class="native-titlebar-divider" aria-hidden="true"></span>
         <div
           v-if="titlebarUpdateProgressVisible"
           class="native-titlebar-progress"
@@ -5819,6 +5909,46 @@ onUnmounted(() => {
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
         </button>
+        <div v-if="hasWindowsWindowTitlebar" class="native-titlebar-window-controls">
+          <button
+            type="button"
+            class="native-titlebar-window-control"
+            data-testid="btn-window-minimize"
+            :aria-label="settingsStore.uiLanguage === 'en-US' ? 'Minimize' : '最小化'"
+            :title="settingsStore.uiLanguage === 'en-US' ? 'Minimize' : '最小化'"
+            @click="handleMinimizeWindow"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          </button>
+          <button
+            type="button"
+            class="native-titlebar-window-control"
+            data-testid="btn-window-toggle-maximize"
+            :aria-label="windowIsMaximized
+              ? (settingsStore.uiLanguage === 'en-US' ? 'Restore' : '还原')
+              : (settingsStore.uiLanguage === 'en-US' ? 'Maximize' : '最大化')"
+            :title="windowIsMaximized
+              ? (settingsStore.uiLanguage === 'en-US' ? 'Restore' : '还原')
+              : (settingsStore.uiLanguage === 'en-US' ? 'Maximize' : '最大化')"
+            @click="handleToggleWindowMaximized"
+          >
+            <svg v-if="windowIsMaximized" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 8V5h11v11h-3" />
+              <rect x="5" y="8" width="11" height="11" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" /></svg>
+          </button>
+          <button
+            type="button"
+            class="native-titlebar-window-control native-titlebar-window-control--close"
+            data-testid="btn-window-close"
+            :aria-label="settingsStore.uiLanguage === 'en-US' ? 'Close' : '关闭'"
+            :title="settingsStore.uiLanguage === 'en-US' ? 'Close' : '关闭'"
+            @click="handleCloseWindow"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -5827,6 +5957,7 @@ onUnmounted(() => {
       :can-redo="canRedo"
       :is-dirty="isDirty"
       :has-active-tab="Boolean(activeTab)"
+      :hide-status-actions="hasDesktopWindowTitlebar"
       :app-label="appText.appLabel"
       :membership-tier="cloudQuotaStore.tier"
       :is-markdown="isMarkdownTab"
@@ -6423,7 +6554,7 @@ onUnmounted(() => {
 
 <style>
 :root {
-  --font-ui: 'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-ui: 'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
   --panel-radius: var(--radius-panel, var(--radius-ui, 0px));
   --panel-gap: 8px;
@@ -6598,6 +6729,10 @@ textarea {
   padding-left: 82px;
 }
 
+.app-native-titlebar--windows {
+  padding-right: 0;
+}
+
 .native-titlebar-actions {
   display: flex;
   flex: 0 0 auto;
@@ -6615,6 +6750,27 @@ textarea {
 .native-titlebar-actions-end {
   margin-left: auto;
   justify-content: flex-end;
+}
+
+.native-titlebar-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 3px 0 5px;
+  color: var(--text-secondary, #b6c2d9);
+  font-size: 11px;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-dirty-dot {
+  color: var(--accent-brand-strong, var(--accent-brand, #4dabff));
+  font-size: 13px;
+  line-height: 1;
+}
+
+.native-titlebar-save-state.is-saved .native-titlebar-dirty-dot {
+  color: var(--state-success, #48c78e);
 }
 
 .native-titlebar-update-wrap {
@@ -6807,6 +6963,54 @@ textarea {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
+}
+
+.native-titlebar-window-controls {
+  display: flex;
+  height: 100%;
+  flex: 0 0 auto;
+  align-items: stretch;
+  margin-left: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-window-control {
+  display: grid;
+  width: 46px;
+  height: 100%;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, #b6c2d9);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.native-titlebar-window-control:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, .08));
+  color: var(--text-primary, #ecf2ff);
+}
+
+.native-titlebar-window-control--close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.native-titlebar-window-control:focus-visible {
+  outline: 1px solid var(--focus-ring, var(--accent-brand-strong, #4dabff));
+  outline-offset: -2px;
+}
+
+.native-titlebar-window-control svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.5;
 }
 
 .native-titlebar-divider {

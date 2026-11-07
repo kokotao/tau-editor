@@ -246,6 +246,7 @@ async function preview(versionId: number): Promise<void> {
           background: 'transparent',
           padding: 24,
           colorMode: 'color',
+          fontFamily: settingsStore.uiFontFamily,
         });
         mindmapPreview.value = {
           formatName: parsed.formatName,

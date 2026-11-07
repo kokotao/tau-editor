@@ -839,7 +839,7 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-soft);
 }
 .mm-props-heading {
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -860,7 +860,7 @@ onBeforeUnmount(() => {
 .mm-props-topic {
   margin: 0;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -869,13 +869,13 @@ onBeforeUnmount(() => {
 }
 .mm-props-body { display: flex; flex-direction: column; gap: 10px; padding: 0 12px; }
 .mm-props-field { display: flex; flex-direction: column; gap: 4px; }
-.mm-props-label { font-size: 11px; color: var(--text-secondary); }
+.mm-props-label { font-size: var(--font-size-ui-sm, 12px); color: var(--text-secondary); }
 .mm-props-input,
 .mm-props-textarea,
 .mm-props-select {
   width: 100%;
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   font-family: var(--font-ui);
   padding: 5px 8px;
   border-radius: var(--radius-control);
@@ -894,13 +894,13 @@ onBeforeUnmount(() => {
 .mm-props-input:disabled,
 .mm-props-textarea:disabled,
 .mm-props-select:disabled { opacity: 0.6; cursor: not-allowed; }
-.mm-props-error { font-size: 11px; color: var(--state-danger); }
-.mm-props-hint { font-size: 11px; color: var(--text-muted); }
+.mm-props-error { font-size: var(--font-size-ui-sm, 12px); color: var(--state-danger); }
+.mm-props-hint { font-size: var(--font-size-ui-sm, 12px); color: var(--text-muted); }
 .mm-props-footer { padding: 4px 12px 0; }
 .mm-props-apply {
   width: 100%;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   border-radius: var(--radius-control);
   border: 1px solid var(--accent-brand);
   background: var(--surface-active);
@@ -920,7 +920,7 @@ onBeforeUnmount(() => {
   border-top: 1px dashed var(--border-soft);
 }
 .mm-props-section-title {
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -931,7 +931,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   padding: 3px 7px;
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-family: var(--font-ui);
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-soft);
@@ -953,7 +953,7 @@ onBeforeUnmount(() => {
 .mm-props-action {
   flex: 1;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-family: var(--font-ui);
   border-radius: var(--radius-control);
   border: 1px solid var(--border-soft);
@@ -973,7 +973,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 11px);
   font-family: var(--font-ui);
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-soft);
@@ -1006,7 +1006,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm, 12px);
 }
 .mm-props-relation-text {
   flex: 1;
@@ -1019,7 +1019,7 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-ui-md, 13px);
   line-height: 1;
   padding: 0 4px;
   border-radius: var(--radius-xs);
@@ -1034,7 +1034,7 @@ onBeforeUnmount(() => {
 .mm-props-relation-add {
   flex: 0 0 auto;
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm, 12px);
   font-family: var(--font-ui);
   border-radius: var(--radius-control);
   border: 1px solid var(--accent-brand);

@@ -332,6 +332,7 @@ export async function exportMindmapPdf(
       colorMode: options.colorMode ?? 'monochrome',
       watermark: options.watermark ?? false,
       watermarkText: options.watermarkText,
+      fontFamily: options.fontFamily,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -395,6 +396,7 @@ export async function printMindmap(
     colorMode: options.colorMode ?? 'monochrome',
     watermark: options.watermark ?? false,
     watermarkText: options.watermarkText,
+    fontFamily: options.fontFamily,
   });
   const html = buildPrintHtml(rendered.svg, rendered.width, rendered.height);
 

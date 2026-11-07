@@ -257,44 +257,11 @@
           <button type="button" class="mm-btn" data-testid="mm-canvas-style-toggle" :aria-pressed="Boolean(mindmapTools.styleActive)"
             title="切换画布样式" @click="emit('mm-toggle-style')">样式{{ mindmapTools.styleActive ? '开' : '关' }}</button>
           <span class="mm-divider" aria-hidden="true"></span>
-          <!-- 主操作：层级编辑 -->
-          <button type="button" class="mm-btn" data-testid="mm-add-child" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-child')">
-            子主题
-          </button>
-          <button type="button" class="mm-btn" data-testid="mm-add-sibling" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-add-sibling')">
-            同级
-          </button>
-          <button type="button" class="mm-btn" data-testid="mm-rename" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-rename')">
-            改名
-          </button>
-          <button type="button" class="mm-btn" data-testid="mm-duplicate" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-duplicate')">
-            复制
-          </button>
-          <button type="button" class="mm-btn danger" data-testid="mm-delete" :disabled="!mindmapTools.selectedTopicId" @click="emit('mm-delete')">
-            删除
-          </button>
-          <span class="mm-divider" aria-hidden="true"></span>
-          <button type="button" class="mm-btn" data-testid="mm-move-up" :disabled="!mindmapTools.selectedTopicId" title="上移（Alt+↑）" @click="emit('mm-move-up')">
-            ↑
-          </button>
-          <button type="button" class="mm-btn" data-testid="mm-move-down" :disabled="!mindmapTools.selectedTopicId" title="下移（Alt+↓）" @click="emit('mm-move-down')">
-            ↓
-          </button>
-          <span class="mm-divider" aria-hidden="true"></span>
           <button type="button" class="mm-btn" data-testid="mm-undo" :disabled="!mindmapTools.canUndo" title="撤销（Ctrl+Z）" @click="emit('mm-undo')">
             撤销
           </button>
           <button type="button" class="mm-btn" data-testid="mm-redo" :disabled="!mindmapTools.canRedo" title="重做（Ctrl+Shift+Z）" @click="emit('mm-redo')">
             重做
-          </button>
-          <span class="mm-divider" aria-hidden="true"></span>
-          <button type="button" class="mm-btn" data-testid="mm-fit" title="适配内容" @click="emit('mm-fit')">
-            适配
-          </button>
-          <button type="button" class="mm-btn" data-testid="mm-zoom-in" title="放大" @click="emit('mm-zoom-in')">+</button>
-          <button type="button" class="mm-btn" data-testid="mm-zoom-out" title="缩小" @click="emit('mm-zoom-out')">−</button>
-          <button type="button" class="mm-btn" data-testid="mm-reset-view" title="重置视口" @click="emit('mm-reset-view')">
-            重置视口
           </button>
           <span class="mm-divider" aria-hidden="true"></span>
           <button type="button" class="mm-btn" data-testid="mm-reset" @click="emit('mm-reset')">重置</button>
@@ -376,7 +343,7 @@
     </div>
 
     <div class="toolbar-zone toolbar-zone-end">
-      <div class="toolbar-group toolbar-status-group">
+      <div v-if="!hideStatusActions" class="toolbar-group toolbar-status-group">
         <span
           v-if="hasActiveTab || isDirty"
           class="toolbar-info toolbar-save-state"
@@ -459,6 +426,8 @@ interface ToolbarProps {
   canRedo: boolean;
   isDirty: boolean;
   hasActiveTab?: boolean;
+  /** 状态及快捷入口由桌面自绘标题栏承载时隐藏工具栏副本。 */
+  hideStatusActions?: boolean;
   isMarkdown?: boolean;
   /** 当前标签是思维导图：在 center 区渲染导图专属按钮组。 */
   isMindmap?: boolean;
@@ -602,6 +571,7 @@ const props = withDefaults(defineProps<ToolbarProps>(), {
   isDocumentPreview: false,
   isFullDocumentPreview: false,
   hasActiveTab: false,
+  hideStatusActions: false,
   markdownPreviewMode: 'split',
 });
 
@@ -909,26 +879,23 @@ onUnmounted(() => {
   padding: 0 2px;
 }
 .toolbar--mindmap .toolbar-group-mindmap {
-  gap: 4px;
-  padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--accent-brand) 24%, var(--border-soft));
-  border-radius: var(--radius-control, 6px);
-  background: color-mix(in srgb, var(--panel-base) 52%, transparent);
+  gap: 5px;
+  padding: 0 4px;
 }
 .toolbar--mindmap .toolbar-group-mindmap .mm-layout-group {
-  padding: 2px;
-  border: 1px solid color-mix(in srgb, var(--accent-brand) 34%, var(--border-soft));
-  border-radius: var(--radius-sm, 4px);
-  background: color-mix(in srgb, var(--panel-base) 72%, transparent);
+  gap: 1px;
+  padding: 0;
 }
 .toolbar--mindmap .toolbar-group-mindmap .mm-layout-group .mm-btn {
+  min-width: 38px;
   border-color: transparent;
-  border-radius: var(--radius-xs, 3px);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
 }
 .toolbar--mindmap .toolbar-group-mindmap .mm-layout-group .mm-btn.is-active {
-  border-color: color-mix(in srgb, var(--accent-brand) 72%, transparent);
-  background: color-mix(in srgb, var(--accent-brand) 20%, var(--panel-elevated));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-brand) 10%, transparent);
+  background: var(--surface-active);
+  color: var(--accent-brand-strong);
 }
 .toolbar--mindmap .toolbar-group-mindmap > .mm-btn {
   border-color: transparent;
@@ -939,12 +906,13 @@ onUnmounted(() => {
 }
 
 .mm-btn {
-  padding: 5px 10px;
-  border-radius: var(--radius-control, 6px);
-  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.3));
-  background: var(--panel-elevated, #151d2d);
+  min-height: 29px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-primary, #e2e8f0);
-  font-size: 12px;
+  font-size: var(--font-size-ui-xs, 9px);
   font-family: var(--font-ui, inherit);
   cursor: pointer;
   flex: 0 0 auto;
@@ -952,13 +920,9 @@ onUnmounted(() => {
 }
 .mm-btn:hover:not(:disabled) { background: var(--surface-hover, rgba(148, 163, 184, 0.16)); }
 .mm-btn:disabled { opacity: 0.45; cursor: default; }
-.mm-btn.danger {
-  border-color: var(--state-danger, #e06c75);
-  color: var(--state-danger, #e06c75);
-}
+.mm-btn.danger { color: var(--state-danger, #e06c75); }
 .mm-btn.danger:hover:not(:disabled) { background: var(--surface-hover, rgba(148, 163, 184, 0.16)); }
 .mm-btn.is-active {
-  border-color: var(--accent-brand, #4a90e2);
   background: var(--surface-active, rgba(74, 144, 226, 0.18));
   color: var(--accent-brand-strong, #7fb3f0);
   font-weight: 600;

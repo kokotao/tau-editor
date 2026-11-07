@@ -1116,7 +1116,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   color: var(--n-muted-text-color, #7f8b96);
-  font-size: 9px;
+  font-size: var(--font-size-ui-xs, 9px);
   font-weight: 400;
   letter-spacing: 0;
   line-height: 1.2;
@@ -1139,7 +1139,7 @@ onUnmounted(() => {
 .file-meta-field b {
   color: var(--n-text-color-3, #c5cbd1);
   font-weight: 300;
-  font-size: 9px;
+  font-size: var(--font-size-ui-xs, 9px);
 }
 
 .file-tree-item:hover .file-meta,
@@ -1222,13 +1222,13 @@ onUnmounted(() => {
 }
 
 .context-menu-caret {
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 9px);
   opacity: 0.7;
 }
 
 .context-menu-shortcut {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 9px);
   opacity: 0.55;
   font-family: var(--font-code, monospace);
 }
@@ -1257,7 +1257,7 @@ onUnmounted(() => {
 
 .context-submenu-title {
   padding: 4px 16px 6px;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 9px);
   letter-spacing: 0.4px;
   opacity: 0.55;
 }

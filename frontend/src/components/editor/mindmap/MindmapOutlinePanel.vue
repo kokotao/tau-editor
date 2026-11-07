@@ -352,7 +352,7 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--font-size-ui-lg, 15px);
   font-weight: 600;
   color: var(--text-primary);
   flex: 0 0 auto;
@@ -374,7 +374,7 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
 .mm-outline-collapse:hover { background: var(--surface-hover); color: var(--text-primary); }
 .mm-visible-count { margin-left: auto; }
 .mm-heading-icon { color: var(--accent-brand); font-size: 18px; line-height: 1; }
-.mm-visible-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mm-visible-count { color: var(--text-muted); font-size: var(--font-size-ui-sm, 12px); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mm-search-wrap { position: relative; }
 .mm-search-icon { position: absolute; left: 11px; top: 50%; width: 10px; height: 10px; border: 1.5px solid var(--text-muted); border-radius: 50%; transform: translateY(-60%); pointer-events: none; }
 .mm-search-icon::after { content: ''; position: absolute; width: 5px; height: 1.5px; background: var(--text-muted); right: -4px; bottom: -2px; transform: rotate(45deg); }
@@ -382,7 +382,7 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   font-family: var(--font-ui);
   padding: 7px 8px 7px 30px;
   border-radius: var(--radius-control);
@@ -428,7 +428,7 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   cursor: pointer;
   opacity: 0.8;
   padding: 0;
@@ -451,11 +451,11 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.is-root .mm-row-text { font-size: 13px; font-weight: 700; }
+.is-root .mm-row-text { font-size: var(--font-size-ui-lg, 15px); font-weight: 700; }
 .is-branch .mm-row-text { font-weight: 600; }
 .mm-row-count {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--font-size-ui-xs, 11px);
   line-height: 18px;
   color: var(--text-secondary);
   padding: 0 4px;
@@ -464,7 +464,7 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
 .mm-rename-input {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   font-family: var(--font-ui);
   padding: 2px 6px;
   border-radius: var(--radius-control);
@@ -473,5 +473,5 @@ function onRowContextMenu(event: MouseEvent, rowId: string) {
   color: var(--text-primary);
   outline: none;
 }
-.mindmap-empty { color: var(--text-muted); padding: 14px; font-size: 12px; }
+.mindmap-empty { color: var(--text-muted); padding: 14px; font-size: var(--font-size-ui-md, 13px); }
 </style>

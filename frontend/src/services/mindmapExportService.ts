@@ -52,6 +52,7 @@ export interface MindmapVisualExportOptions {
   scale?: number;
   colorMode?: MindmapExportColorMode;
   customWatermark?: string;
+  fontFamily?: string;
 }
 
 /**
@@ -120,6 +121,7 @@ export function exportMindmapVisualSvg(
     colorMode: resolved.colorMode,
     watermark: resolved.watermark,
     watermarkText: resolved.watermarkText,
+    fontFamily: resolved.fontFamily,
   };
   return exportMindmapSvgText(document, renderOptions);
 }
@@ -137,6 +139,7 @@ export async function exportMindmapVisualPng(
     colorMode: resolved.colorMode,
     watermark: resolved.watermark,
     watermarkText: resolved.watermarkText,
+    fontFamily: resolved.fontFamily,
   };
   return exportMindmapPng(document, renderOptions);
 }
@@ -154,6 +157,7 @@ export async function exportMindmapVisualJpeg(
     colorMode: resolved.colorMode,
     watermark: resolved.watermark,
     watermarkText: resolved.watermarkText,
+    fontFamily: resolved.fontFamily,
   };
   return exportMindmapJpeg(document, renderOptions);
 }
@@ -171,6 +175,7 @@ export async function exportMindmapVisualPdf(
     colorMode: resolved.colorMode,
     watermark: resolved.watermark,
     watermarkText: resolved.watermarkText,
+    fontFamily: resolved.fontFamily,
   };
   return exportMindmapPdfFile(document, pdfOptions);
 }

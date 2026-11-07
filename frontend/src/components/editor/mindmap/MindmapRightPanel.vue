@@ -599,7 +599,7 @@ function collapseDetails() {
 .mm-right-resizer:active::after { background: var(--accent-brand); }
 .mm-right-notice {
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-ui-md, 13px);
   color: var(--text-primary);
   background: var(--surface-active);
   border-bottom: 1px solid var(--border-soft);
@@ -630,7 +630,7 @@ function collapseDetails() {
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  font: 600 12px var(--font-ui);
+  font: 600 var(--font-size-ui-md, 13px) var(--font-ui);
   cursor: pointer;
 }
 .mm-detail-tab-list button:hover { background: var(--surface-hover); color: var(--text-primary); }
@@ -659,7 +659,7 @@ function collapseDetails() {
 }
 .mm-detail-style :deep(.mm-style-header) { display: none; }
 .mm-detail-style :deep(.mm-style-panel) { overflow: auto; }
-.mm-detail-empty { margin: 20px; color: var(--text-muted); font-size: 12px; }
+.mm-detail-empty { margin: 20px; color: var(--text-muted); font-size: var(--font-size-ui-md, 13px); }
 /*
  * 被包裹的大纲 / 属性面板自带宽度与 resizer（历史上独立使用）。
  * 在右面板里统一由外层列的宽度与列 resizer 控制，因此这里覆盖为撑满容器，

@@ -22,6 +22,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauriApp } from '@/lib/tauri';
 import { buildMindmapOutlineRows, useMindmapStore } from '@/stores/mindmap';
+import { useSettingsStore } from '@/stores/settings';
 import { useCloudQuotaStore } from '@/stores/cloudQuota';
 import {
   addChildTopic,
@@ -94,6 +95,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useMindmapStore();
+const settingsStore = useSettingsStore();
 const cloudQuotaStore = useCloudQuotaStore();
 const teleportSheetBarToStatus = ref(false);
 const document = computed(() => store.document);
@@ -1295,6 +1297,7 @@ async function confirmExport(payload: {
         scale: payload.scale,
         colorMode: payload.colorMode,
         customWatermark: payload.customWatermark,
+        fontFamily: settingsStore.uiFontFamily,
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       await writeMindmapExportFile(path, { kind: 'binary', bytes });
@@ -1306,6 +1309,7 @@ async function confirmExport(payload: {
         scale: payload.scale,
         colorMode: payload.colorMode,
         customWatermark: payload.customWatermark,
+        fontFamily: settingsStore.uiFontFamily,
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       await writeMindmapExportFile(path, { kind: 'binary', bytes });
@@ -1317,6 +1321,7 @@ async function confirmExport(payload: {
         scale: 1,
         colorMode: payload.colorMode,
         customWatermark: payload.customWatermark,
+        fontFamily: settingsStore.uiFontFamily,
       });
       if (!result.ok || !result.bytes) {
         throw new Error(result.error?.message ?? 'PDF 导出失败');
@@ -1329,6 +1334,7 @@ async function confirmExport(payload: {
         background: payload.background,
         colorMode: payload.colorMode,
         customWatermark: payload.customWatermark,
+        fontFamily: settingsStore.uiFontFamily,
       });
       if (!result.ok) throw new Error(result.error?.message ?? 'SVG 导出失败');
       await writeMindmapExportFile(path, { kind: 'text', text: result.output });
@@ -1359,7 +1365,11 @@ async function handlePrint() {
   if (!current) return;
   try {
     showNotice('正在准备打印…');
-    const options = resolveMindmapVisualExportOptions({ tier: cloudQuotaStore.tier, background: 'transparent' });
+    const options = resolveMindmapVisualExportOptions({
+      tier: cloudQuotaStore.tier,
+      background: 'transparent',
+      fontFamily: settingsStore.uiFontFamily,
+    });
     const { width, height } = await printMindmap(current, options);
     showNotice(`已调起打印（${width}×${height}）`);
   } catch (error) {

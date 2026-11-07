@@ -226,6 +226,7 @@ export interface MindmapSvgExportOptions {
   /** 免费用户视觉导出品牌水印。 */
   watermark?: boolean;
   watermarkText?: string;
+  fontFamily?: string;
 }
 
 /**
@@ -246,6 +247,7 @@ export function exportMindmapSvgText(
       colorMode: options.colorMode ?? 'monochrome',
       watermark: options.watermark ?? false,
       watermarkText: options.watermarkText,
+      fontFamily: options.fontFamily,
     });
     const output = rendered.svg.replace(/^<\?xml[^>]*\?>\s*/i, '').trim();
     return {
@@ -274,6 +276,7 @@ export interface MindmapPdfExportOptions {
   colorMode?: 'monochrome' | 'color';
   watermark?: boolean;
   watermarkText?: string;
+  fontFamily?: string;
 }
 
 /** PDF 二进制导出结果：失败时只给分类错误，绝不返回半成品字节。 */

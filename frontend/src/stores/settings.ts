@@ -162,9 +162,9 @@ export interface EditorSettings {
 const STORAGE_KEY = 'text-editor-settings';
 export type SidebarPanel = 'workspace' | 'cloud';
 const SYSTEM_THEME_QUERY = '(prefers-color-scheme: dark)';
-export const DEFAULT_UI_FONT_FAMILY = "'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif";
-export const DEFAULT_UI_FONT_SIZE = 11;
-export const MIN_UI_FONT_SIZE = 10;
+export const DEFAULT_UI_FONT_FAMILY = "'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif";
+export const DEFAULT_UI_FONT_SIZE = 10;
+export const MIN_UI_FONT_SIZE = 8;
 export const MAX_UI_FONT_SIZE = 16;
 const DEFAULT_MAX_OPEN_TABS = 30;
 const DEFAULT_MEMORY_LIMIT_MB = 256;
@@ -216,7 +216,22 @@ function normalizeUiFontFamily(value: unknown): string {
     return DEFAULT_UI_FONT_FAMILY;
   }
 
-  return value.trim();
+  const normalized = value.trim();
+  const legacyFontStacks = new Set([
+    "'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif",
+    "system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif",
+    "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+    "'Microsoft YaHei', 'PingFang SC', sans-serif",
+    "'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif",
+    "'Helvetica Neue', Helvetica, Arial, sans-serif",
+    "'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    "'Avenir Next', 'Avenir', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    "'HarmonyOS Sans SC', 'HarmonyOS Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    "'MiSans', 'MiSans Latin', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    "'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    "'Source Han Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  ]);
+  return legacyFontStacks.has(normalized) ? DEFAULT_UI_FONT_FAMILY : normalized;
 }
 
 function normalizeUiFontSize(value: unknown): number {

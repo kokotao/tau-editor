@@ -144,6 +144,7 @@ import {
 import { isMindMapPath } from '@/services/documentTypeService';
 import { previewMindmapImport } from '@/services/mindmap/importExportService';
 import { canImportSharedDocument, describeImportBlock } from '@/services/shareImportService';
+import { useSettingsStore } from '@/stores/settings';
 
 const props = withDefaults(defineProps<{
   visible?: boolean;
@@ -158,6 +159,7 @@ const emit = defineEmits<{
   'login-request': [payload: { url: string }];
 }>();
 
+const settingsStore = useSettingsStore();
 const linkInput = ref('');
 const passwordInput = ref('');
 const verifiedPassword = ref('');
@@ -241,7 +243,12 @@ async function renderPreview(next: CloudSharePublicInfo, generation: number): Pr
     const parsed = await previewMindmapImport({ fileName: next.fileName ?? '', content });
     if (parsed.ok && parsed.document) {
       const { renderMindmapSvg } = await import('@/services/mindmapSvgService');
-      const rendered = renderMindmapSvg(parsed.document, { background: 'transparent', padding: 24, colorMode: 'color' });
+      const rendered = renderMindmapSvg(parsed.document, {
+        background: 'transparent',
+        padding: 24,
+        colorMode: 'color',
+        fontFamily: settingsStore.uiFontFamily,
+      });
       nextMindmapPreview = { formatName: parsed.formatName, svg: rendered.svg, source: content };
     } else {
       if (generation === loadGeneration) mindmapSourceVisible.value = true;
