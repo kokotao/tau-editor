@@ -21,7 +21,7 @@ const capabilities = [
 
 const releases = [
   {
-    version: 'v0.6.39', date: '2026-11-07', label: '自研思维导图创新能力', category: '思维导图', latest: true,
+    version: 'v0.6.40', date: '2026-11-07', label: '自研思维导图与跨平台发布', category: '思维导图', latest: true,
     summary: '自研思维导图引擎补齐滚轮与触控板导航、节点拖拽和多布局协作；官网同步更新真实截图与创新能力展示。',
     highlights: [
       '普通滚轮平移画布，Ctrl/Cmd + 滚轮缩放；触控板双指和触屏支持横向查看长工具栏',
@@ -29,7 +29,7 @@ const releases = [
       '彩虹分支配色、节点级样式、属性面板、大纲联动和 381 节点大型知识结构展示',
       '分享链接识别、密码预览、分享转存和云端浅色主题体验同步完善',
     ],
-    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.39',
+    releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.6.40',
   },
   {
     version: 'v0.6.36', date: '2026-11-04', label: '思维导图画布与主题样式', category: '思维导图', latest: false,

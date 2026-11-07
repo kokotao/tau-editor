@@ -8,7 +8,7 @@
 use std::fs::{self, OpenOptions};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::io::Write;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::time::{SystemTime, UNIX_EPOCH};
