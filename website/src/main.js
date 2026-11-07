@@ -1,15 +1,16 @@
 import './style.css'
 
 const features = [
-  ['01', '自研思维导图', '不依赖第三方图库，自研画布、布局与数据模型；节点、连线、主题和工作表都可直接编辑。'],
+  ['01', '自研思维导图引擎', '从 TauMap 数据模型、布局算法到 SVG 画布交互完整自研；节点、连线、主题和工作表都能直接编辑。'],
   ['02', '专注写作', '清爽的工作台、可靠的标签页与自动保存，让每一次输入都保持连贯。'],
   ['03', 'Markdown 原生体验', '编辑、预览、大纲和任务清单并排协作，复杂文档仍然保持清晰。'],
   ['04', '本地优先，云端协作', '本地文件与云文档按路径和内容哈希同步，支持历史版本、分享与跨设备接续。'],
 ]
 
 const capabilities = [
-  ['✣', '原生思维导图引擎', '从树结构、布局算法到 SVG 画布均由 Tau 自研，支持两侧导图、逻辑图、树形图和组织图。'],
-  ['◇', '彩虹主题与节点级样式', '分支配色、节点边界、概要、图片节点和批量样式让结构信息真正可读。'],
+  ['✣', 'TauMap 自研引擎', '不把导图当成一张图片：树结构、布局、渲染、撤销与持久化由同一套模型驱动，复杂地图也能继续编辑。'],
+  ['◇', '节点级视觉语言', '彩虹分支、节点边界、概要、图片节点与批量样式，让层级、重点和关系在画布上直接可读。'],
+  ['◌', '自然的画布导航', '普通滚轮平移，Ctrl/Cmd + 滚轮缩放，触控板双指滑动查看长画布和工具栏，思路不中断。'],
   ['⌘', '命令面板', '常用操作、文件跳转和工作区命令，一个快捷键即可触达。'],
   ['◐', 'Markdown 预览', '编辑与预览并排工作，文档结构一眼可读。'],
   ['⌁', '工作区上下文', '文件树、标签页、任务与链接状态保持在同一条工作流。'],
@@ -447,7 +448,7 @@ document.querySelector('#app').innerHTML = `
     </header>
 
     <section id="top" class="hero container">
-      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速、懂你的现代文本编辑器。把复杂藏在幕后，把专注留给你。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span data-current-version>${releases[0].version}</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
+      <div class="hero-copy"><p class="eyebrow"><span></span> 开源 · 跨平台 · 为专注而造</p><h1>把想法写下来，<em>让代码流动。</em></h1><p class="lede">Tau 是一款轻量、快速的现代编辑器：自研思维导图引擎负责把想法铺开，Markdown 与本地优先云端协作负责把成果留下。</p><div class="actions"><a class="button primary" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">立即下载 <b>↗</b></a><a class="button secondary" href="#preview">看看它如何工作 <b>↓</b></a></div><div class="meta"><span data-current-version>${releases[0].version}</span><i></i><span>MIT License</span><i></i><span>macOS · Windows · Linux</span></div></div>
       <div class="hero-art" aria-label="Tau Editor 编辑器概念预览"><div class="grid"></div><div class="code-window"><div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>welcome.md</span><span class="saved">● saved</span></div><div class="code-body"><span class="numbers">01<br>02<br>03<br>04<br>05<br>06<br>07<br>08</span><code><span>#</span> Make space for<br><strong>your next idea.</strong><br><br><small>A calm place to write,<br>think, and build.</small><br><em>— Tau Editor</em></code></div><div class="window-foot"><span>Markdown</span><span>Ln 8, Col 16</span></div></div><div class="note"><b>⌘</b><span><strong>Command palette</strong><small>Everything within reach</small></span></div></div>
     </section>
 
@@ -455,17 +456,17 @@ document.querySelector('#app').innerHTML = `
 
     <section id="features" class="features container reveal"><p class="eyebrow">THE TAU WAY</p><h2>少一点噪音，<br><em>多一点创造。</em></h2><div class="feature-grid"><div class="feature-list">${features.map(([num, title, body], index) => `<button class="feature ${index === 0 ? 'active' : ''}" data-index="${index}"><span>${num}</span><strong>${title}<small>${body}</small></strong><b>↗</b></button>`).join('')}</div><blockquote>“<br><span>编辑器应该消失在你的工作里，而不是成为工作本身。</span><small>— Tau design principle / 01</small></blockquote></div></section>
 
-    <section class="capabilities container reveal"><div class="capability-intro"><p class="eyebrow">BUILT FOR THE FLOW</p><h2>每一个细节，<br><em>都在帮你前进。</em></h2><p>从第一次打开文件，到完成一次提交，Tau 把高频动作变成自然的节奏。现在，主题市场和可调节外观也加入了这条工作流。</p></div><div class="capability-grid">${capabilities.map(([icon, title, body]) => `<article class="capability"><span>${icon}</span><h3>${title}</h3><p>${body}</p></article>`).join('')}</div></section>
+    <section class="capabilities container reveal"><div class="capability-intro"><p class="eyebrow">BUILT FOR THE FLOW</p><h2>把创新做成每天都能用的能力。</h2><p>从一颗节点到一份可同步的文档，Tau 把自研引擎、自然交互和可靠保存放进同一条工作流。你看到的是安静的界面，背后是可以持续生长的结构。</p></div><div class="capability-grid">${capabilities.map(([icon, title, body]) => `<article class="capability"><span>${icon}</span><h3>${title}</h3><p>${body}</p></article>`).join('')}</div></section>
 
     <section id="preview" class="preview container reveal"><div><p class="eyebrow">A WORKSPACE THAT ADAPTS</p><h2>写作、代码与预览，<br><em>在同一条工作流里。</em></h2><p>路径面包屑、标签页、Monaco 编辑器和 Markdown 实时预览，把文档上下文留在视线之内；从单篇笔记到完整项目，都能保持专注。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">在 GitHub 查看全部功能 ↗</a></div><figure><img src="./assets/markdown-preview-current.png" alt="Tau Editor 最新 Markdown 分栏预览、代码编辑器与文档渲染"><figcaption>Tau Editor · Markdown editor with live preview and outline</figcaption></figure></section>
 
-    <section class="preview container reveal"><div><p class="eyebrow">BUILT FROM THE CANVAS UP</p><h2>一张真正可编辑的导图，<br><em>从结构到样式都由 Tau 掌控。</em></h2><p>思维导图不是只读图片，也不是外接图库。Tau 自研数据模型、布局算法和画布交互，支持节点拖拽、四种布局、工作表、彩虹分支配色、属性面板与大纲联动。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">查看思维导图能力 ↗</a></div><figure><img src="./assets/mindmap-rainbow-current.png" alt="Tau Editor 自研彩虹主题思维导图，展示节点、连线、大纲和画布样式"><figcaption>Tau Editor · native mindmap engine with rainbow branches</figcaption></figure></section>
+    <section class="preview container reveal"><div><p class="eyebrow">BUILT FROM THE CANVAS UP</p><h2>从一颗节点开始，<br><em>长成可编辑的知识系统。</em></h2><p>思维导图不是只读图片，也不是外接图库。TauMap 把数据模型、布局算法和画布交互收在一套自研引擎里，支持节点拖拽、四种布局、工作表、彩虹分支配色、属性面板与大纲联动。</p><a class="text-link" href="https://github.com/kokotao/tau-editor" target="_blank" rel="noreferrer">查看思维导图能力 ↗</a></div><figure><img src="./assets/mindmap-rainbow-current.png" alt="Tau Editor 自研彩虹主题思维导图，展示节点、连线、大纲和画布样式"><figcaption>Tau Editor · native mindmap engine with rainbow branches</figcaption></figure></section>
 
   <section id="cloud" class="preview container reveal"><div><p class="eyebrow">LOCAL FIRST, CLOUD READY</p><h2>本地优先，<br><em>云端随时接管。</em></h2><p>保存即同步：本地路径与云端路径一一对应，内容哈希一致就跳过上传；多台设备打开同一份文档不会互相覆盖。云端分类、版本历史、分享链接和容量用量都在应用内完成。</p><a class="text-link" href="https://github.com/kokotao/tau-editor/releases" target="_blank" rel="noreferrer">查看最新 Release ↗</a></div><figure><img src="./assets/cloud-doc-browser-current.png" alt="Tau Editor 最新云端文档浏览器，展示分类树、文档列表和版本信息"><figcaption>Tau Editor · cloud document browser with history</figcaption></figure></section>
 
   <section class="preview container reveal"><div><p class="eyebrow">STORAGE THAT GROWS WITH YOU</p><h2>容量不够，<br><em>当场就能扩容。</em></h2><p>容量套餐、永久扩容包、每日签到与积分兑换整合在同一个面板；有效期、剩余容量与续费入口都在应用内，不用跳转网页。</p></div><figure><img src="./assets/cloud-quota.png" alt="Tau Editor 云存储容量套餐与扩容面板"><figcaption>Tau Editor · storage plans and quota</figcaption></figure></section>
 
-    <section class="preview container reveal"><div><p class="eyebrow">TOUR</p><h2>从一张节点，<br><em>走到一整套知识系统。</em></h2><p>新建导图、展开分支、切换布局、打开属性和大纲，再把成果同步到云端。Tau 把“想法 → 结构 → 文档 → 协作”串成一条可回到的工作流。</p></div><figure><img src="./assets/mindmap-tour.gif" alt="Tau Editor 思维导图演示：新增主题、切换布局、打开属性和大纲"><figcaption>Tau Editor · mindmap tour：structure → style → collaboration</figcaption></figure></section>
+    <section class="preview container reveal"><div><p class="eyebrow">TOUR</p><h2>想法先落地，<br><em>结构再生长。</em></h2><p>新建导图、展开分支、切换布局、打开属性和大纲，再把成果同步到云端。Tau 把“想法 → 结构 → 文档 → 协作”串成一条可回到、可继续编辑的工作流。</p></div><figure><img src="./assets/mindmap-tour.gif" alt="Tau Editor 思维导图演示：新增主题、切换布局、打开属性和大纲"><figcaption>Tau Editor · mindmap tour：structure → style → collaboration</figcaption></figure></section>
 
     <section class="gallery container reveal"><div class="gallery-heading"><p class="eyebrow">A CLOSER LOOK</p><h2>每一块画布，<br><em>都在讲清楚结构。</em></h2></div><div class="gallery-grid"><figure><img src="./assets/mindmap-style-light-current.png" alt="Tau Editor 浅色主题思维导图，展示画布样式与彩虹配色"><figcaption>Mindmap canvas · themes, layouts and branch colors</figcaption></figure><figure><img src="./assets/markdown-outline-current.png" alt="Tau Editor Markdown 编辑、预览与文档大纲三栏视图"><figcaption>Markdown · edit, preview and outline together</figcaption></figure><figure><img src="./assets/cloud-doc-modal-current.png" alt="Tau Editor 云端文档浏览与版本历史弹窗"><figcaption>Cloud documents · browse, preview and share</figcaption></figure><figure><img src="./assets/mindmap-outline-light-current.png" alt="Tau Editor 381 节点思维导图及右侧大纲联动"><figcaption>Large maps · 381 nodes with synchronized outline</figcaption></figure><figure><img src="./assets/mindmap-cloud-current.png" alt="Tau Editor 云文档中的自研思维导图与节点属性面板"><figcaption>Mindmap collaboration · edit and sync in the cloud</figcaption></figure></div></section>
 
