@@ -59,7 +59,7 @@ npm run build
 
 ## ⬇️ 下载安装
 
-最新版本：**[v0.6.38](https://github.com/kokotao/tau-editor/releases/tag/v0.6.38)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
+最新版本：**[v0.6.39](https://github.com/kokotao/tau-editor/releases/tag/v0.6.39)**（全部安装包见 [Releases](https://github.com/kokotao/tau-editor/releases)）
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
