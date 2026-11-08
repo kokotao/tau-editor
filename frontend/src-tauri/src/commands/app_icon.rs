@@ -36,8 +36,7 @@ pub fn set_app_icon(app: AppHandle, tier: String) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn set_window_icons(app: &AppHandle, icon_bytes: &[u8]) -> Result<(), String> {
-    let icon = tauri::image::Image::from_bytes(icon_bytes)
-        .map_err(|error| format!("应用图标解码失败：{error}"))?;
+    let icon = decode_icon(icon_bytes)?;
     let mut errors = Vec::new();
 
     for (label, window) in app.webview_windows() {
@@ -51,6 +50,44 @@ fn set_window_icons(app: &AppHandle, icon_bytes: &[u8]) -> Result<(), String> {
     } else {
         Err(format!("更新窗口图标失败：{}", errors.join("; ")))
     }
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn decode_icon(icon_bytes: &[u8]) -> Result<tauri::image::Image<'static>, String> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(icon_bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder
+        .read_info()
+        .map_err(|error| format!("应用图标解码失败：{error}"))?;
+    let mut decoded = vec![0; reader.output_buffer_size()];
+    let info = reader
+        .next_frame(&mut decoded)
+        .map_err(|error| format!("应用图标解码失败：{error}"))?;
+    let pixels = &decoded[..info.buffer_size()];
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => pixels.to_vec(),
+        png::ColorType::Rgb => pixels
+            .chunks_exact(3)
+            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
+            .collect(),
+        png::ColorType::Grayscale => pixels
+            .iter()
+            .flat_map(|pixel| [*pixel, *pixel, *pixel, 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => pixels
+            .chunks_exact(2)
+            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
+            .collect(),
+        png::ColorType::Indexed => {
+            return Err("应用图标解码失败：PNG 调色板未展开".to_string());
+        }
+    };
+
+    Ok(tauri::image::Image::new_owned(
+        rgba,
+        info.width,
+        info.height,
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -78,7 +115,19 @@ fn set_macos_dock_icon(app: &AppHandle, icon_bytes: &'static [u8]) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::is_member_tier;
+    use super::{decode_icon, is_member_tier};
+
+    fn encode_png(color_type: png::ColorType, pixels: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
+            encoder.set_color(color_type);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(pixels).unwrap();
+        }
+        bytes
+    }
 
     #[test]
     fn only_plus_and_pro_use_the_gold_icon() {
@@ -86,5 +135,41 @@ mod tests {
         assert!(is_member_tier("pro"));
         assert!(!is_member_tier("FREE"));
         assert!(!is_member_tier(""));
+    }
+
+    #[test]
+    fn decodes_rgb_and_grayscale_pngs_to_rgba() {
+        let rgb = decode_icon(&encode_png(png::ColorType::Rgb, &[10, 20, 30, 40, 50, 60])).unwrap();
+        assert_eq!(rgb.width(), 2);
+        assert_eq!(rgb.height(), 1);
+        assert_eq!(rgb.rgba(), &[10, 20, 30, 255, 40, 50, 60, 255]);
+
+        let grayscale = decode_icon(&encode_png(png::ColorType::Grayscale, &[70, 80])).unwrap();
+        assert_eq!(grayscale.rgba(), &[70, 70, 70, 255, 80, 80, 80, 255]);
+    }
+
+    #[test]
+    fn preserves_alpha_for_rgba_and_grayscale_alpha_pngs() {
+        let rgba = decode_icon(&encode_png(
+            png::ColorType::Rgba,
+            &[10, 20, 30, 40, 50, 60, 70, 80],
+        ))
+        .unwrap();
+        assert_eq!(rgba.rgba(), &[10, 20, 30, 40, 50, 60, 70, 80]);
+
+        let grayscale_alpha = decode_icon(&encode_png(
+            png::ColorType::GrayscaleAlpha,
+            &[90, 100, 110, 120],
+        ))
+        .unwrap();
+        assert_eq!(
+            grayscale_alpha.rgba(),
+            &[90, 90, 90, 100, 110, 110, 110, 120]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_png_data() {
+        assert!(decode_icon(b"not a png").is_err());
     }
 }

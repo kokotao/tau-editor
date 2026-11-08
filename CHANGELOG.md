@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-11-08
-> 当前版本（发布中）：`v0.6.41`
+> 当前版本（发布中）：`v0.6.42`
 
 ---
 
@@ -11,7 +11,8 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.41](https://github.com/kokotao/tau-editor/releases/tag/v0.6.41) | 2026-11-08 | GitHub Actions 构建中 | 待发布    | 思维导图持续脉冲、导入提示、跨窗口标签合并与工作台体验升级 |
+| [0.6.42](https://github.com/kokotao/tau-editor/releases/tag/v0.6.42) | 2026-11-08 | GitHub Actions 构建中 | 待发布    | 跨平台图标解码修复，并发布思维导图与工作台体验升级 |
+| [0.6.41](https://github.com/kokotao/tau-editor/tree/v0.6.41) | 2026-11-08 | Actions 失败，未创建 Release | `ee5b506` | 思维导图持续脉冲、导入提示、跨窗口标签合并与工作台体验升级 |
 | [0.6.40](https://github.com/kokotao/tau-editor/releases/tag/v0.6.40) | 2026-11-07 | 公开 Release     | `e60222b` | 修复 Linux 剪贴板命令编译条件，重新发布完整三平台安装包 |
 | [0.6.39](https://github.com/kokotao/tau-editor/releases/tag/v0.6.39) | 2026-11-07 | 待 GitHub Actions 完成 | 待发布    | 自研思维导图创新文案收口、官网素材更新与完整三平台安装包发布 |
 | [0.6.38](https://github.com/kokotao/tau-editor/releases/tag/v0.6.38) | 2026-11-07 | 本次发布         | 本次发布  | 自研思维导图交互、滚轮与触控板导航、云端分享接收、官网截图与创新文案更新 |
@@ -55,7 +56,17 @@
 
 ---
 
-## [0.6.41] - 2026-11-08
+## [0.6.42] - 2026-11-08
+
+### 跨平台发布修复
+
+- 修复 Linux 和 Windows 构建中调用不存在的 Tauri PNG `Image::from_bytes` API 导致的编译失败。
+- 使用 `png` crate 将图标解码并规范化为 RGBA，再交给 Tauri 窗口图标 API；macOS Dock 图标逻辑保持不变。
+- 在成功完成三平台构建和资产门禁后发布 v0.6.41 已实现的思维导图、标签页与工作台体验升级。
+
+## [0.6.41] - 2026-11-08 (未发布)
+
+> GitHub Actions run `42422654000` 的 Linux 与 Windows 构建失败，Release job 被跳过；该 tag 未创建公开 Release，修复后由 v0.6.42 重新发布。
 
 ### 思维导图体验
 
