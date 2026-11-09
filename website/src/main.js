@@ -524,7 +524,7 @@ const revealObserver = new IntersectionObserver((entries) => {
       revealObserver.unobserve(entry.target)
     }
   })
-}, { threshold: 0.14 })
+}, { threshold: 0 })
 document.querySelectorAll('.reveal').forEach((element) => revealObserver.observe(element))
 
 const pointer = document.querySelector('.hero-art')
