@@ -63,7 +63,7 @@ describe('MembershipBadge 会员金标', () => {
 
   it('显示订阅到期日，并写入可访问文案', () => {
     const wrapper = mount(MembershipBadge, {
-      props: { tier: 'PRO', expiresAt: '2027-03-18T00:00:00+08:00' },
+      props: { tier: 'PRO', expiresAt: '2027-03-18' },
     });
     const badge = wrapper.get('[data-testid="membership-badge"]');
 
