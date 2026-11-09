@@ -527,6 +527,19 @@ const revealObserver = new IntersectionObserver((entries) => {
 }, { threshold: 0 })
 document.querySelectorAll('.reveal').forEach((element) => revealObserver.observe(element))
 
+const scrollToHashTarget = () => {
+  const hash = window.location.hash
+  if (!hash) return
+  const target = document.getElementById(decodeURIComponent(hash.slice(1)))
+  if (!target) return
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => target.scrollIntoView({ block: 'start', behavior: 'auto' }))
+  })
+}
+
+scrollToHashTarget()
+window.addEventListener('hashchange', scrollToHashTarget)
+
 const pointer = document.querySelector('.hero-art')
 pointer?.addEventListener('pointermove', (event) => {
   const rect = pointer.getBoundingClientRect()
