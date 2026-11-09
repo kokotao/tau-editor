@@ -372,6 +372,7 @@ const normalizeGithubRelease = (release) => {
         url: asset.browser_download_url,
         platform: inferAssetPlatform(asset.name),
         downloadCount: Number.isFinite(asset.download_count) ? asset.download_count : null,
+        mirror_url: asset.mirror_url || '',
       })) : [],
   }
 }
@@ -502,7 +503,7 @@ qqGroupLink?.addEventListener('click', (event) => {
 fetchPublishedReleases(window.fetch.bind(window), import.meta.env.BASE_URL)
   .then((items) => {
     if (!items.length) throw new Error('没有可展示的公开 Release')
-    renderReleaseSection(items)
+    renderReleaseSection(normalizeGithubReleases(items))
     const status = document.querySelector('[data-release-sync]')
     if (status) status.textContent = `已同步 ${items.length} 个公开版本 · GitHub 与栗子镜像`
     if (activeReleaseFilter !== '全部') {
