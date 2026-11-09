@@ -168,7 +168,7 @@ describe('SettingsPanel', () => {
     await wrapper.find('[data-testid="increase-ui-font-btn"]').trigger('click');
     await flushPromises();
 
-    expect(settingsStore.uiFontFamily).toBe("system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif");
+    expect(settingsStore.uiFontFamily).toBe("'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif");
     expect(settingsStore.uiFontSize).toBe(12);
     expect(document.documentElement.style.getPropertyValue('--font-size-ui-base')).toBe('12px');
   });
@@ -235,6 +235,11 @@ describe('SettingsPanel', () => {
         browserDownloadUrl: 'https://example.com/TauEditor-0.3.0.dmg',
         size: 1024,
         contentType: 'application/octet-stream',
+        sha256: 'a'.repeat(64),
+        mirrorUrls: [
+          'https://note.lizipro.cn/taueditor/releases/v0.3.0/TauEditor-0.3.0.dmg',
+          'https://downloads.sourceforge.net/project/tau-editor/v0.3.0/TauEditor-0.3.0.dmg',
+        ],
       },
       device: { os: 'macos', arch: 'aarch64' },
       repositoryUrl: 'https://github.com/kokotao/tau-editor',
@@ -249,6 +254,11 @@ describe('SettingsPanel', () => {
       'https://example.com/TauEditor-0.3.0.dmg',
       'TauEditor-0.3.0.dmg',
       1024,
+      [
+        'https://note.lizipro.cn/taueditor/releases/v0.3.0/TauEditor-0.3.0.dmg',
+        'https://downloads.sourceforge.net/project/tau-editor/v0.3.0/TauEditor-0.3.0.dmg',
+      ],
+      'a'.repeat(64),
     );
   });
 

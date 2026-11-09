@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync Tau Editor GitHub release assets to download mirrors
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/tau-editor/release-mirror.env
+Environment=TAU_MIRROR_LOG_DIR=/var/log/tau-editor-release-mirror
+ExecStart=/opt/tau-editor-release-mirror/release-mirror-runner.sh --latest

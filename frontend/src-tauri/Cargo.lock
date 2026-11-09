@@ -4588,7 +4588,7 @@ dependencies = [
 
 [[package]]
 name = "text-editor"
-version = "0.6.42"
+version = "0.6.43"
 dependencies = [
  "anyhow",
  "bytes",

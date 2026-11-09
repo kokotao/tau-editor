@@ -142,7 +142,7 @@ describe('SettingsStore', () => {
     })
 
     it('应初始化界面字体为更小的默认值', () => {
-      expect(store.uiFontFamily).toBe("'Manrope Variable', 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif")
+      expect(store.uiFontFamily).toBe("'Manrope Variable', 'Manrope', 'Noto Sans SC', 'Source Han Sans SC', sans-serif")
       expect(store.uiFontSize).toBe(11)
     })
 

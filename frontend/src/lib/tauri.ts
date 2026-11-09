@@ -67,6 +67,8 @@ export interface ReleaseAssetInfo {
   browserDownloadUrl: string;
   size: number;
   contentType?: string | null;
+  sha256?: string | null;
+  mirrorUrls?: string[];
 }
 
 export interface GithubUpdateInfo {
@@ -1063,6 +1065,8 @@ export const settingsCommands = {
     downloadUrl: string,
     fileName: string,
     expectedSize?: number,
+    mirrorUrls?: string[],
+    expectedSha256?: string | null,
   ): Promise<DownloadInstallResult> {
     if (!isTauriAvailable()) {
       if (typeof window !== 'undefined') {
@@ -1082,6 +1086,10 @@ export const settingsCommands = {
       file_name: fileName,
       expectedSize,
       expected_size: expectedSize,
+      mirrorUrls,
+      mirror_urls: mirrorUrls,
+      expectedSha256,
+      expected_sha256: expectedSha256,
     });
   },
 

@@ -3,6 +3,7 @@
 /// 实现自动保存配置、应用版本信息以及 GitHub Release 更新检查/下载安装能力。
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs;
@@ -31,6 +32,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const PROJECT_HOMEPAGE_URL: &str = "https://github.com/kokotao/tau-editor";
 const GITHUB_API_BASE: &str = "https://api.github.com/repos";
 const HTTP_USER_AGENT: &str = "tau-editor-updater/1.0";
+const RELEASE_MANIFEST_URL: &str = "https://note.lizipro.cn/taueditor/releases/latest.json";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +67,10 @@ pub struct ReleaseAssetInfo {
     pub browser_download_url: String,
     pub size: u64,
     pub content_type: Option<String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+    #[serde(default)]
+    pub mirror_urls: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -108,12 +114,56 @@ struct GithubReleaseResponse {
     assets: Vec<GithubAssetResponse>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ReleaseManifest {
+    version: String,
+    tag: String,
+    assets: Vec<ManifestAsset>,
+    #[serde(default)]
+    release_notes: String,
+    #[serde(default)]
+    release_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ManifestAsset {
+    name: String,
+    size: u64,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    urls: ManifestUrls,
+    #[serde(default)]
+    mirrors: Vec<ManifestMirror>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ManifestUrls {
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    sourceforge: String,
+    #[serde(default)]
+    github: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ManifestMirror {
+    #[allow(dead_code)]
+    name: String,
+    url: String,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 struct GithubAssetResponse {
     name: String,
     browser_download_url: String,
     size: u64,
     content_type: Option<String>,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    mirror_urls: Vec<String>,
 }
 
 impl From<GithubAssetResponse> for ReleaseAssetInfo {
@@ -123,6 +173,100 @@ impl From<GithubAssetResponse> for ReleaseAssetInfo {
             browser_download_url: value.browser_download_url,
             size: value.size,
             content_type: value.content_type,
+            sha256: value.sha256,
+            mirror_urls: value.mirror_urls,
+        }
+    }
+}
+
+fn github_asset_url(owner: &str, repo: &str, tag: &str, name: &str) -> String {
+    let mut url = reqwest::Url::parse(&format!("https://github.com/{owner}/{repo}/"))
+        .expect("static GitHub base URL is valid");
+    url.path_segments_mut()
+        .expect("GitHub URL supports path segments")
+        .extend(["releases", "download", tag, name]);
+    url.to_string()
+}
+
+fn validate_mirror_url(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| "镜像地址不是有效 URL".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("镜像地址必须使用 HTTPS".to_string());
+    }
+    if !is_allowed_download_host(parsed.host_str().unwrap_or_default()) {
+        return Err("镜像地址域名不在允许列表中".to_string());
+    }
+    Ok(())
+}
+
+fn is_allowed_download_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    host == "note.lizipro.cn"
+        || host == "github.com"
+        || host == "sourceforge.net"
+        || host.ends_with(".sourceforge.net")
+}
+
+fn update_download_urls(github_url: &str, mirror_urls: &[String]) -> Vec<String> {
+    let mut urls = vec![github_url.to_string()];
+    if let Some(path) =
+        github_url.strip_prefix("https://github.com/kokotao/tau-editor/releases/download/")
+    {
+        let note_url = format!("https://note.lizipro.cn/taueditor/releases/{path}");
+        if !urls.contains(&note_url) {
+            urls.push(note_url);
+        }
+    }
+    for mirror in mirror_urls {
+        if validate_mirror_url(mirror).is_ok() && !urls.contains(mirror) {
+            urls.push(mirror.clone());
+        }
+    }
+    urls
+}
+
+fn manifest_asset_urls(
+    asset: &ManifestAsset,
+    owner: &str,
+    repo: &str,
+    tag: &str,
+) -> Vec<String> {
+    let github_url = if asset.urls.github.is_empty() {
+        github_asset_url(owner, repo, tag, &asset.name)
+    } else {
+        asset.urls.github.clone()
+    };
+    let mut urls = vec![github_url];
+    for url in [&asset.urls.note, &asset.urls.sourceforge] {
+        if !url.is_empty() && validate_mirror_url(url).is_ok() && !urls.contains(url) {
+            urls.push(url.clone());
+        }
+    }
+    for mirror in &asset.mirrors {
+        if validate_mirror_url(&mirror.url).is_ok() && !urls.contains(&mirror.url) {
+            urls.push(mirror.url.clone());
+        }
+    }
+    urls
+}
+
+fn merge_manifest_assets(
+    assets: &mut [GithubAssetResponse],
+    manifest_assets: Vec<ManifestAsset>,
+    owner: &str,
+    repo: &str,
+    tag: &str,
+) {
+    for asset in assets {
+        if let Some(manifest) = manifest_assets
+            .iter()
+            .find(|candidate| candidate.name == asset.name)
+        {
+            asset.sha256 = manifest.sha256.clone();
+            asset.mirror_urls = manifest_asset_urls(manifest, owner, repo, tag)
+                .into_iter()
+                .skip(1)
+                .collect();
         }
     }
 }
@@ -181,21 +325,73 @@ pub async fn check_github_update(repo_url: Option<String>) -> Result<GithubUpdat
     let (owner, repo) = parse_github_repo(&raw_repo_url)?;
 
     let release = match fetch_latest_release(&owner, &repo).await {
-        Ok(release) => release,
-        Err(api_error) => {
-            if is_rate_limited_error(&api_error) {
-                fetch_latest_release_from_web(&owner, &repo)
-                    .await
-                    .map_err(|fallback_error| {
-                        format!(
-                            "GitHub API 已达到限流，网页回退也失败：{}（原始错误：{}）",
-                            fallback_error, api_error
-                        )
-                    })?
-            } else {
-                return Err(api_error);
+        Ok(release) => Ok(release),
+        Err(api_error) if is_rate_limited_error(&api_error) => {
+            match fetch_latest_release_from_web(&owner, &repo).await {
+                Ok(release) => Ok(release),
+                Err(web_error) => Err(format!("{api_error}; {web_error}")),
             }
         }
+        Err(api_error) => Err(api_error),
+    };
+
+    let release = match release {
+        Ok(mut release) => {
+            if owner == "kokotao" && repo == "tau-editor" {
+                if let Ok(manifest) = fetch_release_manifest().await {
+                    if normalize_version(&manifest.tag) == normalize_version(&release.tag_name) {
+                        merge_manifest_assets(
+                            &mut release.assets,
+                            manifest.assets,
+                            &owner,
+                            &repo,
+                            &release.tag_name,
+                        );
+                    }
+                }
+            }
+            release
+        }
+        Err(github_error) if owner == "kokotao" && repo == "tau-editor" => {
+            let manifest = fetch_release_manifest().await.map_err(|manifest_error| {
+                format!("{github_error}; 镜像版本清单不可用：{manifest_error}")
+            })?;
+            let tag = if manifest.tag.is_empty() {
+                manifest.version.clone()
+            } else {
+                manifest.tag.clone()
+            };
+            GithubReleaseResponse {
+                tag_name: tag.clone(),
+                name: None,
+                body: Some(manifest.release_notes),
+                html_url: if manifest.release_url.is_empty() {
+                    format!("https://github.com/{owner}/{repo}/releases")
+                } else {
+                    manifest.release_url
+                },
+                published_at: None,
+                assets: manifest
+                    .assets
+                    .into_iter()
+                    .map(|asset| {
+                        let mirror_urls = manifest_asset_urls(&asset, &owner, &repo, &tag)
+                            .into_iter()
+                            .skip(1)
+                            .collect();
+                        GithubAssetResponse {
+                            name: asset.name.clone(),
+                            browser_download_url: github_asset_url(&owner, &repo, &tag, &asset.name),
+                            size: asset.size,
+                            content_type: None,
+                            sha256: asset.sha256,
+                            mirror_urls,
+                        }
+                    })
+                    .collect(),
+            }
+        }
+        Err(github_error) => return Err(github_error),
     };
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let latest_version = normalize_version(&release.tag_name);
@@ -236,11 +432,44 @@ pub async fn download_and_install_update(
     download_url: String,
     file_name: String,
     expected_size: Option<u64>,
+    mirror_urls: Option<Vec<String>>,
+    expected_sha256: Option<String>,
 ) -> Result<DownloadInstallResult, String> {
     validate_download_url(&download_url)?;
 
     let download_path = build_download_path(&file_name)?;
-    download_file(&app, &download_url, &download_path, expected_size).await?;
+    let urls = update_download_urls(&download_url, mirror_urls.as_deref().unwrap_or_default());
+    let mut failures = Vec::new();
+    let mut downloaded = false;
+    for url in urls {
+        if validate_download_url(&url).is_err() {
+            continue;
+        }
+        let expected_size = expected_size.filter(|size| *size > 0);
+        match download_file(&app, &url, &download_path, expected_size).await {
+            Ok(()) => {
+                match verify_download(&download_path, expected_size, expected_sha256.as_deref())
+                    .await
+                {
+                    Ok(()) => {
+                        downloaded = true;
+                        break;
+                    }
+                    Err(error) => {
+                        failures.push(format!("{url}: {error}"));
+                        let _ = tokio::fs::remove_file(&download_path).await;
+                    }
+                }
+            }
+            Err(error) => {
+                failures.push(format!("{url}: {error}"));
+                let _ = tokio::fs::remove_file(&download_path).await;
+            }
+        }
+    }
+    if !downloaded {
+        return Err(format!("所有更新下载源均失败：{}", failures.join("；")));
+    }
 
     let launch_message = launch_installer(&app, &download_path)?;
 
@@ -389,6 +618,25 @@ async fn fetch_latest_release(owner: &str, repo: &str) -> Result<GithubReleaseRe
         .json::<GithubReleaseResponse>()
         .await
         .map_err(|error| format!("解析 GitHub Release 数据失败：{error}"))
+}
+
+async fn fetch_release_manifest() -> Result<ReleaseManifest, String> {
+    let client = Client::builder()
+        .user_agent(HTTP_USER_AGENT)
+        .build()
+        .map_err(|error| format!("初始化镜像清单客户端失败：{error}"))?;
+    let response = client
+        .get(RELEASE_MANIFEST_URL)
+        .send()
+        .await
+        .map_err(|error| format!("请求镜像版本清单失败：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("镜像版本清单返回 HTTP {}", response.status()));
+    }
+    response
+        .json::<ReleaseManifest>()
+        .await
+        .map_err(|error| format!("解析镜像版本清单失败：{error}"))
 }
 
 async fn fetch_latest_release_from_web(
@@ -541,6 +789,8 @@ fn extract_release_assets_from_html(
             browser_download_url: download_url,
             size: 0,
             content_type: None,
+            sha256: None,
+            mirror_urls: Vec::new(),
         });
 
         cursor = end;
@@ -685,8 +935,12 @@ fn all_arch_tokens() -> &'static [&'static str] {
 }
 
 fn validate_download_url(url: &str) -> Result<(), String> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("仅允许下载 http/https 链接".to_string());
+    let parsed = reqwest::Url::parse(url).map_err(|_| "下载地址不是有效 URL".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("更新包下载地址必须使用 HTTPS".to_string());
+    }
+    if !is_allowed_download_host(parsed.host_str().unwrap_or_default()) {
+        return Err("更新包下载地址域名不在允许列表中".to_string());
     }
 
     Ok(())
@@ -788,6 +1042,35 @@ async fn download_file(
         .await
         .map_err(|error| format!("完成更新包写入失败：{error}"))?;
     emit_update_download_progress(app, downloaded_bytes, total_bytes)?;
+    Ok(())
+}
+
+async fn verify_download(
+    path: &Path,
+    expected_size: Option<u64>,
+    expected_sha256: Option<&str>,
+) -> Result<(), String> {
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|error| format!("读取更新包大小失败：{error}"))?;
+    if let Some(expected) = expected_size {
+        if metadata.len() != expected {
+            return Err(format!(
+                "更新包大小校验失败：期望 {}，实际 {}",
+                expected,
+                metadata.len()
+            ));
+        }
+    }
+    if let Some(expected) = expected_sha256.filter(|value| !value.trim().is_empty()) {
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|error| format!("读取更新包摘要失败：{error}"))?;
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        if !digest.eq_ignore_ascii_case(expected.trim()) {
+            return Err("更新包 SHA-256 校验失败".to_string());
+        }
+    }
     Ok(())
 }
 
@@ -1192,18 +1475,24 @@ mod tests {
                 browser_download_url: "https://example.com/a.deb".to_string(),
                 size: 10,
                 content_type: Some("application/octet-stream".to_string()),
+                sha256: None,
+                mirror_urls: Vec::new(),
             },
             GithubAssetResponse {
                 name: "tau-editor_0.2.1_amd64.deb".to_string(),
                 browser_download_url: "https://example.com/b.deb".to_string(),
                 size: 20,
                 content_type: Some("application/octet-stream".to_string()),
+                sha256: None,
+                mirror_urls: Vec::new(),
             },
             GithubAssetResponse {
                 name: "Source code (zip)".to_string(),
                 browser_download_url: "https://example.com/source.zip".to_string(),
                 size: 30,
                 content_type: Some("application/zip".to_string()),
+                sha256: None,
+                mirror_urls: Vec::new(),
             },
         ];
 
@@ -1211,6 +1500,80 @@ mod tests {
             choose_release_asset(&assets, "linux", "x86_64").expect("expected a matched asset");
 
         assert_eq!(selected.name, "tau-editor_0.2.1_amd64.deb");
+    }
+
+    #[test]
+    fn mirror_urls_are_added_only_for_github_release_assets() {
+        let urls = update_download_urls(
+            "https://github.com/kokotao/tau-editor/releases/download/v0.6.42/Tau.Editor_0.6.42_universal.dmg",
+            &[],
+        );
+
+        assert_eq!(urls[0], "https://github.com/kokotao/tau-editor/releases/download/v0.6.42/Tau.Editor_0.6.42_universal.dmg");
+        assert!(urls.iter().any(|url| url == "https://note.lizipro.cn/taueditor/releases/v0.6.42/Tau.Editor_0.6.42_universal.dmg"));
+        assert!(urls.iter().all(|url| url.starts_with("https://")));
+        assert_eq!(
+            update_download_urls("https://example.com/installer.dmg", &[]),
+            vec!["https://example.com/installer.dmg"]
+        );
+    }
+
+    #[test]
+    fn manifest_asset_urls_keep_github_first_and_deduplicate_mirrors() {
+        let asset = ManifestAsset {
+            name: "Tau.Editor_0.6.42_universal.dmg".to_string(),
+            size: 42,
+            sha256: Some("abc123".to_string()),
+            urls: ManifestUrls::default(),
+            mirrors: vec![
+                ManifestMirror {
+                    name: "note".to_string(),
+                    url: "https://note.lizipro.cn/taueditor/releases/v0.6.42/Tau.Editor_0.6.42_universal.dmg".to_string(),
+                },
+                ManifestMirror {
+                    name: "sourceforge".to_string(),
+                    url: "https://downloads.sourceforge.net/project/tau-editor/v0.6.42/Tau.Editor_0.6.42_universal.dmg".to_string(),
+                },
+            ],
+        };
+
+        let urls = manifest_asset_urls(&asset, "kokotao", "tau-editor", "v0.6.42");
+        assert_eq!(urls.len(), 3);
+        assert_eq!(urls[1], asset.mirrors[0].url);
+        assert_eq!(urls[2], asset.mirrors[1].url);
+    }
+
+    #[test]
+    fn release_manifest_parses_the_published_snake_case_schema() {
+        let manifest: ReleaseManifest = serde_json::from_str(
+            r#"{
+                "version": "0.6.42",
+                "tag": "v0.6.42",
+                "release_url": "https://github.com/kokotao/tau-editor/releases/tag/v0.6.42",
+                "release_notes": "Release notes",
+                "assets": [{
+                    "name": "Tau.Editor_0.6.42_universal.dmg",
+                    "size": 42,
+                    "sha256": "abc123",
+                    "urls": {
+                        "note": "https://note.lizipro.cn/taueditor/releases/0.6.42/Tau.Editor_0.6.42_universal.dmg",
+                        "sourceforge": "",
+                        "github": "https://github.com/kokotao/tau-editor/releases/download/v0.6.42/Tau.Editor_0.6.42_universal.dmg"
+                    }
+                }]
+            }"#,
+        )
+        .expect("published release manifest should deserialize");
+
+        assert_eq!(
+            manifest.release_url,
+            "https://github.com/kokotao/tau-editor/releases/tag/v0.6.42"
+        );
+        assert_eq!(manifest.release_notes, "Release notes");
+        assert_eq!(
+            manifest.assets[0].urls.note,
+            "https://note.lizipro.cn/taueditor/releases/0.6.42/Tau.Editor_0.6.42_universal.dmg"
+        );
     }
 
     #[test]

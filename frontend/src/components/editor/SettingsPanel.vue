@@ -2205,6 +2205,8 @@ const installUpdate = async (): Promise<{ success: boolean; error?: string }> =>
       selectedAsset.value.browserDownloadUrl,
       selectedAsset.value.name,
       selectedAsset.value.size,
+      selectedAsset.value.mirrorUrls ?? [],
+      selectedAsset.value.sha256 ?? null,
     );
     installMessage.value = result.message || copy.value.statusInstallTriggered;
     updateStatus.value = 'installTriggered';

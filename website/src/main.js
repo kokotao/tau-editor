@@ -370,6 +370,7 @@ const normalizeGithubRelease = (release) => {
         name: asset.name,
         url: asset.browser_download_url,
         platform: inferAssetPlatform(asset.name),
+        downloadCount: Number.isFinite(asset.download_count) ? asset.download_count : null,
       })) : [],
   }
 }
@@ -400,7 +401,7 @@ const renderReleaseAssetTables = (assets) => {
   if (!groups.length) return ''
 
   const installAssets = groups.reduce((total, group) => total + group.assets.length, 0)
-  return `<section class="release-downloads" aria-label="安装包下载"><div class="release-downloads-heading"><span>安装包</span><small>按系统整理 · ${installAssets} 个桌面安装包</small></div><div class="release-download-tables">${groups.map(({ platform, assets: platformAssets }) => `<div class="release-download-group"><div class="release-download-group-heading"><span class="platform-dot platform-${platform.toLowerCase().replace(/[^a-z]+/g, '-')}" ></span><strong>${escapeHtml(platform)}</strong><small>${platformAssets.length} 个安装包</small></div><div class="release-download-table-wrap"><table class="release-download-table"><thead><tr><th scope="col">文件名</th><th scope="col">类型</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead><tbody>${platformAssets.map((asset) => `<tr><td><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span></td><td><span class="asset-type">${escapeHtml(asset.name.split('.').pop()?.toUpperCase() || 'FILE')}</span></td><td><a class="asset-download" href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" download aria-label="下载 ${escapeHtml(asset.name)}">下载 <span aria-hidden="true">↗</span></a></td></tr>`).join('')}</tbody></table></div></div>`).join('')}</div></section>`
+  return `<section class="release-downloads" aria-label="安装包下载"><div class="release-downloads-heading"><span>安装包</span><small>按系统整理 · ${installAssets} 个桌面安装包 · 下载数为 GitHub 累计次数，不代表安装人数</small></div><div class="release-download-tables">${groups.map(({ platform, assets: platformAssets }) => `<div class="release-download-group"><div class="release-download-group-heading"><span class="platform-dot platform-${platform.toLowerCase().replace(/[^a-z]+/g, '-')}" ></span><strong>${escapeHtml(platform)}</strong><small>${platformAssets.length} 个安装包</small></div><div class="release-download-table-wrap"><table class="release-download-table"><thead><tr><th scope="col">文件名</th><th scope="col">类型</th><th scope="col">下载</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead><tbody>${platformAssets.map((asset) => `<tr><td><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span></td><td><span class="asset-type">${escapeHtml(asset.name.split('.').pop()?.toUpperCase() || 'FILE')}</span></td><td><span class="asset-download-count">${asset.downloadCount === null ? '暂无数据' : asset.downloadCount.toLocaleString('zh-CN')}</span></td><td><a class="asset-download" href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" download aria-label="下载 ${escapeHtml(asset.name)}">下载 <span aria-hidden="true">↗</span></a></td></tr>`).join('')}</tbody></table></div></div>`).join('')}</div></section>`
 }
 
 const renderReleaseCards = (items) => items.map((release) => {

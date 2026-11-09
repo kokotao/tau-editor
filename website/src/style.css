@@ -25,12 +25,14 @@ section[id]{scroll-margin-top:100px}
 .release-download-table th{padding:8px 10px;color:#9aa5a2;text-align:left;font:9px 'DM Mono',monospace;font-weight:400}
 .release-download-table th:last-child,.release-download-table td:last-child{width:66px;text-align:right}
 .release-download-table th:nth-child(2),.release-download-table td:nth-child(2){width:48px}
+.release-download-table th:nth-child(3),.release-download-table td:nth-child(3){width:72px;text-align:right}
 .release-download-table td{padding:9px 10px;border-top:1px solid #edf1ef;vertical-align:middle}
 .release-download-table tr:first-child td{border-top:0}
 .release-card-body,.release-card details{min-width:0}
 .release-card details li{overflow-wrap:anywhere;word-break:break-word}
 .asset-name{display:block;overflow:hidden;color:var(--ink);font:10px 'DM Mono',monospace;text-overflow:ellipsis;white-space:nowrap}
 .asset-type{color:#9aa5a2;font:9px 'DM Mono',monospace}
+.asset-download-count{color:var(--ink);font:10px 'DM Mono',monospace;white-space:nowrap}
 .asset-download{display:inline-flex;align-items:center;gap:4px;color:var(--mint-dark);font:10px 'DM Mono',monospace;text-decoration:none;white-space:nowrap}
 .asset-download:hover{color:var(--ink)}
 .asset-download span{font-size:12px;transition:transform 180ms ease}

@@ -125,7 +125,7 @@ test.describe('Mindmap E2E', () => {
     await page.keyboard.press('Tab')
     await expect(page.locator('.mm-node')).toHaveCount(2)
     // 新增节点后先适配内容，确保目标节点在可视区内（真实用户同样会这样做）
-    await page.locator('[data-testid="mm-fit"]').click()
+    await page.locator('[data-testid="mm-hud-fit"]').click()
 
     // 画布选中第二个节点（子主题），大纲对应行高亮
     const target = page.locator('.mm-node').nth(1)
@@ -149,10 +149,10 @@ test.describe('Mindmap E2E', () => {
     await page.waitForSelector('[data-testid="toolbar"]')
     await openNewMindmap(page)
 
-    const toolbar = page.locator('[data-testid="mindmap-toolbar"]')
-    await toolbar.locator('[data-testid="mm-add-child"]').click()
+    await page.locator('.mm-node.is-root').click({ button: 'right' })
+    await page.locator('[data-testid="mm-context-item-add-child"]').click()
     await expect(page.locator('.mm-node')).toHaveCount(2)
-    await page.locator('[data-testid="mm-fit"]').click()
+    await page.locator('[data-testid="mm-hud-fit"]').click()
 
     const child = page.locator('.mm-node:not(.is-root)').first()
     const childId = await child.getAttribute('data-node-id')
@@ -186,7 +186,7 @@ test.describe('Mindmap E2E', () => {
     await page.keyboard.press('Tab')
     await page.keyboard.press('Tab')
     await expect(page.locator('.mm-node')).toHaveCount(3)
-    await page.locator('[data-testid="mm-fit"]').click()
+    await page.locator('[data-testid="mm-hud-fit"]').click()
 
     // 选中中间节点（有 1 个子节点）
     await page.locator('.mm-node').nth(1).click()
@@ -220,12 +220,12 @@ test.describe('Mindmap E2E', () => {
 
     const stats = page.locator('.mm-stats')
     // 小图适配有 115% 上限，避免把后续新增节点推到当前视口外。
-    await page.locator('[data-testid="mm-fit"]').click()
+    await page.locator('[data-testid="mm-hud-fit"]').click()
     await expect(stats).toContainText('115%')
-    await page.locator('[data-testid="mm-zoom-in"]').click()
+    await page.locator('[data-testid="mm-hud-zoom-in"]').click()
     await expect(stats).toContainText('138%')
 
-    await page.locator('[data-testid="mm-fit"]').click()
+    await page.locator('[data-testid="mm-hud-fit"]').click()
     await expect(page.locator('[data-testid="mindmap-canvas"]')).toBeVisible()
   })
 
@@ -293,7 +293,7 @@ test.describe('Mindmap E2E', () => {
     await expect(page.locator('.mindmap-row')).toHaveCount(200)
 
     // 适配内容后可交互，且统计显示 200 个可见节点
-    await page.locator('[data-testid="mm-fit"]').click()
+    await page.locator('[data-testid="mm-hud-fit"]').click()
     await expect(page.locator('.mm-stats')).toContainText('200')
   })
 
@@ -474,26 +474,37 @@ test.describe('Mindmap E2E', () => {
     await openNewMindmap(page)
 
     const contrast = await page.evaluate(() => {
-      const button = document.querySelector('[data-testid="mm-add-child"]') as HTMLElement | null;
+      const button = document.querySelector('[data-testid="mm-layout-mindmap"]') as HTMLElement | null;
       if (!button) return null;
       const style = getComputedStyle(button);
+      const toolbarStyle = getComputedStyle(button.closest('[data-testid="toolbar"]') ?? button);
       const parse = (value: string): number[] => {
         const match = value.match(/rgba?\(([^)]+)\)/);
-        if (!match) return [0, 0, 0];
-        return match[1].split(',').slice(0, 3).map((part) => Number(part.trim()));
+        if (!match) return [0, 0, 0, 1];
+        const channels = match[1].split(',').map((part) => Number(part.trim()));
+        return [...channels.slice(0, 3), channels[3] ?? 1];
       };
-      const fg = parse(style.color);
-      const bg = parse(style.backgroundColor);
+      const fg = parse(style.color).slice(0, 3);
+      const surface = parse(toolbarStyle.backgroundColor).slice(0, 3);
+      const buttonBackground = parse(style.backgroundColor);
+      const alpha = buttonBackground[3];
+      const bg = buttonBackground.slice(0, 3).map((channel, index) => channel * alpha + surface[index] * (1 - alpha));
+      const luminance = (rgb: number[]) =>
+        rgb
+          .map((channel) => channel / 255)
+          .map((channel) => (channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
+          .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+      const fgLuminance = luminance(fg);
+      const bgLuminance = luminance(bg);
       return {
         fg,
         bg,
-        distance: Math.abs(fg[0] - bg[0]) + Math.abs(fg[1] - bg[1]) + Math.abs(fg[2] - bg[2]),
+        ratio: (Math.max(fgLuminance, bgLuminance) + 0.05) / (Math.min(fgLuminance, bgLuminance) + 0.05),
       };
     });
 
     expect(contrast).toBeTruthy()
-    // 文字与按钮背景不能是同一颜色（修复前暗色主题下白底浅字 distance≈0）
-    expect(contrast!.distance).toBeGreaterThan(80)
+    expect(contrast!.ratio).toBeGreaterThanOrEqual(3)
   })
 
   test('E2E-MM-021: 大纲面板可拖拽调宽', async ({ page }) => {
@@ -534,11 +545,19 @@ test.describe('Mindmap E2E', () => {
     await editor.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 5))
     await editor.dispatchEvent('select')
     await expect(page.getByRole('toolbar', { name: '文字颜色与高亮' })).toBeVisible()
+    await page.evaluate(() => {
+      let copiedText = ''
+      Object.defineProperty(window, '__copiedText', { configurable: true, get: () => copiedText })
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (text: string) => { copiedText = text }, readText: async () => '' },
+      })
+    })
     await editor.click({ button: 'right' })
     await expect(page.getByRole('menu', { name: '文本编辑菜单' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: /剪切/ })).toBeVisible()
     await page.getByRole('menuitem', { name: /复制/ }).click()
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('选中测试文')
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { __copiedText?: string }).__copiedText)).toBe('选中测试文')
     await editor.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 5))
     await editor.dispatchEvent('select')
     await editor.click({ button: 'right' })

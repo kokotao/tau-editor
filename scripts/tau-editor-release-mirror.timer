@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry Tau Editor release mirror synchronization
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

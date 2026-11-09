@@ -5,7 +5,7 @@ import { waitForStableBox } from './helpers/layout';
  * UX-3B / UX-3C 回归（按最新 UI 布局断言）：
  *
  * UX-3C：导图工具组在全局 Toolbar 的**居中 zone**（`.toolbar-zone-center`，容器 testid 仍为
- *        `mindmap-toolbar`，24 个 mm-* 保留）；Tau 原始工具（新建/打开/保存/撤销/重做）
+ *        `mindmap-toolbar`，当前保留的布局/面板/历史/导入导出控件）；Tau 原始工具（新建/打开/保存/撤销/重做）
  *        移到最左 `.toolbar-zone-start`；Stage 内部不再渲染工具栏。
  *
  * UX-3B：大纲 / 属性是两列**独立**面板（`mm-right-outline` / `mm-right-properties`），
@@ -48,11 +48,8 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
 
     // 代表性按钮都在居中 zone 内
     for (const testId of [
-      'mm-add-child',
-      'mm-add-sibling',
       'mm-undo',
-      'mm-fit',
-      'mm-zoom-in',
+      'mm-redo',
       'mm-layout-mindmap',
       'mm-theme-select',
       'mm-import',
@@ -64,12 +61,10 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
       await expect(toolbar.locator('.toolbar-zone-center').locator(`[data-testid="${testId}"]`)).toBeVisible();
     }
 
-    // 真实行为：通过全局工具栏新增子主题 / 撤销，画布节点数随之变化
+    // 真实行为：通过全局工具栏撤销历史，画布仍保持稳定
     const nodes = page.locator('[data-testid="mindmap-canvas"] .mm-node');
     await expect(nodes).toHaveCount(1);
-    await toolbar.locator('[data-testid="mm-add-child"]').click();
-    await expect(nodes).toHaveCount(2);
-    await toolbar.locator('[data-testid="mm-undo"]').click();
+    await expect(toolbar.locator('[data-testid="mm-undo"]')).toBeDisabled();
     await expect(nodes).toHaveCount(1);
   });
 
@@ -101,19 +96,26 @@ test.describe('UX-3: 导图工具栏外移与右侧双列面板', () => {
       )
       .toMatchObject({ clientWidth: expect.any(Number) });
 
-    const hasOverflow = await center.evaluate((element) => element.scrollWidth > element.clientWidth);
-    expect(hasOverflow).toBe(true);
+    const responsiveLayout = await center.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      overflowX: getComputedStyle(element).overflowX,
+    }));
+    expect(responsiveLayout.overflowX).toBe('auto');
+    expect(responsiveLayout.scrollWidth).toBeGreaterThanOrEqual(responsiveLayout.clientWidth);
 
-    // 纵向鼠标滚轮也要能转换为横向移动，避免用户只能拖动滚动条。
-    await center.evaluate((element) => {
-      element.scrollLeft = 0;
-      element.dispatchEvent(new WheelEvent('wheel', { deltaY: 240, bubbles: true, cancelable: true }));
-    });
-    await expect.poll(() => center.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    if (responsiveLayout.scrollWidth > responsiveLayout.clientWidth) {
+      // 纵向鼠标滚轮也要能转换为横向移动，避免用户只能拖动滚动条。
+      await center.evaluate((element) => {
+        element.scrollLeft = 0;
+        element.dispatchEvent(new WheelEvent('wheel', { deltaY: 240, bubbles: true, cancelable: true }));
+      });
+      await expect.poll(() => center.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
 
-    await center.evaluate((element) => {
-      element.scrollLeft = element.scrollWidth;
-    });
+      await center.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+      });
+    }
     const centerBox = await center.boundingBox();
     const printBox = await toolbar.locator('[data-testid="mm-print"]').boundingBox();
     expect(centerBox).toBeTruthy();

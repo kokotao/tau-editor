@@ -453,19 +453,8 @@ describe('Toolbar.vue', () => {
       })
 
     const mmTestIds = [
-      'mm-add-child',
-      'mm-add-sibling',
-      'mm-rename',
-      'mm-duplicate',
-      'mm-delete',
-      'mm-move-up',
-      'mm-move-down',
       'mm-undo',
       'mm-redo',
-      'mm-fit',
-      'mm-zoom-in',
-      'mm-zoom-out',
-      'mm-reset-view',
       'mm-layout-mindmap',
       'mm-layout-logic',
       'mm-layout-tree',
@@ -490,29 +479,41 @@ describe('Toolbar.vue', () => {
       expect(wrapper.find('[data-testid="mindmap-toolbar"]').exists()).toBe(false)
     })
 
-    it('导图标签渲染全部 mm-* 按钮且保留旧 testid', () => {
+    it('导图标签只渲染当前保留的全局工具栏控件', () => {
       const wrapper = mountMindmapToolbar()
       expect(wrapper.find('[data-testid="mindmap-toolbar"]').exists()).toBe(true)
       for (const testId of mmTestIds) {
         expect(wrapper.find(`[data-testid="${testId}"]`).exists(), testId).toBe(true)
       }
+      for (const removedTestId of [
+        'mm-add-child',
+        'mm-add-sibling',
+        'mm-rename',
+        'mm-duplicate',
+        'mm-delete',
+        'mm-move-up',
+        'mm-move-down',
+        'mm-fit',
+        'mm-zoom-in',
+        'mm-zoom-out',
+        'mm-reset-view',
+      ]) {
+        expect(wrapper.find(`[data-testid="${removedTestId}"]`).exists(), removedTestId).toBe(false)
+      }
       // 统计仍留在 Stage（E2E-MM-005/007 依赖），工具栏不重复渲染
       expect(wrapper.find('.mm-stats').exists()).toBe(false)
     })
 
-    it('无选中节点时编辑类按钮禁用，撤销/重做按历史状态', () => {
+    it('撤销/重做按导图历史状态禁用', () => {
       const wrapper = mountMindmapToolbar({ selectedTopicId: null, canUndo: false, canRedo: true })
-      for (const testId of ['mm-add-child', 'mm-add-sibling', 'mm-rename', 'mm-duplicate', 'mm-delete', 'mm-move-up', 'mm-move-down']) {
-        expect(wrapper.get(`[data-testid="${testId}"]`).attributes('disabled'), testId).toBeDefined()
-      }
       expect(wrapper.get('[data-testid="mm-undo"]').attributes('disabled')).toBeDefined()
       expect(wrapper.get('[data-testid="mm-redo"]').attributes('disabled')).toBeUndefined()
     })
 
-    it('有选中节点后编辑类按钮可用', () => {
+    it('撤销/重做可用状态由导图历史状态控制', () => {
       const wrapper = mountMindmapToolbar()
-      expect(wrapper.get('[data-testid="mm-add-child"]').attributes('disabled')).toBeUndefined()
-      expect(wrapper.get('[data-testid="mm-delete"]').attributes('disabled')).toBeUndefined()
+      expect(wrapper.get('[data-testid="mm-undo"]').attributes('disabled')).toBeUndefined()
+      expect(wrapper.get('[data-testid="mm-redo"]').attributes('disabled')).toBeDefined()
     })
 
     it('布局按钮高亮当前模式并可 emit mm-layout', async () => {
@@ -558,19 +559,8 @@ describe('Toolbar.vue', () => {
     it('编辑/历史/视口/导入导出打印类按钮各自 emit 对应事件', async () => {
       const wrapper = mountMindmapToolbar({ canRedo: true })
       const cases: Array<[string, string]> = [
-        ['mm-add-child', 'mm-add-child'],
-        ['mm-add-sibling', 'mm-add-sibling'],
-        ['mm-rename', 'mm-rename'],
-        ['mm-duplicate', 'mm-duplicate'],
-        ['mm-delete', 'mm-delete'],
-        ['mm-move-up', 'mm-move-up'],
-        ['mm-move-down', 'mm-move-down'],
         ['mm-undo', 'mm-undo'],
         ['mm-redo', 'mm-redo'],
-        ['mm-fit', 'mm-fit'],
-        ['mm-zoom-in', 'mm-zoom-in'],
-        ['mm-zoom-out', 'mm-zoom-out'],
-        ['mm-reset-view', 'mm-reset-view'],
         ['mm-reset', 'mm-reset'],
         ['mm-import', 'mm-import'],
         ['mm-export', 'mm-export'],
@@ -598,17 +588,17 @@ describe('Toolbar.vue', () => {
       expect(center.find('[data-testid="btn-new-file"]').exists()).toBe(false)
       expect(center.find('[data-testid="btn-undo"]').exists()).toBe(false)
 
-      // 24 个导图操作按钮与自绘主题选择器全部在组内
+      // 当前保留的 13 个导图按钮与自绘主题选择器全部在组内
       const groupWrapper = wrapper.get('[data-testid="mindmap-toolbar"]')
-      expect(groupWrapper.findAll('button.mm-btn')).toHaveLength(24)
+      expect(groupWrapper.findAll('button.mm-btn')).toHaveLength(13)
       expect(groupWrapper.findAll('button[data-testid="mm-theme-select"]')).toHaveLength(1)
     })
 
     it('导图按钮沿用 mm-btn 视觉类（对比度/E2E-MM-020 依赖）', () => {
       const wrapper = mountMindmapToolbar()
-      const addChild = wrapper.get('[data-testid="mm-add-child"]')
-      expect(addChild.classes()).toContain('mm-btn')
-      expect(addChild.classes()).not.toContain('toolbar-btn')
+      const layout = wrapper.get('[data-testid="mm-layout-mindmap"]')
+      expect(layout.classes()).toContain('mm-btn')
+      expect(layout.classes()).not.toContain('toolbar-btn')
     })
 
     it('导图工具栏外层是横向滚动容器，纵向鼠标滚轮可查看末尾按钮', async () => {
