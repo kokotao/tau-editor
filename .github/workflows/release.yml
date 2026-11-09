@@ -16,6 +16,7 @@ on:
       - 'v*'
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -453,3 +454,9 @@ jobs:
           done < <(find release-assets -type f \
             \( -name '*.dmg' -o -name '*.zip' -o -name '*.app.tar.gz' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' -o -name '*.msi' -o -name '*.exe' \) \
             -print0)
+
+      - name: Refresh website release snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run website-pages.yml --repo "$GH_REPO" --ref main

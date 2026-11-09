@@ -1,5 +1,6 @@
 import './style.css'
 import { formatDownloadCount } from './releaseFormatting.js'
+import { fetchPublishedReleases } from './releaseDataSource.js'
 
 const features = [
   ['01', '自研思维导图引擎', '从 TauMap 数据模型、布局算法到 SVG 画布交互完整自研；节点、连线、主题和工作表都能直接编辑。'],
@@ -275,7 +276,6 @@ const releases = [
   },
 ]
 
-const githubReleasesApi = 'https://api.github.com/repos/kokotao/tau-editor/releases'
 const releaseCategoryOrder = ['编辑器体验', '主题与外观', '工作台体验', '核心能力', '稳定性']
 
 const escapeHtml = (value) => String(value ?? '')
@@ -402,7 +402,10 @@ const renderReleaseAssetTables = (assets) => {
   if (!groups.length) return ''
 
   const installAssets = groups.reduce((total, group) => total + group.assets.length, 0)
-  return `<section class="release-downloads" aria-label="安装包下载"><div class="release-downloads-heading"><span>安装包</span><small>按系统整理 · ${installAssets} 个桌面安装包 · 下载数为 GitHub 累计次数，不代表安装人数</small></div><div class="release-download-tables">${groups.map(({ platform, assets: platformAssets }) => `<div class="release-download-group"><div class="release-download-group-heading"><span class="platform-dot platform-${platform.toLowerCase().replace(/[^a-z]+/g, '-')}" ></span><strong>${escapeHtml(platform)}</strong><small>${platformAssets.length} 个安装包</small></div><div class="release-download-table-wrap"><table class="release-download-table"><thead><tr><th scope="col">文件名</th><th scope="col">类型</th><th scope="col">下载</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead><tbody>${platformAssets.map((asset) => `<tr><td><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span></td><td><span class="asset-type">${escapeHtml(asset.name.split('.').pop()?.toUpperCase() || 'FILE')}</span></td><td><span class="asset-download-count">${formatDownloadCount(asset.downloadCount)}</span></td><td><a class="asset-download" href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" download aria-label="下载 ${escapeHtml(asset.name)}">下载 <span aria-hidden="true">↗</span></a></td></tr>`).join('')}</tbody></table></div></div>`).join('')}</div></section>`
+  return `<section class="release-downloads" aria-label="安装包下载"><div class="release-downloads-heading"><span>安装包</span><small>按系统整理 · ${installAssets} 个桌面安装包 · 下载数为 GitHub 累计次数，不代表安装人数</small></div><div class="release-download-tables">${groups.map(({ platform, assets: platformAssets }) => `<div class="release-download-group"><div class="release-download-group-heading"><span class="platform-dot platform-${platform.toLowerCase().replace(/[^a-z]+/g, '-')}" ></span><strong>${escapeHtml(platform)}</strong><small>${platformAssets.length} 个安装包</small></div><div class="release-download-table-wrap"><table class="release-download-table"><thead><tr><th scope="col">文件名</th><th scope="col">类型</th><th scope="col">下载</th><th scope="col"><span class="sr-only">下载数</span></th></tr></thead><tbody>${platformAssets.map((asset) => {
+    const mirrorUrl = asset.mirror_url || ''
+    return `<tr><td><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span></td><td><span class="asset-type">${escapeHtml(asset.name.split('.').pop()?.toUpperCase() || 'FILE')}</span></td><td><span class="asset-download-links"><a class="asset-download" href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer" download aria-label="从 GitHub 下载 ${escapeHtml(asset.name)}">GitHub</a>${mirrorUrl ? `<a class="asset-download asset-download-mirror" href="${escapeHtml(mirrorUrl)}" target="_blank" rel="noreferrer" download aria-label="从栗子镜像下载 ${escapeHtml(asset.name)}">栗子镜像</a>` : ''}</span></td><td><span class="asset-download-count">${formatDownloadCount(asset.downloadCount)}</span></td></tr>`
+  }).join('')}</tbody></table></div></div>`).join('')}</div></section>`
 }
 
 const renderReleaseCards = (items) => items.map((release) => {
@@ -430,28 +433,6 @@ const bindReleaseFilters = () => {
       card.hidden = activeReleaseFilter !== '全部' && card.dataset.releaseCategory !== activeReleaseFilter
     })
   }))
-}
-
-const fetchGithubReleases = async () => {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 8000)
-  try {
-    const releases = []
-    for (let page = 1; ; page += 1) {
-      const response = await fetch(`${githubReleasesApi}?per_page=100&page=${page}`, {
-        headers: { Accept: 'application/vnd.github+json' },
-        signal: controller.signal,
-      })
-      if (!response.ok) throw new Error(`GitHub Releases 请求失败：${response.status}`)
-      const pageItems = await response.json()
-      if (!Array.isArray(pageItems)) throw new Error('GitHub Releases 返回数据格式错误')
-      releases.push(...pageItems)
-      if (pageItems.length < 100) break
-    }
-    return normalizeGithubReleases(releases)
-  } finally {
-    window.clearTimeout(timeout)
-  }
 }
 
 document.querySelector('#app').innerHTML = `
@@ -518,21 +499,21 @@ qqGroupLink?.addEventListener('click', (event) => {
   }, 900)
 })
 
-fetchGithubReleases()
+fetchPublishedReleases(window.fetch.bind(window), import.meta.env.BASE_URL)
   .then((items) => {
     if (!items.length) throw new Error('没有可展示的公开 Release')
     renderReleaseSection(items)
     const status = document.querySelector('[data-release-sync]')
-    if (status) status.textContent = `已同步 ${items.length} 个公开版本 · 来源 GitHub Releases`
+    if (status) status.textContent = `已同步 ${items.length} 个公开版本 · GitHub 与栗子镜像`
     if (activeReleaseFilter !== '全部') {
       [...document.querySelectorAll('.release-filter')]
         .find((button) => button.dataset.releaseFilter === activeReleaseFilter)?.click()
     }
   })
   .catch((error) => {
-    console.warn('[Tau website] GitHub Releases 动态同步失败，继续使用内置版本记录。', error)
+    console.warn('[Tau website] Release 快照读取失败，继续使用内置版本记录。', error)
     const status = document.querySelector('[data-release-sync]')
-    if (status) status.textContent = 'GitHub Releases 暂时不可用 · 当前显示内置版本记录'
+    if (status) status.textContent = 'Release 数据暂时不可用 · 当前显示内置版本记录'
   })
 
 const revealObserver = new IntersectionObserver((entries) => {
