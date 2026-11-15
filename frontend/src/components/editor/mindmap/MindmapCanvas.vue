@@ -766,8 +766,17 @@ function openTextContextMenu(event: MouseEvent) {
 async function runTextContextAction(action: 'cut' | 'copy' | 'paste' | 'paste-plain' | 'select-all') {
   const target = editingTextarea.value;
   if (!target) return;
+  const liveSelection = {
+    start: target.selectionStart ?? 0,
+    end: target.selectionEnd ?? 0,
+  };
+  const savedSelection = domTextSelection.value.end > domTextSelection.value.start
+    ? domTextSelection.value
+    : lastNonEmptyTextSelection.value?.dom ?? domTextSelection.value;
+  const selection = liveSelection.end > liveSelection.start ? liveSelection : savedSelection;
   target.focus();
-  target.setSelectionRange(domTextSelection.value.start, domTextSelection.value.end);
+  target.setSelectionRange(selection.start, selection.end);
+  domTextSelection.value = { ...selection };
   try {
     if (action === 'select-all') {
       target.select();

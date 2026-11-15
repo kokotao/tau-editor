@@ -29,6 +29,7 @@ test.describe('Sidebar & Markdown Preview', () => {
   test('E2E-UX-002: Markdown 首次打开默认双栏且模式可切换', async ({ page }) => {
     await selectLanguageMode(page, 'markdown');
     await expect(page.locator('[data-testid="btn-markdown-preview-mode"]')).toBeVisible();
+    await waitForStableBox(page.locator('[data-testid="markdown-preview-pane"]'));
 
     const editor = page.locator('[data-testid="editor-container"]');
     const editorStage = page.locator('.editor-stage');
@@ -49,13 +50,18 @@ test.describe('Sidebar & Markdown Preview', () => {
     await expect(page.locator('[data-testid="markdown-preview-width-wide"]')).toHaveAttribute('aria-pressed', 'true');
     await page.locator('[data-testid="markdown-preview-width-narrow"]').click();
     await expect(page.locator('[data-testid="markdown-preview-width-narrow"]')).toHaveAttribute('aria-pressed', 'true');
-    const previewWidth = await page.locator('.markdown-preview-content-frame').evaluate((element) => element.clientWidth);
-    const narrowContentWidth = await previewContent.evaluate((element) => element.getBoundingClientRect().width);
-    expect(Math.abs(narrowContentWidth / previewWidth - 0.6)).toBeLessThan(0.005);
+    const narrowWidthRatio = await previewContent.evaluate((element) => {
+      const frame = element.parentElement!;
+      return element.getBoundingClientRect().width / frame.getBoundingClientRect().width;
+    });
+    expect(Math.abs(narrowWidthRatio - 0.6)).toBeLessThan(0.005);
     await page.locator('[data-testid="markdown-preview-width-medium"]').click();
     await expect(page.locator('[data-testid="markdown-preview-width-medium"]')).toHaveAttribute('aria-pressed', 'true');
-    const mediumContentWidth = await previewContent.evaluate((element) => element.getBoundingClientRect().width);
-    expect(Math.abs(mediumContentWidth / previewWidth - 0.8)).toBeLessThan(0.005);
+    const mediumWidthRatio = await previewContent.evaluate((element) => {
+      const frame = element.parentElement!;
+      return element.getBoundingClientRect().width / frame.getBoundingClientRect().width;
+    });
+    expect(Math.abs(mediumWidthRatio - 0.8)).toBeLessThan(0.005);
     await previewZoomIn.click();
     await expect(previewContent).toHaveCSS('zoom', '1.1');
     const previewZoomInput = page.locator('[data-testid="markdown-preview-zoom-input"]');
