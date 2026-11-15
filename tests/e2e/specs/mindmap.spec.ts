@@ -542,22 +542,17 @@ test.describe('Mindmap E2E', () => {
     const editor = page.locator('[data-testid="mm-inline-editor"]')
     await expect(editor).toBeVisible()
     await editor.fill('选中测试文本')
-    await editor.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 5))
-    await editor.dispatchEvent('select')
+    await editor.focus()
+    await editor.press('Home')
+    for (let index = 0; index < 5; index += 1) {
+      await editor.press('Shift+ArrowRight')
+    }
     await expect(page.getByRole('toolbar', { name: '文字颜色与高亮' })).toBeVisible()
-    await page.evaluate(() => {
-      let copiedText = ''
-      Object.defineProperty(window, '__copiedText', { configurable: true, get: () => copiedText })
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        value: { writeText: async (text: string) => { copiedText = text }, readText: async () => '' },
-      })
-    })
     await editor.click({ button: 'right' })
     await expect(page.getByRole('menu', { name: '文本编辑菜单' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: /剪切/ })).toBeVisible()
     await page.getByRole('menuitem', { name: /复制/ }).click()
-    await expect.poll(() => page.evaluate(() => (window as typeof window & { __copiedText?: string }).__copiedText)).toBe('选中测试文')
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('选中测试文')
     await editor.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 5))
     await editor.dispatchEvent('select')
     await editor.click({ button: 'right' })
