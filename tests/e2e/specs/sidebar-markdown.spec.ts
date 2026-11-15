@@ -26,26 +26,57 @@ test.describe('Sidebar & Markdown Preview', () => {
     await expect(sidebar).toBeVisible();
   });
 
-  test('E2E-UX-002: Markdown 模式可切换并显示预览', async ({ page }) => {
+  test('E2E-UX-002: Markdown 首次打开默认双栏且模式可切换', async ({ page }) => {
     await selectLanguageMode(page, 'markdown');
     await expect(page.locator('[data-testid="btn-markdown-preview-mode"]')).toBeVisible();
 
     const editor = page.locator('[data-testid="editor-container"]');
     const editorStage = page.locator('.editor-stage');
     const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
+    await expect(editorStage).toHaveClass(/markdown-mode-split/);
     await editor.click();
     await page.keyboard.type('# Title');
-    await expect(editorStage).toHaveClass(/markdown-mode-edit/);
-
-    await page.click('[data-testid="btn-markdown-preview-mode"]');
     await expect(editorStage).toHaveClass(/markdown-mode-split/);
-
-    await expect(previewPane).toBeVisible();
-    await expect(previewPane).toContainText('Title');
 
     await page.click('[data-testid="btn-markdown-preview-mode"]');
     await expect(editorStage).toHaveClass(/markdown-mode-preview/);
+
     await expect(previewPane).toBeVisible();
+    await expect(previewPane).toContainText('Title');
+    const previewZoomIn = page.locator('[data-testid="markdown-preview-zoom-in"]');
+    await expect(previewZoomIn).toBeVisible();
+    const previewContent = page.locator('.markdown-preview-content');
+    await expect(page.locator('[data-testid="markdown-preview-width-wide"]')).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('[data-testid="markdown-preview-width-narrow"]').click();
+    await expect(page.locator('[data-testid="markdown-preview-width-narrow"]')).toHaveAttribute('aria-pressed', 'true');
+    const previewWidth = await page.locator('.markdown-preview-content-frame').evaluate((element) => element.clientWidth);
+    const narrowContentWidth = await previewContent.evaluate((element) => element.getBoundingClientRect().width);
+    expect(Math.abs(narrowContentWidth / previewWidth - 0.6)).toBeLessThan(0.005);
+    await page.locator('[data-testid="markdown-preview-width-medium"]').click();
+    await expect(page.locator('[data-testid="markdown-preview-width-medium"]')).toHaveAttribute('aria-pressed', 'true');
+    const mediumContentWidth = await previewContent.evaluate((element) => element.getBoundingClientRect().width);
+    expect(Math.abs(mediumContentWidth / previewWidth - 0.8)).toBeLessThan(0.005);
+    await previewZoomIn.click();
+    await expect(previewContent).toHaveCSS('zoom', '1.1');
+    const previewZoomInput = page.locator('[data-testid="markdown-preview-zoom-input"]');
+    await expect(previewZoomInput).toHaveValue('110');
+    await page.keyboard.press('Control+Minus');
+    await expect(previewContent).toHaveCSS('zoom', '1');
+    await expect(previewZoomInput).toHaveValue('100');
+    await page.keyboard.press('Control+Equal');
+    await expect(previewContent).toHaveCSS('zoom', '1.1');
+    await expect(previewZoomInput).toHaveValue('110');
+    await page.keyboard.press('Control+Shift+Equal');
+    await expect(previewContent).toHaveCSS('zoom', '1.2');
+    await expect(previewZoomInput).toHaveValue('120');
+    const previewBox = await page.locator('[data-testid="markdown-preview"]').boundingBox();
+    const contentBox = await previewContent.boundingBox();
+    expect(contentBox).not.toBeNull();
+    expect(previewBox).not.toBeNull();
+    expect(Math.abs((contentBox!.x + contentBox!.width / 2) - (previewBox!.x + previewBox!.width / 2)))
+      .toBeLessThan(4);
+    await page.keyboard.press('Control+Shift+Digit0');
+    await expect(previewZoomInput).toHaveValue('100');
 
     await page.click('[data-testid="btn-markdown-preview-mode"]');
     await expect(editorStage).toHaveClass(/markdown-mode-edit/);
@@ -53,6 +84,71 @@ test.describe('Sidebar & Markdown Preview', () => {
     await page.click('[data-testid="btn-markdown-preview-mode"]');
     await expect(editorStage).toHaveClass(/markdown-mode-split/);
     await expect(previewPane).toBeVisible();
+  });
+
+  test('E2E-MARKDOWN-MERMAID-PNG: Mermaid 流程图可下载 PNG', async ({ page }) => {
+    await page.evaluate(() => Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true }));
+    const appErrors: string[] = [];
+    const downloads: string[] = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') appErrors.push(message.text());
+    });
+    page.on('download', (download) => downloads.push(download.suggestedFilename()));
+    await selectLanguageMode(page, 'markdown');
+    const editor = page.locator('[data-testid="editor-container"]');
+    await editor.click();
+    await page.keyboard.type('```mermaid\nflowchart TD\n  A[Start] --> B[Finish]\n```');
+
+    const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
+    const sourceViewer = previewPane.locator('.markdown-mermaid-viewer');
+    await expect(sourceViewer).toBeVisible();
+    await expect(sourceViewer.locator('foreignObject')).toHaveCount(0);
+    await page.click('[data-testid="btn-markdown-preview-mode"]');
+    const toolbar = previewPane.locator('[data-testid="markdown-mermaid-toolbar"]');
+    await expect(toolbar).toBeVisible();
+    const exportMenu = toolbar.locator('[data-mermaid-action="export-menu"]');
+    await exportMenu.click();
+    const pngOption = toolbar.locator('[data-mermaid-action="download-png"]');
+    await expect(pngOption).toBeEnabled();
+    await pngOption.click();
+    await expect(pngOption).toBeEnabled({ timeout: 20000 });
+    expect(appErrors, appErrors.join('\n')).toEqual([]);
+    expect(downloads, appErrors.join('\n')).toContain('mermaid-diagram.png');
+  });
+
+  test('E2E-MARKDOWN-MERMAID-FULLSCREEN: 弹窗预览保留图表缩放', async ({ page }) => {
+    await selectLanguageMode(page, 'markdown');
+    await page.locator('[data-testid="editor-container"]').click();
+    await page.keyboard.type('```mermaid\nflowchart TD\n  A[Start] --> B[Finish]\n```');
+    const previewPane = page.locator('[data-testid="markdown-preview-pane"]');
+    await expect(previewPane.locator('.markdown-mermaid-viewer')).toBeVisible();
+    await page.click('[data-testid="btn-markdown-preview-mode"]');
+    const viewer = previewPane.locator('.markdown-mermaid-viewer');
+    const fullscreenButton = viewer.locator('.markdown-mermaid-fullscreen-button');
+    await fullscreenButton.click();
+    const modal = page.locator('[role="dialog"][aria-label="流程图全屏预览"]');
+    await expect(modal).toBeVisible();
+    const modalViewer = modal.locator('.markdown-mermaid-viewer');
+    await expect(modalViewer).toHaveClass(/is-mermaid-fullscreen-fallback/);
+    await expect(modalViewer.locator('.markdown-mermaid-zoom-level')).toHaveText('100%');
+    const viewerBox = await modalViewer.boundingBox();
+    expect(viewerBox).not.toBeNull();
+    expect(viewerBox!.x).toBeGreaterThan(0);
+    const toolbar = modalViewer.locator('.markdown-mermaid-toolbar');
+    await expect(toolbar).toBeVisible();
+    await expect(modalViewer.locator('.markdown-mermaid-canvas')).toHaveCSS('overflow', 'auto');
+    await expect(modalViewer.locator('.markdown-mermaid-fullscreen-button')).toHaveAttribute('aria-label', '退出全屏');
+    await expect(modalViewer.locator('.markdown-mermaid-fullscreen-label')).toHaveCount(0);
+    const toolbarBox = await toolbar.boundingBox();
+    expect(toolbarBox).not.toBeNull();
+    expect(toolbarBox!.y).toBeGreaterThanOrEqual(viewerBox!.y);
+    expect(toolbarBox!.y + toolbarBox!.height).toBeLessThan(viewerBox!.y + viewerBox!.height);
+    await modalViewer.locator('[data-mermaid-action="zoom-in"]').click();
+    await expect(modalViewer.locator('.markdown-mermaid-zoom-level')).toHaveText('125%');
+    await page.keyboard.press('Escape');
+    await expect(modal).toHaveCount(0);
+    await expect(viewer).not.toHaveClass(/is-mermaid-fullscreen-fallback/);
+    await expect(viewer.locator('.markdown-mermaid-zoom-level')).toHaveText('125%');
   });
 
   test('E2E-UX-003: 预览区右键链接菜单可用', async ({ page }) => {
@@ -132,7 +228,6 @@ test.describe('Sidebar & Markdown Preview', () => {
     await editor.click();
     await page.keyboard.type('# Theme Demo');
 
-    await page.click('[data-testid="btn-markdown-preview-mode"]');
     await expect(page.locator('.editor-stage')).toHaveClass(/markdown-mode-split/);
     await expect(preview).toBeVisible();
 
@@ -162,7 +257,6 @@ test.describe('Sidebar & Markdown Preview', () => {
     await editor.click();
     await page.keyboard.type('# Context Menu Position');
 
-    await page.click('[data-testid="btn-markdown-preview-mode"]');
     await expect(page.locator('.editor-stage')).toHaveClass(/markdown-mode-split/);
     await expect(preview).toBeVisible();
     await expect(preview).toContainText('Context Menu Position');

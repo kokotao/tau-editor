@@ -336,6 +336,7 @@ function ensureMermaid(config: MermaidThemeConfig) {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
+    htmlLabels: false,
     theme: config.theme,
     themeVariables: config.themeVariables,
   });

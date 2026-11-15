@@ -460,6 +460,29 @@ describe('AppShell', () => {
     expect(storeMocks.tabs.updateTab).toHaveBeenCalledWith('tab-1', { markdownPreviewFontSize: 20 })
   })
 
+  it('没有已保存分栏模式的 Markdown 标签首次打开应默认双栏且不改全局记忆', async () => {
+    const markdownTab = {
+      id: 'tab-first-markdown',
+      fileName: 'notes.md',
+      filePath: '/workspace/notes.md',
+      content: '# notes',
+      language: 'markdown',
+      isDirty: false,
+    }
+    storeMocks.tabs.activeTab = markdownTab
+    storeMocks.tabs.tabs = [markdownTab]
+    storeMocks.tabs.activeTabId = markdownTab.id
+    storeMocks.settings.markdownPreviewMode = 'preview'
+    storeMocks.settings.markdownPreviewEnabled = true
+
+    const wrapper = shallowMount(App, { global: { stubs: appShellStubs } })
+    await flushPromises()
+
+    expect(wrapper.findComponent(MarkdownPreviewStub).props('previewMode')).toBe('split')
+    expect(storeMocks.settings.markdownPreviewMode).toBe('preview')
+    expect(storeMocks.settings.updateSettings).not.toHaveBeenCalled()
+  })
+
   it('HTML 预览切换模式应只更新当前标签而不修改全局 Markdown 设置', async () => {
     const htmlTab = {
       id: 'tab-html',

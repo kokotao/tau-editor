@@ -6,7 +6,10 @@ import { useSettingsStore } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notification';
 import MarkdownPreview from '@/components/editor/MarkdownPreview.vue';
 import { renderMarkdown, renderMermaidDiagrams } from '@/services/markdownRenderService';
-import { appCommands } from '@/lib/tauri';
+import { appCommands, fileCommands } from '@/lib/tauri';
+
+const saveFileDialogMock = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-dialog', () => ({ save: saveFileDialogMock }));
 
 const monacoColorizeMock = vi.hoisted(() => vi.fn(async (code: string, language: string) =>
   `<span class="mtk1" data-language="${language}">${code}</span>`,
@@ -237,9 +240,10 @@ describe('MarkdownPreview', () => {
       height: 240,
       toJSON: () => ({}),
     } as DOMRect);
-    delete canvas.dataset.baseHeight;
-    canvas.style.height = '';
     expect(viewer.find('[data-testid="markdown-mermaid-toolbar"]').exists()).toBe(true);
+    expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('75%');
+    expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('195px');
+    expect(canvas.style.height).toBe('190px');
     expect((source.element as HTMLElement).hidden).toBe(true);
 
     await viewer.get('[data-mermaid-action="code"]').trigger('click');
@@ -249,22 +253,18 @@ describe('MarkdownPreview', () => {
 
     await viewer.get('[data-mermaid-action="diagram"]').trigger('click');
     await viewer.get('[data-mermaid-action="zoom-in"]').trigger('click');
-    expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('125%');
+    expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('100%');
     expect((diagram.get('svg').element as SVGSVGElement).style.transform).toBe('');
-    expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('325px');
-    expect(canvas.style.height).toBe('240px');
-    expect(canvas.querySelector('.markdown-mermaid-canvas-content')?.style.width).toBe('325px');
-    expect(canvas.style.overflow).toBe('scroll');
+    expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('100%');
+    expect(canvas.style.height).toBe('');
+    expect(canvas.style.overflow).toBe('hidden');
     await viewer.get('[data-mermaid-action="zoom-in"]').trigger('click');
-    expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('150%');
-    expect(canvas.style.height).toBe('240px');
-    await viewer.get('[data-mermaid-action="zoom-out"]').trigger('click');
     expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('125%');
+    expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('325px');
     expect(canvas.style.height).toBe('240px');
     await viewer.get('[data-mermaid-action="zoom-out"]').trigger('click');
     expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('100%');
     expect(canvas.style.height).toBe('');
-    expect(canvas.style.overflow).toBe('hidden');
     await viewer.get('[data-mermaid-action="zoom-out"]').trigger('click');
     expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('75%');
     expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('195px');
@@ -274,14 +274,67 @@ describe('MarkdownPreview', () => {
     expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('130px');
     expect(canvas.style.height).toBe('140px');
 
-    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(viewer.element, 'requestFullscreen', {
-      value: requestFullscreen,
-      configurable: true,
-    });
+    const zoomInput = viewer.get('.markdown-mermaid-zoom-input');
+    await zoomInput.setValue('175');
+    await zoomInput.trigger('change');
+    expect(viewer.get('.markdown-mermaid-zoom-level').text()).toBe('175%');
+    expect((diagram.get('svg').element as SVGSVGElement).style.width).toBe('455px');
+
     await viewer.get('.markdown-mermaid-fullscreen-button').trigger('click');
+    expect(viewer.classes()).toContain('is-mermaid-fullscreen-fallback');
+    expect(viewer.attributes('data-zoom')).toBe('100');
+    expect(canvas.style.overflow).toBe('auto');
+  });
+
+  it('全屏 API 不可用时应降级为页面内全屏并支持 Escape 退出', async () => {
+    renderMarkdownMock.mockReturnValue(
+      '<div class="markdown-mermaid-viewer"><div class="markdown-mermaid-canvas" data-mermaid-view="diagram"><svg width="260" height="200"></svg></div><pre class="markdown-mermaid-source" data-mermaid-view="code" hidden><code>flowchart TD</code></pre></div>',
+    );
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '```mermaid\nflowchart TD\n```', theme: 'dark' },
+    });
+    await flushRender();
+
+    const viewer = wrapper.get('.markdown-mermaid-viewer');
+    await viewer.get('.markdown-mermaid-fullscreen-button').trigger('click');
+    expect(viewer.classes()).toContain('is-mermaid-fullscreen-fallback');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await flushPromises();
-    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(viewer.classes()).not.toContain('is-mermaid-fullscreen-fallback');
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('整页预览缩放控件应调整内容并在边界内手动输入', async () => {
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '# Zoom', theme: 'dark', previewMode: 'preview' },
+    });
+    await flushRender();
+
+    const content = wrapper.get('.markdown-preview-content');
+    expect(content.attributes('style')).toContain('zoom: 100%');
+    await wrapper.get('[data-testid="markdown-preview-zoom-in"]').trigger('click');
+    expect(content.attributes('style')).toContain('zoom: 110%');
+    expect(content.element.parentElement?.classList.contains('markdown-preview-content-frame')).toBe(true);
+    await wrapper.get('[data-testid="markdown-preview-zoom-input"]').setValue('165');
+    await wrapper.get('[data-testid="markdown-preview-zoom-input"]').trigger('change');
+    expect(content.attributes('style')).toContain('zoom: 170%');
+    await wrapper.get('[data-testid="markdown-preview-width-narrow"]').trigger('click');
+    expect(content.attributes('style')).toContain('width: 60%');
+    expect(content.attributes('style')).toContain('zoom: 170%');
+    await wrapper.get('[data-testid="markdown-preview-width-medium"]').trigger('click');
+    expect(content.attributes('style')).toContain('width: 80%');
+    const preview = wrapper.get('[data-testid="markdown-preview"]');
+    await preview.trigger('wheel', { ctrlKey: true, deltaY: -40 });
+    expect(content.attributes('style')).toContain('zoom: 180%');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', code: 'Equal', ctrlKey: true, shiftKey: true }));
+    await nextTick();
+    expect(content.attributes('style')).toContain('zoom: 190%');
+    expect((wrapper.get('[data-testid="markdown-preview-zoom-input"]').element as HTMLInputElement).value).toBe('190');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '0', code: 'Digit0', ctrlKey: true, shiftKey: true }));
+    await nextTick();
+    expect(content.attributes('style')).toContain('zoom: 100%');
   });
 
   it('Mermaid 图表工具栏应支持复制为图片', async () => {
@@ -384,12 +437,66 @@ describe('MarkdownPreview', () => {
     await exportMenu.get('[data-mermaid-action="download-svg"]').trigger('click');
     await flushPromises();
     await exportMenu.get('[data-mermaid-action="download-png"]').trigger('click');
+    expect((exportMenu.get('[data-mermaid-action="download-png"]').element as HTMLButtonElement).disabled).toBe(true);
     await flushPromises();
+    expect((exportMenu.get('[data-mermaid-action="download-png"]').element as HTMLButtonElement).disabled).toBe(false);
 
     expect(downloadedNames).toEqual(['mermaid-diagram.svg', 'mermaid-diagram.png']);
     const blobTypes = createObjectURL.mock.calls.map(([value]) => (value as Blob).type);
     expect(blobTypes).toContain('image/svg+xml');
     expect(blobTypes).toContain('image/png');
+  });
+
+  it('桌面端导出 PNG 和 SVG 前都应选择保存位置', async () => {
+    Object.defineProperty(window, '__TAURI_INTERNALS__', { value: {}, configurable: true });
+    saveFileDialogMock
+      .mockResolvedValueOnce('/tmp/diagram.png')
+      .mockResolvedValueOnce('/tmp/diagram.svg');
+    const writeBytes = vi.spyOn(fileCommands, 'writeFileBytes').mockResolvedValue(undefined);
+    const writeText = vi.spyOn(fileCommands, 'writeFile').mockResolvedValue(undefined);
+    class MockImage {
+      decoding = 'async';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+    }
+    Object.defineProperty(globalThis, 'Image', { value: MockImage, configurable: true });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mermaid-save-dialog');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+      value: (callback: BlobCallback) => callback(new Blob(['png-data'], { type: 'image/png' })),
+      configurable: true,
+    });
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      value: () => ({ setTransform: vi.fn(), drawImage: vi.fn() }),
+      configurable: true,
+    });
+    renderMarkdownMock.mockReturnValue(
+      '<div class="markdown-mermaid-viewer"><div class="markdown-mermaid-canvas" data-mermaid-view="diagram"><svg viewBox="0 0 100 40"><text>Flow</text></svg></div><pre class="markdown-mermaid-source" data-mermaid-view="code" hidden><code>flowchart TD</code></pre></div>',
+    );
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '```mermaid\nflowchart TD\n```', theme: 'dark' },
+    });
+    await flushRender();
+    const options = wrapper.get('.markdown-mermaid-export-options');
+    const toggle = wrapper.get('[data-mermaid-action="export-menu"]');
+    await toggle.trigger('click');
+    await options.get('[data-mermaid-action="download-png"]').trigger('click');
+    await flushPromises();
+    await toggle.trigger('click');
+    await options.get('[data-mermaid-action="download-svg"]').trigger('click');
+    await flushPromises();
+
+    expect(saveFileDialogMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      defaultPath: 'mermaid-diagram.png',
+      filters: [{ name: 'PNG', extensions: ['png'] }],
+    }));
+    expect(saveFileDialogMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      defaultPath: 'mermaid-diagram.svg',
+      filters: [{ name: 'SVG', extensions: ['svg'] }],
+    }));
+    expect(writeBytes).toHaveBeenCalledWith('/tmp/diagram.png', expect.any(Uint8Array));
+    expect(writeText).toHaveBeenCalledWith('/tmp/diagram.svg', expect.stringContaining('<svg'));
   });
 
   it('桌面端应将 PNG 字节写入原生图片剪贴板', async () => {
@@ -1039,28 +1146,6 @@ describe('MarkdownPreview', () => {
         resolvedSrc: 'hero.png',
       },
     ]]);
-  });
-
-  it('仅预览模式下应通过 Ctrl/Cmd +/- 调整当前预览字号并支持 0 重置', async () => {
-    const wrapper = mount(MarkdownPreview, {
-      props: {
-        content: 'font size',
-        theme: 'dark',
-        previewMode: 'preview',
-        previewFontSize: 16,
-      },
-    });
-
-    await flushRender();
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '+', code: 'Equal', ctrlKey: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '-', code: 'Minus', metaKey: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '0', code: 'Digit0', ctrlKey: true }));
-
-    expect(wrapper.emitted('preview-font-size-change')).toEqual([[17], [16], [16]]);
-
-    await wrapper.setProps({ previewMode: 'split' });
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '+', code: 'Equal', ctrlKey: true }));
-    expect(wrapper.emitted('preview-font-size-change')).toHaveLength(3);
   });
 
   it('图片悬浮时应提示双击放大查看并使用放大指针', async () => {

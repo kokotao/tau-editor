@@ -10,8 +10,49 @@
     @mouseup="updateSelectionToolbar"
     @keyup="updateSelectionToolbar"
     @scroll="handlePreviewScroll"
+    @wheel="handlePreviewWheel"
   >
-    <div ref="previewRef" class="markdown-preview-content" v-html="html"></div>
+    <div v-if="previewMode === 'preview'" class="markdown-preview-zoom-controls">
+      <div class="markdown-preview-width-modes" role="group" aria-label="预览内容宽度">
+        <button
+          v-for="mode in PREVIEW_WIDTH_MODES"
+          :key="mode.id"
+          type="button"
+          :data-testid="`markdown-preview-width-${mode.id}`"
+          :aria-label="`${mode.label} ${mode.width}%`"
+          :title="`${mode.label} ${mode.width}%`"
+          :aria-pressed="previewWidthMode === mode.id"
+          :class="{ 'is-active': previewWidthMode === mode.id }"
+          @click="previewWidthMode = mode.id"
+        >{{ mode.label }}</button>
+      </div>
+      <button type="button" data-testid="markdown-preview-zoom-out" aria-label="缩小预览" title="缩小预览" :disabled="previewZoom <= PREVIEW_ZOOM_MIN" @click="setPreviewZoom(previewZoom - PREVIEW_ZOOM_STEP)">−</button>
+      <input
+        data-testid="markdown-preview-zoom-input"
+        type="number"
+        min="50"
+        max="200"
+        step="10"
+        :value="previewZoom"
+        aria-label="Markdown 预览缩放百分比"
+        @change="handlePreviewZoomInput"
+      >
+      <span aria-hidden="true">%</span>
+      <button type="button" data-testid="markdown-preview-zoom-in" aria-label="放大预览" title="放大预览" :disabled="previewZoom >= PREVIEW_ZOOM_MAX" @click="setPreviewZoom(previewZoom + PREVIEW_ZOOM_STEP)">+</button>
+      <button type="button" data-testid="markdown-preview-zoom-reset" aria-label="重置预览缩放" title="重置预览缩放" :disabled="previewZoom === 100" @click="setPreviewZoom(100)">100%</button>
+    </div>
+    <div class="markdown-preview-content-frame">
+      <div
+        ref="previewRef"
+        class="markdown-preview-content"
+        :style="{
+          width: `${previewWidthPercent}%`,
+          flexBasis: `${previewWidthPercent}%`,
+          zoom: `${previewZoom}%`,
+        }"
+        v-html="html"
+      ></div>
+    </div>
     <div
       v-if="selectionToolbar.visible"
       class="markdown-selection-toolbar"
@@ -89,7 +130,8 @@ const loadMarkdownRenderer = async () => {
 };
 import { useSettingsStore } from '@/stores/settings';
 import { getMarkdownPreviewI18n } from '@/i18n/ui';
-import { appCommands, isTauriApp } from '@/lib/tauri';
+import { save as saveFileDialog } from '@tauri-apps/plugin-dialog';
+import { appCommands, fileCommands, isTauriApp } from '@/lib/tauri';
 import { useNotificationStore } from '@/stores/notification';
 import { getMarkdownCodeFences } from '@/services/markdownService';
 import { findMarkdownTableBlocks, updateMarkdownTableAtIndex, updateMarkdownTableCellAtIndex } from '@/utils/markdownTable';
@@ -207,6 +249,59 @@ const settingsStore = useSettingsStore();
 const notificationStore = useNotificationStore();
 const copy = computed(() => getMarkdownPreviewI18n(settingsStore.uiLanguage));
 const html = ref('');
+let fallbackFullscreenViewer: HTMLElement | null = null;
+let fullscreenPortal: HTMLElement | null = null;
+let fullscreenViewerParent: Node | null = null;
+let fullscreenViewerNextSibling: Node | null = null;
+let previousBodyOverflow = '';
+const setFallbackFullscreen = (viewer: HTMLElement, enabled: boolean) => {
+  if (enabled) {
+    if (fallbackFullscreenViewer && fallbackFullscreenViewer !== viewer) {
+      setFallbackFullscreen(fallbackFullscreenViewer, false);
+    }
+    const previewRoot = previewRef.value;
+    const previewShell = previewScrollRef.value;
+    if (!previewRoot || !viewer.parentNode) return;
+
+    const portal = document.createElement('div');
+    portal.className = 'markdown-preview-content markdown-mermaid-fullscreen-portal';
+    previewShell?.classList.forEach((className) => {
+      if (className.startsWith('markdown-preview--')) portal.classList.add(className);
+    });
+    Array.from(previewRoot.attributes)
+      .filter((attribute) => attribute.name.startsWith('data-v-'))
+      .forEach((attribute) => portal.setAttribute(attribute.name, ''));
+    portal.setAttribute('role', 'dialog');
+    portal.setAttribute('aria-modal', 'true');
+    portal.setAttribute('aria-label', '流程图全屏预览');
+
+    fullscreenViewerParent = viewer.parentNode;
+    fullscreenViewerNextSibling = viewer.nextSibling;
+    fullscreenPortal = portal;
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    viewer.classList.add('is-mermaid-fullscreen-fallback');
+    fallbackFullscreenViewer = viewer;
+    document.body.appendChild(portal);
+    portal.appendChild(viewer);
+    updateMermaidViewerControls();
+    return;
+  }
+  viewer.classList.remove('is-mermaid-fullscreen-fallback');
+  if (fallbackFullscreenViewer === viewer) fallbackFullscreenViewer = null;
+  if (fullscreenViewerParent) {
+    const reference = fullscreenViewerNextSibling?.parentNode === fullscreenViewerParent
+      ? fullscreenViewerNextSibling
+      : null;
+    fullscreenViewerParent.insertBefore(viewer, reference);
+  }
+  fullscreenPortal?.remove();
+  fullscreenPortal = null;
+  fullscreenViewerParent = null;
+  fullscreenViewerNextSibling = null;
+  document.body.style.overflow = previousBodyOverflow;
+  updateMermaidViewerControls();
+};
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingLocalTableEdit: {
   content: string;
@@ -258,6 +353,29 @@ const PREVIEW_FONT_SIZE_DEFAULT = 16;
 const PREVIEW_FONT_SIZE_MIN = 10;
 const PREVIEW_FONT_SIZE_MAX = 32;
 const PREVIEW_FONT_SIZE_STEP = 1;
+const PREVIEW_ZOOM_MIN = 50;
+const PREVIEW_ZOOM_MAX = 200;
+const PREVIEW_ZOOM_STEP = 10;
+const MERMAID_ZOOM_DEFAULT = 75;
+const PREVIEW_WIDTH_MODES = [
+  { id: 'wide', label: '宽', width: 100 },
+  { id: 'medium', label: '中', width: 80 },
+  { id: 'narrow', label: '窄', width: 60 },
+] as const;
+type PreviewWidthMode = (typeof PREVIEW_WIDTH_MODES)[number]['id'];
+const previewWidthMode = ref<PreviewWidthMode>('wide');
+const previewWidthPercent = computed(() => (
+  PREVIEW_WIDTH_MODES.find((mode) => mode.id === previewWidthMode.value)?.width ?? 100
+));
+const previewZoom = ref(100);
+const setPreviewZoom = (value: number) => {
+  previewZoom.value = Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, Math.round(value / 10) * 10));
+};
+const handlePreviewZoomInput = (event: Event) => {
+  const input = event.currentTarget as HTMLInputElement;
+  setPreviewZoom(Number(input.value) || 100);
+  input.value = String(previewZoom.value);
+};
 const normalizePreviewFontSize = (value: number) => {
   if (!Number.isFinite(value)) {
     return PREVIEW_FONT_SIZE_DEFAULT;
@@ -730,6 +848,15 @@ const createMermaidPngBlob = (svg: SVGSVGElement, exportData = getMermaidSvgExpo
   const sourceUrl = URL.createObjectURL(svgBlob);
   const png = new Promise<Blob>((resolve, reject) => {
     const image = new Image();
+    const loadTimeout = window.setTimeout(() => {
+      image.onload = null;
+      image.onerror = null;
+      reject(new Error('流程图图片解码超时'));
+    }, 15000);
+    const finish = (callback: () => void) => {
+      window.clearTimeout(loadTimeout);
+      callback();
+    };
     image.decoding = 'async';
     image.onload = () => {
       const canvas = document.createElement('canvas');
@@ -737,17 +864,29 @@ const createMermaidPngBlob = (svg: SVGSVGElement, exportData = getMermaidSvgExpo
       canvas.height = Math.ceil(height * scale);
       const context = canvas.getContext('2d');
       if (!context) {
-        reject(new Error('无法创建图片画布'));
+        finish(() => reject(new Error('无法创建图片画布')));
         return;
       }
-      context.setTransform(scale, 0, 0, scale, 0, 0);
-      context.drawImage(image, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error('无法生成流程图图片'));
-      }, 'image/png');
+      try {
+        context.setTransform(scale, 0, 0, scale, 0, 0);
+        context.drawImage(image, 0, 0, width, height);
+        if (typeof canvas.toBlob === 'function') {
+          canvas.toBlob((blob) => finish(() => {
+            if (blob) resolve(blob);
+            else reject(new Error('无法生成流程图图片'));
+          }), 'image/png');
+          return;
+        }
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        const binary = atob(base64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        finish(() => resolve(new Blob([bytes], { type: 'image/png' })));
+      } catch (error) {
+        finish(() => reject(error));
+      }
     };
-    image.onerror = () => reject(new Error('无法读取流程图图片'));
+    image.onerror = () => finish(() => reject(new Error('无法读取流程图图片')));
     image.src = sourceUrl;
   });
   return png.finally(() => URL.revokeObjectURL(sourceUrl));
@@ -765,16 +904,71 @@ const downloadMermaidBlob = (blob: Blob, fileName: string) => {
   URL.revokeObjectURL(url);
 };
 
-const downloadMermaidSvg = (svg: SVGSVGElement) => {
+const saveMermaidBlob = async (createBlob: () => Blob | Promise<Blob>, fileName: string, extension: 'png' | 'svg') => {
+  if (isTauriApp()) {
+    const path = await saveFileDialog({
+      title: `保存流程图为 ${extension.toUpperCase()}`,
+      defaultPath: fileName,
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+    });
+    if (typeof path !== 'string' || !path) return false;
+    const blob = await createBlob();
+    if (extension === 'svg') {
+      await fileCommands.writeFile(path, await blob.text());
+    } else {
+      await fileCommands.writeFileBytes(path, new Uint8Array(await blob.arrayBuffer()));
+    }
+    return true;
+  }
+
+  type SaveFilePickerWindow = Window & {
+    showSaveFilePicker?: (options: {
+      suggestedName: string;
+      types: Array<{ description: string; accept: Record<string, string[]> }>;
+    }) => Promise<{
+      createWritable: () => Promise<{
+        write: (data: Blob) => Promise<void>;
+        close: () => Promise<void>;
+      }>;
+    }>;
+  };
+  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
+  if (picker) {
+    try {
+      const handle = await picker.call(window, {
+        suggestedName: fileName,
+        types: [{
+          description: `流程图 ${extension.toUpperCase()}`,
+          accept: { [extension === 'svg' ? 'image/svg+xml' : 'image/png']: [`.${extension}`] },
+        }],
+      });
+      const blob = await createBlob();
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (error) {
+      if ((error as Error)?.name === 'AbortError') return false;
+      throw error;
+    }
+  }
+
+  const blob = await createBlob();
+  downloadMermaidBlob(blob, fileName);
+  return true;
+};
+
+const downloadMermaidSvg = async (svg: SVGSVGElement) => {
   const { serialized } = getMermaidSvgExportData(svg);
-  downloadMermaidBlob(
-    new Blob([serialized], { type: 'image/svg+xml' }),
+  return saveMermaidBlob(
+    () => new Blob([serialized], { type: 'image/svg+xml' }),
     'mermaid-diagram.svg',
+    'svg',
   );
 };
 
 const downloadMermaidPng = async (svg: SVGSVGElement) => {
-  downloadMermaidBlob(await createMermaidPngBlob(svg), 'mermaid-diagram.png');
+  return saveMermaidBlob(() => createMermaidPngBlob(svg), 'mermaid-diagram.png', 'png');
 };
 
 const copySvgToImageClipboard = async (svg: SVGSVGElement): Promise<'png' | 'text'> => {
@@ -1175,9 +1369,11 @@ const decorateCodeBlocks = () => {
 
 const updateMermaidViewerControls = () => {
   const preview = previewRef.value;
-  if (!preview) return;
-
-  preview.querySelectorAll<HTMLElement>('.markdown-mermaid-viewer').forEach((viewer) => {
+  const viewers = new Set<HTMLElement>([
+    ...(preview?.querySelectorAll<HTMLElement>('.markdown-mermaid-viewer') ?? []),
+    ...(fallbackFullscreenViewer ? [fallbackFullscreenViewer] : []),
+  ]);
+  viewers.forEach((viewer) => {
     const toolbar = viewer.querySelector<HTMLElement>('.markdown-mermaid-toolbar');
     if (!toolbar) return;
 
@@ -1190,6 +1386,7 @@ const updateMermaidViewerControls = () => {
       'download-png': copy.value.diagramDownloadPng,
       'download-svg': copy.value.diagramDownloadSvg,
       'copy-image': copy.value.diagramCopyImage,
+      'zoom-value': copy.value.diagramZoomLevel(Number(viewer.dataset.zoom) || MERMAID_ZOOM_DEFAULT),
     };
     toolbar.querySelectorAll<HTMLButtonElement>('[data-mermaid-action]').forEach((button) => {
       const action = button.dataset.mermaidAction;
@@ -1199,23 +1396,27 @@ const updateMermaidViewerControls = () => {
         if (action === 'diagram' || action === 'code') button.textContent = labels[action];
       }
     });
+    const zoomInput = toolbar.querySelector<HTMLInputElement>('.markdown-mermaid-zoom-input');
+    if (zoomInput) {
+      zoomInput.setAttribute('aria-label', copy.value.diagramZoomLevel(Number(viewer.dataset.zoom) || MERMAID_ZOOM_DEFAULT));
+      zoomInput.title = copy.value.diagramZoomLevel(Number(viewer.dataset.zoom) || MERMAID_ZOOM_DEFAULT);
+    }
     toolbar.querySelectorAll<HTMLElement>('.markdown-mermaid-export-option-label').forEach((label) => {
       const action = label.closest<HTMLButtonElement>('[data-mermaid-action]')?.dataset.mermaidAction;
       if (action && labels[action]) label.textContent = labels[action];
     });
 
     const zoomLabel = toolbar.querySelector<HTMLElement>('.markdown-mermaid-zoom-level');
-    const zoom = Number(viewer.dataset.zoom) || 100;
+    const zoom = Number(viewer.dataset.zoom) || MERMAID_ZOOM_DEFAULT;
     if (zoomLabel) zoomLabel.textContent = copy.value.diagramZoomLevel(zoom);
 
     const fullscreenButton = toolbar.querySelector<HTMLButtonElement>('.markdown-mermaid-fullscreen-button');
     if (fullscreenButton) {
-      const isFullscreen = document.fullscreenElement === viewer;
+      const isFullscreen = document.fullscreenElement === viewer
+        || viewer.classList.contains('is-mermaid-fullscreen-fallback');
       const label = isFullscreen ? copy.value.diagramExitFullscreen : copy.value.diagramFullscreen;
       fullscreenButton.setAttribute('aria-label', label);
       fullscreenButton.title = label;
-      const fullscreenLabel = fullscreenButton.querySelector<HTMLElement>('.markdown-mermaid-fullscreen-label');
-      if (fullscreenLabel) fullscreenLabel.textContent = label;
     }
   });
 };
@@ -1237,7 +1438,7 @@ const decorateMermaidViewers = () => {
     diagramContent.appendChild(svg);
 
     viewer.dataset.toolbarAttached = '1';
-    viewer.dataset.zoom = '100';
+    viewer.dataset.zoom = String(MERMAID_ZOOM_DEFAULT);
     const toolbar = document.createElement('div');
     toolbar.className = 'markdown-mermaid-toolbar';
     toolbar.setAttribute('data-testid', 'markdown-mermaid-toolbar');
@@ -1277,6 +1478,15 @@ const decorateMermaidViewers = () => {
     const zoomLevel = document.createElement('span');
     zoomLevel.className = 'markdown-mermaid-zoom-level';
     zoomLevel.setAttribute('aria-live', 'polite');
+    const zoomInput = document.createElement('input');
+    zoomInput.type = 'number';
+    zoomInput.dataset.mermaidAction = 'zoom-value';
+    zoomInput.className = 'markdown-mermaid-zoom-input';
+    zoomInput.min = '25';
+    zoomInput.max = '300';
+    zoomInput.step = '5';
+    zoomInput.setAttribute('aria-label', copy.value.diagramZoomLevel(MERMAID_ZOOM_DEFAULT));
+    zoomInput.title = copy.value.diagramZoomLevel(MERMAID_ZOOM_DEFAULT);
     const zoomIn = document.createElement('button');
     zoomIn.type = 'button';
     zoomIn.dataset.mermaidAction = 'zoom-in';
@@ -1303,12 +1513,11 @@ const decorateMermaidViewers = () => {
       if (svg) {
         ensureBaseMetrics();
         svg.style.maxWidth = 'none';
-        const isZoomed = zoom !== 100;
-        // CSS transform enlarges the painted area; force a two-axis scroll
-        // container while zoomed so both bars remain available to the user.
-        diagram.style.overflow = isZoomed ? 'scroll' : 'hidden';
+        const isFullscreen = viewer.classList.contains('is-mermaid-fullscreen-fallback');
+        const isScrollable = zoom !== 100 || isFullscreen;
+        diagram.style.overflow = isScrollable ? 'auto' : 'hidden';
         diagram.style.boxSizing = 'border-box';
-        if (isZoomed) {
+        if (isScrollable) {
           const factor = zoom / 100;
           const baseSvgWidth = Number(diagram.dataset.baseSvgWidth) || diagram.clientWidth;
           const baseSvgHeight = Number(diagram.dataset.baseSvgHeight) || diagram.clientHeight;
@@ -1318,10 +1527,12 @@ const decorateMermaidViewers = () => {
           diagramContent.style.minHeight = '0';
           svg.style.width = `${baseSvgWidth * factor}px`;
           svg.style.height = `${baseSvgHeight * factor}px`;
-          const baseHeight = Number(diagram.dataset.baseHeight) || baseSvgHeight + 40;
-          diagram.style.height = zoom > 100
-            ? `${baseHeight}px`
-            : `${Math.max(80, baseSvgHeight * factor + 40)}px`;
+          if (!isFullscreen) {
+            const baseHeight = Number(diagram.dataset.baseHeight) || baseSvgHeight + 40;
+            diagram.style.height = zoom > 100
+              ? `${baseHeight}px`
+              : `${Math.max(80, baseSvgHeight * factor + 40)}px`;
+          }
         } else {
           diagram.style.height = '';
           diagramContent.style.width = '';
@@ -1336,11 +1547,15 @@ const decorateMermaidViewers = () => {
       zoomOut.disabled = zoom <= 25;
       zoomIn.disabled = zoom >= 300;
       zoomLevel.textContent = copy.value.diagramZoomLevel(zoom);
+      zoomInput.value = String(zoom);
+      zoomInput.setAttribute('aria-label', copy.value.diagramZoomLevel(zoom));
+      zoomInput.title = copy.value.diagramZoomLevel(zoom);
     };
+    zoomInput.addEventListener('change', () => applyZoom(Number(zoomInput.value) || 100));
     zoomOut.addEventListener('click', () => applyZoom((Number(viewer.dataset.zoom) || 100) - 25));
     zoomIn.addEventListener('click', () => applyZoom((Number(viewer.dataset.zoom) || 100) + 25));
-    toolbar.append(zoomOut, zoomLevel, zoomIn);
-    applyZoom(100);
+    toolbar.append(zoomOut, zoomLevel, zoomInput, zoomIn);
+    applyZoom(MERMAID_ZOOM_DEFAULT);
 
     const exportMenu = document.createElement('div');
     exportMenu.className = 'markdown-mermaid-export-menu';
@@ -1364,7 +1579,7 @@ const decorateMermaidViewers = () => {
     const createDownloadButton = (
       action: 'download-png' | 'download-svg',
       icon: string,
-      handler: () => void | Promise<void>,
+      handler: () => void | boolean | Promise<void | boolean>,
     ) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -1375,13 +1590,15 @@ const decorateMermaidViewers = () => {
         if (button.disabled) return;
         button.disabled = true;
         try {
-          await handler();
+          const didSave = await handler();
+          if (didSave === false) return;
           notificationStore.success(
             action === 'download-png'
               ? copy.value.diagramDownloadPngDone
               : copy.value.diagramDownloadSvgDone,
           );
-        } catch {
+        } catch (error) {
+          console.error('[MarkdownPreview] Mermaid export failed', error);
           notificationStore.error(copy.value.diagramDownloadFailed);
         } finally {
           button.disabled = false;
@@ -1414,7 +1631,8 @@ const decorateMermaidViewers = () => {
             ? copy.value.diagramCopyImageDone
             : copy.value.diagramCopySvgTextDone,
         );
-      } catch {
+      } catch (error) {
+        console.error('[MarkdownPreview] Mermaid image copy failed', error);
         notificationStore.error(copy.value.diagramCopyImageFailed);
       } finally {
         copyImageButton.disabled = false;
@@ -1429,25 +1647,22 @@ const decorateMermaidViewers = () => {
     const fullscreenButton = document.createElement('button');
     fullscreenButton.type = 'button';
     fullscreenButton.className = 'markdown-mermaid-fullscreen-button';
-    fullscreenButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8 3 3m13 5 5-5M8 16l-5 5m13-5 5 5"/></svg><span class="markdown-mermaid-fullscreen-label"></span>';
+    fullscreenButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8 3 3m13 5 5-5M8 16l-5 5m13-5 5 5"/></svg>';
     fullscreenButton.addEventListener('click', async () => {
-      try {
-        if (document.fullscreenElement === viewer) {
-          await document.exitFullscreen();
-          return;
-        }
-        if (typeof viewer.requestFullscreen !== 'function') {
-          notificationStore.error(copy.value.diagramFullscreenUnavailable);
-          return;
-        }
-        await viewer.requestFullscreen();
-      } catch {
-        notificationStore.error(copy.value.diagramFullscreenFailed);
+      if (document.fullscreenElement === viewer) {
+        await document.exitFullscreen();
+        return;
+      }
+      if (viewer.classList.contains('is-mermaid-fullscreen-fallback')) {
+        setFallbackFullscreen(viewer, false);
+      } else {
+        setFallbackFullscreen(viewer, true);
+        applyZoom(100);
       }
     });
     toolbar.appendChild(fullscreenButton);
     viewer.insertBefore(toolbar, viewer.firstChild);
-    applyZoom(100);
+    applyZoom(MERMAID_ZOOM_DEFAULT);
   });
 
   updateMermaidViewerControls();
@@ -1856,6 +2071,11 @@ const handleGlobalPointerDown = (event: MouseEvent) => {
 
 const handleGlobalKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape') {
+    const fullscreenViewer = fallbackFullscreenViewer;
+    if (fullscreenViewer) {
+      event.preventDefault();
+      setFallbackFullscreen(fullscreenViewer, false);
+    }
     closeContextMenu();
     closeOpenCodeLanguageMenus();
     closeMermaidExportMenus();
@@ -1878,25 +2098,37 @@ const handleGlobalKeydown = (event: KeyboardEvent) => {
     return;
   }
 
-  if (props.previewMode !== 'preview' || (!event.ctrlKey && !event.metaKey) || event.altKey) {
-    return;
-  }
-
-  const normalizedKey = event.key === '=' ? '+' : event.key;
-  if (!['+', '-', '0'].includes(normalizedKey)) {
-    return;
-  }
-
-  const nextSize = normalizedKey === '0'
-    ? PREVIEW_FONT_SIZE_DEFAULT
-    : previewFontSize.value + (normalizedKey === '+' ? PREVIEW_FONT_SIZE_STEP : -PREVIEW_FONT_SIZE_STEP);
-  const clampedSize = Math.min(PREVIEW_FONT_SIZE_MAX, Math.max(PREVIEW_FONT_SIZE_MIN, nextSize));
-  event.preventDefault();
-  previewFontSize.value = clampedSize;
-  emit('preview-font-size-change', clampedSize);
 };
 
-const handleFullscreenChange = () => updateMermaidViewerControls();
+const handlePreviewZoomKeydown = (event: KeyboardEvent) => {
+  if (props.previewMode !== 'preview' || (!event.ctrlKey && !event.metaKey) || event.altKey) return;
+
+  const key = event.code === 'Equal' ? '+'
+    : event.code === 'Minus' ? '-'
+      : event.code === 'Digit0' ? '0'
+        : event.key === '=' ? '+' : event.key;
+  if (!['+', '-', '0'].includes(key)) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  setPreviewZoom(key === '0'
+    ? 100
+    : previewZoom.value + (key === '+' ? PREVIEW_ZOOM_STEP : -PREVIEW_ZOOM_STEP));
+};
+
+const handlePreviewWheel = (event: WheelEvent) => {
+  if (props.previewMode !== 'preview' || (!event.ctrlKey && !event.metaKey)) return;
+  event.preventDefault();
+  const direction = event.deltaY < 0 ? PREVIEW_ZOOM_STEP : -PREVIEW_ZOOM_STEP;
+  setPreviewZoom(previewZoom.value + direction);
+};
+
+const handleFullscreenChange = () => {
+  if (!document.fullscreenElement && fallbackFullscreenViewer) {
+    setFallbackFullscreen(fallbackFullscreenViewer, false);
+  }
+  updateMermaidViewerControls();
+};
 
 const runMenuItem = async (item: PreviewMenuItem) => {
   if (item.disabled) {
@@ -2366,6 +2598,7 @@ onMounted(() => {
   document.addEventListener('mousedown', handleGlobalPointerDown);
   document.addEventListener('selectionchange', updateSelectionToolbar);
   document.addEventListener('fullscreenchange', handleFullscreenChange);
+  window.addEventListener('keydown', handlePreviewZoomKeydown, true);
   window.addEventListener('keydown', handleGlobalKeydown);
   // 容器或内容尺寸变化（窗口缩放、图片加载、主题切换）后重测标题位置。
   if (typeof ResizeObserver !== 'undefined') {
@@ -2405,9 +2638,11 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleGlobalPointerDown);
   document.removeEventListener('selectionchange', updateSelectionToolbar);
   document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  window.removeEventListener('keydown', handlePreviewZoomKeydown, true);
   window.removeEventListener('keydown', handleGlobalKeydown);
   closeContextMenu();
   closeOpenCodeLanguageMenus();
+  if (fallbackFullscreenViewer) setFallbackFullscreen(fallbackFullscreenViewer, false);
 });
 </script>
 
@@ -2637,6 +2872,105 @@ onBeforeUnmount(() => {
   transition:
     background-color 0.2s ease,
     color 0.2s ease;
+}
+
+.markdown-preview-zoom-controls {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100% - 16px);
+  margin: 8px 12px -42px auto;
+  padding: 4px;
+  border: 1px solid var(--preview-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--preview-surface) 82%, transparent);
+  color: var(--preview-text);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.markdown-preview-width-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--preview-bg) 78%, transparent);
+}
+
+.markdown-preview-width-modes button {
+  min-width: 34px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--preview-muted);
+  font: 500 11px/1 var(--font-ui, system-ui, sans-serif);
+  cursor: pointer;
+}
+
+.markdown-preview-width-modes button.is-active {
+  background: color-mix(in srgb, var(--preview-surface) 88%, transparent);
+  color: var(--preview-text);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.markdown-preview-content-frame {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+}
+
+.markdown-preview-zoom-controls button {
+  min-width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.markdown-preview-zoom-controls button:hover:not(:disabled) {
+  background: var(--preview-bg);
+}
+
+.markdown-preview-zoom-controls button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.markdown-preview-zoom-controls input {
+  width: 42px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+@media (max-width: 520px) {
+  .markdown-preview-zoom-controls {
+    top: 4px;
+    gap: 2px;
+    margin-right: 4px;
+    padding: 3px;
+  }
+
+  .markdown-preview-width-modes button {
+    min-width: 30px;
+    padding-inline: 4px;
+  }
 }
 
 .markdown-preview--docs-clean {
@@ -2877,6 +3211,7 @@ onBeforeUnmount(() => {
 
 .markdown-preview-content {
   width: 100%;
+  flex: 0 0 100%;
   max-width: none;
   min-width: 0;
   margin: 0;
@@ -3258,6 +3593,18 @@ onBeforeUnmount(() => {
   outline-offset: 2px;
 }
 
+.markdown-preview-content :deep(.markdown-mermaid-zoom-input) {
+  width: 46px;
+  height: 26px;
+  padding: 0 2px;
+  border: 1px solid var(--preview-border);
+  border-radius: var(--radius-sm);
+  background: var(--preview-bg);
+  color: var(--preview-text);
+  font: 500 11px/1.2 var(--font-ui, system-ui, sans-serif);
+  text-align: center;
+}
+
 .markdown-preview-content :deep(.markdown-mermaid-toolbar button svg) {
   width: 15px;
   height: 15px;
@@ -3362,6 +3709,45 @@ onBeforeUnmount(() => {
 }
 
 .markdown-preview-content :deep(.markdown-mermaid-viewer:fullscreen .markdown-mermaid-canvas) {
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+}
+
+.markdown-preview-content.markdown-mermaid-fullscreen-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 6vh 5vw;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: rgba(5, 12, 20, 0.66);
+  zoom: 1 !important;
+}
+
+.markdown-preview-content :deep(.markdown-mermaid-viewer.is-mermaid-fullscreen-fallback) {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(82vw, 1200px);
+  height: min(76vh, 760px);
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--preview-bg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+.markdown-preview-content :deep(.markdown-mermaid-viewer.is-mermaid-fullscreen-fallback .markdown-mermaid-canvas) {
   flex: 1;
   min-height: 0;
   height: auto !important;

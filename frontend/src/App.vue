@@ -779,7 +779,7 @@ const windowIsMaximized = ref(false);
 let unlistenWindowResize: (() => void) | null = null;
 const markdownPreviewMode = computed(() => isFullDocumentPreviewTab.value
   ? 'preview'
-  : activeTab.value?.markdownPreviewMode ?? settingsStore.markdownPreviewMode);
+  : activeTab.value?.markdownPreviewMode ?? (isMarkdownTab.value ? 'split' : settingsStore.markdownPreviewMode));
 const markdownPreviewFontSize = computed(() => {
   const value = activeTab.value?.markdownPreviewFontSize;
   return typeof value === 'number' && Number.isFinite(value) ? value : 16;
