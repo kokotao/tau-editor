@@ -583,6 +583,20 @@ describe('MarkdownPreview', () => {
     const tableScroll = wrapper.find('.markdown-table-scroll');
     expect(tableScroll.exists()).toBe(true);
     expect(tableScroll.find('table').exists()).toBe(true);
+    expect(wrapper.find('.markdown-table-scrollbar[role="scrollbar"]').exists()).toBe(true);
+  });
+
+  it('代码块应提供可聚焦的水平拖动条', async () => {
+    renderMarkdownMock.mockReturnValue('<pre><code class="language-plaintext">const value = 1;</code></pre>');
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '```text\nconst value = 1;\n```', theme: 'dark' },
+    });
+    await flushRender();
+
+    const scrollbar = wrapper.find('.markdown-code-scrollbar[role="scrollbar"]');
+    expect(scrollbar.exists()).toBe(true);
+    expect(scrollbar.attributes('tabindex')).toBe('0');
+    expect(scrollbar.attributes('aria-label')).toBe('代码水平滚动条');
   });
 
   it('预览右键菜单应提供 Markdown 标题、正文和表格插入', async () => {

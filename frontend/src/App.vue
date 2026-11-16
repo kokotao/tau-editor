@@ -93,6 +93,7 @@ import {
   type WorkspaceFileChange,
   searchCommands,
   replaceCommands,
+  settingsCommands,
   type WorkspaceSearchMatch,
   type WorkspaceReplaceFileResult,
   type WorkspaceReplacePreviewResponse,
@@ -118,6 +119,8 @@ import {
   seedContentForFileName,
 } from '@/services/newFileTypeOptions';
 import { guardPersistedScratchWorkspace } from '@/services/scratchWorkspaceGuard';
+import { createWelcomeMindMapDocument } from '@/services/welcomeMindMap';
+import { shouldShowWelcomePackageOnLaunch } from '@/services/welcomeOnboarding';
 import {
   getAppI18n,
   getCloudDocConflictI18n,
@@ -548,6 +551,7 @@ type ImageViewerState = {
 };
 const imageViewerState = ref<ImageViewerState | null>(null);
 const FIRST_INSTALL_GUIDE_KEY = 'text-editor-first-install-guide-v1';
+const ONBOARDING_VERSION_KEY = 'text-editor-onboarding-version-v1';
 const GUIDE_LAST_OPENED_AT_KEY = 'text-editor-last-opened-at-v1';
 const GUIDE_LAST_SHOWN_AT_KEY = 'text-editor-guide-last-shown-at-v1';
 const GUIDE_REOPEN_DAYS = 14;
@@ -4392,6 +4396,10 @@ const handleToggleProblems = () => {
   problemsPanelVisible.value = !problemsPanelVisible.value;
 };
 
+const toggleStatusBar = () => {
+  void settingsStore.updateSettings({ showStatusBar: !settingsStore.showStatusBar });
+};
+
 const getLocalizedCommandTitle = (id: CommandId) =>
   getCommandText(settingsStore.uiLanguage, id).title;
 
@@ -4422,6 +4430,7 @@ const createLocalizedCommands = () => {
   toggleProblems: handleToggleProblems,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
+  toggleStatusBar,
   openCommandPalette: handleOpenCommandPalette,
   compareWithFile: handleCompareWithFile,
   openInNewWindow: handleOpenTabInNewWindow,
@@ -4537,6 +4546,7 @@ const keybindingCommandHandlers: Record<string, () => void> = {
   'workspace.searchSymbols': () => void executeCommand('workspace.searchSymbols'),
   'view.toggleSidebar': handleToggleFileTree,
   'view.toggleSettings': () => void executeCommand('view.toggleSettings'),
+  'view.toggleStatusBar': () => void executeCommand('view.toggleStatusBar'),
   'editor.zoomIn': () => settingsStore.adjustFontSize(1),
   'editor.zoomOut': () => settingsStore.adjustFontSize(-1),
   'editor.zoomReset': () => settingsStore.resetFontSize(),
@@ -4625,6 +4635,7 @@ Welcome to Tau Editor, a focused workspace for editing text, code, and Markdown.
 ## Personalize
 - Open Settings from the toolbar or \`Ctrl/Cmd + ,\` to adjust appearance, editor preferences, auto-save, and keyboard shortcuts. The theme marketplace is available in Settings.
 - Open the Command Palette with \`F1\` or \`Ctrl/Cmd + Shift + P\` to search for commands; use it whenever you are unsure where an action lives.
+- On first launch after installation or an update, the Quick Start guide and an editable Feature Tour mind map open together. Use the four sheets to explore mind map editing, layouts, styles, import/export, code, Markdown, workspace search, and settings.
 - You can open external files from the OS "Open With -> Tau Editor".
 - This guide is an unsaved tab. Save it if you want to keep it.
 `;
@@ -4657,6 +4668,7 @@ Welcome to Tau Editor, a focused workspace for editing text, code, and Markdown.
 ## 个性化设置
 - 点击工具栏设置按钮或按 \`Ctrl/Cmd + ,\`，可调整外观、编辑器偏好、自动保存和快捷键；设置中还提供主题市场。
 - 按 \`F1\` 或 \`Ctrl/Cmd + Shift + P\` 打开命令面板搜索操作，不确定入口时可先在这里查找。
+- 首次安装或升级后会同时打开本说明和可编辑的「示例思维导图」；四个工作表覆盖导图编辑、布局样式、实战流程，以及文件、代码、Markdown、导航与设置功能。
 - 支持在系统里通过“打开方式 -> Tau Editor”直接打开外部文件。
 - 本说明是未保存标签页，如需保留请手动保存。
 `;
@@ -4693,17 +4705,6 @@ const markAppOpened = (timestamp: number) => {
   writeLocalTimestamp(GUIDE_LAST_OPENED_AT_KEY, timestamp);
 };
 
-const shouldShowGuideOnLaunch = (timestamp: number) => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const lastOpenedAt = readLocalTimestamp(GUIDE_LAST_OPENED_AT_KEY);
-  if (!lastOpenedAt) {
-    return true;
-  }
-  return timestamp - lastOpenedAt >= GUIDE_REOPEN_INTERVAL_MS;
-};
-
 const findOperationGuideTabId = () => {
   const guideNames = new Set(['Getting Started.md', '操作说明.md']);
   return tabsStore.tabs.find((tab) => tab.filePath === null && guideNames.has(tab.fileName))?.id ?? null;
@@ -4727,7 +4728,7 @@ const openOperationGuide = (timestamp: number) => {
     return false;
   }
 
-  tabsStore.addTab({
+  const guideTabId = tabsStore.addTab({
     filePath: null,
     fileName: guideTitle,
     language: 'markdown',
@@ -4735,6 +4736,7 @@ const openOperationGuide = (timestamp: number) => {
     isUntitled: true,
     content: guideContent,
   });
+  tabsStore.activateTab(guideTabId);
 
   if (workspaceStore.mode === 'empty' && !workspaceStore.currentWorkspacePath) {
     workspaceStore.setMode('single-file');
@@ -4747,11 +4749,43 @@ const openOperationGuide = (timestamp: number) => {
   return true;
 };
 
-const showOperationGuideOnLaunchIfNeeded = (timestamp: number) => {
-  if (!shouldShowGuideOnLaunch(timestamp)) {
-    return;
+const showWelcomeMindMap = () => {
+  const welcomeNames = new Set(['示例思维导图.taumap', 'Feature Tour.taumap']);
+  const existingTab = tabsStore.tabs.find((tab) => (
+    tab.filePath === null
+    && tab.documentKind === 'mindmap'
+    && welcomeNames.has(tab.fileName)
+  ));
+  if (existingTab) {
+    tabsStore.activateTab(existingTab.id);
+    return true;
   }
-  openOperationGuide(timestamp);
+
+  const title = settingsStore.uiLanguage === 'en-US' ? 'Feature Tour.taumap' : '示例思维导图.taumap';
+  const document = createWelcomeMindMapDocument();
+  const serialized = JSON.stringify(document);
+  if (!ensureAdditionalTabCapacity(serialized, title)) return false;
+  return workspaceService.createUntitledMindMap(title, document);
+};
+
+const showWelcomePackageOnLaunchIfNeeded = async (timestamp: number) => {
+  const versionInfo = await settingsCommands.getAppVersionInfo().catch(() => null);
+  const currentVersion = versionInfo?.version || null;
+  const previousVersion = localStorage.getItem(ONBOARDING_VERSION_KEY);
+  const shouldShow = shouldShowWelcomePackageOnLaunch({
+    previousVersion,
+    currentVersion,
+    lastOpenedAt: readLocalTimestamp(GUIDE_LAST_OPENED_AT_KEY),
+    now: timestamp,
+    reopenIntervalMs: GUIDE_REOPEN_INTERVAL_MS,
+  });
+  if (!shouldShow) return;
+
+  const mindMapOpened = showWelcomeMindMap();
+  const guideOpened = openOperationGuide(timestamp);
+  if (mindMapOpened && guideOpened && currentVersion) {
+    localStorage.setItem(ONBOARDING_VERSION_KEY, currentVersion);
+  }
 };
 
 const openExternalFiles = async (paths: string[]) => {
@@ -5598,7 +5632,7 @@ onMounted(async () => {
     void handleWorkspaceFileChanges(changes);
   });
   await startExternalFileWatch();
-  showOperationGuideOnLaunchIfNeeded(launchTimestamp);
+  await showWelcomePackageOnLaunchIfNeeded(launchTimestamp);
   markAppOpened(launchTimestamp);
   window.addEventListener('keydown', handleShellKeydown);
 });
@@ -6626,6 +6660,7 @@ onUnmounted(() => {
         {{ fileTreeCopy.uploadRunningBadge(folderUploadProgress.done, folderUploadProgress.total) }}
       </button>
       <StatusBar
+        v-if="settingsStore.showStatusBar"
         :is-mindmap="isMindmapTab"
         :mindmap-character-count="mindmapStatusCounts.characterCount"
         :mindmap-topic-count="mindmapStatusCounts.topicCount"
@@ -6644,6 +6679,21 @@ onUnmounted(() => {
         @theme-change="handleThemeChange"
         @retry-cloud-sync="handleRetryCloudSync"
       />
+      <button
+        type="button"
+        class="app-status-bar__toggle"
+        data-testid="toggle-status-bar-visibility"
+        :aria-label="settingsStore.showStatusBar
+          ? (settingsStore.uiLanguage === 'en-US' ? 'Hide status bar' : '隐藏底部状态栏')
+          : (settingsStore.uiLanguage === 'en-US' ? 'Show status bar' : '显示底部状态栏')"
+        :title="settingsStore.showStatusBar
+          ? (settingsStore.uiLanguage === 'en-US' ? 'Hide status bar' : '隐藏底部状态栏')
+          : (settingsStore.uiLanguage === 'en-US' ? 'Show status bar' : '显示底部状态栏')"
+        :aria-expanded="settingsStore.showStatusBar"
+        @click="toggleStatusBar"
+      >
+        <TauIcon name="icon-chevron-down" :size="14" :class="{ 'is-expanded': !settingsStore.showStatusBar }" />
+      </button>
     </div>
 
   </div>
@@ -6749,6 +6799,45 @@ textarea {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
+}
+
+.app-status-bar :deep(.status-bar) {
+  padding-right: 42px;
+}
+
+.app-status-bar__toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  z-index: 22;
+  display: grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.28));
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--chrome-bg, #111827) 88%, transparent);
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.app-status-bar__toggle:hover,
+.app-status-bar__toggle:focus-visible {
+  opacity: 1;
+  color: var(--text-primary, #f8fafc);
+  border-color: var(--accent-blue, #7cc7ff);
+}
+
+.app-status-bar__toggle:focus-visible {
+  outline: 2px solid var(--accent-blue, #7cc7ff);
+  outline-offset: 2px;
+}
+
+.app-status-bar__toggle .is-expanded {
+  transform: rotate(180deg);
 }
 
 .app-status-bar__upload {

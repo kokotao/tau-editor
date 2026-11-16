@@ -124,6 +124,7 @@ export interface EditorSettings {
   // 自动保存
   autoSaveEnabled: boolean;
   autoSaveInterval: number;     // 秒
+  showStatusBar: boolean;
 
   // 标签页
   tabSize: number;
@@ -514,6 +515,7 @@ export const useSettingsStore = defineStore('settings', {
     wordWrap: false,
     autoSaveEnabled: true,
     autoSaveInterval: 30,
+    showStatusBar: true,
     tabSize: 2,
     insertSpaces: true,
     trimTrailingWhitespace: true,
@@ -666,6 +668,7 @@ export const useSettingsStore = defineStore('settings', {
           wordWrap: this.wordWrap,
           autoSaveEnabled: this.autoSaveEnabled,
           autoSaveInterval: this.autoSaveInterval,
+          showStatusBar: this.showStatusBar,
           tabSize: this.tabSize,
           insertSpaces: this.insertSpaces,
           trimTrailingWhitespace: this.trimTrailingWhitespace,

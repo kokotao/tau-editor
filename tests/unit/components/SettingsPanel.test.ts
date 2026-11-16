@@ -147,6 +147,18 @@ describe('SettingsPanel', () => {
     expect(saveState.classes()).not.toContain('settings-save-state--disabled');
   });
 
+  it('编辑器设置可以隐藏底部状态栏', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const toggle = wrapper.get('[data-testid="toggle-status-bar"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    await toggle.setValue(false);
+    await flushPromises();
+
+    expect(settingsStore.showStatusBar).toBe(false);
+  });
+
   it('浅色主题下设置页应使用浅色表面和可读的下拉菜单配色', async () => {
     settingsStore.theme = 'light';
     const wrapper = mountPanel();

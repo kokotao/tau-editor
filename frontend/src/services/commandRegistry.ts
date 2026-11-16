@@ -29,6 +29,7 @@ export interface CommandActions {
   toggleProblems: () => Promise<void> | void;
   toggleSidebar: () => Promise<void> | void;
   toggleSettings: () => Promise<void> | void;
+  toggleStatusBar: () => Promise<void> | void;
   openCommandPalette: () => Promise<void> | void;
   compareWithFile: () => Promise<void> | void;
   openInNewWindow: () => Promise<void> | void;
@@ -69,6 +70,7 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
   const toggleProblems = resolveCommandText(uiLanguage, 'editor.toggleProblems');
   const toggleSidebar = resolveCommandText(uiLanguage, 'view.toggleSidebar');
   const toggleSettings = resolveCommandText(uiLanguage, 'view.toggleSettings');
+  const toggleStatusBar = resolveCommandText(uiLanguage, 'view.toggleStatusBar');
   const compareWithFile = resolveCommandText(uiLanguage, 'diff.compareWithFile');
   const openInNewWindow = resolveCommandText(uiLanguage, 'window.openInNewWindow');
   const moveToNewWindow = resolveCommandText(uiLanguage, 'window.moveToNewWindow');
@@ -299,6 +301,13 @@ export function createCommandRegistry(actions: CommandActions, uiLanguage: UiLan
       shortcut: 'Ctrl+,',
       keywords: toggleSettings.keywords,
       run: actions.toggleSettings,
+    },
+    {
+      id: 'view.toggleStatusBar',
+      title: toggleStatusBar.title,
+      category: 'view',
+      keywords: toggleStatusBar.keywords,
+      run: actions.toggleStatusBar,
     },
     {
       id: 'cloud.login',

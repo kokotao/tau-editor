@@ -494,6 +494,14 @@
               </label>
             </div>
 
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.showStatusBar }}</label>
+              <label class="settings-checkbox">
+                <input data-testid="toggle-status-bar" type="checkbox" :checked="settingsStore.showStatusBar" @change="settingsStore.updateSettings({ showStatusBar: ($event.target as HTMLInputElement).checked })" />
+                <span class="checkbox-text">{{ copy.showStatusBar }}</span>
+              </label>
+            </div>
+
             <div class="settings-item" v-if="settingsStore.autoSaveEnabled">
               <label class="settings-label">{{ copy.autoSaveInterval }}</label>
               <n-select

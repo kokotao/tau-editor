@@ -21,6 +21,7 @@ export async function seedBrowserWorkspace(page: Page, workspacePath = 'C:\\e2e-
     try {
       localStorage.setItem('text-editor-last-opened-at-v1', String(Date.now()));
       localStorage.setItem('text-editor-first-install-guide-v1', '1');
+      localStorage.setItem('text-editor-onboarding-version-v1', 'web');
       localStorage.removeItem('text-editor-recovery-v2');
       localStorage.removeItem('text-editor-session-v1');
       localStorage.setItem(

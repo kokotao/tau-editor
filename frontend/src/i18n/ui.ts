@@ -59,6 +59,7 @@ export type CommandId =
   | 'workspace.searchSymbols'
   | 'view.toggleSidebar'
   | 'view.toggleSettings'
+  | 'view.toggleStatusBar'
   | 'cloud.login'
   | 'cloud.logout'
   | 'cloud.syncNow'
@@ -238,6 +239,7 @@ interface SettingsPanelText {
   markdownMermaidNodeColorReset: string;
   autoSave: string;
   autoSaveEnabled: string;
+  showStatusBar: string;
   autoSaveStatusEnabled: string;
   autoSaveStatusDisabled: string;
   autoSaveInterval: string;
@@ -717,6 +719,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '切换设置工作区',
       keywords: ['设置', '偏好', '配置', '工作区', 'settings', 'preferences', 'workspace'],
     },
+    'view.toggleStatusBar': {
+      title: '切换底部状态栏',
+      keywords: ['状态栏', '底部工具栏', '显示', '隐藏', 'status bar', 'toggle status bar'],
+    },
     'cloud.login': {
       title: '登录 lizi 云账号',
       keywords: ['登录', '账号', '云同步', '云文档', 'lizi', 'cloud', 'login', 'sign in'],
@@ -846,6 +852,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'view.toggleSettings': {
       title: 'Toggle Settings Workspace',
       keywords: ['settings', 'preferences', 'workspace', '配置', '设置'],
+    },
+    'view.toggleStatusBar': {
+      title: 'Toggle Status Bar',
+      keywords: ['status bar', 'bottom toolbar', 'show', 'hide', '状态栏', '底部工具栏'],
     },
     'cloud.login': {
       title: 'Sign In to lizi Cloud',
@@ -1051,6 +1061,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownMermaidNodeColorReset: '恢复主题默认',
     autoSave: '自动保存',
     autoSaveEnabled: '启用自动保存',
+    showStatusBar: '显示底部状态栏',
     autoSaveStatusEnabled: '自动保存已启用',
     autoSaveStatusDisabled: '自动保存已关闭',
     autoSaveInterval: '自动保存间隔',
@@ -1292,6 +1303,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownMermaidNodeColorReset: 'Use Theme Default',
     autoSave: 'Auto Save',
     autoSaveEnabled: 'Enable Auto Save',
+    showStatusBar: 'Show bottom status bar',
     autoSaveStatusEnabled: 'Auto Save Enabled',
     autoSaveStatusDisabled: 'Auto Save Disabled',
     autoSaveInterval: 'Auto Save Interval',

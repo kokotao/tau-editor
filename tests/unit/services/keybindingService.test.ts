@@ -85,6 +85,7 @@ describe('keybindingService', () => {
 
   it('reports no conflicts for the default binding set', () => {
     expect(findKeybindingConflicts(DEFAULT_KEYBINDINGS)).toEqual([]);
+    expect(resolveKeybinding(DEFAULT_KEYBINDINGS, {}, 'view.toggleStatusBar')?.keys).toBe('ctrl+alt+shift+s');
   });
 
   it('formats bindings for display', () => {
