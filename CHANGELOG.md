@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-11-16
-> 当前版本（候选，未发布）：`v0.6.45`
+> 当前版本：`v0.6.45`
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.45](https://github.com/kokotao/tau-editor/releases/tag/v0.6.45) | 2026-11-16 | 发布候选，等待跨平台构建 | 待发布 | 状态栏快速折叠、代码与表格横向鼠标滚动、预览工具栏紧凑化 |
+| [0.6.45](https://github.com/kokotao/tau-editor/releases/tag/v0.6.45) | 2026-11-16 | 公开 Release | `009098b` | 状态栏快速折叠、代码与表格横向鼠标滚动、预览工具栏紧凑化 |
 | [0.6.44](https://github.com/kokotao/tau-editor/releases/tag/v0.6.44) | 2026-11-15 | 公开 Release | `d9284b2` | Markdown 预览缩放、Mermaid 图片导出与弹窗查看体验完善 |
 | [0.6.43](https://github.com/kokotao/tau-editor/releases/tag/v0.6.43) | 2026-11-09 | 公开 Release | `7418099` | 国内更新镜像回退、下载完整性校验与镜像同步日志完善 |
 | [0.6.42](https://github.com/kokotao/tau-editor/releases/tag/v0.6.42) | 2026-11-08 | 公开 Release | `3ce086b` | 跨平台图标解码修复，并发布思维导图与工作台体验升级 |
@@ -59,7 +59,7 @@
 
 ---
 
-## [0.6.45] - 2026-11-16 (发布候选，等待跨平台构建)
+## [0.6.45] - 2026-11-16 (公开 Release)
 
 ### 首次使用与升级引导
 
@@ -82,7 +82,7 @@
 ### 验证与发布状态
 
 - 相关单测、类型检查、生产构建通过；状态栏折叠/展开已在真实浏览器中验证。
-- 等待 GitHub Actions 完成 macOS universal、macOS arm64、Linux、Windows 构建和安装包资产门禁。
+- GitHub Actions 跨平台 matrix 与 Release 资产门禁全部通过；已发布 9 个 macOS、Linux、Windows 安装包。
 
 ## [0.6.44] - 2026-11-15
 
