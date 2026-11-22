@@ -3,7 +3,7 @@
 > 项目：[Tau Editor](https://github.com/kokotao/tau-editor)
 > 维护口径：以 Git tag、GitHub Release、`docs/release` 发布记录和相邻标签代码差异为准。
 > 最后更新：2026-11-22
-> 当前版本（候选，未发布）：`v0.6.46`
+> 当前公开版本：`v0.6.46`
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 版本                                                               | 日期       | 发布状态         | 标签提交  | 主要变更                                                      |
 | ------------------------------------------------------------------ | ---------- | ---------------- | --------- | ------------------------------------------------------------- |
-| [0.6.46](https://github.com/kokotao/tau-editor/releases/tag/v0.6.46) | 2026-11-22 | 发布候选，等待跨平台构建 | 待发布 | Markdown 图片尺寸与缓存、LSP 镜像/Windows 兼容、云文档网格、更新镜像与工作区修复 |
+| [0.6.46](https://github.com/kokotao/tau-editor/releases/tag/v0.6.46) | 2026-11-22 | 公开 Release | `57075f8` | Markdown 图片尺寸与缓存、LSP 镜像/Windows 兼容、云文档网格、更新镜像与工作区修复 |
 | [0.6.45](https://github.com/kokotao/tau-editor/releases/tag/v0.6.45) | 2026-11-16 | 公开 Release | `009098b` | 状态栏快速折叠、代码与表格横向鼠标滚动、预览工具栏紧凑化 |
 | [0.6.44](https://github.com/kokotao/tau-editor/releases/tag/v0.6.44) | 2026-11-15 | 公开 Release | `d9284b2` | Markdown 预览缩放、Mermaid 图片导出与弹窗查看体验完善 |
 | [0.6.43](https://github.com/kokotao/tau-editor/releases/tag/v0.6.43) | 2026-11-09 | 公开 Release | `7418099` | 国内更新镜像回退、下载完整性校验与镜像同步日志完善 |
@@ -60,7 +60,7 @@
 
 ---
 
-## [0.6.46] - 2026-11-22 (发布候选，等待跨平台构建)
+## [0.6.46] - 2026-11-22
 
 ### Markdown 与媒体
 
@@ -81,7 +81,8 @@
 ### 官网与验证
 
 - 官网 Release 数据读取和跳转恢复逻辑增强，栗子镜像资产分类及下载入口保持同源。
-- 已验证针对性前端单测、类型检查、Rust 测试、镜像脚本测试和生产构建；跨平台安装包由 GitHub Actions 发布流水线构建。
+- 前端单测 322 项、Rust 测试 212 项、官网测试 9 项、镜像脚本测试、类型检查及生产构建通过。
+- GitHub Actions run `45002241694` 的 macOS universal、macOS arm64、Linux 和 Windows 构建全部成功，9 个安装包已上传至 GitHub Release。
 
 ## [0.6.45] - 2026-11-16
 
