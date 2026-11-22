@@ -27,6 +27,9 @@ test.describe('文件删除确认', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((rootPath) => {
       try {
+        localStorage.setItem('text-editor-last-opened-at-v1', String(Date.now()));
+        localStorage.setItem('text-editor-first-install-guide-v1', '1');
+        localStorage.setItem('text-editor-onboarding-version-v1', 'web');
         localStorage.setItem('text-editor-workspace', JSON.stringify({
           mode: 'workspace',
           currentWorkspacePath: rootPath,
@@ -65,6 +68,14 @@ test.describe('文件删除确认', () => {
       (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
         invoke: async (command: string, args: { path?: string } = {}) => {
           invocations.push({ command, args });
+          if (command === 'list_recovery_records') {
+            const recovery = JSON.parse(localStorage.getItem('text-editor-recovery-v2') ?? '{}');
+            return {
+              session: recovery.session ?? null,
+              drafts: recovery.drafts ?? [],
+              limits: { maxDrafts: 40, maxTotalBytes: 32 * 1024 * 1024, maxAgeDays: 30 },
+            };
+          }
           if (command === 'list_files') return files;
           if (command === 'delete_file') {
             const index = files.findIndex((file) => file.path === args.path);
