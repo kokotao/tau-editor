@@ -583,6 +583,20 @@ describe('MarkdownPreview', () => {
     const tableScroll = wrapper.find('.markdown-table-scroll');
     expect(tableScroll.exists()).toBe(true);
     expect(tableScroll.find('table').exists()).toBe(true);
+    expect(wrapper.find('.markdown-table-scrollbar[role="scrollbar"]').exists()).toBe(true);
+  });
+
+  it('代码块应提供可聚焦的水平拖动条', async () => {
+    renderMarkdownMock.mockReturnValue('<pre><code class="language-plaintext">const value = 1;</code></pre>');
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '```text\nconst value = 1;\n```', theme: 'dark' },
+    });
+    await flushRender();
+
+    const scrollbar = wrapper.find('.markdown-code-scrollbar[role="scrollbar"]');
+    expect(scrollbar.exists()).toBe(true);
+    expect(scrollbar.attributes('tabindex')).toBe('0');
+    expect(scrollbar.attributes('aria-label')).toBe('代码水平滚动条');
   });
 
   it('预览右键菜单应提供 Markdown 标题、正文和表格插入', async () => {
@@ -1150,6 +1164,8 @@ describe('MarkdownPreview', () => {
 
   it('图片悬浮时应提示双击放大查看并使用放大指针', async () => {
     renderMarkdownMock.mockReturnValue('<p><img src="hero.png" alt="hero" /></p>');
+    const settingsStore = useSettingsStore();
+    settingsStore.markdownPreviewImageWidth = 60;
     const wrapper = mount(MarkdownPreview, {
       props: {
         content: 'image',
@@ -1164,6 +1180,8 @@ describe('MarkdownPreview', () => {
     expect(image.attributes('alt')).toBe('hero');
     expect(image.attributes('aria-label')).toBeUndefined();
     expect(image.classes()).toContain('markdown-preview-image');
+    expect(wrapper.get('.markdown-preview-content').attributes('style'))
+      .toContain('--markdown-preview-image-width: 60%');
   });
 
   it('点击预览模式菜单项应发射模式切换事件', async () => {

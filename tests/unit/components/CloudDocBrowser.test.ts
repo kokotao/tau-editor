@@ -235,6 +235,51 @@ describe('CloudDocBrowser 打开云端文档', () => {
     expect(wrapper.find('[data-testid="cloud-browser-filter-empty"]').exists()).toBe(true);
   });
 
+  it('网格视图复用格式筛选结果并更新右侧检查器', async () => {
+    const wrapper = mount(CloudDocBrowser, {
+      props: {
+        inline: true,
+        visible: true,
+        previewNodes: buildCloudDocTree([
+          { ...DOC, fileId: 61, path: 'tau/ws/notes/a.md', title: 'a.md' },
+          { ...DOC, fileId: 62, path: 'tau/ws/spec.docx', title: 'spec.docx', size: 4096 },
+        ], { stripPrefix: 'tau/ws' }),
+        previewTotal: 2,
+      },
+      global: { plugins: [pinia] },
+    });
+    mountedWrappers.push(wrapper);
+    await flushPromises();
+
+    await wrapper.get('[data-testid="cloud-browser-format-word"]').trigger('click');
+    await wrapper.get('[data-testid="cloud-browser-view-grid"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="cloud-browser-view-grid"]').attributes('aria-pressed')).toBe('true');
+    expect(wrapper.find('[data-testid="cloud-browser-table"]').exists()).toBe(true);
+    const cards = wrapper.get('[data-testid="cloud-browser-grid"]').findAll('[data-testid^="cloud-browser-card-"]');
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.text()).toContain('spec.docx');
+    await cards[0]!.trigger('click');
+    expect(wrapper.get('[data-testid="cloud-browser-inspector"]').text()).toContain('spec.docx');
+    await cards[0]!.trigger('dblclick');
+    await flushPromises();
+    expect(cloudMocks.openTarget).toHaveBeenCalled();
+  });
+
+  it('存储设置打开云存储方案弹窗并可关闭', async () => {
+    const wrapper = mountBrowser();
+    await flushPromises();
+
+    await wrapper.get('[data-testid="cloud-browser-storage-settings"]').trigger('click');
+    await flushPromises();
+
+    expect(bodyQuery('cloud-upgrade-dialog')).not.toBeNull();
+    bodyQuery('cloud-upgrade-dialog')?.querySelector<HTMLButtonElement>('.cd-icon-btn--close')?.click();
+    await flushPromises();
+    expect(bodyQuery('cloud-upgrade-dialog')).toBeNull();
+  });
+
   it('预览模式下关键字过滤仍在本地生效（不联网）', async () => {
     const wrapper = mount(CloudDocBrowser, {
       props: {

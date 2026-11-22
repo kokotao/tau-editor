@@ -32,7 +32,22 @@ export interface LanguageServerStatus extends LanguageServerDescriptor {
   managedConfigured: boolean;
 }
 
-function unavailableReason(descriptor: LanguageServerDescriptor): string {
+export const LSP_ASSET_MIRROR_BASE_URL = 'https://taueditor.lizipro.cn/tau-editor/lsp-assets/';
+
+export function buildManagedAssetMirrorUrl(
+  serverId: string,
+  platformKey: string,
+  asset: ManagedLspAsset,
+): string {
+  const filename = new URL(asset.downloadUrl).pathname.split('/').pop();
+  if (!filename) throw new Error(`无法从下载地址解析资产文件名：${asset.downloadUrl}`);
+  return new URL(`${platformKey}/${serverId}/${asset.version}/${filename}`, LSP_ASSET_MIRROR_BASE_URL).toString();
+}
+
+function unavailableReason(descriptor: LanguageServerDescriptor, managedConfigured: boolean): string {
+  if (!managedConfigured) {
+    return `${descriptor.command} 未在 PATH 中找到，当前平台暂无应用托管包；请安装后重新检测`;
+  }
   return `语言服务尚未准备，打开对应项目时 Tau Editor 会自动下载；也可在设置中立即准备`;
 }
 
@@ -51,7 +66,7 @@ export function mergeLanguageServerProbe(
     available,
     path,
     version: managedReady ? (managedProbe?.version ?? null) : (probe?.version ?? null),
-    reason: managedReady ? null : (probe?.reason ?? (managedProbe?.reason ?? unavailableReason(descriptor))),
+    reason: managedReady ? null : (probe?.reason ?? (managedProbe?.reason ?? unavailableReason(descriptor, managedConfigured))),
     managedState: managedProbe?.state ?? 'unsupported',
     managedPath: managedProbe?.executablePath ?? null,
     source: managedReady ? 'managed' : (probe?.available ? 'path' : 'unavailable'),
@@ -118,17 +133,24 @@ export async function provisionLanguageServer(serverId: string): Promise<Managed
       descriptor.managedRuntimeId,
       runtimeAsset,
       `准备 ${descriptor.displayName} 的运行时`,
+      platformKey ?? '',
     );
   }
   for (const dependency of descriptor.managedDependencies ?? []) {
     const dependencyAsset = dependency.assets[platformKey ?? ''];
     if (!dependencyAsset) throw new Error(`依赖 ${dependency.id} 尚未配置当前平台资产`);
-    await installManagedAsset(dependency.id, dependencyAsset, `准备 ${descriptor.displayName} 的依赖 ${dependency.id}`);
+    await installManagedAsset(
+      dependency.id,
+      dependencyAsset,
+      `准备 ${descriptor.displayName} 的依赖 ${dependency.id}`,
+      platformKey ?? '',
+    );
   }
   return installManagedAsset(
     descriptor.managedId ?? descriptor.id,
     asset,
     `准备 ${descriptor.displayName}`,
+    platformKey ?? '',
   );
 }
 
@@ -142,16 +164,21 @@ async function installManagedAsset(
   serverId: string,
   asset: ManagedLspAsset,
   stage: string,
+  platformKey: string,
 ): Promise<ManagedLspProvisionResult> {
-  try {
-    const result = await lspCommands.installServer({ serverId, ...asset });
-    if (result.state === 'failed' || result.installed === false || !result.executablePath) {
-      const detail = result.error ?? result.message ?? '安装后未生成可执行文件';
-      throw new Error(detail);
+  const mirrorUrl = buildManagedAssetMirrorUrl(serverId, platformKey, asset);
+  let lastError = '';
+  for (const downloadUrl of [mirrorUrl, asset.downloadUrl]) {
+    try {
+      const result = await lspCommands.installServer({ serverId, ...asset, downloadUrl });
+      if (result.state === 'failed' || result.installed === false || !result.executablePath) {
+        const detail = result.error ?? result.message ?? '安装后未生成可执行文件';
+        throw new Error(detail);
+      }
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
     }
-    return result;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`${stage}失败：${detail}`);
   }
+  throw new Error(`${stage}失败：缓存源与官方源均未成功；${lastError}`);
 }

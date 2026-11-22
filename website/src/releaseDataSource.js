@@ -9,10 +9,32 @@ export const fetchPublishedReleases = async (fetchImpl, baseUrl) => {
   return releases
 }
 
+export const inferAssetPlatform = (assetName) => {
+  const name = String(assetName ?? '').toLowerCase()
+  if (/\.(?:exe|msi)$/i.test(name) || /(?:windows|win32|win64|x64-setup|x64_zh)/i.test(name)) return 'Windows'
+  if (/\.(?:dmg|pkg)$/i.test(name) || /(?:macos|darwin|universal|apple|(?:aarch64|arm64)\.(?:dmg|zip)|amd64\.dmg)/i.test(name)) return 'macOS'
+  if (/\.(?:deb|rpm|appimage)$/i.test(name) || /(?:linux|ubuntu|debian|fedora|appimage)/i.test(name)) return 'Linux'
+  return null
+}
+
 export const buildMirrorDownloadUrl = (version, assetName) => {
   const normalizedVersion = String(version ?? '').replace(/^v/i, '')
   if (!/^\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$/.test(normalizedVersion)) return ''
   return `https://note.lizipro.cn/taueditor/releases/${normalizedVersion}/${encodeURIComponent(assetName)}`
+}
+
+export const resolveMirrorDownloadUrl = (mirrorUrl, hostname) => {
+  if (!mirrorUrl) return ''
+  try {
+    const url = new URL(mirrorUrl)
+    if (!/^https?:$/.test(url.protocol)) return ''
+    if (url.hostname === 'note.lizipro.cn' && ['10.123.1.2', 'taueditor.lizipro.cn'].includes(hostname)) {
+      return `${url.pathname}${url.search}${url.hash}`
+    }
+    return url.href
+  } catch {
+    return ''
+  }
 }
 
 export const isMirrorAssetVerified = (asset, mirrorManifest) => {

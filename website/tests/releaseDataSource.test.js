@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMirrorDownloadUrl, fetchPublishedReleases, isMirrorAssetVerified } from '../src/releaseDataSource.js'
+import { buildMirrorDownloadUrl, fetchPublishedReleases, inferAssetPlatform, isMirrorAssetVerified, resolveMirrorDownloadUrl } from '../src/releaseDataSource.js'
 
 test('loads the published same-origin release snapshot', async () => {
   const requests = []
@@ -29,6 +29,26 @@ test('builds the versioned Lizi mirror URL and safely encodes installer names', 
     'https://note.lizipro.cn/taueditor/releases/0.6.43/Tau%20Editor_0.6.43_x64%20zh-CN.msi',
   )
   assert.equal(buildMirrorDownloadUrl('latest', 'app.dmg'), '')
+})
+
+test('classifies Apple Silicon zip installers as macOS assets', () => {
+  assert.equal(inferAssetPlatform('Tau.Editor_0.6.45_aarch64.zip'), 'macOS')
+  assert.equal(inferAssetPlatform('Tau.Editor_0.6.45_universal.zip'), 'macOS')
+  assert.equal(inferAssetPlatform('Tau.Editor_0.6.45_amd64.AppImage'), 'Linux')
+})
+
+test('maps the mirror to a same-origin path on the Tau deployment hosts', () => {
+  const mirrorUrl = 'https://note.lizipro.cn/taueditor/releases/0.6.45/Tau.Editor%20Setup.exe'
+  assert.equal(
+    resolveMirrorDownloadUrl(mirrorUrl, 'taueditor.lizipro.cn'),
+    '/taueditor/releases/0.6.45/Tau.Editor%20Setup.exe',
+  )
+  assert.equal(
+    resolveMirrorDownloadUrl(mirrorUrl, '10.123.1.2'),
+    '/taueditor/releases/0.6.45/Tau.Editor%20Setup.exe',
+  )
+  assert.equal(resolveMirrorDownloadUrl(mirrorUrl, 'kokotao.github.io'), mirrorUrl)
+  assert.equal(resolveMirrorDownloadUrl('javascript:alert(1)', 'taueditor.lizipro.cn'), '')
 })
 
 test('only enables mirror downloads when the published manifest matches the asset', () => {

@@ -74,6 +74,7 @@ import {
   loadWorkspaceTasks,
 } from '@/services/markdownContextService';
 import { rankQuickOpenFiles } from '@/services/quickOpenService';
+import { startMediaCacheMaintenance } from '@/services/mediaCacheService';
 import { NavigationHistory, type NavigationLocation } from '@/services/navigationHistory';
 import { resolveWorkbenchSidebarVisibility } from '@/utils/workbenchLayout';
 import {
@@ -416,6 +417,11 @@ const fileDetailsDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>(
   visible: false,
   entry: null,
 });
+const fileDeleteDialog = ref<{ visible: boolean; entry: FileTreeNode | null }>({
+  visible: false,
+  entry: null,
+});
+const fileDeleteCancelButton = ref<HTMLButtonElement | null>(null);
 const editorScrollState = ref<{ top: number; height: number; scrollHeight: number } | null>(null);
 /**
  * 目录联动高亮的唯一状态源（D6）：编辑器视口首行 / 预览当前标题行 / 点击大纲项，
@@ -498,6 +504,7 @@ const titlebarUpdateProgressVisible = ref(false);
 const titlebarUpdateComplete = ref(false);
 let unlistenUpdateProgress: (() => void) | null = null;
 let titlebarProgressTimer: ReturnType<typeof setTimeout> | null = null;
+let stopMediaCacheMaintenance: (() => void) | null = null;
 type FileTreeExpose = { revealPath: (path: string) => Promise<boolean> | boolean };
 const fileTreeRef = ref<FileTreeExpose | null>(null);
 type MarkdownPreviewExpose = { scrollToSourceLine: (line: number) => void };
@@ -3509,13 +3516,20 @@ const handleFileTreeRename = async (entry: FileTreeNode) => {
 
 const handleFileTreeDelete = async (entry: FileTreeNode) => {
   fileTreeContextEntry.value = entry;
-  if (typeof window !== 'undefined') {
-    const confirmed = window.confirm(`确认删除「${entry.name}」吗？此操作不可恢复。`);
-    if (!confirmed) {
-      return;
-    }
-  }
+  fileDeleteDialog.value = { visible: true, entry };
+  void nextTick(() => fileDeleteCancelButton.value?.focus());
+};
 
+const closeFileDeleteDialog = () => {
+  fileDeleteDialog.value = { visible: false, entry: null };
+};
+
+const confirmFileTreeDelete = async () => {
+  const entry = fileDeleteDialog.value.entry;
+  if (!entry || !fileDeleteDialog.value.visible) {
+    return;
+  }
+  closeFileDeleteDialog();
   try {
     await fileSystemStore.deleteFileOrFolder(entry.path);
     closeTabsByPath(entry.path, entry.type as 'file' | 'folder');
@@ -4392,6 +4406,10 @@ const handleToggleProblems = () => {
   problemsPanelVisible.value = !problemsPanelVisible.value;
 };
 
+const toggleStatusBar = () => {
+  void settingsStore.updateSettings({ showStatusBar: !settingsStore.showStatusBar });
+};
+
 const getLocalizedCommandTitle = (id: CommandId) =>
   getCommandText(settingsStore.uiLanguage, id).title;
 
@@ -4422,6 +4440,7 @@ const createLocalizedCommands = () => {
   toggleProblems: handleToggleProblems,
   toggleSidebar: handleToggleFileTree,
   toggleSettings: () => toggleSettingsContainer('workspace'),
+  toggleStatusBar,
   openCommandPalette: handleOpenCommandPalette,
   compareWithFile: handleCompareWithFile,
   openInNewWindow: handleOpenTabInNewWindow,
@@ -4537,6 +4556,7 @@ const keybindingCommandHandlers: Record<string, () => void> = {
   'workspace.searchSymbols': () => void executeCommand('workspace.searchSymbols'),
   'view.toggleSidebar': handleToggleFileTree,
   'view.toggleSettings': () => void executeCommand('view.toggleSettings'),
+  'view.toggleStatusBar': () => void executeCommand('view.toggleStatusBar'),
   'editor.zoomIn': () => settingsStore.adjustFontSize(1),
   'editor.zoomOut': () => settingsStore.adjustFontSize(-1),
   'editor.zoomReset': () => settingsStore.resetFontSize(),
@@ -5543,6 +5563,7 @@ watch(
 );
 
 onMounted(async () => {
+  stopMediaCacheMaintenance = startMediaCacheMaintenance();
   if (hasDesktopWindowTitlebar.value) {
     const { listen } = await import('@tauri-apps/api/event');
     unlistenUpdateProgress = await listen<UpdateDownloadProgress>(
@@ -5628,6 +5649,8 @@ onUnmounted(() => {
     unlistenUpdateProgress();
     unlistenUpdateProgress = null;
   }
+  stopMediaCacheMaintenance?.();
+  stopMediaCacheMaintenance = null;
   unlistenWindowResize?.();
   unlistenWindowResize = null;
   clearTitlebarProgressTimer();
@@ -5729,6 +5752,45 @@ onUnmounted(() => {
         </dl>
         <div class="name-dialog-actions">
           <button type="button" class="name-dialog-button primary" data-testid="file-details-close" @click="closeFileDetailsDialog">关闭</button>
+        </div>
+      </section>
+    </div>
+    <div
+      v-if="fileDeleteDialog.visible && fileDeleteDialog.entry"
+      class="name-dialog-backdrop"
+      data-testid="file-delete-backdrop"
+      @click.self="closeFileDeleteDialog"
+    >
+      <section
+        class="name-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="file-delete-title"
+        data-testid="file-delete-dialog"
+        @keydown.esc.prevent="closeFileDeleteDialog"
+      >
+        <h2 id="file-delete-title" class="name-dialog-title">确认删除</h2>
+        <p class="file-delete-message">
+          确认删除「{{ fileDeleteDialog.entry.name }}」吗？此操作不可恢复。
+        </p>
+        <div class="name-dialog-actions">
+          <button
+            ref="fileDeleteCancelButton"
+            type="button"
+            class="name-dialog-button"
+            data-testid="file-delete-cancel"
+            @click="closeFileDeleteDialog"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="name-dialog-button primary"
+            data-testid="file-delete-confirm"
+            @click="confirmFileTreeDelete"
+          >
+            删除
+          </button>
         </div>
       </section>
     </div>
@@ -6626,6 +6688,7 @@ onUnmounted(() => {
         {{ fileTreeCopy.uploadRunningBadge(folderUploadProgress.done, folderUploadProgress.total) }}
       </button>
       <StatusBar
+        v-if="settingsStore.showStatusBar"
         :is-mindmap="isMindmapTab"
         :mindmap-character-count="mindmapStatusCounts.characterCount"
         :mindmap-topic-count="mindmapStatusCounts.topicCount"
@@ -6644,6 +6707,21 @@ onUnmounted(() => {
         @theme-change="handleThemeChange"
         @retry-cloud-sync="handleRetryCloudSync"
       />
+      <button
+        type="button"
+        class="app-status-bar__toggle"
+        data-testid="toggle-status-bar-visibility"
+        :aria-label="settingsStore.showStatusBar
+          ? (settingsStore.uiLanguage === 'en-US' ? 'Hide status bar' : '隐藏底部状态栏')
+          : (settingsStore.uiLanguage === 'en-US' ? 'Show status bar' : '显示底部状态栏')"
+        :title="settingsStore.showStatusBar
+          ? (settingsStore.uiLanguage === 'en-US' ? 'Hide status bar' : '隐藏底部状态栏')
+          : (settingsStore.uiLanguage === 'en-US' ? 'Show status bar' : '显示底部状态栏')"
+        :aria-expanded="settingsStore.showStatusBar"
+        @click="toggleStatusBar"
+      >
+        <TauIcon name="icon-chevron-down" :size="14" :class="{ 'is-expanded': !settingsStore.showStatusBar }" />
+      </button>
     </div>
 
   </div>
@@ -6749,6 +6827,45 @@ textarea {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
+}
+
+.app-status-bar :deep(.status-bar) {
+  padding-right: 42px;
+}
+
+.app-status-bar__toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  z-index: 22;
+  display: grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.28));
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--chrome-bg, #111827) 88%, transparent);
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.app-status-bar__toggle:hover,
+.app-status-bar__toggle:focus-visible {
+  opacity: 1;
+  color: var(--text-primary, #f8fafc);
+  border-color: var(--accent-blue, #7cc7ff);
+}
+
+.app-status-bar__toggle:focus-visible {
+  outline: 2px solid var(--accent-blue, #7cc7ff);
+  outline-offset: 2px;
+}
+
+.app-status-bar__toggle .is-expanded {
+  transform: rotate(180deg);
 }
 
 .app-status-bar__upload {

@@ -453,6 +453,24 @@
             </div>
 
             <div class="settings-item">
+              <label class="settings-label" for="markdown-preview-image-width">{{ copy.markdownPreviewImageWidth }}</label>
+              <div class="radius-slider-row">
+                <input
+                  id="markdown-preview-image-width"
+                  class="radius-slider"
+                  data-testid="markdown-preview-image-width"
+                  type="range"
+                  min="25"
+                  max="100"
+                  step="5"
+                  :value="settingsStore.markdownPreviewImageWidth"
+                  @input="settingsStore.updateSettings({ markdownPreviewImageWidth: ($event.target as HTMLInputElement).valueAsNumber })"
+                />
+                <output data-testid="markdown-preview-image-width-value">{{ settingsStore.markdownPreviewImageWidth }}%</output>
+              </div>
+            </div>
+
+            <div class="settings-item">
               <label class="settings-label">{{ copy.markdownMermaidTheme }}</label>
               <n-select
                 class="settings-nselect"
@@ -491,6 +509,14 @@
               <label class="settings-checkbox">
                 <input data-testid="toggle-auto-save" type="checkbox" :checked="settingsStore.autoSaveEnabled" @change="setAutoSave($event)" />
                 <span class="checkbox-text">{{ copy.autoSaveEnabled }}</span>
+              </label>
+            </div>
+
+            <div class="settings-item">
+              <label class="settings-label">{{ copy.showStatusBar }}</label>
+              <label class="settings-checkbox">
+                <input data-testid="toggle-status-bar" type="checkbox" :checked="settingsStore.showStatusBar" @change="settingsStore.updateSettings({ showStatusBar: ($event.target as HTMLInputElement).checked })" />
+                <span class="checkbox-text">{{ copy.showStatusBar }}</span>
               </label>
             </div>
 
@@ -1101,6 +1127,8 @@ const installMessage = ref('');
 const isCheckingUpdate = ref(false);
 let releaseNotesRenderToken = 0;
 const isInstallingUpdate = ref(false);
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let automaticUpdateCheckTimer: ReturnType<typeof setInterval> | null = null;
 
 const fileAssociations = ref<FileAssociationState[]>([]);
 const associationLoading = ref(false);
@@ -2004,6 +2032,10 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('keydown', handleKeybindingRecorderKeydown, true);
   }
+  if (automaticUpdateCheckTimer) {
+    clearInterval(automaticUpdateCheckTimer);
+    automaticUpdateCheckTimer = null;
+  }
 });
 
 const setUiLanguage = (value: string | number | null) => {
@@ -2255,6 +2287,11 @@ onMounted(async () => {
   }
   if (isWorkspaceMode.value) {
     await checkForUpdate(true);
+    if (isTauriApp() && !automaticUpdateCheckTimer) {
+      automaticUpdateCheckTimer = setInterval(() => {
+        void checkForUpdate(true);
+      }, UPDATE_CHECK_INTERVAL_MS);
+    }
   }
 });
 

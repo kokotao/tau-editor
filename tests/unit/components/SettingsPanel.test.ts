@@ -39,7 +39,7 @@ vi.mock('naive-ui', () => ({
 vi.mock('@/lib/tauri', () => ({
   // SettingsPanel 的云同步分类在 onMounted 里用 isTauriApp() 判断是否恢复会话；
   // 这里补一个 Web 环境返回值，避免部分 mock 触发 vitest 的 "No export is defined"。
-  isTauriApp: () => false,
+  isTauriApp: vi.fn(() => false),
   settingsCommands: {
     getAutoSaveInterval: vi.fn().mockResolvedValue(30),
     setAutoSaveEnabled: vi.fn().mockResolvedValue(undefined),
@@ -85,7 +85,8 @@ vi.mock('@/services/markdownRenderService', () => ({
 }));
 
 import SettingsPanel from '@/components/editor/SettingsPanel.vue';
-import { settingsCommands } from '@/lib/tauri';
+import { isTauriApp, settingsCommands } from '@/lib/tauri';
+import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useSettingsStore } from '@/stores/settings';
 
 describe('SettingsPanel', () => {
@@ -111,6 +112,7 @@ describe('SettingsPanel', () => {
   });
 
   beforeEach(async () => {
+    vi.mocked(isTauriApp).mockReturnValue(false);
     pinia = createPinia();
     setActivePinia(pinia);
     settingsStore = useSettingsStore(pinia);
@@ -145,6 +147,18 @@ describe('SettingsPanel', () => {
     await nextTick();
     expect(saveState.text()).toContain('自动保存已启用');
     expect(saveState.classes()).not.toContain('settings-save-state--disabled');
+  });
+
+  it('编辑器设置可以隐藏底部状态栏', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const toggle = wrapper.get('[data-testid="toggle-status-bar"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    await toggle.setValue(false);
+    await flushPromises();
+
+    expect(settingsStore.showStatusBar).toBe(false);
   });
 
   it('浅色主题下设置页应使用浅色表面和可读的下拉菜单配色', async () => {
@@ -219,6 +233,26 @@ describe('SettingsPanel', () => {
       releaseNotes: '# 新版本\n\n- 支持 Markdown 更新说明',
       releaseUrl: 'https://github.com/kokotao/tau-editor/releases/tag/v0.3.0',
     }]);
+  });
+
+  it('桌面端每六小时静默检查更新，并在卸载时清除定时器', async () => {
+    vi.useFakeTimers();
+    vi.mocked(isTauriApp).mockReturnValue(true);
+    const cloudSyncStore = useCloudSyncStore(pinia);
+    vi.spyOn(cloudSyncStore, 'initialize').mockResolvedValue(undefined);
+
+    const wrapper = mountPanel();
+    await flushPromises();
+    expect(settingsCommands.checkGithubUpdate).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+    await flushPromises();
+    expect(settingsCommands.checkGithubUpdate).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+    expect(settingsCommands.checkGithubUpdate).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it('点击更新图标使用匹配设备安装包并带入预期大小', async () => {
@@ -406,6 +440,20 @@ describe('SettingsPanel', () => {
     expect(markdownPreviewThemeSelect.exists()).toBe(true);
     expect(settingsStore.markdownPreviewTheme).toBe('docs-clean');
     expect(wrapper.text()).toContain('Markdown 预览主题');
+  });
+
+  it('editor 分类应展示 Markdown 图片宽度滑块并更新设置', async () => {
+    const wrapper = mountPanel({ activeCategory: 'editor' });
+    await flushPromises();
+
+    const imageWidth = wrapper.find('[data-testid="markdown-preview-image-width"]');
+    expect(imageWidth.exists()).toBe(true);
+    expect(settingsStore.markdownPreviewImageWidth).toBe(75);
+    expect(wrapper.text()).toContain('Markdown 图片宽度');
+
+    await imageWidth.setValue('60');
+    await flushPromises();
+    expect(settingsStore.markdownPreviewImageWidth).toBe(60);
   });
 
   it('editor 分类应展示 Mermaid 流程图渲染主题设置并默认跟随预览', async () => {

@@ -62,3 +62,15 @@ test('fetches all release pages with the Actions token and keeps only public fie
     }],
   })
 })
+
+test('allows manual snapshot generation through the public GitHub API without a token', async () => {
+  const requests = []
+  const result = await fetchReleaseSnapshot(undefined, async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => [] }
+  })
+
+  assert.deepEqual(result, [])
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].options.headers.Authorization, undefined)
+})

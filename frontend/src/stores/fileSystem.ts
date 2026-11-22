@@ -7,6 +7,14 @@ export interface FileTreeNode extends FileEntry {
   isExpanded?: boolean;
 }
 
+const normalizeFsPath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
+
+const isSameOrDescendantPath = (path: string, targetPath: string) => {
+  const normalizedPath = normalizeFsPath(path);
+  const normalizedTarget = normalizeFsPath(targetPath);
+  return normalizedPath === normalizedTarget || normalizedPath.startsWith(`${normalizedTarget}/`);
+};
+
 export interface FileSystemState {
   fileTree: FileTreeNode[];     // 文件树
   loading: boolean;             // 是否正在加载
@@ -224,15 +232,16 @@ export const useFileSystemStore = defineStore('fileSystem', {
 
     // 从树中移除条目
     removeEntry(entryPath: string) {
-      const parentPath = entryPath.substring(0, entryPath.lastIndexOf('/'));
+      const normalizedEntryPath = normalizeFsPath(entryPath);
+      const parentPath = normalizedEntryPath.substring(0, normalizedEntryPath.lastIndexOf('/'));
       const rootPath = this.rootPath;
       
-      if (parentPath === rootPath || !parentPath) {
-        this.fileTree = this.fileTree.filter(e => e.path !== entryPath);
+      if (parentPath === normalizeFsPath(rootPath ?? '') || !parentPath) {
+        this.fileTree = this.fileTree.filter(e => normalizeFsPath(e.path) !== normalizedEntryPath);
       } else {
         const parent = this.findEntryByPath(this.fileTree, parentPath);
         if (parent && parent.children) {
-          parent.children = parent.children.filter(e => e.path !== entryPath);
+          parent.children = parent.children.filter(e => normalizeFsPath(e.path) !== normalizedEntryPath);
         }
       }
     },
@@ -314,8 +323,13 @@ export const useFileSystemStore = defineStore('fileSystem', {
       try {
         await fileCommands.deleteFile(path);
         this.removeEntry(path);
-        if (this.selectedPath === path) {
+        if (this.selectedPath && isSameOrDescendantPath(this.selectedPath, path)) {
           this.selectedPath = null;
+        }
+        for (const expandedPath of this.expandedPaths) {
+          if (isSameOrDescendantPath(expandedPath, path)) {
+            this.expandedPaths.delete(expandedPath);
+          }
         }
       } catch (error) {
         const tauriError = error instanceof TauriError ? error : TauriError.fromError(error, 'delete_file');

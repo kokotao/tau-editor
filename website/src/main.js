@@ -1,6 +1,6 @@
 import './style.css'
 import { formatDownloadCount } from './releaseFormatting.js'
-import { fetchPublishedReleases } from './releaseDataSource.js'
+import { fetchPublishedReleases, inferAssetPlatform, resolveMirrorDownloadUrl } from './releaseDataSource.js'
 
 const features = [
   ['01', '自研思维导图引擎', '从 TauMap 数据模型、布局算法到 SVG 画布交互完整自研；节点、连线、主题和工作表都能直接编辑。'],
@@ -342,14 +342,6 @@ const compareReleaseVersions = (left, right) => {
   return String(right.publishedAt).localeCompare(String(left.publishedAt))
 }
 
-const inferAssetPlatform = (assetName) => {
-  const name = String(assetName ?? '').toLowerCase()
-  if (/\.(?:exe|msi)$/i.test(name) || /(?:windows|win32|win64|x64-setup|x64_zh)/i.test(name)) return 'Windows'
-  if (/\.(?:dmg|pkg)$/i.test(name) || /(?:macos|darwin|universal|apple|arm64\.dmg|amd64\.dmg)/i.test(name)) return 'macOS'
-  if (/\.(?:deb|rpm|appimage)$/i.test(name) || /(?:linux|ubuntu|debian|fedora|appimage)/i.test(name)) return 'Linux'
-  return null
-}
-
 const normalizeGithubRelease = (release) => {
   const version = release.tag_name || release.name || '未知版本'
   const highlights = extractReleaseHighlights(release.body)
@@ -372,7 +364,7 @@ const normalizeGithubRelease = (release) => {
         url: asset.browser_download_url,
         platform: inferAssetPlatform(asset.name),
         downloadCount: Number.isFinite(asset.download_count) ? asset.download_count : null,
-        mirror_url: asset.mirror_url || '',
+        mirror_url: resolveMirrorDownloadUrl(asset.mirror_url, window.location.hostname),
       })) : [],
   }
 }

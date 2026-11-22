@@ -180,10 +180,11 @@ impl From<GithubAssetResponse> for ReleaseAssetInfo {
 }
 
 fn github_asset_url(owner: &str, repo: &str, tag: &str, name: &str) -> String {
-    let mut url = reqwest::Url::parse(&format!("https://github.com/{owner}/{repo}/"))
+    let mut url = reqwest::Url::parse(&format!("https://github.com/{owner}/{repo}"))
         .expect("static GitHub base URL is valid");
     url.path_segments_mut()
         .expect("GitHub URL supports path segments")
+        .pop_if_empty()
         .extend(["releases", "download", tag, name]);
     url.to_string()
 }
@@ -225,12 +226,7 @@ fn update_download_urls(github_url: &str, mirror_urls: &[String]) -> Vec<String>
     urls
 }
 
-fn manifest_asset_urls(
-    asset: &ManifestAsset,
-    owner: &str,
-    repo: &str,
-    tag: &str,
-) -> Vec<String> {
+fn manifest_asset_urls(asset: &ManifestAsset, owner: &str, repo: &str, tag: &str) -> Vec<String> {
     let github_url = if asset.urls.github.is_empty() {
         github_asset_url(owner, repo, tag, &asset.name)
     } else {
@@ -250,9 +246,83 @@ fn manifest_asset_urls(
     urls
 }
 
+fn manifest_release_tag(manifest: &ReleaseManifest) -> String {
+    if manifest.tag.is_empty() {
+        manifest.version.clone()
+    } else {
+        manifest.tag.clone()
+    }
+}
+
+fn manifest_has_update(manifest: &ReleaseManifest, current_version: &str) -> bool {
+    is_newer_version(&manifest_release_tag(manifest), current_version)
+}
+
+fn release_manifest_url(cache_buster: u128) -> String {
+    format!("{RELEASE_MANIFEST_URL}?w={cache_buster}")
+}
+
+fn release_from_manifest(
+    manifest: &ReleaseManifest,
+    owner: &str,
+    repo: &str,
+) -> GithubReleaseResponse {
+    let tag = manifest_release_tag(manifest);
+    GithubReleaseResponse {
+        tag_name: tag.clone(),
+        name: None,
+        body: Some(manifest.release_notes.clone()),
+        html_url: if manifest.release_url.is_empty() {
+            format!("https://github.com/{owner}/{repo}/releases")
+        } else {
+            manifest.release_url.clone()
+        },
+        published_at: None,
+        assets: manifest
+            .assets
+            .iter()
+            .map(|asset| {
+                let urls = manifest_asset_urls(asset, owner, repo, &tag);
+                let github_url = urls
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| github_asset_url(owner, repo, &tag, &asset.name));
+                let note_url = if asset.urls.note.is_empty() {
+                    format!(
+                        "https://note.lizipro.cn/taueditor/releases/{}/{}",
+                        tag, asset.name
+                    )
+                } else {
+                    asset.urls.note.clone()
+                };
+                let (browser_download_url, mirror_urls) = if validate_mirror_url(&note_url).is_ok()
+                {
+                    let mut mirrors = vec![github_url];
+                    for url in urls.into_iter().skip(1) {
+                        if url != note_url && !mirrors.contains(&url) {
+                            mirrors.push(url);
+                        }
+                    }
+                    (note_url, mirrors)
+                } else {
+                    (github_url, urls.into_iter().skip(1).collect())
+                };
+                GithubAssetResponse {
+                    name: asset.name.clone(),
+                    browser_download_url,
+                    size: asset.size,
+                    content_type: None,
+                    sha256: asset.sha256.clone(),
+                    mirror_urls,
+                }
+            })
+            .collect(),
+    }
+}
+
 fn merge_manifest_assets(
     assets: &mut [GithubAssetResponse],
-    manifest_assets: Vec<ManifestAsset>,
+    manifest_assets: &[ManifestAsset],
     owner: &str,
     repo: &str,
     tag: &str,
@@ -323,77 +393,62 @@ pub fn get_app_version_info() -> AppVersionInfo {
 pub async fn check_github_update(repo_url: Option<String>) -> Result<GithubUpdateInfo, String> {
     let raw_repo_url = repo_url.unwrap_or_else(|| PROJECT_HOMEPAGE_URL.to_string());
     let (owner, repo) = parse_github_repo(&raw_repo_url)?;
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
 
-    let release = match fetch_latest_release(&owner, &repo).await {
-        Ok(release) => Ok(release),
-        Err(api_error) if is_rate_limited_error(&api_error) => {
-            match fetch_latest_release_from_web(&owner, &repo).await {
-                Ok(release) => Ok(release),
-                Err(web_error) => Err(format!("{api_error}; {web_error}")),
-            }
-        }
-        Err(api_error) => Err(api_error),
+    let manifest = if owner == "kokotao" && repo == "tau-editor" {
+        fetch_release_manifest().await.ok()
+    } else {
+        None
     };
+    let manifest_is_newer = manifest
+        .as_ref()
+        .is_some_and(|manifest| manifest_has_update(manifest, &current_version));
 
-    let release = match release {
-        Ok(mut release) => {
-            if owner == "kokotao" && repo == "tau-editor" {
-                if let Ok(manifest) = fetch_release_manifest().await {
-                    if normalize_version(&manifest.tag) == normalize_version(&release.tag_name) {
+    let release = if manifest_is_newer {
+        release_from_manifest(
+            manifest.as_ref().expect("newer manifest is present"),
+            &owner,
+            &repo,
+        )
+    } else {
+        let github_release = match fetch_latest_release(&owner, &repo).await {
+            Ok(release) => Ok(release),
+            Err(api_error) if is_rate_limited_error(&api_error) => {
+                match fetch_latest_release_from_web(&owner, &repo).await {
+                    Ok(release) => Ok(release),
+                    Err(web_error) => Err(format!("{api_error}; {web_error}")),
+                }
+            }
+            Err(api_error) => Err(api_error),
+        };
+
+        match github_release {
+            Ok(mut release) => {
+                if let Some(manifest) = manifest.as_ref() {
+                    if normalize_version(&manifest_release_tag(manifest))
+                        == normalize_version(&release.tag_name)
+                    {
                         merge_manifest_assets(
                             &mut release.assets,
-                            manifest.assets,
+                            &manifest.assets,
                             &owner,
                             &repo,
                             &release.tag_name,
                         );
                     }
                 }
+                release
             }
-            release
+            Err(github_error) => match manifest.as_ref() {
+                Some(manifest) => release_from_manifest(manifest, &owner, &repo),
+                None if owner == "kokotao" && repo == "tau-editor" => {
+                    return Err(format!("{github_error}; 镜像版本清单不可用"));
+                }
+                None => return Err(github_error),
+            },
         }
-        Err(github_error) if owner == "kokotao" && repo == "tau-editor" => {
-            let manifest = fetch_release_manifest().await.map_err(|manifest_error| {
-                format!("{github_error}; 镜像版本清单不可用：{manifest_error}")
-            })?;
-            let tag = if manifest.tag.is_empty() {
-                manifest.version.clone()
-            } else {
-                manifest.tag.clone()
-            };
-            GithubReleaseResponse {
-                tag_name: tag.clone(),
-                name: None,
-                body: Some(manifest.release_notes),
-                html_url: if manifest.release_url.is_empty() {
-                    format!("https://github.com/{owner}/{repo}/releases")
-                } else {
-                    manifest.release_url
-                },
-                published_at: None,
-                assets: manifest
-                    .assets
-                    .into_iter()
-                    .map(|asset| {
-                        let mirror_urls = manifest_asset_urls(&asset, &owner, &repo, &tag)
-                            .into_iter()
-                            .skip(1)
-                            .collect();
-                        GithubAssetResponse {
-                            name: asset.name.clone(),
-                            browser_download_url: github_asset_url(&owner, &repo, &tag, &asset.name),
-                            size: asset.size,
-                            content_type: None,
-                            sha256: asset.sha256,
-                            mirror_urls,
-                        }
-                    })
-                    .collect(),
-            }
-        }
-        Err(github_error) => return Err(github_error),
     };
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
+
     let latest_version = normalize_version(&release.tag_name);
     let has_update = is_newer_version(&latest_version, &current_version);
 
@@ -625,8 +680,14 @@ async fn fetch_release_manifest() -> Result<ReleaseManifest, String> {
         .user_agent(HTTP_USER_AGENT)
         .build()
         .map_err(|error| format!("初始化镜像清单客户端失败：{error}"))?;
+    let url = release_manifest_url(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+    );
     let response = client
-        .get(RELEASE_MANIFEST_URL)
+        .get(url)
         .send()
         .await
         .map_err(|error| format!("请求镜像版本清单失败：{error}"))?;
@@ -1465,6 +1526,48 @@ mod tests {
         assert!(is_newer_version("v1.0.0", "0.9.9"));
         assert!(!is_newer_version("0.2.0", "0.2.0"));
         assert!(!is_newer_version("0.2.0", "0.3.0"));
+    }
+
+    #[test]
+    fn manifest_update_selection_uses_newer_manifest_and_cache_buster() {
+        let manifest: ReleaseManifest =
+            serde_json::from_str(r#"{"version":"0.6.45","tag":"v0.6.45","assets":[]}"#)
+                .expect("manifest should deserialize");
+
+        assert!(manifest_has_update(&manifest, "0.6.44"));
+        assert!(!manifest_has_update(&manifest, "0.6.45"));
+        assert_eq!(
+            release_manifest_url(123),
+            "https://note.lizipro.cn/taueditor/releases/latest.json?w=123"
+        );
+    }
+
+    #[test]
+    fn manifest_release_prefers_note_asset_with_github_fallback() {
+        let manifest: ReleaseManifest = serde_json::from_str(
+            r#"{
+                "version":"0.6.45",
+                "tag":"v0.6.45",
+                "assets":[{
+                    "name":"Tau.Editor_0.6.45_x64-setup.exe",
+                    "size":42,
+                    "urls":{"note":"https://note.lizipro.cn/taueditor/releases/0.6.45/Tau.Editor_0.6.45_x64-setup.exe"}
+                }]
+            }"#,
+        )
+        .expect("manifest should deserialize");
+
+        let release = release_from_manifest(&manifest, "kokotao", "tau-editor");
+        assert_eq!(release.assets.len(), 1);
+        assert_eq!(
+            release.assets[0].browser_download_url,
+            "https://note.lizipro.cn/taueditor/releases/0.6.45/Tau.Editor_0.6.45_x64-setup.exe"
+        );
+        assert_eq!(
+            release.assets[0].mirror_urls[0],
+            "https://github.com/kokotao/tau-editor/releases/download/v0.6.45/Tau.Editor_0.6.45_x64-setup.exe"
+        );
+        assert_eq!(release.assets[0].sha256, None);
     }
 
     #[test]
