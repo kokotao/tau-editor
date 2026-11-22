@@ -7,9 +7,11 @@
 mod manager;
 mod process;
 mod protocol;
+mod windows_command;
 pub mod provisioner;
 
 pub use manager::LspSupervisor;
 pub use process::LspSession;
 pub use protocol::{encode_message, read_message};
+pub(crate) use windows_command::command_invocation;
 pub use provisioner::LspProvisioner;

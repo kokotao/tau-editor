@@ -507,6 +507,39 @@ describe('FileSystemStore', () => {
       expect(store.selectedPath).toBeNull()
     })
 
+    it('deleteFileOrFolder() 删除目录后应清除其后代选择和展开状态', async () => {
+      store.fileTree = [
+        {
+          name: 'src',
+          path: '/project/src',
+          type: 'folder',
+          children: [{ name: 'nested', path: '/project/src/nested', type: 'folder', children: [] }],
+        },
+      ]
+      store.selectedPath = '/project/src/nested/file.ts'
+      store.expandedPaths = new Set(['/project/src', '/project/src/nested', '/project/src-extra'])
+      vi.mocked(fileCommands.deleteFile).mockResolvedValue()
+
+      await store.deleteFileOrFolder('/project/src')
+
+      expect(store.selectedPath).toBeNull()
+      expect(store.expandedPaths).toEqual(new Set(['/project/src-extra']))
+      expect(store.fileTree).toEqual([])
+    })
+
+    it('deleteFileOrFolder() 删除失败时应保留文件树、选择和展开状态', async () => {
+      store.fileTree = [{ name: 'src', path: '/project/src', type: 'folder', children: [] }]
+      store.selectedPath = '/project/src/file.ts'
+      store.expandedPaths = new Set(['/project/src'])
+      vi.mocked(fileCommands.deleteFile).mockRejectedValue(new Error('permission denied'))
+
+      await expect(store.deleteFileOrFolder('/project/src')).rejects.toThrow('删除失败')
+
+      expect(store.selectedPath).toBe('/project/src/file.ts')
+      expect(store.expandedPaths).toEqual(new Set(['/project/src']))
+      expect(store.fileTree).toHaveLength(1)
+    })
+
     it('deleteFileOrFolder() 失败应抛出错误', async () => {
       vi.mocked(fileCommands.deleteFile).mockRejectedValue(new Error('Delete failed'))
 

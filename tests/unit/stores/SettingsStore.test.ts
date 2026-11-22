@@ -207,6 +207,10 @@ describe('SettingsStore', () => {
       expect(store.markdownPreviewTheme).toBe('docs-clean')
     })
 
+    it('应初始化 Markdown 预览图片宽度为 75%', () => {
+      expect(store.markdownPreviewImageWidth).toBe(75)
+    })
+
     it('应初始化关闭前确认为 true', () => {
       expect(store.confirmBeforeClose).toBe(true)
     })
@@ -357,6 +361,20 @@ describe('SettingsStore', () => {
       )
       expect(saved.markdownPreviewTheme).toBe('paper-soft')
     })
+
+    it('updateSettings() 应保存并限制 Markdown 预览图片宽度', async () => {
+      await store.updateSettings({ markdownPreviewImageWidth: 62 })
+      expect(store.markdownPreviewImageWidth).toBe(60)
+      const saved = JSON.parse(
+        vi.mocked(localStorage.setItem).mock.calls.at(-1)?.[1] ?? '{}',
+      )
+      expect(saved.markdownPreviewImageWidth).toBe(60)
+
+      await store.updateSettings({ markdownPreviewImageWidth: 120 })
+      expect(store.markdownPreviewImageWidth).toBe(100)
+      await store.updateSettings({ markdownPreviewImageWidth: 10 })
+      expect(store.markdownPreviewImageWidth).toBe(25)
+    })
   })
 
   describe('重置设置', () => {
@@ -446,6 +464,16 @@ describe('SettingsStore', () => {
       store.loadFromStorage()
 
       expect(store.markdownPreviewTheme).toBe('paper-soft')
+    })
+
+    it('loadFromStorage() 应恢复并限制 Markdown 预览图片宽度', () => {
+      vi.mocked(localStorage.getItem).mockReturnValue(JSON.stringify({
+        markdownPreviewImageWidth: 55,
+      }))
+
+      store.loadFromStorage()
+
+      expect(store.markdownPreviewImageWidth).toBe(55)
     })
 
     it('应持久化并恢复 ContextRail 布局设置', () => {

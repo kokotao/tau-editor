@@ -124,6 +124,7 @@ export interface EditorSettings {
   // 自动保存
   autoSaveEnabled: boolean;
   autoSaveInterval: number;     // 秒
+  showStatusBar: boolean;
 
   // 标签页
   tabSize: number;
@@ -143,6 +144,7 @@ export interface EditorSettings {
   markdownPreviewMode: 'edit' | 'split' | 'preview';
   markdownPreviewEnabled: boolean;
   markdownPreviewTheme: MarkdownPreviewTheme;
+  markdownPreviewImageWidth: number;
   markdownMermaidTheme: MarkdownMermaidTheme;
   markdownMermaidNodeColor: string;
 
@@ -426,6 +428,12 @@ function normalizeMarkdownPreviewTheme(value: unknown): MarkdownPreviewTheme {
   return 'docs-clean';
 }
 
+function normalizeMarkdownPreviewImageWidth(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 75;
+  return Math.min(100, Math.max(25, Math.round(parsed / 5) * 5));
+}
+
 function normalizeMarkdownMermaidTheme(value: unknown): MarkdownMermaidTheme {
   if (typeof value === 'string' && MARKDOWN_MERMAID_THEMES.includes(value as MarkdownMermaidTheme)) {
     return value as MarkdownMermaidTheme;
@@ -514,6 +522,7 @@ export const useSettingsStore = defineStore('settings', {
     wordWrap: false,
     autoSaveEnabled: true,
     autoSaveInterval: 30,
+    showStatusBar: true,
     tabSize: 2,
     insertSpaces: true,
     trimTrailingWhitespace: true,
@@ -527,6 +536,7 @@ export const useSettingsStore = defineStore('settings', {
     markdownPreviewMode: 'edit',
     markdownPreviewEnabled: true,
     markdownPreviewTheme: 'docs-clean',
+    markdownPreviewImageWidth: 75,
     markdownMermaidTheme: 'auto',
     markdownMermaidNodeColor: '',
     confirmBeforeClose: true,
@@ -616,6 +626,7 @@ export const useSettingsStore = defineStore('settings', {
           this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
           this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
           this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
+          this.markdownPreviewImageWidth = normalizeMarkdownPreviewImageWidth(this.markdownPreviewImageWidth);
           this.markdownMermaidTheme = normalizeMarkdownMermaidTheme(this.markdownMermaidTheme);
           this.markdownMermaidNodeColor = normalizeMarkdownMermaidNodeColor(this.markdownMermaidNodeColor);
           this.themePackages = normalizeStoredThemePackages(this.themePackages);
@@ -666,6 +677,7 @@ export const useSettingsStore = defineStore('settings', {
           wordWrap: this.wordWrap,
           autoSaveEnabled: this.autoSaveEnabled,
           autoSaveInterval: this.autoSaveInterval,
+          showStatusBar: this.showStatusBar,
           tabSize: this.tabSize,
           insertSpaces: this.insertSpaces,
           trimTrailingWhitespace: this.trimTrailingWhitespace,
@@ -679,6 +691,7 @@ export const useSettingsStore = defineStore('settings', {
           markdownPreviewMode: this.markdownPreviewMode,
           markdownPreviewEnabled: this.markdownPreviewEnabled,
           markdownPreviewTheme: this.markdownPreviewTheme,
+          markdownPreviewImageWidth: this.markdownPreviewImageWidth,
           markdownMermaidTheme: this.markdownMermaidTheme,
           markdownMermaidNodeColor: this.markdownMermaidNodeColor,
           confirmBeforeClose: this.confirmBeforeClose,
@@ -702,6 +715,7 @@ export const useSettingsStore = defineStore('settings', {
       this.contextRailWidth = normalizeContextRailWidth(this.contextRailWidth);
       this.contextRailCollapsed = normalizeContextRailCollapsed(this.contextRailCollapsed);
       this.markdownPreviewTheme = normalizeMarkdownPreviewTheme(this.markdownPreviewTheme);
+      this.markdownPreviewImageWidth = normalizeMarkdownPreviewImageWidth(this.markdownPreviewImageWidth);
       this.markdownMermaidTheme = normalizeMarkdownMermaidTheme(this.markdownMermaidTheme);
       this.markdownMermaidNodeColor = normalizeMarkdownMermaidNodeColor(this.markdownMermaidNodeColor);
       this.themePackages = normalizeStoredThemePackages(this.themePackages);

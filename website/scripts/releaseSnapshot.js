@@ -6,16 +6,15 @@ const repository = process.env.GITHUB_REPOSITORY || 'kokotao/tau-editor'
 const apiUrl = `https://api.github.com/repos/${repository}/releases`
 
 export const fetchReleaseSnapshot = async (token, fetchImpl = fetch) => {
-  if (!token) throw new Error('GITHUB_TOKEN is required to build the Release snapshot')
-
   const releases = []
   for (let page = 1; ; page += 1) {
+    const headers = {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    }
+    if (token) headers.Authorization = `Bearer ${token}`
     const response = await fetchImpl(`${apiUrl}?per_page=100&page=${page}`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
+      headers,
     })
     if (!response.ok) throw new Error(`GitHub Releases 请求失败：${response.status}`)
 

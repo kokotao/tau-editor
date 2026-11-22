@@ -169,6 +169,53 @@ describe('CloudFolderUploadDialog', () => {
 });
 
 describe('CloudFolderUploadDialog 后台进行', () => {
+  it('上传中点击叉号只隐藏弹窗，队列继续直到完成', async () => {
+    const pending: Array<(value: unknown) => void> = [];
+    mocks.syncDocumentByPath.mockImplementation(
+      () => new Promise((resolve) => { pending.push(resolve); }),
+    );
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+
+    await wrapper.find('[data-testid="cloud-folder-upload-close"]').trigger('click');
+
+    expect(wrapper.emitted('background')).toHaveLength(1);
+    expect(wrapper.emitted('close')).toBeUndefined();
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledTimes(1);
+
+    await wrapper.setProps({ visible: false });
+    pending[0]?.(syncedOk());
+    await flushPromises();
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledTimes(2);
+    pending[1]?.(syncedOk());
+    await flushPromises();
+
+    expect(wrapper.emitted('uploaded')?.[0]?.[0]).toMatchObject({ uploaded: 2, aborted: false });
+    expect(wrapper.emitted('uploaded')).toHaveLength(1);
+  });
+
+  it('点击中止上传后当前文件收尾且不再启动下一个文件', async () => {
+    let resolveCurrent: ((value: unknown) => void) | undefined;
+    mocks.syncDocumentByPath.mockImplementation(
+      () => new Promise((resolve) => { resolveCurrent = resolve; }),
+    );
+
+    const wrapper = mountDialog();
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-confirm-button"]').trigger('click');
+    await flushPromises();
+    await wrapper.find('[data-testid="cloud-folder-upload-abort"]').trigger('click');
+
+    resolveCurrent?.(syncedOk());
+    await flushPromises();
+
+    expect(mocks.syncDocumentByPath).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted('uploaded')?.[0]?.[0]).toMatchObject({ aborted: true, uploaded: 1 });
+  });
+
   it('running 阶段有「后台进行」按钮，点击只抛 background，不 abort 队列', async () => {
     // 手动控制每个文件何时完成，才能稳定停在 running 阶段
     const pending: Array<(value: unknown) => void> = [];

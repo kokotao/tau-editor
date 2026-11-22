@@ -6,6 +6,7 @@ usage() {
 Usage:
   release-mirror.sh --tag v0.6.42 --assets-dir release-assets [--only all|note|sourceforge] [--dry-run]
   release-mirror.sh --tag v0.6.42 [--only all|note|sourceforge] [--dry-run]
+  release-mirror.sh --tag v0.6.42 --only note --version-only
 
 When --assets-dir is omitted, assets are downloaded from the public GitHub API.
 Uploads use rsync over SSH. Credentials must be provided by ssh-agent/SSH config.
@@ -19,6 +20,7 @@ ASSETS_DIR=""
 ONLY="all"
 DRY_RUN=0
 LATEST=0
+VERSION_ONLY=0
 LOG_BASE="${XDG_STATE_HOME:-${HOME:-/var/lib}/.local/state}"
 LOG_DIR="${TAU_MIRROR_LOG_DIR:-${LOG_BASE}/tau-editor-release-mirror}"
 mkdir -p "$LOG_DIR"
@@ -31,6 +33,7 @@ while (($#)); do
   case "$1" in
     --tag) TAG="${2:?missing value for --tag}"; shift 2 ;;
     --latest) LATEST=1; shift ;;
+    --version-only) VERSION_ONLY=1; shift ;;
     --assets-dir) ASSETS_DIR="${2:?missing value for --assets-dir}"; shift 2 ;;
     --only) ONLY="${2:?missing value for --only}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -63,15 +66,22 @@ CACHE_ROOT="${RELEASE_MIRROR_CACHE_DIR:-/var/cache/tau-editor-release-mirror}"
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
+GITHUB_CURL_CONFIG="${TMP_DIR}/github-curl.conf"
+: > "$GITHUB_CURL_CONFIG"
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN" > "$GITHUB_CURL_CONFIG"
+  chmod 600 "$GITHUB_CURL_CONFIG"
+fi
+GITHUB_CURL_ARGS=(--config "$GITHUB_CURL_CONFIG")
 
 echo "START tag=${TAG} version=${VERSION} mode=${ONLY} dry_run=${DRY_RUN}"
 if [[ -z "$ASSETS_DIR" ]]; then
   command -v curl >/dev/null || { echo "curl is required when --assets-dir is omitted" >&2; exit 1; }
   ASSETS_DIR="${CACHE_ROOT%/}/${TAG}"
   mkdir -p "$ASSETS_DIR"
-  release_json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${TAG}")"
-  while IFS=$'\t' read -r name url expected_size expected_digest; do
-    [[ -n "$name" && -n "$url" ]] || continue
+  release_json="$(curl "${GITHUB_CURL_ARGS[@]}" -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${TAG}")"
+  while IFS=$'\t' read -r name asset_id expected_size expected_digest; do
+    [[ -n "$name" && -n "$asset_id" ]] || continue
     case "$name" in
       *.dmg|*.zip|*.app.tar.gz|*.deb|*.AppImage|*.rpm|*.msi|*.exe)
         target="$ASSETS_DIR/$name"
@@ -99,7 +109,10 @@ if [[ -z "$ASSETS_DIR" ]]; then
         echo "DOWNLOAD_START asset=${name} expected_bytes=${expected_size} expected_digest=${expected_digest:-unavailable}"
         tmp_target="$target.part"
         rm -f "$tmp_target"
-        curl -fL --retry 4 --retry-all-errors --retry-delay 2 "$url" -o "$tmp_target"
+        curl "${GITHUB_CURL_ARGS[@]}" -fL --connect-timeout 20 --max-time 1800 \
+          --retry 4 --retry-all-errors --retry-delay 2 \
+          -H 'Accept: application/octet-stream' -H 'X-GitHub-Api-Version: 2022-11-28' \
+          "https://api.github.com/repos/${REPO}/releases/assets/${asset_id}" -o "$tmp_target"
         actual_size="$(wc -c < "$tmp_target" | tr -d ' ')"
         [[ "$expected_size" == "0" || "$actual_size" == "$expected_size" ]] || {
           echo "Downloaded size mismatch: ${name}: expected=${expected_size} actual=${actual_size}" >&2
@@ -117,7 +130,7 @@ if [[ -z "$ASSETS_DIR" ]]; then
         echo "DOWNLOAD_DONE asset=${name} bytes=${actual_size}"
         ;;
     esac
-  done < <(jq -r '.assets[]? | [.name,.browser_download_url, (.size // 0), (.digest // "")] | @tsv' <<<"$release_json")
+  done < <(jq -r '.assets[]? | [.name,(.id|tostring), (.size // 0), (.digest // "")] | @tsv' <<<"$release_json")
 fi
 [[ -d "$ASSETS_DIR" ]] || { echo "Assets directory does not exist: $ASSETS_DIR" >&2; exit 1; }
 
@@ -200,22 +213,27 @@ if ((NOTE_ENABLED)); then
   echo "NOTE_UPLOAD_START version=${VERSION} asset_count=${#ASSETS[@]}"
   if [[ "$NOTE_MIRROR_HOST" == local || "$NOTE_MIRROR_HOST" == localhost ]]; then
     mkdir -p "$REMOTE_VERSION" "${NOTE_MIRROR_ROOT%/}"
-    rsync -avc --partial --delay-updates "${ASSETS[@]}" "${REMOTE_VERSION}/"
+    chmod 755 "${NOTE_MIRROR_ROOT%/}" "$REMOTE_VERSION"
+    rsync -avc --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --partial --delay-updates "${ASSETS[@]}" "${REMOTE_VERSION}/"
     while IFS=$'\t' read -r name sha; do
       remote_sha="$(sha256sum "${REMOTE_VERSION}/${name}" | awk '{print $1}')"
       [[ "$remote_sha" == "$sha" ]] || { echo "note mirror checksum mismatch: $name" >&2; exit 1; }
     done < <(jq -r '.assets[] | [.name,.sha256] | @tsv' "$MANIFEST")
-    rsync -av --delay-updates "$MANIFEST" "${REMOTE_VERSION}/latest.json"
-    rsync -av --delay-updates "$MANIFEST" "${NOTE_MIRROR_ROOT%/}/latest.json"
+    rsync -av --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --delay-updates "$MANIFEST" "${REMOTE_VERSION}/latest.json"
+    if ((!VERSION_ONLY)); then
+      rsync -av --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --delay-updates "$MANIFEST" "${NOTE_MIRROR_ROOT%/}/latest.json"
+    fi
   else
-    ssh "${NOTE_MIRROR_HOST}" "mkdir -p '${REMOTE_VERSION}' '${NOTE_MIRROR_ROOT%/}'"
-    rsync -avc --partial --delay-updates "${ASSETS[@]}" "${NOTE_MIRROR_HOST}:${REMOTE_VERSION}/"
+    ssh "${NOTE_MIRROR_HOST}" "mkdir -p '${REMOTE_VERSION}' '${NOTE_MIRROR_ROOT%/}' && chmod 755 '${NOTE_MIRROR_ROOT%/}' '${REMOTE_VERSION}'"
+    rsync -avc --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --partial --delay-updates "${ASSETS[@]}" "${NOTE_MIRROR_HOST}:${REMOTE_VERSION}/"
     while IFS=$'\t' read -r name sha; do
       remote_sha="$(ssh "$NOTE_MIRROR_HOST" "sha256sum '${REMOTE_VERSION}/${name}' | awk '{print \\\$1}'")"
       [[ "$remote_sha" == "$sha" ]] || { echo "note mirror checksum mismatch: $name" >&2; exit 1; }
     done < <(jq -r '.assets[] | [.name,.sha256] | @tsv' "$MANIFEST")
-    rsync -av --delay-updates "$MANIFEST" "${NOTE_MIRROR_HOST}:${REMOTE_VERSION}/latest.json"
-    rsync -av --delay-updates "$MANIFEST" "${NOTE_MIRROR_HOST}:${NOTE_MIRROR_ROOT%/}/latest.json"
+    rsync -av --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --delay-updates "$MANIFEST" "${NOTE_MIRROR_HOST}:${REMOTE_VERSION}/latest.json"
+    if ((!VERSION_ONLY)); then
+      rsync -av --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --delay-updates "$MANIFEST" "${NOTE_MIRROR_HOST}:${NOTE_MIRROR_ROOT%/}/latest.json"
+    fi
   fi
   echo "NOTE_UPLOAD_DONE version=${VERSION} url=${NOTE_VERSION_URL}/"
 fi

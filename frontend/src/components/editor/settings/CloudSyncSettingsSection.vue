@@ -346,7 +346,7 @@
             </span>
           </header>
 
-          <div class="cd-sync__queue" :data-tone="queueTone">
+          <div class="cd-sync__queue" :class="{ 'cd-sync__queue--empty': queueEmpty }" :data-tone="queueTone">
             <div class="cd-sync__queue-main">
               <span class="cd-sync__queue-icon" :data-tone="queueTone" aria-hidden="true">
                 <TauIcon :name="queueEmpty ? 'icon-check-circle' : 'icon-cloud-sync'" :size="20" />
@@ -358,6 +358,7 @@
             </div>
             <div class="cd-sync__queue-actions">
               <button
+                v-if="queueFailed > 0"
                 type="button"
                 class="cd-btn cd-btn--secondary cd-sync__retry"
                 data-testid="cloud-sync-retry-btn"
@@ -608,7 +609,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, reactive, ref, watch, type PropType } from 'vue';
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch, type PropType } from 'vue';
 import TauIcon from '@/components/icons/TauIcon.vue';
 import MembershipBadge from '@/components/ui/MembershipBadge.vue';
 import CloudUpgradePlanDialog from '@/components/editor/CloudUpgradePlanDialog.vue';
@@ -624,6 +625,7 @@ import { DEFAULT_CLOUD_BASE_URL } from '@/services/cloudAuthService';
 import { pullCloudDocumentIntoLocal, type CloudSyncResult } from '@/services/cloudSyncService';
 import { appCommands } from '@/lib/tauri';
 import { isTauriApp } from '@/lib/tauri';
+import { clearMediaCache, getMediaCacheStats, type MediaCacheStats } from '@/services/mediaCacheService';
 
 /**
  * 设计稿二预览态：只有设计预览页会传；传了就完全不碰 store / Tauri（纯本地 mock）。
@@ -702,6 +704,16 @@ function flashDiagnoseResult(ms: number): void {
 
 /** 是否已清理过本地媒体缓存（决定明细行显示 0 B） */
 const cacheCleared = ref(false);
+const mediaCacheStats = ref<MediaCacheStats | null>(null);
+const MEDIA_CACHE_UPDATED_EVENT = 'tau-media-cache-updated';
+
+const refreshMediaCacheStats = async (): Promise<void> => {
+  mediaCacheStats.value = await getMediaCacheStats();
+};
+
+const handleMediaCacheUpdated = (): void => {
+  void refreshMediaCacheStats();
+};
 
 /** 真实模式（不传 previewState） */
 const live = computed(() => !props.previewState);
@@ -1097,7 +1109,17 @@ const mediaCacheValue = computed(() => {
   if (!live.value) {
     return cacheCleared.value ? '0 B (0 个资源)' : '12.4 MB (48 个资源)';
   }
-  return cacheCleared.value ? '0 B' : copyText.value.mediaCacheUnknown;
+  if (!mediaCacheStats.value) {
+    return copyText.value.mediaCacheUnknown;
+  }
+  const { bytes, count } = mediaCacheStats.value;
+  const size = bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : bytes >= 1024
+      ? `${(bytes / 1024).toFixed(1)} KB`
+      : `${bytes} B`;
+  const resources = settingsStore.uiLanguage === 'en-US' ? 'resources' : '个资源';
+  return `${size} (${count} ${resources})`;
 });
 
 const conflictActive = computed(() => {
@@ -1343,10 +1365,6 @@ const handleRefreshQueue = async (): Promise<void> => {
   await cloudSyncStore.refreshSpace();
 };
 
-/**
- * 清理本地媒体缓存：项目尚未把媒体写进 Cache Storage，
- * 这里真实清一次 `tau-media-` 前缀的缓存桶（当前为 0 个），并把结果写回明细行。
- */
 const handleClearCache = async (): Promise<void> => {
   if (cacheBusy.value) {
     return;
@@ -1360,17 +1378,9 @@ const handleClearCache = async (): Promise<void> => {
   }
   cacheClearBusy.value = true;
   try {
-    let removed = 0;
-    if (typeof caches !== 'undefined') {
-      const keys = await caches.keys();
-      await Promise.all(
-        keys.filter((key) => key.startsWith('tau-media-')).map(async (key) => {
-          await caches.delete(key);
-          removed += 1;
-        }),
-      );
-    }
+    const removed = await clearMediaCache();
     cacheCleared.value = true;
+    await refreshMediaCacheStats();
     notificationStore.info(copy.value.settingsCloudSync, `${copyText.value.mediaCacheCleared} (${removed})`);
   } catch (error) {
     notificationStore.error(
@@ -1536,11 +1546,22 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(MEDIA_CACHE_UPDATED_EVENT, handleMediaCacheUpdated);
+  }
   clearDiagnoseResult();
   for (const timer of timers) {
     clearTimeout(timer);
   }
   timers.clear();
+});
+
+onMounted(() => {
+  if (!live.value || typeof window === 'undefined') {
+    return;
+  }
+  window.addEventListener(MEDIA_CACHE_UPDATED_EVENT, handleMediaCacheUpdated);
+  void refreshMediaCacheStats();
 });
 
 /**
@@ -2326,6 +2347,11 @@ const CdGlyph = defineComponent({
   padding: 16px;
   background: var(--sx-inner-bg);
   border-radius: var(--cd-r-dialog);
+}
+
+.cd-sync__queue--empty {
+  gap: 12px;
+  padding: 12px;
 }
 
 .cd-sync__queue-main {

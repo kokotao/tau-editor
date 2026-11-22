@@ -95,6 +95,16 @@ describe('CloudSyncSettingsSection 预览态', () => {
     expect(wrapper.find('[data-testid="cloud-sync-browse-btn"]').exists()).toBe(true);
   });
 
+  it('signed-in 空队列隐藏无效重试按钮，保留可访问刷新操作', () => {
+    const wrapper = mountSection('signed-in');
+
+    expect(wrapper.get('[data-testid="cloud-sync-queue-status"]').text()).toContain('0 项待同步');
+    expect(wrapper.text()).toContain('本地文档已同步，暂无待处理任务。');
+    expect(wrapper.find('[data-testid="cloud-sync-retry-btn"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="cloud-sync-queue-refresh"]').attributes('aria-label')).toBe('刷新状态');
+    expect(wrapper.get('[data-testid="cloud-sync-queue-refresh"]').attributes('disabled')).toBeUndefined();
+  });
+
   it('syncing 态：CTA 显示同步中并出现带任务号的反馈条', () => {
     const wrapper = mountSection('syncing');
 
@@ -110,7 +120,7 @@ describe('CloudSyncSettingsSection 预览态', () => {
 
     expect(wrapper.find('[data-testid="cloud-sync-quota-label"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="cloud-sync-quota-issue"]').text()).toContain('network');
-    expect(wrapper.get('[data-testid="cloud-sync-queue-status"]').text()).toContain('1 项阻塞');
+    expect(wrapper.get('[data-testid="cloud-sync-queue-status"]').text()).toContain('1 项失败');
     expect(wrapper.get('[data-testid="cloud-sync-retry-btn"]').attributes('disabled')).toBeUndefined();
     expect(wrapper.text()).toContain('Error / 异常');
   });

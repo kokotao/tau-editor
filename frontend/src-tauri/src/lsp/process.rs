@@ -5,7 +5,8 @@
  * @date 2026-10-03 10:10
  */
 use std::collections::HashMap;
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +18,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time::timeout;
 
+use crate::lsp::command_invocation;
 use crate::models::{
     CommandError, LspMessageDirection, LspMessageEvent, LspResponse, LspRpcError, LspSessionState,
     LspSessionStatus, LspStartRequest, LSP_MESSAGE_EVENT, LSP_REQUEST_TIMEOUT_SECONDS,
@@ -226,9 +228,13 @@ async fn spawn_process(
     args: &[String],
     env: &HashMap<String, String>,
 ) -> Result<SpawnedProcess, CommandError> {
-    let mut command = Command::new(command_name);
+    let command_path = crate::commands::lsp::resolve_executable(command_name)
+        .unwrap_or_else(|| PathBuf::from(command_name));
+    let args = args.iter().cloned().map(OsString::from).collect::<Vec<_>>();
+    let (program, invocation_args) = command_invocation(&command_path, &args);
+    let mut command = Command::new(program);
     command
-        .args(args)
+        .args(invocation_args)
         .current_dir(root)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

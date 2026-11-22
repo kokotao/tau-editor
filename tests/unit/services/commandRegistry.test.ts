@@ -22,6 +22,7 @@ function createActions() {
     toggleProblems: vi.fn(),
     toggleSidebar: vi.fn(),
     toggleSettings: vi.fn(),
+    toggleStatusBar: vi.fn(),
     openCommandPalette: vi.fn(),
     compareWithFile: vi.fn(),
     openInNewWindow: vi.fn(),
@@ -82,6 +83,17 @@ describe('commandRegistry', () => {
 
     await runCommand('search.findText');
     expect(actions.findText).toHaveBeenCalledTimes(1);
+  });
+
+  it('应注册可搜索的底部状态栏切换命令', async () => {
+    const actions = createActions();
+    const commands = createCommandRegistry(actions, 'zh-CN');
+    const command = commands.find((item) => item.id === 'view.toggleStatusBar');
+
+    expect(command?.title).toBe('切换底部状态栏');
+    expect(command?.keywords).toContain('底部工具栏');
+    await createCommandExecutor(commands, 'zh-CN')('view.toggleStatusBar');
+    expect(actions.toggleStatusBar).toHaveBeenCalledTimes(1);
   });
 
   it('应注册调用层级和类型层级命令并绑定动作', async () => {

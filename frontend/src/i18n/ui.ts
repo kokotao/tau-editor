@@ -59,6 +59,7 @@ export type CommandId =
   | 'workspace.searchSymbols'
   | 'view.toggleSidebar'
   | 'view.toggleSettings'
+  | 'view.toggleStatusBar'
   | 'cloud.login'
   | 'cloud.logout'
   | 'cloud.syncNow'
@@ -216,6 +217,7 @@ interface SettingsPanelText {
   fontPreviewLine2: string;
   editor: string;
   markdownPreviewTheme: string;
+  markdownPreviewImageWidth: string;
   markdownPreviewThemeDocsClean: string;
   markdownPreviewThemePaperSoft: string;
   markdownPreviewThemeEditorialWarm: string;
@@ -238,6 +240,7 @@ interface SettingsPanelText {
   markdownMermaidNodeColorReset: string;
   autoSave: string;
   autoSaveEnabled: string;
+  showStatusBar: string;
   autoSaveStatusEnabled: string;
   autoSaveStatusDisabled: string;
   autoSaveInterval: string;
@@ -717,6 +720,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
       title: '切换设置工作区',
       keywords: ['设置', '偏好', '配置', '工作区', 'settings', 'preferences', 'workspace'],
     },
+    'view.toggleStatusBar': {
+      title: '切换底部状态栏',
+      keywords: ['状态栏', '底部工具栏', '显示', '隐藏', 'status bar', 'toggle status bar'],
+    },
     'cloud.login': {
       title: '登录 lizi 云账号',
       keywords: ['登录', '账号', '云同步', '云文档', 'lizi', 'cloud', 'login', 'sign in'],
@@ -846,6 +853,10 @@ const COMMAND_TEXTS: Record<UiLanguage, Record<CommandId, CommandText>> = {
     'view.toggleSettings': {
       title: 'Toggle Settings Workspace',
       keywords: ['settings', 'preferences', 'workspace', '配置', '设置'],
+    },
+    'view.toggleStatusBar': {
+      title: 'Toggle Status Bar',
+      keywords: ['status bar', 'bottom toolbar', 'show', 'hide', '状态栏', '底部工具栏'],
     },
     'cloud.login': {
       title: 'Sign In to lizi Cloud',
@@ -1029,6 +1040,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontPreviewLine2: 'console.log(hello);',
     editor: '编辑器',
     markdownPreviewTheme: 'Markdown 预览主题',
+    markdownPreviewImageWidth: 'Markdown 图片宽度',
     markdownPreviewThemeDocsClean: '文档站清朗',
     markdownPreviewThemePaperSoft: '护眼纸张',
     markdownPreviewThemeEditorialWarm: '出版暖页',
@@ -1051,6 +1063,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownMermaidNodeColorReset: '恢复主题默认',
     autoSave: '自动保存',
     autoSaveEnabled: '启用自动保存',
+    showStatusBar: '显示底部状态栏',
     autoSaveStatusEnabled: '自动保存已启用',
     autoSaveStatusDisabled: '自动保存已关闭',
     autoSaveInterval: '自动保存间隔',
@@ -1270,6 +1283,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     fontPreviewLine2: 'console.log(hello);',
     editor: 'Editor',
     markdownPreviewTheme: 'Markdown Preview Theme',
+    markdownPreviewImageWidth: 'Markdown Image Width',
     markdownPreviewThemeDocsClean: 'Docs Clean',
     markdownPreviewThemePaperSoft: 'Paper Soft',
     markdownPreviewThemeEditorialWarm: 'Editorial Warm',
@@ -1292,6 +1306,7 @@ const SETTINGS_PANEL_TEXTS: Record<UiLanguage, SettingsPanelText> = {
     markdownMermaidNodeColorReset: 'Use Theme Default',
     autoSave: 'Auto Save',
     autoSaveEnabled: 'Enable Auto Save',
+    showStatusBar: 'Show bottom status bar',
     autoSaveStatusEnabled: 'Auto Save Enabled',
     autoSaveStatusDisabled: 'Auto Save Disabled',
     autoSaveInterval: 'Auto Save Interval',
@@ -3336,9 +3351,9 @@ const CLOUD_SYNC_SETTINGS_TEXTS: Record<UiLanguage, CloudSyncSettingsText> = {
     schedulerTask: (id) => `Task #${id}`,
     feedbackSyncing: '正在向集群同步当前索引分支…',
     queueTitle: '同步队列遥测',
-    queueCounts: (pending, failed) => `${pending} 项挂起 · ${failed} 项阻塞`,
-    queueEmptyTitle: '同步队列为空 (Queue Cleared)',
-    queueEmptyHint: '本地文档快照与分布式持久化节点完全对齐。',
+    queueCounts: (pending, failed) => `${pending} 项待同步 · ${failed} 项失败`,
+    queueEmptyTitle: '队列已清空',
+    queueEmptyHint: '本地文档已同步，暂无待处理任务。',
     queueBlockedHint: (failed) => `有 ${failed} 项同步失败已阻塞队列，重试后才会继续。`,
     queuePendingHint: (pending) => `有 ${pending} 项正在后台增量提交，完成后队列自动清空。`,
     queueRefresh: '刷新状态',
@@ -3357,13 +3372,13 @@ const CLOUD_SYNC_SETTINGS_TEXTS: Record<UiLanguage, CloudSyncSettingsText> = {
     mediaTitle: '媒体资产与附件同步',
     mediaCacheLabel: '本地离线图片缓存池',
     mediaCacheUnknown: '未统计',
-    mediaTranscodeLabel: '智能 WebP 矢量转码加速',
+    mediaTranscodeLabel: '智能 WebP 转码加速',
     mediaEnabled: '已启用',
     mediaDisabled: '未启用',
     mediaClearCache: '清理本地媒体缓存',
     mediaClearing: '清理中…',
     mediaCacheCleared: '已清理本地媒体缓存。',
-    mediaAutoTidy: '自动定期整理',
+    mediaAutoTidy: '每 24 小时自动清理过期缓存',
     securityText: '所有通讯均通过 TLS 1.3 双向认证管道。Tau 绝不会明文存储您的未加密写作草稿与访问密钥。',
     signedOutTitle: '登录统一开发者通行证',
     signedOutHint: '登录后即可查看账号、云端配额与同步队列。凭据只保存在本机。',
@@ -3411,9 +3426,9 @@ const CLOUD_SYNC_SETTINGS_TEXTS: Record<UiLanguage, CloudSyncSettingsText> = {
     schedulerTask: (id) => `Task #${id}`,
     feedbackSyncing: 'Pushing the current index branch to the cluster…',
     queueTitle: 'Sync Queue Telemetry',
-    queueCounts: (pending, failed) => `${pending} pending · ${failed} blocked`,
-    queueEmptyTitle: 'Sync queue is empty (Queue Cleared)',
-    queueEmptyHint: 'Local snapshots are fully aligned with the distributed persistence nodes.',
+    queueCounts: (pending, failed) => `${pending} pending · ${failed} failed`,
+    queueEmptyTitle: 'Queue is clear',
+    queueEmptyHint: 'Documents are synced. There are no pending tasks.',
     queueBlockedHint: (failed) => `${failed} item(s) failed and are blocking the queue. Retry to continue.`,
     queuePendingHint: (pending) => `${pending} item(s) are being pushed incrementally in the background; the queue clears itself when done.`,
     queueRefresh: 'Refresh status',
@@ -3438,7 +3453,7 @@ const CLOUD_SYNC_SETTINGS_TEXTS: Record<UiLanguage, CloudSyncSettingsText> = {
     mediaClearCache: 'Clear local media cache',
     mediaClearing: 'Clearing…',
     mediaCacheCleared: 'Local media cache cleared.',
-    mediaAutoTidy: 'Auto tidy-up',
+    mediaAutoTidy: 'Expired cache cleaned every 24 hours',
     securityText: 'All traffic goes through the TLS 1.3 mutual-authentication pipe. Tau never stores your unencrypted drafts or access keys in plain text.',
     signedOutTitle: 'Sign in with your developer pass',
     signedOutHint: 'Sign in to see your account, cloud quota and sync queue. Credentials stay on this device.',

@@ -49,6 +49,7 @@
           width: `${previewWidthPercent}%`,
           flexBasis: `${previewWidthPercent}%`,
           zoom: `${previewZoom}%`,
+          '--markdown-preview-image-width': `${settingsStore.markdownPreviewImageWidth}%`,
         }"
         v-html="html"
       ></div>
@@ -136,6 +137,7 @@ import { useNotificationStore } from '@/stores/notification';
 import { getMarkdownCodeFences } from '@/services/markdownService';
 import { findMarkdownTableBlocks, updateMarkdownTableAtIndex, updateMarkdownTableCellAtIndex } from '@/utils/markdownTable';
 import { pickActiveSourceLine, type PreviewHeadingAnchor } from '@/services/scrollSpyService';
+import { releaseMediaObjectUrl, resolveMediaSource } from '@/services/mediaCacheService';
 
 interface MarkdownPreviewProps {
   content: string;
@@ -1174,6 +1176,38 @@ const decorateMarkdownImages = () => {
   });
 };
 
+const releasePreviewMediaUrls = (): void => {
+  previewRef.value?.querySelectorAll<HTMLImageElement>('img[data-tau-media-source]').forEach((image) => {
+    const source = image.dataset.tauMediaSource;
+    if (source) releaseMediaObjectUrl(source);
+    delete image.dataset.tauMediaSource;
+  });
+};
+
+const cacheRemotePreviewImages = async (): Promise<void> => {
+  const images = Array.from(previewRef.value?.querySelectorAll<HTMLImageElement>('img[src]') ?? []);
+  let cacheChanged = false;
+  await Promise.all(images.map(async (image) => {
+    const source = image.getAttribute('src')?.trim() ?? '';
+    if (!/^https?:\/\//i.test(source)) return;
+    const mediaUrl = await resolveMediaSource(source);
+    if (mediaUrl === source) return;
+    if (!image.isConnected || !previewRef.value?.contains(image)) {
+      const stillUsedInPreview = Array.from(
+        previewRef.value?.querySelectorAll<HTMLImageElement>('img[src]') ?? [],
+      ).some((current) => current.dataset.tauMediaSource === source || current.getAttribute('src') === source);
+      if (!stillUsedInPreview) releaseMediaObjectUrl(source);
+      return;
+    }
+    image.dataset.tauMediaSource = source;
+    image.src = mediaUrl;
+    cacheChanged = true;
+  }));
+  if (cacheChanged) {
+    window.dispatchEvent(new Event('tau-media-cache-updated'));
+  }
+};
+
 const highlightCodeBlock = async (pre: HTMLElement, codeEl: HTMLElement, language: string) => {
   const highlightVersion = String((Number(codeEl.dataset.highlightVersion) || 0) + 1);
   codeEl.dataset.highlightVersion = highlightVersion;
@@ -1204,6 +1238,12 @@ const decorateCodeBlocks = () => {
     if (pre.dataset.codeToolbarAttached) return;
     const codeEl = pre.querySelector('code');
     if (!codeEl || /(?:^|\s)language-mermaid(?:\s|$)/i.test(codeEl.className)) return;
+
+    const shell = document.createElement('div');
+    shell.className = 'markdown-code-shell';
+    pre.replaceWith(shell);
+    shell.appendChild(pre);
+    attachHorizontalScrollbar(shell, pre, 'markdown-code-scrollbar');
 
     const originalLanguage = codeEl.className.match(/(?:^|\s)language-([^\s]+)/)?.[1]?.toLowerCase() ?? 'plaintext';
     const selectedLanguage = CODE_LANGUAGE_ALIASES[originalLanguage] ?? originalLanguage;
@@ -1365,6 +1405,89 @@ const decorateCodeBlocks = () => {
       pre.appendChild(btn);
     }
   });
+};
+
+const attachHorizontalScrollbar = (host: HTMLElement, target: HTMLElement, className: string) => {
+  if (host.querySelector(`:scope > .${className}`)) return;
+  const scrollbar = document.createElement('div');
+  scrollbar.className = `markdown-horizontal-scrollbar ${className}`;
+  scrollbar.setAttribute('role', 'scrollbar');
+  scrollbar.setAttribute('aria-orientation', 'horizontal');
+  scrollbar.setAttribute('aria-label', settingsStore.uiLanguage === 'en-US'
+    ? (className.includes('table') ? 'Table horizontal scrollbar' : 'Code horizontal scrollbar')
+    : (className.includes('table') ? '表格水平滚动条' : '代码水平滚动条'));
+  scrollbar.tabIndex = 0;
+  const thumb = document.createElement('div');
+  thumb.className = 'markdown-horizontal-scrollbar__thumb';
+  scrollbar.appendChild(thumb);
+  host.appendChild(scrollbar);
+
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartScroll = 0;
+  const sync = () => {
+    const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
+    const trackWidth = Math.max(0, host.clientWidth - 8);
+    const thumbWidth = maxScroll > 0
+      ? Math.max(24, trackWidth * target.clientWidth / target.scrollWidth)
+      : trackWidth;
+    const maxThumbTravel = Math.max(0, trackWidth - thumbWidth);
+    const ratio = maxScroll > 0 ? target.scrollLeft / maxScroll : 0;
+    scrollbar.hidden = maxScroll <= 0 || trackWidth <= 0;
+    thumb.style.width = `${thumbWidth}px`;
+    thumb.style.transform = `translateX(${maxThumbTravel * ratio}px)`;
+    scrollbar.setAttribute('aria-valuemin', '0');
+    scrollbar.setAttribute('aria-valuemax', String(maxScroll));
+    scrollbar.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
+  };
+  const moveToPointer = (clientX: number) => {
+    const track = scrollbar.getBoundingClientRect();
+    const thumbWidth = thumb.getBoundingClientRect().width;
+    const maxThumbTravel = Math.max(1, track.width - thumbWidth);
+    const offset = Math.min(maxThumbTravel, Math.max(0, clientX - track.left - thumbWidth / 2));
+    target.scrollLeft = offset / maxThumbTravel * Math.max(0, target.scrollWidth - target.clientWidth);
+  };
+  scrollbar.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    scrollbar.setPointerCapture(event.pointerId);
+    const thumbBounds = thumb.getBoundingClientRect();
+    if (event.clientX >= thumbBounds.left && event.clientX <= thumbBounds.right) {
+      dragging = true;
+      dragStartX = event.clientX;
+      dragStartScroll = target.scrollLeft;
+    } else {
+      moveToPointer(event.clientX);
+    }
+  });
+  scrollbar.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    const trackWidth = scrollbar.clientWidth;
+    const thumbWidth = thumb.getBoundingClientRect().width;
+    const maxThumbTravel = Math.max(1, trackWidth - thumbWidth);
+    const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
+    target.scrollLeft = dragStartScroll + (event.clientX - dragStartX) / maxThumbTravel * maxScroll;
+  });
+  const stopDragging = () => { dragging = false; };
+  scrollbar.addEventListener('pointerup', stopDragging);
+  scrollbar.addEventListener('pointercancel', stopDragging);
+  scrollbar.addEventListener('keydown', (event) => {
+    const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
+    if (event.key === 'ArrowLeft') target.scrollLeft -= 40;
+    else if (event.key === 'ArrowRight') target.scrollLeft += 40;
+    else if (event.key === 'Home') target.scrollLeft = 0;
+    else if (event.key === 'End') target.scrollLeft = maxScroll;
+    else return;
+    event.preventDefault();
+  });
+  target.addEventListener('scroll', sync, { passive: true });
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(sync);
+    observer.observe(target);
+    observer.observe(host);
+    if (target.firstElementChild) observer.observe(target.firstElementChild);
+  }
+  requestAnimationFrame(sync);
 };
 
 const updateMermaidViewerControls = () => {
@@ -2305,6 +2428,7 @@ const wrapMarkdownTables = () => {
     table.replaceWith(shell);
     shell.appendChild(wrapper);
     wrapper.appendChild(table);
+    attachHorizontalScrollbar(shell, wrapper, 'markdown-table-scrollbar');
   });
 };
 
@@ -2505,6 +2629,7 @@ const scheduleRender = () => {
     isRenderingMermaid = true;
     try {
       const renderer = await loadMarkdownRenderer();
+      releasePreviewMediaUrls();
       html.value = renderer.renderMarkdown(props.content || '');
       await nextTick();
       wrapMarkdownTables();
@@ -2512,6 +2637,7 @@ const scheduleRender = () => {
       decorateMarkdownImages();
       decorateCodeBlocks();
       await resolveLocalImageSources();
+      void cacheRemotePreviewImages();
       if (previewRef.value) {
         await renderer.renderMermaidDiagrams(
           previewRef.value,
@@ -2642,6 +2768,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown);
   closeContextMenu();
   closeOpenCodeLanguageMenus();
+  releasePreviewMediaUrls();
   if (fallbackFullscreenViewer) setFallbackFullscreen(fallbackFullscreenViewer, false);
 });
 </script>
@@ -2881,18 +3008,26 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   width: max-content;
   max-width: calc(100% - 16px);
-  margin: 8px 12px -42px auto;
-  padding: 4px;
+  margin: 8px 12px -38px auto;
+  padding: 3px;
   border: 1px solid var(--preview-border);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--preview-surface) 82%, transparent);
+  background: color-mix(in srgb, var(--preview-surface) 62%, transparent);
   color: var(--preview-text);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.1);
+  opacity: 0.84;
+  transition: opacity 120ms ease, background-color 120ms ease;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.markdown-preview-zoom-controls:hover,
+.markdown-preview-zoom-controls:focus-within {
+  opacity: 1;
+  background: color-mix(in srgb, var(--preview-surface) 82%, transparent);
 }
 
 .markdown-preview-width-modes {
@@ -2905,9 +3040,9 @@ onBeforeUnmount(() => {
 }
 
 .markdown-preview-width-modes button {
-  min-width: 34px;
-  height: 26px;
-  padding: 0 6px;
+  min-width: 30px;
+  height: 23px;
+  padding: 0 5px;
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
@@ -2932,8 +3067,8 @@ onBeforeUnmount(() => {
 }
 
 .markdown-preview-zoom-controls button {
-  min-width: 28px;
-  height: 28px;
+  min-width: 24px;
+  height: 24px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -2951,7 +3086,7 @@ onBeforeUnmount(() => {
 }
 
 .markdown-preview-zoom-controls input {
-  width: 42px;
+  width: 36px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -2959,17 +3094,69 @@ onBeforeUnmount(() => {
   text-align: right;
 }
 
+.markdown-preview-content :deep(.markdown-code-shell) {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  margin: 1rem 0;
+}
+
+.markdown-preview-content :deep(.markdown-code-shell pre) {
+  margin: 0;
+}
+
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar) {
+  position: relative;
+  height: 10px;
+  margin: 2px 4px 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--preview-border) 30%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  touch-action: none;
+  cursor: grab;
+}
+
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar:not([hidden])) {
+  pointer-events: auto;
+}
+
+.markdown-preview-content :deep(.markdown-table-shell:hover > .markdown-horizontal-scrollbar),
+.markdown-preview-content :deep(.markdown-code-shell:hover > .markdown-horizontal-scrollbar),
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar:focus-visible) {
+  opacity: 1;
+}
+
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar:active) {
+  cursor: grabbing;
+}
+
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar__thumb) {
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--preview-muted) 72%, transparent);
+  transition: background-color 120ms ease;
+}
+
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar:hover .markdown-horizontal-scrollbar__thumb),
+.markdown-preview-content :deep(.markdown-horizontal-scrollbar:focus-visible .markdown-horizontal-scrollbar__thumb) {
+  background: var(--preview-muted);
+}
+
 @media (max-width: 520px) {
   .markdown-preview-zoom-controls {
     top: 4px;
     gap: 2px;
     margin-right: 4px;
-    padding: 3px;
+    padding: 2px;
   }
 
   .markdown-preview-width-modes button {
-    min-width: 30px;
-    padding-inline: 4px;
+    min-width: 27px;
+    height: 21px;
+    padding-inline: 3px;
   }
 }
 
@@ -3421,11 +3608,16 @@ onBeforeUnmount(() => {
   overflow: auto;
   overflow-wrap: normal;
   word-break: normal;
+  scrollbar-width: none;
   padding: 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--preview-code-border);
   background: var(--preview-code-bg);
   color: var(--preview-code-text);
+}
+
+.markdown-preview-content :deep(pre::-webkit-scrollbar) {
+  display: none;
 }
 
 .markdown-preview-content :deep(pre code) {
@@ -3479,6 +3671,9 @@ onBeforeUnmount(() => {
 }
 
 .markdown-preview-content :deep(img) {
+  width: var(--markdown-preview-image-width, 75%);
+  max-width: 100%;
+  margin-inline: auto;
   object-fit: contain;
 }
 
@@ -3494,6 +3689,11 @@ onBeforeUnmount(() => {
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.markdown-preview-content :deep(.markdown-table-scroll::-webkit-scrollbar) {
+  display: none;
 }
 
 .markdown-preview-content :deep(.markdown-table-shell) {

@@ -12,6 +12,7 @@ use tauri::{AppHandle, State};
 use tokio::process::Command;
 use tokio::time::timeout;
 
+use crate::lsp::command_invocation;
 use crate::lsp::LspSupervisor;
 use crate::models::{
     CommandError, LspNotification, LspPlatformInfo, LspProbeResponse, LspRequest, LspResponse,
@@ -151,10 +152,11 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
     };
 
     let path_text = path.to_string_lossy().to_string();
+    let (program, args) = command_invocation(&path, &["--version".into()]);
     let output = timeout(
         Duration::from_secs(2),
-        Command::new(&path)
-            .arg("--version")
+        Command::new(program)
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -222,7 +224,7 @@ async fn probe_server(id: &str, language_ids: &[&str], command: &str) -> LspServ
     }
 }
 
-fn resolve_executable(command: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_executable(command: &str) -> Option<PathBuf> {
     let candidate = Path::new(command);
     if candidate.is_absolute() || command.contains(std::path::MAIN_SEPARATOR) {
         return is_executable(candidate).then(|| candidate.to_path_buf());

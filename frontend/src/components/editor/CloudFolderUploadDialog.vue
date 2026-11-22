@@ -23,7 +23,7 @@
             data-testid="cloud-folder-upload-close"
             :aria-label="panelCopy.uploadClose"
             :title="panelCopy.uploadClose"
-            @click="requestClose"
+            @click="requestDismiss"
           >
             ×
           </button>
@@ -450,8 +450,16 @@ const requestBackground = (): void => {
   emit('background');
 };
 
+const requestDismiss = (): void => {
+  if (busy.value) {
+    requestBackground();
+    return;
+  }
+  emit('close');
+};
+
 const requestClose = (): void => {
-  // 上传过程中不允许点遮罩关闭：队列只能通过「后台进行」或「中止上传」停下
+  // 上传过程中忽略遮罩关闭；只有明确点击叉号或「后台进行」才收起窗口。
   if (busy.value) {
     return;
   }

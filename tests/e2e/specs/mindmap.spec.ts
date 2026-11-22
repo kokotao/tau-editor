@@ -534,6 +534,17 @@ test.describe('Mindmap E2E', () => {
 
   test('E2E-MM-022: 选中文本显示格式工具栏与 Tau 右键菜单', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.addInitScript(() => {
+      let copiedText = ''
+      Object.defineProperty(window, '__copiedText', { configurable: true, get: () => copiedText })
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => { copiedText = text },
+          readText: async () => copiedText,
+        },
+      })
+    })
     await page.goto('/')
     await page.waitForSelector('[data-testid="toolbar"]')
     await openNewMindmap(page)

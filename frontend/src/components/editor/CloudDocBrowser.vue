@@ -236,7 +236,12 @@
             </div>
             <div class="cloud-browser__engine-meta">
               <span>{{ copy.shell.syncReady }}</span>
-              <span class="cloud-browser__storage">{{ copy.shell.storageSettings }}</span>
+              <button
+                type="button"
+                class="cloud-browser__storage"
+                data-testid="cloud-browser-storage-settings"
+                @click="storageSettingsVisible = true"
+              >{{ copy.shell.storageSettings }}</button>
             </div>
           </footer>
         </aside>
@@ -273,12 +278,12 @@
                 </button>
               </div>
               <div class="cloud-browser__views">
-                <button type="button" class="cloud-browser__view cloud-browser__view--active" :title="copy.shell.viewList" aria-pressed="true">
+                <button type="button" class="cloud-browser__view" :class="{ 'cloud-browser__view--active': viewMode === 'list' }" :title="copy.shell.viewList" :aria-pressed="viewMode === 'list'" data-testid="cloud-browser-view-list" @click="viewMode = 'list'">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
                   </svg>
                 </button>
-                <button type="button" class="cloud-browser__view" disabled :title="copy.shell.viewGrid">
+                <button type="button" class="cloud-browser__view" :class="{ 'cloud-browser__view--active': viewMode === 'grid' }" :title="copy.shell.viewGrid" :aria-pressed="viewMode === 'grid'" data-testid="cloud-browser-view-grid" @click="viewMode = 'grid'">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <rect x="3" y="3" width="7" height="7" rx="1" />
                     <rect x="14" y="3" width="7" height="7" rx="1" />
@@ -295,7 +300,7 @@
           </p>
 
           <!-- 表头与行渲染由 CloudDocTree 的 table 布局承担（.cd-thead 12 栅格 5:2:1:3:1） -->
-          <div class="cloud-browser__list" data-testid="cloud-browser-table">
+          <div v-show="viewMode === 'list'" class="cloud-browser__list" data-testid="cloud-browser-table">
             <!-- 加载态 -->
             <div v-if="loading" class="cd-state" data-testid="cloud-browser-loading">
               <span class="cd-spinner" aria-hidden="true"></span>
@@ -338,6 +343,51 @@
               @doc-action="(action, node) => emit('doc-action', action, node)"
               @edit-cloud-doc="(node) => emit('edit-cloud-doc', node)"
             />
+          </div>
+
+          <div v-if="viewMode === 'grid'" class="cloud-browser__grid" data-testid="cloud-browser-grid">
+            <div v-if="loading" class="cd-state" data-testid="cloud-browser-grid-loading">
+              <span class="cd-spinner" aria-hidden="true"></span>
+              <span>{{ copy.loading }}</span>
+            </div>
+            <div v-else-if="error" class="cd-state cd-state--error" data-testid="cloud-browser-grid-error">
+              <span>{{ copy.openFailed(error) }}</span>
+              <button type="button" class="cd-btn cd-btn--secondary" data-testid="cloud-browser-grid-retry" @click="reload()">{{ copy.retry }}</button>
+            </div>
+            <div v-else-if="fileCount === 0" class="cd-state" data-testid="cloud-browser-grid-empty">
+              <p class="cd-state__title">{{ activeKeyword ? copy.emptySearch : copy.empty }}</p>
+              <p class="cd-state__hint" data-testid="cloud-browser-grid-empty-diagnostic">{{ emptyDiagnostic }}</p>
+              <p v-if="spaceIssue" class="cd-state__hint cloud-browser__diag-warn">{{ spaceIssue }}</p>
+            </div>
+            <div v-else-if="visibleFileCount === 0" class="cd-state" data-testid="cloud-browser-grid-filter-empty">
+              <p class="cd-state__title">{{ copy.shell.filterEmpty }}</p>
+              <button type="button" class="cd-btn cd-btn--secondary" @click="clearFilters()">{{ copy.shell.clearFilters }}</button>
+            </div>
+            <div v-else class="cloud-browser__grid-items">
+              <article
+                v-for="node in gridFiles"
+                :key="node.key"
+                class="cloud-browser__file-card"
+                :class="{ 'cloud-browser__file-card--selected': selectedKey === node.key }"
+                :aria-label="node.name"
+                :aria-pressed="selectedKey === node.key"
+                :data-testid="`cloud-browser-card-${node.file?.fileId ?? node.key}`"
+                role="button"
+                tabindex="0"
+                @click="onSelect(node.key)"
+                @dblclick="openGridFile(node)"
+                @keydown.enter.prevent="openGridFile(node)"
+                @keydown.space.prevent="onSelect(node.key)"
+              >
+                <div class="cloud-browser__card-head">
+                  <span class="cd-badge" :class="`cd-badge--${gridBadgeKind(node.name)}`">{{ gridBadge(node.name) }}</span>
+                  <span class="cloud-browser__card-version cd-mono">v{{ node.file?.version ?? 1 }}</span>
+                </div>
+                <h3 class="cloud-browser__card-name" :title="node.name">{{ node.name }}</h3>
+                <p class="cloud-browser__card-meta cd-mono">{{ formatCloudDocSize(node.file?.size ?? 0) }}</p>
+                <p class="cloud-browser__card-meta cd-mono">{{ formatClock(node.file?.updatedAt ?? null) }}</p>
+              </article>
+            </div>
           </div>
 
           <!-- 底栏 h36 -->
@@ -462,6 +512,14 @@
         </aside>
       </div>
     </section>
+    <CloudUpgradePlanDialog
+      :visible="storageSettingsVisible"
+      :used-bytes="cloudSyncStore.space?.usedBytes ?? 0"
+      :quota-bytes="cloudSyncStore.space?.quotaBytes ?? 0"
+      @close="storageSettingsVisible = false"
+      @contact="contactForStorageUpgrade"
+    />
+    <WechatContactDialog :visible="storageContactVisible" @close="storageContactVisible = false" />
     </div>
   </Teleport>
 </template>
@@ -494,6 +552,8 @@ import { useCloudSyncStore } from '@/stores/cloudSync';
 import { useSettingsStore } from '@/stores/settings';
 import CloudDocTree from './CloudDocTree.vue';
 import VersionHistoryDialog from './VersionHistoryDialog.vue';
+import CloudUpgradePlanDialog from './CloudUpgradePlanDialog.vue';
+import WechatContactDialog from './WechatContactDialog.vue';
 
 const props = withDefaults(defineProps<{
   visible?: boolean;
@@ -585,6 +645,9 @@ function formatBytesCompact(bytes: number): string {
 const sidebarTreeRef = ref<CloudDocTreeExposed | null>(null);
 const tableTreeRef = ref<CloudDocTreeExposed | null>(null);
 const searchInputRef = ref<HTMLInputElement | null>(null);
+const viewMode = ref<'list' | 'grid'>('list');
+const storageSettingsVisible = ref(false);
+const storageContactVisible = ref(false);
 
 // ---------------------------------------------------------------------------
 // 数据（网络 / 预览两条路径）
@@ -824,6 +887,27 @@ const tableTree = computed(() => {
     return tags.some((tag) => fileTags.includes(tag));
   });
 });
+
+const gridFiles = computed(() => collectFiles(tableTree.value));
+
+function gridBadgeKind(name: string): string {
+  const kind = fileKind(name);
+  return kind === 'markdown' || kind === 'other' ? 'md'
+    : kind === 'word' ? 'doc'
+      : kind === 'code' ? 'code'
+        : kind === 'json' ? 'json'
+          : 'img';
+}
+
+function gridBadge(name: string): string {
+  const kind = fileKind(name);
+  return kind === 'code' ? '</>'
+    : kind === 'json' ? '{ }'
+      : kind === 'image' ? 'IMG'
+        : kind === 'word' ? 'DOC'
+          : kind === 'markdown' ? 'MD'
+            : 'FILE';
+}
 
 function toggleTag(tag: string): void {
   activeTags.value = activeTags.value.includes(tag)
@@ -1070,6 +1154,21 @@ function openSelectedInEditor(): void {
     return;
   }
   emit('open-file', node.path);
+}
+
+function openGridFile(node: CloudDocTreeNode): void {
+  selectedKey.value = node.key;
+  const opener = tableTreeRef.value?.openNode ?? sidebarTreeRef.value?.openNode;
+  if (opener) {
+    void opener(node);
+    return;
+  }
+  emit('open-file', node.path);
+}
+
+function contactForStorageUpgrade(): void {
+  storageSettingsVisible.value = false;
+  storageContactVisible.value = true;
 }
 
 function openNewCategory(): void {
@@ -1536,7 +1635,22 @@ watch(
 }
 
 .cloud-browser__storage {
+  padding: 0;
+  font: inherit;
+  color: var(--cd-text-3, #64748b);
   white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.cloud-browser__storage:hover {
+  color: var(--cd-accent, #38bdf8);
+}
+
+.cloud-browser__storage:focus-visible {
+  outline: 2px solid var(--cd-accent, #38bdf8);
+  outline-offset: 3px;
 }
 
 /* ---------------------------- 中间栏 ---------------------------- */
@@ -1713,6 +1827,75 @@ watch(
 /* 三态占满列表区并居中 */
 .cloud-browser__list > .cd-state {
   flex: 1 1 auto;
+}
+
+.cloud-browser__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cloud-browser__grid-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.cloud-browser__file-card {
+  display: flex;
+  min-width: 0;
+  min-height: 126px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--cd-bg-card, #1e2033) 72%, transparent);
+  border: 1px solid var(--cd-border-soft, rgba(50, 54, 83, 0.6));
+  border-radius: 6px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cloud-browser__file-card:hover,
+.cloud-browser__file-card:focus-visible {
+  background: var(--cd-bg-overlay, #262940);
+  border-color: color-mix(in srgb, var(--cd-accent, #38bdf8) 48%, var(--cd-border-soft, #323653));
+  outline: none;
+}
+
+.cloud-browser__file-card--selected {
+  background: color-mix(in srgb, var(--cd-accent, #38bdf8) 10%, var(--cd-bg-card, #1e2033));
+  border-color: color-mix(in srgb, var(--cd-accent, #38bdf8) 60%, var(--cd-border-soft, #323653));
+}
+
+.cloud-browser__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cloud-browser__card-version,
+.cloud-browser__card-meta {
+  font-size: 11px;
+  color: var(--cd-text-3, #64748b);
+}
+
+.cloud-browser__card-name {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cd-text, #f8fafc);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-browser__card-meta {
+  margin: 0;
+}
+
+.cloud-browser__grid > .cd-state {
+  min-height: 240px;
 }
 
 .cloud-browser__empty-icon {

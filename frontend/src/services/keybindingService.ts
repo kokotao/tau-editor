@@ -113,6 +113,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingDefinition[] = [
   { commandId: 'workspace.searchSymbols', defaultKeys: 'ctrl+t', category: 'workspace' },
   { commandId: 'view.toggleSidebar', defaultKeys: 'ctrl+b', category: 'view' },
   { commandId: 'view.toggleSettings', defaultKeys: 'ctrl+,', category: 'view' },
+  { commandId: 'view.toggleStatusBar', defaultKeys: 'ctrl+alt+shift+s', category: 'view' },
   { commandId: 'editor.zoomIn', defaultKeys: 'ctrl+=', category: 'editor' },
   { commandId: 'editor.zoomOut', defaultKeys: 'ctrl+-', category: 'editor' },
   { commandId: 'editor.zoomReset', defaultKeys: 'ctrl+0', category: 'editor' },
