@@ -238,6 +238,7 @@ vi.mock('@/services/workspaceWatcherService', () => ({
 vi.mock('@/services/workspaceService', () => ({
   createWorkspaceService: () => ({
     createUntitledFile: vi.fn(),
+    createUntitledMindMap: vi.fn().mockReturnValue(true),
     openFile: storeMocks.workspace.openFile,
     openFileWithPicker: vi.fn(),
     openFolderWithPicker: vi.fn().mockResolvedValue(false),
@@ -321,6 +322,11 @@ const appShellStubs = {
 
 describe('AppShell', () => {
   beforeEach(() => {
+    vi.mocked(localStorage.getItem).mockImplementation((key) => {
+      if (key === 'text-editor-onboarding-version-v1') return 'web'
+      if (key === 'text-editor-last-opened-at-v1') return String(Date.now())
+      return null
+    })
     storeMocks.workspace.mode = 'empty'
     storeMocks.workspace.currentWorkspacePath = null
     storeMocks.workspace.currentWorkspaceName = null

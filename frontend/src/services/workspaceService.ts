@@ -366,12 +366,11 @@ export class WorkspaceService {
    * 创建标题为 defaultName 的空 .taumap 文档（含一个可编辑中心主题的正文 JSON），
    * 以 documentKind: 'mindmap' 的新标签打开，复用现有保存/另存为/冲突/恢复管线。
    */
-  createUntitledMindMap(defaultName = 'Untitled.taumap'): boolean {
+  createUntitledMindMap(defaultName = 'Untitled.taumap', document = createEmptyMindMapDocument()): boolean {
     if (!this.ensureTabCapacity(defaultName)) {
       return false;
     }
 
-    const document = createEmptyMindMapDocument();
     const content = serializeMindMapDocument(document);
 
     this.tabsStore.addTab({

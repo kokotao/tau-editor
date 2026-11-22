@@ -11,6 +11,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 
 import { WorkspaceService } from '@/services/workspaceService';
 import { createEmptyMindMapDocument, serializeMindMapDocument } from '@/services/mindmapService';
+import { createWelcomeMindMapDocument } from '@/services/welcomeMindMap';
 
 function buildStores() {
   const tabs = [
@@ -66,6 +67,18 @@ describe('WorkspaceService · 思维导图阶段 0', () => {
     // 内容是可被 mindmapService 解析的合法 .taumap
     expect(tab.content).toContain('"format": "tau-mindmap"');
     expect(workspaceStore.setMode).toHaveBeenCalledWith('single-file');
+  });
+
+  it('createUntitledMindMap 可打开完整欢迎示例文档', () => {
+    const { service, tabsStore } = buildStores();
+    const example = createWelcomeMindMapDocument();
+
+    expect(service.createUntitledMindMap('示例思维导图.taumap', example)).toBe(true);
+    expect(tabsStore.addTab).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: '示例思维导图.taumap',
+      documentKind: 'mindmap',
+      content: serializeMindMapDocument(example),
+    }));
   });
 
   it('createUntitledMindMap 在已有工作区时不切单文件模式', () => {
