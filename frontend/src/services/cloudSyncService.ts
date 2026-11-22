@@ -500,8 +500,25 @@ async function pullRemoteDocument(
         filePath,
         fileId: detail.fileId,
         workspaceRoot,
+        content: detail.content,
       });
     }
+  }
+
+  const offlineContent = assetPull?.rewrittenContent;
+  if (offlineContent && offlineContent !== detail.content) {
+    await context.fileSystemStore.writeFileContent(filePath, offlineContent);
+    const revision = await context.workspaceService.captureFileRevision(filePath);
+    context.tabService.updateTabContent(tab.id, offlineContent, { markDirty: false });
+    context.tabsStore.updateTab(tab.id, {
+      isDirty: false,
+      fileRevision: revision,
+      externalModifiedAt: null,
+      cloudFileId: detail.fileId,
+      cloudVersion: detail.version,
+      cloudContentHash: detail.contentHash,
+      lastSyncedAt: Date.now(),
+    });
   }
 
   return {
@@ -555,14 +572,74 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
     // 与「同步至云端」同一套身份解析：临时区落位的文档必须靠 tagging 的 cloudFileId 认身份，
     // 否则会把更新误判为新建（旧文档留在原分类）。
     const { useCloudSyncStore } = await import('@/stores/cloudSync');
+    const cloudSyncStore = useCloudSyncStore();
     const identity = resolveCloudDocIdentity({
       filePath,
       cloudFileId: tab.cloudFileId ?? null,
-      docMap: useCloudSyncStore().docMap,
+      docMap: cloudSyncStore.docMap,
       workspaceName: context.workspaceStore.currentWorkspaceName,
       workspacePath: context.workspaceStore.currentWorkspacePath,
     });
     const cloudPath = identity.cloudPath;
+
+    const persistAssetRewrite = async (
+      fileId: number,
+      baseVersion: number,
+      assets: CloudAssetSyncSummary | undefined,
+    ): Promise<{ version: number; contentHash: string } | null> => {
+      const rewritten = assets?.rewrittenContent;
+      if (!rewritten || rewritten === source.content) return null;
+      const currentTab = context.tabsStore.tabs.find((item) => item.id === tab.id);
+      const diskContent = await context.fileSystemStore.readFileContent(filePath);
+      if (diskContent !== source.content || (currentTab && currentTab.content !== source.content)) {
+        return null;
+      }
+
+      await context.fileSystemStore.writeFileContent(filePath, rewritten);
+      try {
+        const rewrittenSource = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
+        const rewrittenPayload: CloudDocSavePayload = {
+          path: cloudPath,
+          title: getFileName(filePath),
+          content: rewrittenSource.content,
+          contentHash: rewrittenSource.contentHash,
+          baseVersion,
+        };
+        const saved = await saveCloudDoc(rewrittenPayload);
+        if (!saved.ok) throw new Error(saved.message || '图片引用回写到云端失败');
+
+        context.tabService.updateTabContent(tab.id, rewrittenSource.content, { markDirty: false });
+        const revision = await context.workspaceService.captureFileRevision(filePath);
+        context.tabsStore.updateTab(tab.id, {
+          isDirty: false,
+          fileRevision: revision,
+          externalModifiedAt: null,
+        });
+        applySyncedMeta(context, tab.id, {
+          fileId: saved.data.fileId,
+          version: saved.data.version,
+          contentHash: saved.data.contentHash,
+        });
+        cloudSyncStore.rememberDoc(cloudPath, {
+          fileId: saved.data.fileId,
+          version: saved.data.version,
+          contentHash: saved.data.contentHash,
+          updatedAt: saved.data.updatedAt ?? null,
+          category: remote?.category ?? null,
+          categoryId: remote?.categoryId ?? null,
+          tags: remote?.tags ?? null,
+          visibility: remote?.visibility === 'PUBLIC'
+            ? 'PUBLIC'
+            : remote?.visibility === 'PRIVATE'
+              ? 'PRIVATE'
+              : null,
+        });
+        return { version: saved.data.version, contentHash: saved.data.contentHash };
+      } catch (error) {
+        await context.fileSystemStore.writeFileContent(filePath, source.content).catch(() => undefined);
+        throw error;
+      }
+    };
 
     const remoteOutcome = await findCloudDocByPath(cloudPath);
     if (!remoteOutcome.ok) {
@@ -609,10 +686,11 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
         fileId: remote.fileId,
         content: source.content,
       });
+      const rewritten = await persistAssetRewrite(remote.fileId, remote.version, skipAssets);
       return {
         status: 'skipped',
         fileId: remote.fileId,
-        version: remote.version,
+        version: rewritten?.version ?? remote.version,
         message: withAssetMessage('本地内容与云端一致', skipAssets),
         assets: skipAssets,
       };
@@ -652,10 +730,11 @@ export async function syncCurrentDocument(tabId?: string): Promise<CloudSyncResu
       fileId: savedOutcome.data.fileId,
       content: source.content,
     });
+    const rewritten = await persistAssetRewrite(savedOutcome.data.fileId, savedOutcome.data.version, savedAssets);
     return {
       status: 'synced',
       fileId: savedOutcome.data.fileId,
-      version: savedOutcome.data.version,
+      version: rewritten?.version ?? savedOutcome.data.version,
       message: withAssetMessage(remote ? '已更新云端文档' : '已创建云端文档', savedAssets),
       assets: savedAssets,
     };
@@ -732,6 +811,64 @@ export async function syncDocumentByPath(
     });
     const cloudPath = identity.cloudPath;
 
+    const persistAssetRewrite = async (
+      fileId: number,
+      baseVersion: number,
+      assets: CloudAssetSyncSummary | undefined,
+    ): Promise<number | null> => {
+      const rewritten = assets?.rewrittenContent;
+      if (!rewritten || rewritten === source.content) return null;
+      const currentTab = openTab && context.tabsStore.tabs.find((item) => item.id === openTab.id);
+      const diskContent = await context.fileSystemStore.readFileContent(filePath);
+      if (diskContent !== source.content || (currentTab && currentTab.content !== source.content)) return null;
+
+      await context.fileSystemStore.writeFileContent(filePath, rewritten);
+      try {
+        const rewrittenSource = await cloudCommands.readSyncSource(filePath, CLOUD_SYNC_MAX_BYTES);
+        const rewrittenPayload: CloudDocSavePayload = {
+          path: cloudPath,
+          title: getFileName(filePath),
+          content: rewrittenSource.content,
+          contentHash: rewrittenSource.contentHash,
+          baseVersion,
+          ...(input.category !== undefined ? { category: input.category } : {}),
+          ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+          ...(input.tags !== undefined ? { tags: input.tags } : {}),
+          ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+        };
+        const saved = await saveCloudDoc(rewrittenPayload);
+        if (!saved.ok) throw new Error(saved.message || '图片引用回写到云端失败');
+        if (openTab) {
+          context.tabService.updateTabContent(openTab.id, rewrittenSource.content, { markDirty: false });
+          const revision = await context.workspaceService.captureFileRevision(filePath);
+          context.tabsStore.updateTab(openTab.id, {
+            isDirty: false,
+            fileRevision: revision,
+            externalModifiedAt: null,
+          });
+          applySyncedMeta(context, openTab.id, {
+            fileId: saved.data.fileId,
+            version: saved.data.version,
+            contentHash: saved.data.contentHash,
+          });
+        }
+        cloudSyncStore.rememberDoc(cloudPath, {
+          fileId: saved.data.fileId,
+          version: saved.data.version,
+          contentHash: saved.data.contentHash,
+          updatedAt: saved.data.updatedAt ?? null,
+          category: input.category ?? null,
+          categoryId: input.categoryId ?? null,
+          tags: input.tags ?? null,
+          visibility: input.visibility ?? null,
+        });
+        return saved.data.version;
+      } catch (error) {
+        await context.fileSystemStore.writeFileContent(filePath, source.content).catch(() => undefined);
+        throw error;
+      }
+    };
+
     const remoteOutcome = await findCloudDocByPath(cloudPath);
     if (!remoteOutcome.ok) {
       return { status: 'failed', message: remoteOutcome.message };
@@ -779,10 +916,11 @@ export async function syncDocumentByPath(
         fileId: remote.fileId,
         content: source.content,
       });
+      const rewrittenVersion = await persistAssetRewrite(remote.fileId, remote.version, skipAssets);
       return {
         status: 'skipped',
         fileId: remote.fileId,
-        version: remote.version,
+        version: rewrittenVersion ?? remote.version,
         message: withAssetMessage('已是同步状态（内容与云端一致），无需重复上传', skipAssets),
         assets: skipAssets,
       };
@@ -887,10 +1025,15 @@ export async function syncDocumentByPath(
       fileId: savedOutcome.data.fileId,
       content: source.content,
     });
+    const rewrittenVersion = await persistAssetRewrite(
+      savedOutcome.data.fileId,
+      savedOutcome.data.version,
+      savedAssets,
+    );
     return {
       status: 'synced',
       fileId: savedOutcome.data.fileId,
-      version: savedOutcome.data.version,
+      version: rewrittenVersion ?? savedOutcome.data.version,
       message: withAssetMessage(remote ? '已更新云端文档' : '已创建云端文档', savedAssets),
       assets: savedAssets,
     };

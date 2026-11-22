@@ -54,6 +54,8 @@ export interface CloudAssetSyncSummary {
    */
   unsupported: number;
   failures: CloudAssetUploadFailure[];
+  /** 图片上传成功且服务端返回直链时，回写后的 Markdown 正文。 */
+  rewrittenContent?: string;
   /** 是否因为设置项关闭而没有执行 */
   disabled?: boolean;
 }
@@ -85,6 +87,8 @@ export interface CloudAssetPullSummary {
   skippedConflict: number;
   failed: number;
   failures: CloudAssetUploadFailure[];
+  /** 仅将成功落地或本地已一致的附件 URL 改为相对路径后的正文。 */
+  rewrittenContent?: string;
 }
 
 export function isSupportedImageName(name: string): boolean {
@@ -302,6 +306,35 @@ export function parseMarkdownImageRefs(markdown: string, filePath: string): Mark
   return parseMarkdownImageRefsDetailed(markdown, filePath).refs;
 }
 
+/** 按图片目标地址替换 Markdown inline image 与 HTML img 引用。 */
+export function rewriteMarkdownImageRefs(markdown: string, replacements: ReadonlyMap<string, string>): string {
+  if (!markdown || replacements.size === 0) return markdown;
+  const normalized = new Map<string, string>();
+  for (const [from, to] of replacements) {
+    const key = normalizeRelativeAssetPath(from);
+    if (key) normalized.set(key, to);
+    normalized.set(from.replace(/\\/g, '/').replace(/^\.\//, ''), to);
+  }
+
+  const replaceTarget = (raw: string): string | null => {
+    const target = normalizeRefTarget(raw);
+    const key = normalizeRelativeAssetPath(target);
+    return (key && normalized.get(key)) || normalized.get(target) || null;
+  };
+
+  let result = markdown.replace(/(!\[[^\]]*\]\(\s*)(<[^>]*>|[^)]+?)(\s*\))/g, (match, before: string, raw: string, after: string) => {
+    const replacement = replaceTarget(raw);
+    if (!replacement) return match;
+    const target = /^https?:\/\//i.test(replacement) ? `<${replacement}>` : replacement;
+    return `${before}${target}${after}`;
+  });
+  result = result.replace(/(<img\b[^>]*\bsrc\s*=\s*)(["'])([^"']+)(\2)/gi, (match, before: string, quote: string, raw: string, after: string) => {
+    const replacement = replaceTarget(raw);
+    return replacement ? `${before}${quote}${replacement}${after}` : match;
+  });
+  return result;
+}
+
 export interface AssetUploadPlan {
   /** 需要上传（新增或内容变更） */
   uploads: MarkdownImageRef[];
@@ -447,7 +480,15 @@ export async function syncMarkdownAssets(
   summary.unchanged = plan.unchanged.length;
   summary.eligible = plan.uploads.length + plan.unchanged.length;
 
+  const urlByRelPath = new Map<string, string>();
+  const remoteByRelPath = new Map(remoteAssets.map((asset) => [asset.relPath, asset]));
+  for (const ref of plan.unchanged) {
+    const asset = remoteByRelPath.get(ref.relPath);
+    if (asset?.url?.trim()) urlByRelPath.set(ref.relPath, upgradeCloudAssetUrlScheme(asset.url));
+  }
+
   if (plan.uploads.length === 0) {
+    summary.rewrittenContent = rewriteMarkdownImageRefs(options.content, urlByRelPath);
     return summary;
   }
 
@@ -457,7 +498,8 @@ export async function syncMarkdownAssets(
     CLOUD_ASSET_CONCURRENCY,
     async (ref) => {
       try {
-        await cloudCommands.assetUploadFile(options.fileId, ref.relPath, ref.localPath);
+        const uploaded = await cloudCommands.assetUploadFile(options.fileId, ref.relPath, ref.localPath);
+        if (uploaded.url?.trim()) urlByRelPath.set(ref.relPath, upgradeCloudAssetUrlScheme(uploaded.url));
         summary.uploaded += 1;
         return null;
       } catch (error) {
@@ -472,6 +514,7 @@ export async function syncMarkdownAssets(
   );
 
   summary.failures = results.filter((item): item is CloudAssetUploadFailure => item !== null);
+  summary.rewrittenContent = rewriteMarkdownImageRefs(options.content, urlByRelPath);
   return summary;
 }
 
@@ -479,6 +522,7 @@ export interface PullAssetsOptions {
   filePath: string;
   fileId: number;
   workspaceRoot: string;
+  content?: string;
 }
 
 /**
@@ -512,6 +556,7 @@ export async function pullMarkdownAssets(
     return summary;
   }
 
+  const localPaths = new Map<string, string>();
   await runWithConcurrency(remoteAssets, CLOUD_ASSET_CONCURRENCY, async (asset) => {
     try {
       const result = await cloudCommands.assetDownload({
@@ -524,8 +569,10 @@ export async function pullMarkdownAssets(
       });
       if (result.status === 'written') {
         summary.written += 1;
+        if (asset.url?.trim()) localPaths.set(upgradeCloudAssetUrlScheme(asset.url), asset.relPath);
       } else if (result.status === 'skippedSame') {
         summary.skippedSame += 1;
+        if (asset.url?.trim()) localPaths.set(upgradeCloudAssetUrlScheme(asset.url), asset.relPath);
       } else {
         summary.skippedConflict += 1;
       }
@@ -535,6 +582,10 @@ export async function pullMarkdownAssets(
       summary.failures.push({ relPath: asset.relPath, reason: normalized.message });
     }
   });
+
+  if (options.content !== undefined) {
+    summary.rewrittenContent = rewriteMarkdownImageRefs(options.content, localPaths);
+  }
 
   return summary;
 }

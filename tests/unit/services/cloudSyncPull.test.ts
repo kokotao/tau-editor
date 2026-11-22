@@ -29,6 +29,12 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
 
 /** 文件修订号读取会走 Tauri 文件系统，这里只替换这一处边界。 */
 const captureFileRevision = vi.hoisted(() => vi.fn(async (_path: string) => 'rev-cloud'));
+const pullMarkdownAssetsMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/services/cloudAssetService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cloudAssetService')>();
+  return { ...actual, pullMarkdownAssets: pullMarkdownAssetsMock };
+});
 
 vi.mock('@/services/workspaceService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/workspaceService')>();
@@ -95,6 +101,7 @@ describe('pullCloudDocumentIntoLocal 未保存修改保护', () => {
     cloudMocks.get.mockResolvedValue({ ...REMOTE_DOC, content: REMOTE_CONTENT, createdAt: null });
     cloudMocks.list.mockResolvedValue({ records: [REMOTE_DOC], total: 1, page: 1, size: 100 });
     captureFileRevision.mockResolvedValue('rev-cloud');
+    pullMarkdownAssetsMock.mockResolvedValue(undefined);
   });
 
   it('① 有未保存修改且未确认时不落盘，返回 needsDirtyConfirm 并保留本地内容', async () => {
@@ -147,6 +154,36 @@ describe('pullCloudDocumentIntoLocal 未保存修改保护', () => {
     expect(result.status).toBe('synced');
     expect(write).toHaveBeenCalledWith('/ws/notes.md', REMOTE_CONTENT);
     expect(tabsStore.tabs.find((item) => item.id === tabId)?.content).toBe(REMOTE_CONTENT);
+  });
+
+  it('④ 下载附件后将云端图片直链改为离线相对引用并写回正文', async () => {
+    const offlineContent = '# notes\n![图](assets/a.png)';
+    cloudMocks.get.mockResolvedValue({
+      ...REMOTE_DOC,
+      content: '# notes\n![图](https://cloud.example/a.png?sig=1)',
+      createdAt: null,
+    });
+    pullMarkdownAssetsMock.mockResolvedValue({
+      total: 1,
+      written: 1,
+      skippedSame: 0,
+      skippedConflict: 0,
+      failed: 0,
+      failures: [],
+      rewrittenContent: offlineContent,
+    });
+    const { tabsStore, tabId } = seedActiveTab({ isDirty: false });
+    const write = spyWriteFileContent();
+
+    const result = await pullCloudDocumentIntoLocal(tabId);
+
+    expect(result.status).toBe('synced');
+    expect(write.mock.calls).toEqual([
+      ['/ws/notes.md', '# notes\n![图](https://cloud.example/a.png?sig=1)'],
+      ['/ws/notes.md', offlineContent],
+    ]);
+    expect(tabsStore.tabs.find((item) => item.id === tabId)?.content).toBe(offlineContent);
+    expect(tabsStore.tabs.find((item) => item.id === tabId)?.isDirty).toBe(false);
   });
 
   it('④ 云端没有该文档时不覆盖本地', async () => {

@@ -41,6 +41,7 @@ import {
   parseMarkdownImageRefsDetailed,
   planAssetUploads,
   pullMarkdownAssets,
+  rewriteMarkdownImageRefs,
   runWithConcurrency,
   syncMarkdownAssets,
   upgradeCloudAssetUrlScheme,
@@ -121,6 +122,39 @@ describe('parseMarkdownImageRefs 引用解析', () => {
   it('图片描述里带链接、注释里的图片不影响解析', () => {
     const md = ['<!-- ![x](images/hidden.png) -->', '[![alt](images/cover.png)](https://a.com)'].join('\n');
     expect(parseMarkdownImageRefs(md, filePath).map((ref) => ref.relPath)).toEqual(['images/cover.png']);
+  });
+});
+
+describe('Markdown 图片引用回写', () => {
+  it('上传后将已知相对引用替换为云端直链，保留未匹配引用', () => {
+    const content = [
+      '![图](./images/a.png)',
+      '<img src="images/b.webp" alt="图">',
+      '![外链](https://example.com/c.png)',
+    ].join('\n');
+
+    expect(rewriteMarkdownImageRefs(content, new Map([
+      ['images/a.png', 'https://cloud.example/a?sig=1'],
+      ['images/b.webp', 'https://cloud.example/b?sig=2'],
+    ]))).toBe([
+      '![图](<https://cloud.example/a?sig=1>)',
+      '<img src="https://cloud.example/b?sig=2" alt="图">',
+      '![外链](https://example.com/c.png)',
+    ].join('\n'));
+  });
+
+  it('下载时只将可用附件 URL 改回对应相对路径', () => {
+    const content = [
+      '![已下载](https://cloud.example/a?sig=1)',
+      '![本地冲突](https://cloud.example/b?sig=2)',
+    ].join('\n');
+
+    expect(rewriteMarkdownImageRefs(content, new Map([
+      ['https://cloud.example/a?sig=1', 'images/a.png'],
+    ]))).toBe([
+      '![已下载](images/a.png)',
+      '![本地冲突](https://cloud.example/b?sig=2)',
+    ].join('\n'));
   });
 });
 
@@ -309,6 +343,25 @@ describe('syncMarkdownAssets 编排', () => {
     expect(progress.at(-1)).toEqual([1, 1, 0]);
   });
 
+  it('上传和复用的图片都将正文引用回写为云端直链', async () => {
+    const content = ['![a](images/a.png)', '![b](images/b.png)'].join('\n');
+    mocks.inspectAssetSources.mockResolvedValue([
+      sourceInfo({ path: '/ws/images/a.png', contentHash: 'sha256:aaa' }),
+      sourceInfo({ path: '/ws/images/b.png', contentHash: 'sha256:bbb' }),
+    ]);
+    mocks.assetsList.mockResolvedValue([
+      remoteAsset({ relPath: 'images/a.png', contentHash: 'sha256:aaa', url: 'https://cloud.example/a?sig=1' }),
+    ]);
+    mocks.assetUploadFile.mockResolvedValue({ assetId: 2, url: 'https://cloud.example/b?sig=2' });
+
+    const summary = await syncMarkdownAssets({ filePath: '/ws/a.md', fileId: 42, content, enabled: true });
+
+    expect(summary.rewrittenContent).toBe([
+      '![a](<https://cloud.example/a?sig=1>)',
+      '![b](<https://cloud.example/b?sig=2>)',
+    ].join('\n'));
+  });
+
   it('单张失败不阻断其它图片，并汇总可读原因', async () => {
     const content = ['![a](images/a.png)', '![b](images/b.png)'].join('\n');
     mocks.inspectAssetSources.mockResolvedValue([
@@ -333,6 +386,22 @@ describe('syncMarkdownAssets 编排', () => {
     expect(summary.failed).toBe(1);
     expect(summary.failures[0]).toMatchObject({ relPath: 'images/b.png' });
     expect(summary.failures[0]?.reason).toContain('云端空间不足');
+  });
+
+  it('本地图片变更但上传失败时保留原引用，不误指向旧云端图片', async () => {
+    const content = '![图](images/a.png)';
+    mocks.inspectAssetSources.mockResolvedValue([
+      sourceInfo({ path: '/ws/images/a.png', contentHash: 'sha256:new' }),
+    ]);
+    mocks.assetsList.mockResolvedValue([
+      remoteAsset({ relPath: 'images/a.png', contentHash: 'sha256:old', url: 'https://cloud.example/old.png' }),
+    ]);
+    mocks.assetUploadFile.mockRejectedValue(new Error('上传失败'));
+
+    const summary = await syncMarkdownAssets({ filePath: '/ws/a.md', fileId: 42, content, enabled: true });
+
+    expect(summary.failed).toBe(1);
+    expect(summary.rewrittenContent).toBe(content);
   });
 
   it('汇总里统计不可同步的引用处数（外链 / ../ / svg）', async () => {
@@ -432,9 +501,9 @@ describe('pullMarkdownAssets 拉取补图', () => {
 
   it('按 assets 列表下载，区分写入/相同跳过/冲突跳过', async () => {
     mocks.assetsList.mockResolvedValue([
-      remoteAsset({ assetId: 1, relPath: 'images/a.png' }),
-      remoteAsset({ assetId: 2, relPath: 'images/b.png' }),
-      remoteAsset({ assetId: 3, relPath: 'images/c.png' }),
+      remoteAsset({ assetId: 1, relPath: 'images/a.png', url: 'https://cloud.example/a?sig=1' }),
+      remoteAsset({ assetId: 2, relPath: 'images/b.png', url: 'https://cloud.example/b?sig=2' }),
+      remoteAsset({ assetId: 3, relPath: 'images/c.png', url: 'https://cloud.example/c?sig=3' }),
     ]);
     mocks.assetDownload.mockImplementation(async (input: { assetId: number }) => {
       if (input.assetId === 2) {
@@ -455,6 +524,11 @@ describe('pullMarkdownAssets 拉取补图', () => {
       filePath: '/ws/a.md',
       fileId: 42,
       workspaceRoot: '/ws',
+      content: [
+        '![a](https://cloud.example/a?sig=1)',
+        '![b](https://cloud.example/b?sig=2)',
+        '![c](https://cloud.example/c?sig=3)',
+      ].join('\n'),
     });
 
     expect(summary.total).toBe(3);
@@ -462,6 +536,11 @@ describe('pullMarkdownAssets 拉取补图', () => {
     expect(summary.skippedSame).toBe(1);
     expect(summary.skippedConflict).toBe(1);
     expect(summary.failed).toBe(0);
+    expect(summary.rewrittenContent).toBe([
+      '![a](images/a.png)',
+      '![b](images/b.png)',
+      '![c](https://cloud.example/c?sig=3)',
+    ].join('\n'));
   });
 
   it('单张下载失败不阻断其它图片', async () => {
